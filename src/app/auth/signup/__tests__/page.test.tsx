@@ -435,7 +435,7 @@ test('signup page shows no LINE consent message without the error code', () => {
 
 test('signup shows the same password rule as reset and rejects a password over the 72-byte bcrypt limit', async () => {
   render(<SignupPage />);
-  expect(screen.getByText(/8文字以上、半角72文字以内/)).toHaveAttribute('id', 'signup-password-help');
+  expect(screen.getByText(/8文字以上で入力してください。英字・数字・記号/)).toHaveAttribute('id', 'signup-password-help');
   fillForm();
   fireEvent.change(screen.getByLabelText('パスワード *'), { target: { value: 'あ'.repeat(25) } });
   fireEvent.change(screen.getByLabelText('パスワード（確認） *'), { target: { value: 'あ'.repeat(25) } });

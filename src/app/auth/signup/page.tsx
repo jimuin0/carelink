@@ -310,14 +310,13 @@ function SignupContent() {
             <fieldset disabled={!clientReady} className="space-y-4">
             <div>
               <label htmlFor="signup-name" className="form-label">お名前 <span className="text-red-600">*</span></label>
-              <p id="signup-name-help" className="mt-1 text-xs text-gray-500">1〜50文字で入力してください。</p>
               <input
                 {...register('display_name')}
                 id="signup-name"
                 className="form-input"
                 autoComplete="name"
                 aria-required="true"
-                aria-describedby={errors.display_name ? 'signup-name-help signup-name-error' : 'signup-name-help'}
+                aria-describedby={errors.display_name ? 'signup-name-error' : undefined}
                 aria-invalid={Boolean(errors.display_name)}
                 minLength={1}
                 maxLength={50}
@@ -342,7 +341,6 @@ function SignupContent() {
 
             <div>
               <label htmlFor="signup-phone" className="form-label">電話番号 <span className="text-red-600">*</span></label>
-              <p id="signup-phone-help" className="mt-1 text-xs text-gray-500">国内の電話番号を入力してください。ハイフンの有無と全角数字は自動で整えます。</p>
               <input
                 {...register('phone')}
                 id="signup-phone"
@@ -355,6 +353,7 @@ function SignupContent() {
                 inputMode="tel"
                 maxLength={20}
               />
+              <p id="signup-phone-help" className="mt-2 text-xs leading-5 text-gray-500">ハイフンあり・なし、どちらでも入力できます。</p>
               {errors.phone && <p id="signup-phone-error" className="form-error" role="alert">{errors.phone.message}</p>}
             </div>
 
@@ -378,7 +377,6 @@ function SignupContent() {
 
             <div>
               <label htmlFor="signup-password" className="form-label">パスワード <span className="text-red-600">*</span></label>
-              <p id="signup-password-help" className="mt-1 text-xs text-gray-500">{PASSWORD_RULES_HINT}</p>
               <div className="relative">
                 <input
                   {...register('password')}
@@ -414,6 +412,7 @@ function SignupContent() {
                   )}
                 </button>
               </div>
+              <p id="signup-password-help" className="mt-2 text-xs leading-5 text-gray-500">{PASSWORD_RULES_HINT}</p>
               {errors.password && <p id="signup-password-error" className="form-error" role="alert">{errors.password.message}</p>}
             </div>
 

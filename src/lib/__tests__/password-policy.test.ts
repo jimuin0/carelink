@@ -21,8 +21,8 @@ test.each([
   expect(resetAccepts(password)).toBe(accepted);
 });
 
-test('the hint states the real limits', () => {
+test('the hint explains the minimum without byte-count arithmetic', () => {
   expect(PASSWORD_RULES_HINT).toContain(`${PASSWORD_MIN_LENGTH}文字以上`);
-  expect(PASSWORD_RULES_HINT).toContain('半角72文字以内');
-  expect(PASSWORD_RULES_HINT).not.toContain('128');
+  expect(PASSWORD_RULES_HINT).not.toContain('3文字分');
+  expect(PASSWORD_RULES_HINT).not.toContain('72');
 });
