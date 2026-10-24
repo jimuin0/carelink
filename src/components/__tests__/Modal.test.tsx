@@ -8,7 +8,7 @@
  * - ESC キー / 背景クリックで onClose
  */
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import Modal from '@/components/Modal';
 
 describe('Modal', () => {
@@ -55,5 +55,50 @@ describe('Modal', () => {
     expect(overlay).not.toBeNull();
     fireEvent.click(overlay as Element);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test('入力による再描画でフォーカスを先頭欄へ戻さず、最新の閉じる処理を使う', () => {
+    const frames: FrameRequestCallback[] = [];
+    const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const cancel = jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    const originalClose = jest.fn();
+    const latestClose = jest.fn();
+    try {
+      const fields = <><input aria-label="カテゴリ" /><input aria-label="メニュー名" /></>;
+      const { rerender } = render(<Modal open onClose={originalClose}>{fields}</Modal>);
+      act(() => { frames.shift()?.(0); });
+      expect(screen.getByRole('textbox', { name: 'カテゴリ' })).toHaveFocus();
+      screen.getByRole('textbox', { name: 'メニュー名' }).focus();
+      rerender(<Modal open onClose={latestClose}>{fields}</Modal>);
+      act(() => { while (frames.length) frames.shift()?.(0); });
+      expect(screen.getByRole('textbox', { name: 'メニュー名' })).toHaveFocus();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(latestClose).toHaveBeenCalledTimes(1);
+      expect(originalClose).not.toHaveBeenCalled();
+    } finally {
+      raf.mockRestore();
+      cancel.mockRestore();
+    }
+  });
+
+  test('初期フォーカスの予約中に利用者が選んだ入力欄を奪わない', () => {
+    const frames: FrameRequestCallback[] = [];
+    const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const cancel = jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    try {
+      render(<Modal open onClose={() => {}}><input aria-label="カテゴリ" /><input aria-label="メニュー名" /></Modal>);
+      screen.getByRole('textbox', { name: 'メニュー名' }).focus();
+      act(() => { frames.shift()?.(0); });
+      expect(screen.getByRole('textbox', { name: 'メニュー名' })).toHaveFocus();
+    } finally {
+      raf.mockRestore();
+      cancel.mockRestore();
+    }
   });
 });
