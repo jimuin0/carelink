@@ -127,12 +127,12 @@ function SignupContent() {
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const authOperationInFlight = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
-  const signupCompleted = useRef(false);
+  const allowDocumentNavigation = useRef(false);
 
   useEffect(() => {
     if (pendingVerificationEmail || isGoogleSigningIn) return;
     const warnBeforeDiscard = (event: BeforeUnloadEvent) => {
-      if (signupCompleted.current) return;
+      if (allowDocumentNavigation.current) return;
       // Read native controls at departure: password-manager autofill may not
       // emit React events. Keep credentials only in the current form, never
       // in browser storage or telemetry.
@@ -176,6 +176,7 @@ function SignupContent() {
   useEffect(() => {
     const releaseAfterBfcacheRestore = (event: PageTransitionEvent) => {
       if (!event.persisted) return;
+      allowDocumentNavigation.current = false;
       authOperationInFlight.current = false;
       setIsGoogleSigningIn(false);
     };
@@ -197,6 +198,7 @@ function SignupContent() {
   };
 
   const showVerificationGuidance = (email: string) => {
+    allowDocumentNavigation.current = true;
     setPendingVerificationEmail(email);
     setResendStatus('idle');
     // 再送はPKCE verifierを更新するため、直後の連打で既存メールを無効化しない。
@@ -234,7 +236,7 @@ function SignupContent() {
       }
 
       if (result.session) {
-        signupCompleted.current = true;
+        allowDocumentNavigation.current = true;
         router.replace(redirect);
         router.refresh();
         return;
@@ -299,6 +301,8 @@ function SignupContent() {
     if (authOperationInFlight.current) return;
     authOperationInFlight.current = true;
     setIsGoogleSigningIn(true);
+    // The SDK can navigate before React commits its state update.
+    allowDocumentNavigation.current = true;
     try {
       const supabase = createBrowserSupabaseClient();
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -309,11 +313,13 @@ function SignupContent() {
         setToast({ type: 'error', message: 'Googleでの登録を開始できませんでした。時間をおいてもう一度お試しください。' });
         authOperationInFlight.current = false;
         setIsGoogleSigningIn(false);
+        allowDocumentNavigation.current = false;
       }
     } catch {
       setToast({ type: 'error', message: 'Googleでの登録を開始できませんでした。時間をおいてもう一度お試しください。' });
       authOperationInFlight.current = false;
       setIsGoogleSigningIn(false);
+      allowDocumentNavigation.current = false;
     }
   };
 
@@ -528,6 +534,8 @@ function SignupContent() {
                 if (getValues('terms_agreed') !== true) {
                   event.preventDefault();
                   requireConsentInline('line');
+                } else {
+                  allowDocumentNavigation.current = true;
                 }
               }}
             >

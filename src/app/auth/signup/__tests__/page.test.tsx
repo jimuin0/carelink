@@ -104,6 +104,36 @@ test('a failed submission retains the visible form and reload protection; confir
   expect(confirmed.defaultPrevented).toBe(false);
 });
 
+test('OAuth can navigate immediately, but an OAuth failure restores input protection', async () => {
+  const oauthDeparture = new Event('beforeunload', { cancelable: true });
+  mockSignInWithOAuth.mockImplementationOnce(async () => {
+    window.dispatchEvent(oauthDeparture);
+    return { data: null, error: { message: 'synthetic rejection' } };
+  });
+  render(<SignupPage />);
+  fillForm();
+  fireEvent.click(screen.getByRole('button', { name: 'Googleで登録' }));
+  await screen.findByRole('alert');
+  expect(oauthDeparture.defaultPrevented).toBe(false);
+  const failed = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(failed);
+  expect(failed.defaultPrevented).toBe(true);
+});
+
+test('consented LINE submission releases protection and a back-forward restore reinstates it', () => {
+  mockLineLoginEnabled = true;
+  render(<SignupPage />);
+  fillForm();
+  fireEvent.submit(screen.getByTestId('signup-line-form'));
+  const approvedDeparture = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(approvedDeparture);
+  expect(approvedDeparture.defaultPrevented).toBe(false);
+  fireEvent(window, new PageTransitionEvent('pageshow', { persisted: true }));
+  const restored = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(restored);
+  expect(restored.defaultPrevented).toBe(true);
+});
+
 test('the strength meter reflects typing and native autofill when the field is focused or left', async () => {
   render(<SignupPage />);
   const field = screen.getByLabelText('パスワード *') as HTMLInputElement;
