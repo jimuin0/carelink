@@ -11,9 +11,13 @@ test('店舗ログイン→再設定と利用者ログインで配色・外枠�
   await expect(page.getByRole('button', { name: 'リセットメールを送信' })).toHaveCSS('background-color', 'rgb(142, 106, 97)');
   await page.getByRole('link', { name: 'ログインページに戻る' }).click();
   await expect(page).toHaveURL(/login\?redirect=%2Fadmin/);
-  await page.goto('/auth/login?redirect=/mypage');
-  await expect(page.locator('.theme-ecru')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'ログイン', exact: true })).toHaveCSS('background-color', 'rgb(3, 105, 161)');
+  // The store return navigation may still be settling in Mobile Safari.
+  // Check the visitor theme in a separate page so its navigation cannot race
+  // with the store page's pending client transition.
+  const visitorPage = await page.context().newPage();
+  await visitorPage.goto('/auth/login?redirect=/mypage', { waitUntil: 'domcontentloaded' });
+  await expect(visitorPage.locator('.theme-ecru')).toHaveCount(0);
+  await expect(visitorPage.getByRole('button', { name: 'ログイン', exact: true })).toHaveCSS('background-color', 'rgb(3, 105, 161)');
 });
 
 test('店舗アカウント作成と復旧にも同じテーマを適用する', async ({ page }) => {
