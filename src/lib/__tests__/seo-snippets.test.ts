@@ -38,6 +38,19 @@ describe('getBusinessTypeContext', () => {
       expect(getBusinessTypeContext(type)).not.toBeNull();
     }
   });
+
+  test('medical pages show the care guidance and both source-check FAQs', () => {
+    const ctx = getBusinessTypeContext('internal-medicine');
+    expect(ctx).toStrictEqual({
+      keyword: '内科',
+      description: '内科の所在地・診療時間・施設紹介・公式サイトなどの掲載情報',
+      searchPoints: ['診療科・診療内容', '診療時間・休診日', 'アクセス・バリアフリー', '予約の要否・受付方法'],
+      faqs: [
+        { q: '予約なしでも受診できますか？', a: '予約の要否は医療機関ごとに異なります。施設紹介・公式サイトで受付方法をご確認ください。ネット予約は対応施設のみ利用できます。' },
+        { q: '複数の診療科に対応していますか？', a: '掲載の分類は施設区分または主な診療科です。診療科の一覧や対応する診療内容は施設紹介・公式サイトをご確認ください。' },
+      ],
+    });
+  });
 });
 
 describe('generatePrefTypeContent', () => {
