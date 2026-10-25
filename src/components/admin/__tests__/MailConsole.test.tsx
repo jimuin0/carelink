@@ -116,3 +116,10 @@ test('failed or unauthorized list never reports an empty successful inbox', asyn
 test('ordinary account sees no composer or customer messages', async () => {
   mockFetch.mockResolvedValue(response({}, 403)); render(<MailConsole />); await screen.findByText('運営アカウントでログインしてください'); expect(screen.queryByRole('button', { name: /新規作成/ })).not.toBeInTheDocument();
 });
+
+test('selecting the current folder reloads it instead of leaving a blank list', async () => {
+  await ready(); await fill(); fireEvent.click(screen.getByRole('button', { name: '下書き保存' })); await screen.findByText('下書きを保存しました。');
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true })); await screen.findByRole('button', { name: /ご案内.*synthetic/ });
+  fireEvent.click(screen.getByRole('button', { name: /ご案内.*synthetic/ }));
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true })); await screen.findByRole('button', { name: /ご案内.*synthetic/ });
+});
