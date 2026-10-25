@@ -5,9 +5,35 @@
 set -u
 
 PREVIOUS_SHA="${VERCEL_GIT_PREVIOUS_SHA:-}"
+HISTORY_FETCH=no
+if [ "${VERCEL_ENV:-}" = preview ] && { [[ ! "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]] \
+  || ! git cat-file -e "${PREVIOUS_SHA}^{commit}" 2>/dev/null \
+  || ! git merge-base --is-ancestor "$PREVIOUS_SHA" HEAD; }; then
+  # Vercel leaves PREVIOUS_SHA empty on a branch's first preview. It can also
+  # refer to an unrelated commit after a branch rebase. In either case compare
+  # with the actual live application revision instead of assuming main deployed:
+  # main may contain application commits whose production deployment failed.
+  LIVE_VERSION="$(curl --fail --silent --show-error --max-time 5 \
+    https://carelink-jp.com/api/health 2>/dev/null \
+    | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{const v=JSON.parse(s).version;if(typeof v==="string"&&/^[0-9a-f]{7}$/.test(v))process.stdout.write(v)}catch{}})' \
+    2>/dev/null)"
+  if [[ "$LIVE_VERSION" =~ ^[0-9a-f]{7}$ ]] \
+    && { git fetch --quiet --no-tags --deepen=200 origin "$(git rev-parse HEAD)" >/dev/null 2>&1 \
+      || git fetch --quiet --no-tags --deepen=200 https://github.com/jimuin0/carelink.git "$(git rev-parse HEAD)" >/dev/null 2>&1; }; then
+    HISTORY_FETCH=yes
+    # A short hash is accepted only when it identifies exactly one fetched
+    # commit. Missing history, network failure, or ambiguity means build.
+    MATCHES="$(git rev-list HEAD | grep -E "^${LIVE_VERSION}[0-9a-f]{33}$" || true)"
+    if [ "$(printf '%s\n' "$MATCHES" | grep -c .)" -eq 1 ]; then
+      PREVIOUS_SHA="$MATCHES"
+    fi
+  fi
+fi
+
 if [[ ! "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]] \
   || ! git cat-file -e "${PREVIOUS_SHA}^{commit}" 2>/dev/null \
   || ! git merge-base --is-ancestor "$PREVIOUS_SHA" HEAD; then
+  echo "判定情報: 環境=${VERCEL_ENV:-unset} SHA文字数=${#PREVIOUS_SHA} 公開版取得=$([ -n "${LIVE_VERSION:-}" ] && echo yes || echo no) 履歴取得=$HISTORY_FETCH 履歴照合=$([ -n "${MATCHES:-}" ] && echo yes || echo no)"
   echo "最後に成功した配信コミットを安全に確認できないためビルドします"
   exit 1
 fi
