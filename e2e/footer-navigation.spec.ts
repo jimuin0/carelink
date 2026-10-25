@@ -14,6 +14,18 @@ test('SEO footer anchors remain crawlable and navigate without a document reload
   await essentialOnly.click();
   await expect(essentialOnly).not.toBeVisible();
 
+  // Moving repeated classes into the grid must preserve readable, tappable
+  // anchors even though the initial HTML no longer repeats those classes.
+  const categoryDetails = footer.locator('details').nth(1);
+  await categoryDetails.locator('summary').click();
+  const categoryAnchor = categoryDetails.locator('a[href="/tokyo/hair-salon"]');
+  await expect(categoryAnchor).toBeVisible();
+  await expect(categoryAnchor).toHaveCSS('font-size', '12px');
+  await expect(categoryAnchor).toHaveCSS('padding-top', '4px');
+  await expect(categoryAnchor).toHaveCSS('padding-bottom', '4px');
+  // Flex items are blockified by the browser in both old and new markup.
+  await expect(categoryAnchor).toHaveCSS('display', 'block');
+
   await page.evaluate(() => document.documentElement.setAttribute('data-footer-navigation-marker', 'kept'));
   await footer.locator('details').first().locator('summary').click();
   await footer.locator('details').first().locator('a[href="/tokyo"]').click();
