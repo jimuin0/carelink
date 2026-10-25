@@ -6,9 +6,12 @@ set -u
 
 PREVIOUS_SHA="${VERCEL_GIT_PREVIOUS_SHA:-}"
 HISTORY_FETCH=no
-if [ -z "$PREVIOUS_SHA" ] && [ "${VERCEL_ENV:-}" = preview ]; then
-  # Vercel leaves PREVIOUS_SHA empty on a branch's first preview. Compare with
-  # the actual live application revision instead of assuming main was deployed:
+if [ "${VERCEL_ENV:-}" = preview ] && { [[ ! "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]] \
+  || ! git cat-file -e "${PREVIOUS_SHA}^{commit}" 2>/dev/null \
+  || ! git merge-base --is-ancestor "$PREVIOUS_SHA" HEAD; }; then
+  # Vercel leaves PREVIOUS_SHA empty on a branch's first preview. It can also
+  # refer to an unrelated commit after a branch rebase. In either case compare
+  # with the actual live application revision instead of assuming main deployed:
   # main may contain application commits whose production deployment failed.
   LIVE_VERSION="$(curl --fail --silent --show-error --max-time 5 \
     https://carelink-jp.com/api/health 2>/dev/null \

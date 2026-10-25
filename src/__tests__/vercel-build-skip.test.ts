@@ -47,7 +47,7 @@ describe('Vercel の配信スキップ判定', () => {
     return result.status;
   }
 
-  function previewDecision(version = initialSha.slice(0, 7)): number | null {
+  function previewDecision(version = initialSha.slice(0, 7), previousSha = ''): number | null {
     mkdirSync(join(cwd, 'bin'));
     const curl = join(cwd, 'bin', 'curl');
     writeFileSync(curl, '#!/bin/sh\nprintf \'{"version":"%s"}\\n\' "$MOCK_LIVE_VERSION"\n');
@@ -60,7 +60,7 @@ describe('Vercel の配信スキップ判定', () => {
         PATH: `${join(cwd, 'bin')}:${process.env.PATH}`,
         MOCK_LIVE_VERSION: version,
         VERCEL_ENV: 'preview',
-        VERCEL_GIT_PREVIOUS_SHA: '',
+        VERCEL_GIT_PREVIOUS_SHA: previousSha,
       },
     });
     if (result.error) throw result.error;
@@ -98,6 +98,16 @@ describe('Vercel の配信スキップ判定', () => {
     commit(cwd, 'docs only');
     git(cwd, 'push', '-q', 'origin', 'preview');
     expect(previewDecision()).toBe(0);
+  });
+
+  test('リベース前の前回プレビューSHAを取得できなくても公開版から文書だけなら省略する', () => {
+    previewBase();
+    git(cwd, 'switch', '-q', '-c', 'preview');
+    mkdirSync(join(cwd, 'docs'));
+    writeFileSync(join(cwd, 'docs', 'handoff.md'), 'handoff\n');
+    commit(cwd, 'docs only');
+    git(cwd, 'push', '-q', 'origin', 'preview');
+    expect(previewDecision(initialSha.slice(0, 7), '0'.repeat(40))).toBe(0);
   });
 
   test('初回プレビューでも未配信のアプリ変更があればビルドする', () => {
