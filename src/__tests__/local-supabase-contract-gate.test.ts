@@ -30,7 +30,7 @@ describe('isolated Supabase contract gate', () => {
 
   const successful = () => ({
     success: true, numTotalTestSuites: 3, numPassedTestSuites: 3, numPendingTestSuites: 0,
-    numFailedTestSuites: 0, numTotalTests: 17, numPassedTests: 17,
+    numFailedTestSuites: 0, numTotalTests: 19, numPassedTests: 19,
     numPendingTests: 0, numTodoTests: 0, numFailedTests: 0,
     testResults: ['local-mutation.contract.test.ts', 'schema-invariants.contract.test.ts', 'supabase-contract.test.ts'].map((name) => ({
       name: `/isolated/tests/contract/${name}`, status: 'passed', assertionResults: [{ status: 'passed' }],
@@ -54,13 +54,13 @@ describe('isolated Supabase contract gate', () => {
     }
   });
 
-  test('configured external reads require exactly twelve successful assertions and cannot substitute for local mutations', () => {
+  test('configured external reads require exactly fourteen successful assertions and cannot substitute for local mutations', () => {
     const directory = mkdtempSync(join(tmpdir(), 'carelink-read-gate-'));
     const report = join(directory, 'report.json');
     try {
       const result = successful();
       result.numTotalTestSuites = result.numPassedTestSuites = 2;
-      result.numTotalTests = result.numPassedTests = 12;
+      result.numTotalTests = result.numPassedTests = 14;
       result.testResults = result.testResults.filter(suite => !suite.name.includes('local-mutation'));
       writeFileSync(report, JSON.stringify(result));
       expect(run(['read-results', report]).status).toBe(0);

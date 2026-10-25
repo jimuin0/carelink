@@ -17,7 +17,7 @@ try {
     const result = JSON.parse(readFileSync(process.argv[3], 'utf8'));
     const readOnly = process.argv[2] === 'read-results';
     const expected = readOnly ? ['schema-invariants.contract.test.ts', 'supabase-contract.test.ts'] : ['local-mutation.contract.test.ts', 'schema-invariants.contract.test.ts', 'supabase-contract.test.ts'];
-    const expectedTests = readOnly ? 12 : 17;
+    const expectedTests = readOnly ? 14 : 19;
     const names = result.testResults?.map((suite) => basename(suite.name)).sort();
     if (
       !result.success || result.numTotalTestSuites !== expected.length || result.numPassedTestSuites !== expected.length ||

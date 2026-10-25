@@ -22,6 +22,9 @@ No production service-role or notification credential is copied. When
 - Public searches keep their existing anon/RLS reads. The optional private
   monthly-booking-count badge is omitted. Availability is unknown (`null`),
   never invented as available or full, and no anonymous booking read is used.
+- Acupuncture symptoms/certifications on published facility detail pages use
+  their existing public SELECT policies, without a private service-role client.
+  The isolated API contracts verify both public projections and the symptom join.
 - `/api/health` checks the public database, retains the existing IP rate limiter
   (including its bounded fallback when the private RPC capability is absent),
   and reports `scope: public-preview`. Successful public DB access returns
