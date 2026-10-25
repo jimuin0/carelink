@@ -6,6 +6,7 @@ import { writeAuditLog } from '@/lib/audit-logger';
 import { buildPlatformMailEnvelope, platformMailContactSchema, platformMailDraftSchema, platformMailRecordSchema, type PlatformMailRecord } from '@/lib/platform-mail-contract';
 import { platformMailProvider, dispatchPlatformMail, inspectPlatformMail, cancelPlatformMail } from '@/lib/platform-mail-delivery';
 import type { Json } from '@/types/database.types';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 export const dynamic = 'force-dynamic';
 const path = '/api/admin/mail';
@@ -35,7 +36,7 @@ async function atomic(db: DB, actor: string, id: string, action: string, values:
     if (code === 'P0002') return json({ error: 'メールが見つかりません。' }, 404);
     if (code === '40001' || code === '23505') return json({ error: '内容または送信状況が変わりました。一覧を更新してご確認ください。' }, 409);
     if (['22023', '23514', '22P02'].includes(code)) return json({ error: '入力内容と送信日時をご確認ください。' }, 400);
-    return serverError('platform-mail-write', new Error('MAIL_WRITE_UNCONFIRMED'), path);
+    return serverError('platform-mail-write', databaseDiagnostic(result.error), path);
   }
   const record = platformMailRecordSchema.safeParse(result.data);
   if (!record.success || record.data.id !== id) return serverError('platform-mail-receipt', new Error('MAIL_RECEIPT_UNCONFIRMED'), path);

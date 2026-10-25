@@ -49,6 +49,8 @@ test('operator saves a durable draft; stale edits and unavailable transport pres
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     const draft = { id: mail.id, revision: mail.revision, contactId: null, to: mail.recipient, subject, body: '別の画面で保存した本文', scheduledAt: null };
     expect((await page.request.post('/api/admin/mail', { headers, data: { action: 'save', draft } })).status()).toBe(200);
+    const stale = await db.rpc('manage_platform_mail_atomic', { p_actor_id: person.id, p_mail_id: mail.id, p_action: 'save', p_values: draft });
+    expect(stale.error?.code).toBe('40001');
     await page.getByLabel('本文', { exact: true }).fill('古い画面の入力は保持されます');
     const [conflict] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/api/admin/mail') && r.request().method() === 'POST'), page.getByRole('button', { name: '下書き保存', exact: true }).click()]);
     expect(conflict.status()).toBe(409); await expect(page.getByLabel('本文', { exact: true })).toHaveValue('古い画面の入力は保持されます');
@@ -74,7 +76,7 @@ test('atomic mailbox permissions, concurrent reservations and old inquiry compos
   const draft = (id: string, scheduledAt: string | null = null, linked = true) => ({ id, revision: 0, contactId: linked ? contactId : null, to: recipient, subject: '合成件名', body: '合成本文', scheduledAt });
   const envelope = (scheduledAt: string | null = null) => ({ from: 'CareLink <support@carelink-jp.com>', replyTo: 'support@carelink-jp.com', to: recipient, subject: '合成件名', text: '合成本文', ...(scheduledAt ? { scheduledAt } : {}) });
   try {
-    expect((await db.from('contacts').insert({ id: contactId, name: '合成問い合わせ', email: recipient, message: '合成本文' })).error).toBeNull();
+    expect((await db.from('contacts').insert({ id: contactId, name: '合成問い合わせ', email: recipient, inquiry_type: '合成検証', message: '合成本文' })).error).toBeNull();
     const first = randomUUID(), second = randomUUID(), schedule = new Date(Date.now() + 3600000).toISOString();
     expect((await rpc(first, 'save', draft(first, schedule))).error).toBeNull();
     expect((await rpc(second, 'save', draft(second, schedule))).error).toBeNull();
