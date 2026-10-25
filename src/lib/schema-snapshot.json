@@ -1040,6 +1040,24 @@
     "title",
     "updated_at"
   ],
+  "platform_mail": [
+    "accepted_at",
+    "body",
+    "contact_id",
+    "created_at",
+    "created_by",
+    "delivery_status",
+    "envelope",
+    "id",
+    "provider_message_id",
+    "recipient",
+    "reserved_at",
+    "revision",
+    "scheduled_at",
+    "state",
+    "subject",
+    "updated_at"
+  ],
   "profiles": [
     "avatar_url",
     "birth_date",

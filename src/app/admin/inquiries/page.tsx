@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
@@ -572,6 +574,7 @@ export default function AdminInquiriesPage() {
                           )}
                         </div>
                       )}
+                      <Link href={'/admin/mail?contactId=' + c.id} className="mb-3 inline-block text-sm text-sky-700 underline">メール画面で開く</Link>
                       <label htmlFor={'reply-' + c.id} className="block text-xs font-bold text-gray-600 mb-1.5">
                         {c.name} 様に返信
                       </label>

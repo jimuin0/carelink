@@ -4153,6 +4153,71 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_mail: {
+        Row: {
+          accepted_at: string | null
+          body: string
+          contact_id: string | null
+          created_at: string
+          created_by: string | null
+          delivery_status: string | null
+          envelope: Json | null
+          id: string
+          provider_message_id: string | null
+          recipient: string
+          reserved_at: string | null
+          revision: number
+          scheduled_at: string | null
+          state: string
+          subject: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          body?: string
+          contact_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          delivery_status?: string | null
+          envelope?: Json | null
+          id: string
+          provider_message_id?: string | null
+          recipient?: string
+          reserved_at?: string | null
+          revision?: number
+          scheduled_at?: string | null
+          state?: string
+          subject?: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          body?: string
+          contact_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          delivery_status?: string | null
+          envelope?: Json | null
+          id?: string
+          provider_message_id?: string | null
+          recipient?: string
+          reserved_at?: string | null
+          revision?: number
+          scheduled_at?: string | null
+          state?: string
+          subject?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_mail_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -8558,6 +8623,10 @@ export type Database = {
       }
       manage_platform_editor_atomic: {
         Args: { p_actor_id: string; p_record_id: string | null; p_kind: string; p_values: Json; p_expected_image_url?: string | null }
+        Returns: Json
+      }
+      manage_platform_mail_atomic: {
+        Args: { p_actor_id: string; p_mail_id: string; p_action: string; p_values?: Json }
         Returns: Json
       }
       manage_platform_control_atomic: {
