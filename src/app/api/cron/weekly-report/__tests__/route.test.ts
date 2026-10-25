@@ -231,6 +231,21 @@ test('email_weekly_report=false の施設はスキップ（opt-out・emailsSkipp
   expect(json.emailsSkipped).toBe(0);
   expect(json.optedOut).toBe(1);
   expect(sendWeeklyReportEmail).not.toHaveBeenCalled();
+  expect(mockFrom.mock.calls.some(([table]) => table === 'facility_members' || table === 'profiles' || table === 'facility_profiles')).toBe(false);
+});
+
+test('配信停止と送信対象が混在する場合は停止施設を除いて送信する', async () => {
+  setupFrom({
+    rows: { data: [
+      { facility_id: 'f-1', total_revenue: 100 },
+      { facility_id: 'f-2', total_revenue: 200 },
+    ], error: null },
+    optedOut: [{ facility_id: 'f-2' }],
+  });
+  const json = await (await GET(makeRequest())).json();
+  expect(json.emailsSent).toBe(1);
+  expect(json.optedOut).toBe(1);
+  expect(sendWeeklyReportEmail).toHaveBeenCalledTimes(1);
 });
 
 test('オーナー不在 → スキップ（emailsSkippedに計上・監査: 従来は無音でカウント漏れだった）', async () => {

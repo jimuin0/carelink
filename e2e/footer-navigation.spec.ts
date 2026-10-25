@@ -8,6 +8,12 @@ test('SEO footer anchors remain crawlable and navigate without a document reload
   await expect(footer.locator('a[href="/tokyo/hair-salon"]')).toHaveCount(1);
   await expect(footer.locator('a[href="/osaka/acupuncture"]')).toHaveCount(1);
 
+  // Choose essential cookies through the real UI before using links behind
+  // the consent banner. Do not force clicks through this mobile overlay.
+  const essentialOnly = page.getByRole('button', { name: '必須のみ', exact: true });
+  await essentialOnly.click();
+  await expect(essentialOnly).not.toBeVisible();
+
   await page.evaluate(() => document.documentElement.setAttribute('data-footer-navigation-marker', 'kept'));
   await footer.locator('details').first().locator('summary').click();
   await footer.locator('details').first().locator('a[href="/tokyo"]').click();
