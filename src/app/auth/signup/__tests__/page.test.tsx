@@ -274,7 +274,7 @@ test('既登録の疑似user応答も送達を断定しない確認・ログイ�
   render(<SignupPage />);
   fillForm(); submit();
   await screen.findByText('確認メールを送信しました');
-  expect(screen.getByRole('link', { name: '確認が済んだら：ログインして続ける' })).toBeVisible();
+  expect(screen.getByRole('link', { name: '確認後、ログインして続ける' })).toBeVisible();
   expect(mockResend).not.toHaveBeenCalled();
 });
 
@@ -299,13 +299,13 @@ test.each([false, true])('再送は60秒待機し、成功/失敗(%s)後も連�
   render(<SignupPage />);
   fillForm(); submit();
   await screen.findByText('確認メールを送信しました');
-  expect(screen.getByRole('button', { name: '確認メールの再送は1分後にできます' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: '再送は1分後にできます' })).toBeDisabled();
   await act(async () => { jest.advanceTimersByTime(60_000); });
   const button = screen.getByRole('button', { name: '確認メールを再送する' });
   fireEvent.click(button); fireEvent.click(button);
   await act(async () => {});
   expect(mockResend).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole('button', { name: '確認メールの再送は1分後にできます' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: '再送は1分後にできます' })).toBeDisabled();
   expect(screen.getByText(fails ? '再送を受け付けられませんでした。時間をおいてもう一度お試しください。' : '再送を受け付けました。確認が必要なアカウントにはメールが届きます。')).toBeVisible();
   await act(async () => { jest.advanceTimersByTime(60_000); });
   expect(screen.getByRole('button', { name: '確認メールを再送する' })).toBeEnabled();
@@ -506,7 +506,7 @@ describe('店舗アカウント作成（掲載申込の続き）', () => {
     fillForm(); submit();
     await screen.findByText('確認メールを送信しました');
     expect(screen.getByTestId('signup-sent-to')).toHaveTextContent('test@example.com');
-    expect(screen.getByRole('link', { name: '確認が済んだら：ログインして続ける' }))
+    expect(screen.getByRole('link', { name: '確認後、ログインして続ける' }))
       .toHaveAttribute('href', `/auth/login?redirect=${encodeURIComponent('/admin/onboarding?handoff=registration')}`);
     expect(mockSignUp.mock.calls[0][0].options.emailRedirectTo)
       .toContain(`/auth/callback?redirect=${encodeURIComponent('/admin/onboarding?handoff=registration')}`);

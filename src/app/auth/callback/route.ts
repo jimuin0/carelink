@@ -3,28 +3,29 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { loginDestination } from '@/lib/post-login-landing';
 
+// A container request can have an internal origin (0.0.0.0:3000). A relative
+// Location keeps the browser on the public origin without trusting Host or
+// forwarded headers. Call only with a path sanitized by loginDestination.
+function redirectWithinSite(path: string) {
+  return new NextResponse(null, { status: 307, headers: { Location: path } });
+}
+
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  // ⚠️ ここは旧ガード（先頭2文字だけを見る判定）でも実際には外部へ出ない: 下の
-  // `${origin}${redirect}` という文字列連結は `/\evil.com` を渡されても
-  // `https://carelink-jp.com//evil.com` に正規化されるだけで、他の2箇所
-  // （middleware・login page の router.push）のように「解決してからナビゲート」する
-  // 経路ではないため危険ではない。それでも safeRedirect に置き換えるのは、
-  // 3箇所の判定を1本のロジックに揃え、次に判定方式が変わってもここだけ取り残されない
-  // ようにするため（挙動は変わらない）。loginDestination は内部で safeRedirect を使う。
-  // 戻り先の指定が無いときは /auth/landing（店舗を管理できるアカウントだけ /admin・
-  // lib/post-login-landing.ts）。指定があれば従来どおり safeRedirect で同一オリジンに限る。
+  // loginDestination validates the destination as a same-origin path. With no
+  // explicit destination, /auth/landing selects the customer or owner screen.
   const rawRedirect = searchParams.get('redirect');
   const redirect = loginDestination(rawRedirect, origin);
   const loginUrl = new URL('/auth/login', origin);
   loginUrl.searchParams.set('error', 'callback_failed');
   // 失敗してもログイン後に同じ続き（店舗作成・申込の選び直しなど）へ進めるよう戻り先を引き継ぐ。
   if (rawRedirect) loginUrl.searchParams.set('redirect', redirect);
+  const loginPath = `${loginUrl.pathname}${loginUrl.search}`;
 
   // Provider の詳細をURLへ反射せず、失敗理由は同じ安全な案内に正規化する。
   if (searchParams.get('error') || !code) {
-    return NextResponse.redirect(loginUrl);
+    return redirectWithinSite(loginPath);
   }
 
   try {
@@ -53,11 +54,11 @@ export async function GET(request: Request) {
 
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error && !cookieSaveFailed) {
-      return NextResponse.redirect(new URL(redirect, origin));
+      return redirectWithinSite(redirect);
     }
   } catch {
     // 認証コード・cookie・ネットワークの内部詳細を返さず、再ログインへ安全に誘導する。
   }
 
-  return NextResponse.redirect(loginUrl);
+  return redirectWithinSite(loginPath);
 }

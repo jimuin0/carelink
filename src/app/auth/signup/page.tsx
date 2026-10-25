@@ -329,17 +329,20 @@ function SignupContent() {
         <p className="text-gray-700 font-medium">確認メールを送信しました</p>
         {/* 送信先を見せないと、入力ミスに気づけないまま「届かない」と待ち続けることになる。 */}
         <p className="text-sm text-gray-700">送信先：<span className="font-bold break-all" data-testid="signup-sent-to">{pendingVerificationEmail}</span></p>
-        <p className="text-sm text-gray-600 leading-relaxed">メール内のリンクを開いて、メールアドレスの確認を完了してください。見当たらない場合は迷惑メールフォルダもご確認ください。すでに登録済みのメールアドレスの場合、確認メールは届きません。そのままログインしてください。</p>
+        <p className="text-sm text-gray-600 leading-relaxed">メールのリンクを開いて、確認を完了してください。</p>
         {/* 確認メールのリンクはメールアプリが別のタブ・別のブラウザで開くことが多い。確認さえ済めば、
             このタブ（掲載申込の受付情報が残っているタブ）でログインして同じ続きへ進める。 */}
-        <Button href={`/auth/login?redirect=${encodeURIComponent(redirect)}`} prefetch="auto" size="lg" fullWidth>確認が済んだら：ログインして続ける</Button>
-        <p className="text-xs text-gray-500">確認メールのリンクを別のブラウザやメールアプリで開いた場合も、確認が済んでいればこの画面からログインして続けられます。</p>
+        <Button href={`/auth/login?redirect=${encodeURIComponent(redirect)}`} prefetch="auto" size="lg" fullWidth>確認後、ログインして続ける</Button>
+        <details className="text-left text-sm leading-relaxed text-gray-600">
+          <summary className="cursor-pointer">メールが届かない場合</summary>
+          <p className="mt-2">迷惑メールをご確認ください。登録済みの場合は、そのままログインできます。</p>
+        </details>
         <Button variant="secondary" size="lg" fullWidth onClick={resendVerificationEmail} disabled={resendStatus === 'sending' || isResendCoolingDown}>
-          {resendStatus === 'sending' ? '再送を依頼中...' : isResendCoolingDown ? '確認メールの再送は1分後にできます' : '確認メールを再送する'}
+          {resendStatus === 'sending' ? '再送を依頼中...' : isResendCoolingDown ? '再送は1分後にできます' : '確認メールを再送する'}
         </Button>
         {resendStatus === 'sent' && <p className="text-sm text-green-700" role="status">再送を受け付けました。確認が必要なアカウントにはメールが届きます。</p>}
         {resendStatus === 'error' && <p className="text-sm text-red-600" role="alert">再送を受け付けられませんでした。時間をおいてもう一度お試しください。</p>}
-        <p className="text-xs text-gray-500">再送後は、届いた最新の確認メールを開いてください。</p>
+        {resendStatus === 'sent' && <p className="text-xs text-gray-500">最新の確認メールを開いてください。</p>}
       </div>
     );
   }
