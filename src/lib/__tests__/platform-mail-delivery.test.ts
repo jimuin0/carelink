@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import type { Resend } from 'resend';
 import { Resend as ResendConstructor } from 'resend';
 import { dispatchPlatformMail, inspectPlatformMail, cancelPlatformMail, platformMailProvider } from '../platform-mail-delivery';

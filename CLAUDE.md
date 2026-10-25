@@ -709,3 +709,13 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 `Dockerfile.vercel` はビルド・配信とも公式Node.js 24.22.1のdigestに固定し、standaloneを非root・PORT3000で実行する。CIと同じ `npm run build`（Webpack）を維持する。Vercel Container Runtimeのbuild ARG引き渡し不具合を回避するため、ビルド段だけ同一プロジェクトの `node24-public-config` イメージをdigest固定で使う。このベースにはNode本体と既存のブラウザ向け公開設定だけが入り、アプリコード・service-role・メール・決済・通知等の秘密値は入れない。アプリのソースは毎回COPYして再ビルドするため、Gitのコード更新が古いイメージで配信される構成ではない。
 
 公開設定を変更するときは、対象を `vercel project inspect carelink --scope jimuin --non-interactive` で確認し、Dockerを同プロジェクトのVCRへログインさせたうえで、`vercel env run -e production --project carelink --scope jimuin -- node scripts/build-runtime-config-base.mjs vcr.vercel.com/jimuin/carelink/node24-public-config:<新しい版>` を実行する。出力されたimmutable digestをDockerfileのビルド段へ反映し、再検証・再デプロイする。ヘルパーは公開設定の許可リストとanon/publishable鍵の検査を行い、値をログへ出さない。`node --test scripts/build-runtime-config-base.test.mjs` で秘密値の除外・権限の強い鍵の拒否・送信先制限を確認する。Dockerのローカル検証では `BUILD_SUPABASE_URL` / `BUILD_SUPABASE_ANON_KEY` に使い捨てDBの公開設定だけを渡せる。サーバー秘密値は既存のVercel実行時設定を使う。
+
+
+### 運営メール画面（2026-10-26）
+
+- `/admin/mail`：問い合わせフォームの受信、運営の新規作成・返信・下書き・送信済み・予約・取り消し。全受信メールを取り込むIMAP受信箱ではない。
+- `GET /api/admin/mail`：運営専用の一覧・下書き・元問い合わせの読取。`POST /api/admin/mail`：`save` / `send` / `refresh` / `cancel`。既存 `withRoute`、CSRF、最新の運営権限、監査を使用する。
+- DB `platform_mail`：直接書込は禁止。`manage_platform_mail_atomic` は service-role にのみ実行を許可し、呼出ごとに現在の `profiles.is_platform_admin` をロック・確認する。下書きはrevision一致時のみ保存し、送信予約時に本文・宛先・送信元・日時を固定する。`guard_platform_mail_inquiry_overlap` は旧問い合わせ返信と同じcontact行をロックし、結果不明・送信待ちの二重返信を防ぐ。
+- Fromは `CareLink <support@carelink-jp.com>`、Reply-Toは `support@carelink-jp.com` に固定。既存の `RESEND_API_KEY` をサーバーのみで使用。新たな環境変数・cron・依存なし。日本時間の予約は1分後〜30日以内、Resend標準の単発送信予約を使う。
+- 不明な送信結果はpendingのまま内容を固定する。同じ操作UUIDを冪等キーにして23時間以内だけ再確認できる。以後は再送信せず配信記録を照合する。予約取り消しは実際のResend受付結果を確認し、送信済みのメールは取り消さない。
+- `20261025143701_platform_mail_console.sql` を使い捨てDBで検証後、本番へ適用してからアプリを配信する。元データを削除しない。外部API受付は受信者への配信完了とは区別する。実顧客への送信・予約は利用者の指示を必要とする。
