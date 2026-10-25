@@ -271,13 +271,15 @@ test.describe('/register 送信', () => {
       await page.waitForURL('**/register/complete**', { timeout: 20000 });
       await expect(page).toHaveURL(/\/register\/complete/);
       await expect(page.getByRole('heading', { name: '掲載申込を受け付けました' })).toBeVisible();
+      await expect(page.getByText(receipt.receiptId, { exact: true })).toBeHidden();
+      await page.getByText('お問い合わせ用の番号', { exact: true }).click();
       await expect(page.getByText(receipt.receiptId, { exact: true })).toBeVisible();
       expect(new URL(page.url()).search).toBe('?handoff=registration');
       const claim = (await page.context().cookies()).find(cookie => cookie.name.startsWith('carelink_salon_intent_'));
       // Never include the capability cookie value in assertion output.
       expect({ present: !!claim, secure: claim?.secure, httpOnly: claim?.httpOnly, sameSite: claim?.sameSite })
         .toEqual({ present: true, secure: true, httpOnly: true, sameSite: 'Lax' });
-      await expect(page.getByText('申込は完了しました。一般公開は完了していません。')).toBeVisible();
+      await expect(page.getByText('申込の送信だけでは公開されません。')).toBeVisible();
       await expect(page.getByRole('heading', { name: '次にすること' })).toBeVisible();
       await expect(page.getByText('無料掲載の公開には、店舗名・所在地・曜日別の営業時間（定休日を含む）の設定が必要です。')).toBeVisible();
       await expect(page.getByRole('heading', { name: '予約を受け付けず、無料掲載だけでも利用できます' })).toBeVisible();
