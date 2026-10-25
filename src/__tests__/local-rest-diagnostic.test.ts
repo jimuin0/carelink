@@ -96,11 +96,19 @@ test.each([
     test: (_name: string, run: () => Promise<void>) => cases.push(run),
     fetch: request, expect, AbortSignal, URL,
   });
-  expect(cases).toHaveLength(2);
+  expect(cases).toHaveLength(4);
   if (valid) await expect(cases[0]()).resolves.toBeUndefined();
   else await expect(cases[0]()).rejects.toThrow();
   expect(request).toHaveBeenCalledTimes(1);
   expect(request).toHaveBeenCalledWith('http://127.0.0.1:54321/rest/v1/public_reviews?select=id&limit=0', {
     headers: { apikey: 'fixture', Authorization: 'Bearer fixture' }, signal: expect.any(AbortSignal),
   });
+  for (const read of cases.slice(2)) {
+    if (valid) await expect(read()).resolves.toBeUndefined();
+    else await expect(read()).rejects.toThrow();
+  }
+  expect(request).toHaveBeenCalledTimes(3);
+  expect(request.mock.calls.slice(1).map(([url]) => new URL(String(url)).pathname)).toEqual([
+    '/rest/v1/facility_symptoms', '/rest/v1/facility_certifications',
+  ]);
 });
