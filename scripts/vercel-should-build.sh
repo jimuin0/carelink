@@ -5,6 +5,7 @@
 set -u
 
 PREVIOUS_SHA="${VERCEL_GIT_PREVIOUS_SHA:-}"
+HISTORY_FETCH=no
 if [ -z "$PREVIOUS_SHA" ] && [ "${VERCEL_ENV:-}" = preview ]; then
   # Vercel leaves PREVIOUS_SHA empty on a branch's first preview. Compare with
   # the actual live application revision instead of assuming main was deployed:
@@ -15,6 +16,7 @@ if [ -z "$PREVIOUS_SHA" ] && [ "${VERCEL_ENV:-}" = preview ]; then
     2>/dev/null)"
   if [[ "$LIVE_VERSION" =~ ^[0-9a-f]{7}$ ]] \
     && git fetch --quiet --no-tags --deepen=200 origin "$(git rev-parse HEAD)" >/dev/null 2>&1; then
+    HISTORY_FETCH=yes
     # A short hash is accepted only when it identifies exactly one fetched
     # commit. Missing history, network failure, or ambiguity means build.
     MATCHES="$(git rev-list HEAD | grep -E "^${LIVE_VERSION}[0-9a-f]{33}$" || true)"
@@ -27,6 +29,7 @@ fi
 if [[ ! "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]] \
   || ! git cat-file -e "${PREVIOUS_SHA}^{commit}" 2>/dev/null \
   || ! git merge-base --is-ancestor "$PREVIOUS_SHA" HEAD; then
+  echo "判定情報: 環境=${VERCEL_ENV:-unset} SHA文字数=${#PREVIOUS_SHA} 公開版取得=$([ -n "${LIVE_VERSION:-}" ] && echo yes || echo no) 履歴取得=$HISTORY_FETCH 履歴照合=$([ -n "${MATCHES:-}" ] && echo yes || echo no)"
   echo "最後に成功した配信コミットを安全に確認できないためビルドします"
   exit 1
 fi
