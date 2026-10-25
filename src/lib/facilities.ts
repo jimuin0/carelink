@@ -9,6 +9,7 @@ import { isCardBookingReady } from './facility-publish-gate';
 import { OSAKA_CITY, OSAKA_CITY_WARDS } from './facility-location';
 import { readPageResult } from './page-read-verification';
 import { bookingDurationForMenus, MENU_DURATION_FALLBACK_MINUTES } from './booking-slot-rules';
+import { isPublicReadOnlyPreview } from './preview-capabilities';
 
 const PER_PAGE = 20;
 
@@ -671,6 +672,8 @@ export async function getAvailableFacilityIds(
   nowMs: number = Date.now(),
 ): Promise<Set<string> | null> {
   if (facilityIds.length === 0) return new Set();
+  // A missing private read must never become a false "available"/"full" result.
+  if (isPublicReadOnlyPreview()) return null;
   const dayOfWeek = dayOfWeekUtc(dateStr); // 0=Sun（TZ非依存・admin-date 単一ソース）
   if (Number.isNaN(dayOfWeek)) return null; // 日付として読めない URL 値
   // JST の今日と、今日の 0 時からの経過秒（当日の過ぎた枠を数えないため）。
@@ -849,6 +852,9 @@ function timeToMinutes(t: string): number {
 
 export async function getMonthlyBookingCounts(facilityIds: string[]): Promise<Record<string, number>> {
   if (facilityIds.length === 0) return {};
+  // Omit this optional badge when private booking data is unavailable. Public
+  // search still uses anon/RLS; never substitute anon for the private read.
+  if (isPublicReadOnlyPreview()) return {};
   // 【2026年7月16日 恒久根治・#483/#484同型】bookings の SELECT RLS は
   // auth.uid()=user_id（＋施設メンバー限定）のためanonクライアントでは常に0行になり、
   // 「今月N件予約」バッジが全店で非表示になっていた（本番実測で確認）。この関数は

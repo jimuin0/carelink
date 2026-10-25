@@ -26,7 +26,6 @@ import CertificationList from '@/components/facility/CertificationList';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import { medicalBusinessTypes } from '@/lib/medical-business-types';
 // InsuranceMenuBadge はMenuListコンポーネント内で使用（menu.insurance_covered時に表示）
-import { createServiceRoleClient } from '@/lib/supabase-server';
 import ViewCount from '@/components/facility/ViewCount';
 import StaffList from '@/components/facility/StaffList';
 import CouponList from '@/components/facility/CouponList';
@@ -162,10 +161,12 @@ export default async function FacilityPage(props: Props) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let certifications: any[] = [];
   if (isAcupuncture) {
-    const adminSupa = createServiceRoleClient();
+    // These displayed symptoms/certifications have public SELECT policies.
+    // Keep public detail pages independent of private server credentials.
+    const publicSupa = createServerSupabaseClient();
     const [sympRes, certRes] = await Promise.all([
-      adminSupa.from('facility_symptoms').select('symptom_id, description, symptoms(name, slug, category)').eq('facility_id', facility.id),
-      adminSupa.from('facility_certifications').select('*').eq('facility_id', facility.id).order('sort_order'),
+      publicSupa.from('facility_symptoms').select('symptom_id, description, symptoms(name, slug, category)').eq('facility_id', facility.id),
+      publicSupa.from('facility_certifications').select('*').eq('facility_id', facility.id).order('sort_order'),
     ]);
     facilitySymptoms = sympRes.data || [];
     certifications = certRes.data || [];

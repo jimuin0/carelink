@@ -1006,6 +1006,18 @@ describe('getSimilarFacilities', () => {
 });
 
 describe('getMonthlyBookingCounts', () => {
+  test('public-only Preview omits private booking badges and availability without querying either client', async () => {
+    const env = process.env;
+    process.env = { ...env, VERCEL_ENV: 'preview' };
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    try {
+      await expect(getMonthlyBookingCounts(['f-1'])).resolves.toEqual({});
+      await expect(getAvailableFacilityIds(['f-1'], '2026-12-01')).resolves.toBeNull();
+      expect(mockServiceFrom).not.toHaveBeenCalled();
+      expect(mockFrom).not.toHaveBeenCalled();
+    } finally { process.env = env; }
+  });
+
   test('施設ごとの当月予約数を返す', async () => {
     const bookings = [
       { facility_id: 'f-1' },

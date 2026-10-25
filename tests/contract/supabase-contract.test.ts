@@ -32,4 +32,21 @@ describe('Supabase configured API contract', () => {
     });
     expect(res.status).toBe(200);
   });
+
+  for (const [table, columns] of [
+    ['facility_symptoms', 'symptom_id,description,symptoms(name,slug,category)'],
+    ['facility_certifications', 'certification_name,license_number,staff_name,sort_order'],
+  ]) {
+    test(`公開施設の ${table} は管理用秘密鍵なしで投影・JOINできる`, async () => {
+      const url = new URL(`/rest/v1/${table}`, STAGING_URL);
+      url.searchParams.set('select', columns);
+      url.searchParams.set('limit', '0');
+      const response = await fetch(url, {
+        headers: { apikey: STAGING_ANON!, Authorization: `Bearer ${STAGING_ANON!}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual([]);
+    });
+  }
 });

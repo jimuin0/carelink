@@ -19,6 +19,38 @@ import { checkRateLimit } from '@/lib/rate-limit';
 
 const mockCheckRateLimit = checkRateLimit as jest.MockedFunction<typeof checkRateLimit>;
 
+describe('public Preview health scope', () => {
+  const originalEnv = process.env;
+  beforeEach(() => {
+    process.env = { ...originalEnv, VERCEL_ENV: 'preview' };
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  });
+  afterEach(() => { process.env = originalEnv; });
+
+  test.each([true, false])('public database result %s stays explicit and cannot claim full health', async ok => {
+    setupDefaultMocks({ supabaseOk: ok });
+    if (!ok) process.env.VERCEL_GIT_COMMIT_SHA = 'abcdef123456';
+    const response = await GET(makeReq());
+    const body = await response.json();
+    expect(response.status).toBe(ok ? 200 : 503);
+    expect(body.status).toBe(ok ? 'degraded' : 'unhealthy');
+    expect(body.scope).toBe('public-preview');
+    expect(body.version).toBe(ok ? 'local' : 'abcdef1');
+    expect(body.deps.private_capabilities).toEqual({ ok: false, skipped: true, note: 'not_configured_preview' });
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(null, '127.0.0.1', 60, 60_000, 'health');
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(response.headers.get('cache-control')).toBe('no-store');
+  });
+
+  test('rate-limited public Preview probes cannot reach the database', async () => {
+    mockCheckRateLimit.mockResolvedValue(true);
+    const response = await GET(makeReq());
+    expect(response.status).toBe(429);
+    expect(mockSelect).not.toHaveBeenCalled();
+  });
+});
+
 // 監視・各テストは IP 付きの Request を渡す（GET は getClientIp(request) を呼ぶ）
 function makeReq(): Request {
   return new Request('http://localhost/api/health', { headers: { 'x-real-ip': '127.0.0.1' } });

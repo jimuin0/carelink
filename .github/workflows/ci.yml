@@ -157,10 +157,12 @@ jobs:
         # Image pulls are rate limited per registry: on 2026-10-23 ghcr.io returned
         # "toomanyrequests" for hours and public.ecr.aws later returned "Data limit
         # exceeded", so no E2E test could start. The same image tags are published to
-        # public.ecr.aws, ghcr.io and docker.io; try them in turn (twice each) before
+        # Try authenticated ghcr.io first: public.ecr.aws repeatedly returned
+        # Data limit exceeded and spent nine minutes before the fallback worked.
+        # Keep both public registries as fallbacks (twice each) before
         # failing. Every attempt still replays all migrations on a fresh database.
         run: |
-          for registry in public.ecr.aws ghcr.io docker.io; do
+          for registry in ghcr.io public.ecr.aws docker.io; do
             for attempt in 1 2; do
               if SUPABASE_INTERNAL_IMAGE_REGISTRY="$registry" supabase start; then
                 echo "SUPABASE_INTERNAL_IMAGE_REGISTRY=$registry" >> "$GITHUB_ENV"

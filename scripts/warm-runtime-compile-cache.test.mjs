@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, readdir, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
@@ -55,6 +55,23 @@ test('prepares bytecode with a read-only local page and shuts down the server', 
     assert.ok(requests.every(({ method, path }) => method === 'GET' && path === '/privacy'));
     const cache = await readdir(join(cwd, '.node-compile-cache'), { recursive: true });
     assert.ok(cache.length > 1, 'graceful shutdown must flush actual bytecode entries');
+    assert.ok(!(await readdir(join(cwd, '.node-compile-cache'))).some(name => name.startsWith('.compile-cache-warmup-')));
+  });
+});
+
+test('preloads only in the build launcher and preserves the deployed lazy configuration', async () => {
+  await fixture(`
+    const config = {"preloadEntriesOnStart":false};
+    fs.writeFileSync('preload.json', JSON.stringify(config));
+    fs.writeFileSync(require('node:path').join(__dirname, 'warmup-path.txt'), process.cwd());
+    ${httpServer(200)}
+  `, async (cwd, port) => {
+    const original = await readFile(join(cwd, 'server.js'), 'utf8');
+    await warmRuntimeCompileCache({ cwd, port });
+    assert.deepEqual(JSON.parse(await readFile(join(cwd, 'preload.json'), 'utf8')), { preloadEntriesOnStart: true });
+    assert.equal(await readFile(join(cwd, 'server.js'), 'utf8'), original);
+    assert.equal(await readFile(join(cwd, 'warmup-path.txt'), 'utf8'), await realpath(cwd));
+    assert.ok(!(await readdir(join(cwd, '.node-compile-cache'))).some(name => name.startsWith('.compile-cache-warmup-')));
   });
 });
 
