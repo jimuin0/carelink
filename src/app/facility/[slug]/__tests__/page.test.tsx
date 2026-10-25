@@ -12,6 +12,7 @@ import { safeCaptureException } from '@/lib/safe';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getBlogSummariesByFacility } from '@/lib/blog';
 import { hasPublicQa } from '@/lib/facility-qa-visibility';
+import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 
 jest.mock('next/navigation', () => ({ notFound: jest.fn(() => { throw new Error('TEST_NOT_FOUND'); }) }));
 jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
@@ -81,6 +82,13 @@ beforeEach(() => {
   (getFacilityBySlug as jest.Mock).mockResolvedValue({ facility });
   (getBlogSummariesByFacility as jest.Mock).mockResolvedValue({ posts, total: 2 });
   (hasPublicQa as jest.Mock).mockResolvedValue(true);
+});
+
+test.each([false, true])('contact guidance reflects whether online booking is available (%s)', async ready => {
+  (checkBookingReadiness as jest.Mock).mockResolvedValueOnce({ readiness: { ready }, error: null });
+  const html = renderToStaticMarkup(await Page(props()));
+  expect(html).toContain(ready ? 'ご予約・ご質問は、お電話またはフォームからお気軽にどうぞ。' : 'お問い合わせは、お電話またはフォームからどうぞ。');
+  if (!ready) expect(html).not.toContain('ご予約・ご質問は');
 });
 
 describe('店舗ブログへの導線', () => {

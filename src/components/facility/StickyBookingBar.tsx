@@ -10,7 +10,7 @@ export default function StickyBookingBar({ phone, facilityName, facilitySlug, fa
     <div className="sticky-bar" data-bottom-fixed="">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-center gap-2 mb-1">
-          {bookingAvailable ? <RemainingSlots facilityId={facilityId} /> : <p className="text-sm text-gray-600">ネット予約は準備中です。店舗へ直接お問い合わせください。</p>}
+          {bookingAvailable ? <RemainingSlots facilityId={facilityId} /> : <p className="text-sm text-gray-600">ネット予約は受け付けていません。店舗へ直接お問い合わせください。</p>}
         </div>
         <div className="flex gap-2">
         {phone && (

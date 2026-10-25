@@ -211,7 +211,7 @@ test.describe('施設詳細: 予約バー', () => {
   test('掲載のみの施設: 案内文で高くなった予約バーでも、フッターの掲載案内と規約リンクを覆わない', async ({ page }) => {
     await withStoredConsent(page);
     await page.goto(`/facility/${listingSlug}`);
-    const notice = bookingBar(page).getByText('ネット予約は準備中です', { exact: false });
+    const notice = bookingBar(page).getByText('ネット予約は受け付けていません', { exact: false });
     await expect(notice).toBeVisible();
     // 折り返して 2 行以上になっていること（1 行のままでは高いバーを確かめたことにならない）
     expect(await notice.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(30);

@@ -49,9 +49,8 @@ const DISPLAY_SURFACES = [
   'src/lib/area-seo.ts',
   'src/lib/symptom-fallback.ts',
   // 受付・控え・管理
-  'src/app/register/complete/page.tsx',
   'src/app/register/recover/page.tsx',
-  'src/components/register/RegistrationReceipt.tsx',
+  'src/components/register/ConfirmedReceipt.tsx',
   'src/components/admin/RegistrationDuplicateLink.tsx',
   'src/app/admin/featured-ads/page.tsx',
 ];

@@ -36,7 +36,7 @@ async function login(page: Page, actor: Awaited<ReturnType<typeof identity>>) {
   // URL commit precedes the recovery page's authenticated receipt request.
   // Wait for that request to render its result before a document navigation;
   // otherwise WebKit can abort the still-initializing Auth client on unload.
-  await expect(page.getByText('一致する受付を確認できませんでした。別の申込メールや取り込み状況は自動判定できません。再送する前にお問い合わせください。', { exact: true })).toBeVisible();
+  await expect(page.getByText('一致する申込が見つかりませんでした。申込時のメールアドレスをご確認ください。再申込の前にお問い合わせください。', { exact: true })).toBeVisible();
 }
 
 test('verified customer GET renders mypage navigation; anonymous GET still requires login', async ({ page }) => {
