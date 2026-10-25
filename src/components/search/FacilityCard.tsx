@@ -1,6 +1,6 @@
 import { isCardBookingReady } from '@/lib/facility-publish-gate';
 import Image from 'next/image';
-import Link from 'next/link';
+import Link from '@/components/BrowseLink';
 import type { FacilityCardData } from '@/types';
 import { SHIMMER_BLUR, cardUrl } from '@/lib/image-utils';
 import { formatFacilityLocality } from '@/lib/facility-location';

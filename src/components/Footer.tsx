@@ -1,9 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-// Area/specialty links can exceed 1,800 after expansion. Render navigation
-// without speculative server renders; BrowseLink still navigates on click.
 import Link from '@/components/BrowseLink';
+import { useFooterNavigation } from '@/components/useFooterNavigation';
 import { regionGroups, businessTypes } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { businessTypeLabel } from '@/lib/business-type-label';
@@ -13,9 +12,10 @@ const MAIN_PREFS = ['東京都', '大阪府', '愛知県', '福岡県', '北海�
 
 export default function Footer() {
   const [showAllAreas, setShowAllAreas] = useState(false);
+  const navigate = useFooterNavigation();
 
   return (
-    <footer className="bg-gray-900 text-gray-300">
+    <footer className="bg-gray-900 text-gray-300" onClick={navigate}>
       {/* SEO: エリア×業種 内部リンク */}
       <div className="border-b border-gray-800">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -30,13 +30,13 @@ export default function Footer() {
                     {region.prefectures.map((pref) => {
                       const slug = getPrefectureSlug(pref);
                       return (
-                        <Link
+                        <a
                           key={pref}
                           href={slug ? `/${slug}` : `/search?area=${encodeURIComponent(pref)}`}
                           className="text-xs text-gray-400 hover:text-white transition-colors"
                         >
                           {pref}
-                        </Link>
+                        </a>
                       );
                     })}
                   </div>
@@ -48,12 +48,12 @@ export default function Footer() {
               {businessTypes.map((type) => (
                 <div key={type}>
                   <h3 className="text-xs font-bold mb-2">
-                    <Link
+                    <a
                       href={`/search?type=${encodeURIComponent(type)}`}
                       className="text-gray-300 hover:text-white transition-colors"
                     >
                       {businessTypeLabel(type)}
-                    </Link>
+                    </a>
                   </h3>
                   <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
                     {regionGroups.flatMap((region) =>
@@ -64,13 +64,13 @@ export default function Footer() {
                           ? `/${pSlug}/${tSlug}`
                           : `/search?type=${encodeURIComponent(type)}&area=${encodeURIComponent(pref)}`;
                         return (
-                          <Link
+                          <a
                             key={`${type}-${pref}`}
                             href={href}
                             className="text-xs text-gray-400 hover:text-gray-300 transition-colors"
                           >
                             {pref}
-                          </Link>
+                          </a>
                         );
                       })
                     )}
@@ -84,13 +84,13 @@ export default function Footer() {
                 {MAIN_PREFS.map((pref) => {
                   const slug = getPrefectureSlug(pref);
                   return (
-                    <Link
+                    <a
                       key={pref}
                       href={slug ? `/${slug}` : `/search?area=${encodeURIComponent(pref)}`}
                       className="text-sm text-gray-400 hover:text-white transition-colors"
                     >
                       {pref}
-                    </Link>
+                    </a>
                   );
                 })}
               </div>
