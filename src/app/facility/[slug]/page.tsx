@@ -361,7 +361,7 @@ export default async function FacilityPage(props: Props) {
             お問い合わせ
           </h2>
           <p className="text-gray-500 text-sm mb-4">
-            ご予約・ご質問は、お電話またはフォームからお気軽にどうぞ。
+            {bookingAvailable ? 'ご予約・ご質問は、お電話またはフォームからお気軽にどうぞ。' : 'お問い合わせは、お電話またはフォームからどうぞ。'}
           </p>
           {isDialablePhone(facility.phone) && (
             <a

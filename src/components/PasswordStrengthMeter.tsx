@@ -4,7 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 
 type Estimator = (password: string) => number;
 
-export default function PasswordStrengthMeter({ password }: { password: string }) {
+export default function PasswordStrengthMeter({ password, compromised = false }: { password: string; compromised?: boolean }) {
   const [estimate, setEstimate] = useState<Estimator | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const deferredPassword = useDeferredValue(password);
@@ -31,8 +31,8 @@ export default function PasswordStrengthMeter({ password }: { password: string }
     [estimate, deferredPassword],
   );
   const pending = hasPassword && (score === null || deferredPassword !== password);
-  const level = !hasPassword || unavailable || pending ? 0 : score! <= 1 ? 1 : score === 2 ? 2 : 3;
-  const label = !hasPassword ? '未入力' : unavailable ? '判定できません' : pending ? '判定中…' : level === 1 ? '低い' : level === 2 ? '中程度' : '高い';
+  const level = !hasPassword ? 0 : compromised ? 1 : unavailable || pending ? 0 : score! <= 1 ? 1 : score === 2 ? 2 : 3;
+  const label = !hasPassword ? '未入力' : compromised ? '使用不可' : unavailable ? '判定できません' : pending ? '判定中…' : level === 1 ? '低い' : level === 2 ? '中程度' : '高い';
   const color = level === 1 ? 'bg-red-500' : level === 2 ? 'bg-amber-500' : 'bg-emerald-600';
 
   return (
@@ -44,7 +44,7 @@ export default function PasswordStrengthMeter({ password }: { password: string }
       <div role="meter" aria-label="パスワードの安全性の目安" aria-valuemin={0} aria-valuemax={3} aria-valuenow={level} aria-valuetext={label} className="flex gap-1.5">
         {[1, 2, 3].map(segment => <span key={segment} aria-hidden="true" className={`h-1.5 flex-1 rounded-full ${segment <= level ? color : 'bg-gray-200'}`} />)}
       </div>
-      <p className="mt-1.5 text-xs leading-5 text-gray-500">流出の有無は登録時に確認します。</p>
+      {!(hasPassword && compromised) && <p className="mt-1.5 text-xs leading-5 text-gray-500">流出の有無は登録時に確認します。</p>}
     </div>
   );
 }

@@ -21,7 +21,7 @@ type Receipt = z.infer<typeof resultSchema>['receipts'][number];
 
 /** 利用者に見せてよい案内文だけを運ぶ例外。fetch の TypeError（"Failed to fetch"）等の生の英語を画面に出さない。 */
 class RecoveryNotice extends Error {}
-const NETWORK_NOTICE = '通信できませんでした。電波の良い場所で、少し時間をおいてから「先頭から再確認」を押してください。再申込は不要です。';
+const NETWORK_NOTICE = '通信できませんでした。時間をおいて「一覧を更新」を押してください。再申込は不要です。';
 function noticeOf(failure: unknown, fallback: string): string {
   return failure instanceof RecoveryNotice ? failure.message : fallback;
 }
@@ -55,7 +55,7 @@ async function requestPreparation(receiptId: string, signal: AbortSignal) {
 
 export default function RecoverRegistrationPage() {
   return <Suspense fallback={<div className="section-container max-w-xl mx-auto py-16">
-    <h1 className="text-2xl font-bold mb-4">送信済みの掲載申込を復旧</h1><p role="status">受付情報を確認しています…</p></div>}>
+    <h1 className="text-2xl font-bold mb-4">掲載申込の続き</h1><p role="status">申込を確認しています…</p></div>}>
     <RecoverRegistrationContent />
   </Suspense>;
 }
@@ -125,23 +125,29 @@ function RecoverRegistrationContent() {
     } finally { inFlight.current = false; if (live.current) setBusy(false); }
   };
 
-  return <div className="section-container max-w-xl mx-auto py-16">
-    <h1 className="text-2xl font-bold mb-4">送信済みの掲載申込を復旧</h1>
-    {fromHandoff && <div className="mb-4 rounded-lg bg-sky-50 p-4 text-sm text-sky-900" data-testid="handoff-recovery-guide">
+  return <div className="section-container max-w-2xl mx-auto py-10 sm:py-14">
+    <h1 className="text-2xl font-bold mb-3">掲載申込の続き</h1>
+    {fromHandoff && <div className="mb-6 rounded-xl bg-sky-50 p-4 text-sm leading-6 text-sky-900" data-testid="handoff-recovery-guide">
       <p className="font-bold">申込を選んでください</p>
-      <p className="mt-1">確認メールのリンクを別のタブやブラウザで開いたため、申込したときの画面の情報を引き継げませんでした。ログイン中のメールアドレスで確認できた申込を下に表示しています。続ける申込の「この申込の店舗情報を確認」を押してください。再申込は不要です。</p>
+      <p className="mt-2">申込情報を引き継ぐため、下から選び直してください。再申込は不要です。</p>
     </div>}
-    <p className="mb-4 text-sm">申込に使用した確認済みメールアドレスに一致する受付を表示します。タブを閉じた場合や受付確認の期限が切れた場合も、再申込は不要です。選択だけでは施設を作成・公開しません。</p>
+    <p className="mb-2 text-base leading-7">続ける申込を選んでください。内容を確認してから、掲載設定に進みます。</p>
+    <p className="mb-6 text-sm text-(--ecru-muted)">選んだだけでは公開されません。</p>
     {busy && <p role="status">受付情報を確認しています…</p>}
     {error && <p role="alert" className="text-red-600 mb-4">{error}</p>}
-    {loaded && !error && receipts.length === 0 && <p className="mb-4">一致する受付を確認できませんでした。別の申込メールや取り込み状況は自動判定できません。再送する前にお問い合わせください。</p>}
-    <ul className="space-y-4 mb-4">{receipts.map(receipt => <li key={receipt.receipt_id} className="rounded-sm border p-4">
-      <p className="font-bold">{receipt.facility_name}</p><p>{businessTypeLabel(receipt.business_type)}</p>
-      <ReceiptNumber id={receipt.receipt_id} />
-      <Button disabled={busy} onClick={() => void handleSelect(receipt.receipt_id)} className="mt-3">この申込の店舗情報を確認</Button>
+    {loaded && !error && receipts.length === 0 && <p className="mb-6 leading-7">一致する申込が見つかりませんでした。申込時のメールアドレスをご確認ください。再申込の前にお問い合わせください。</p>}
+    <ul className="space-y-5 mb-6">{receipts.map(receipt => <li key={receipt.receipt_id} className="rounded-xl border border-(--ecru-line) bg-(--ecru-surface) p-5 sm:p-6">
+      <p className="break-words text-lg font-bold leading-7">{receipt.facility_name}</p>
+      <p className="mt-2 text-sm text-(--ecru-muted)">{businessTypeLabel(receipt.business_type)}</p>
+      <ReceiptNumber id={receipt.receipt_id} className="mt-4" />
+      <Button disabled={busy} onClick={() => void handleSelect(receipt.receipt_id)} className="mt-5">この申込で続ける</Button>
     </li>)}</ul>
     {next && <Button variant="secondary" disabled={busy} onClick={() => void load(next)} className="mb-4">次の受付を表示</Button>}
-    <Button variant="secondary" disabled={busy} onClick={() => void load()} className="mb-4 ml-2">先頭から再確認</Button>
-    <p className="text-sm">異なるメールアドレス、他の管理者に取り込み済みの申込、重複店舗の統合、複数店舗の管理は自動処理しません。<Link href="/contact" className="underline">お問い合わせ</Link>で受付番号をお知らせください。</p>
+    <Button variant="secondary" disabled={busy} onClick={() => void load()} className="mb-6">一覧を更新</Button>
+    <details className="border-t border-(--ecru-line) pt-5 text-sm leading-6 text-(--ecru-muted)">
+      <summary className="cursor-pointer">申込が見つからない・引き継げない場合</summary>
+      <p className="mt-3">確認済みのメールアドレスに一致する申込だけを表示しています。別のメールでの申込や、他の管理者が引き継いだ申込は自動で取り込めません。</p>
+      <p className="mt-3">重複した店舗の統合・複数店舗の管理も、<Link href="/contact" className="underline">お問い合わせ</Link>から受付番号をお知らせください。</p>
+    </details>
   </div>;
 }

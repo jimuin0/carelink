@@ -13,7 +13,8 @@ export default defineConfig({
   failOnFlakyTests: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: 'html',
+  // Stream case-level diagnostics before the final HTML report, including on CI cancellation.
+  reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'html',
   // 既定の expect timeout(5s)は遅延ハイドレーション要素や再読込反映のポーリングに不足し flaky の
   // 一因になり得る。10s へ延長する（成功パスの挙動は不変・待ち時間を延ばすだけ。個別 { timeout: N }
   // 指定がより長ければそちらが優先されるため上書き関係は破綻しない）。

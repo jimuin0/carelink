@@ -19,6 +19,7 @@ const FILES: [string, string[]][] = [
   ['src/app/admin/onboarding/page.tsx', BANNED],
   ['src/app/register/complete/page.tsx', BANNED],
   ['src/components/register/RegistrationReceipt.tsx', BANNED],
+  ['src/components/register/ConfirmedReceipt.tsx', BANNED],
   ['src/components/register/RegisterLanding.tsx', BANNED],
   ['src/components/register/RegisterForm.tsx', BANNED],
   ['src/lib/facility-welcome-delivery.ts', BANNED],
@@ -44,8 +45,8 @@ test.each(FILES)('%s uses the glossary terms, not the old variants', (file, bann
   for (const word of banned) expect({ file, word, found: code.includes(word) }).toEqual({ file, word, found: false });
 });
 
-test.each(['src/app/admin/onboarding/page.tsx', 'src/app/register/complete/page.tsx',
-  'src/components/register/RegistrationReceipt.tsx', 'src/lib/facility-welcome-delivery.ts',
+test.each(['src/app/admin/onboarding/page.tsx',
+  'src/components/register/ConfirmedReceipt.tsx', 'src/lib/facility-welcome-delivery.ts',
   'src/components/register/RegisterForm.tsx', 'src/lib/salon-field-errors.ts', 'src/lib/salon-outbox-delivery.ts',
   'src/app/auth/signup/page.tsx', 'src/lib/email.ts'])('%s reads its words from the glossary', file => {
   expect(readFileSync(join(process.cwd(), file), 'utf8')).toMatch(/import \{ REGISTRATION_TERMS as T \} from '(@\/lib|\.)\/registration-glossary';/);

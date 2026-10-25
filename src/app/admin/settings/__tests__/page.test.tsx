@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import AdminSettingsPage from '../page';
 
 const first = '71000000-0000-4000-8000-000000000001';
@@ -169,6 +169,21 @@ test('選択店舗が変わったとき前店舗の編集内容を引き継が�
 
 const CONFIRMED_HOURS = { mon: { open: '10:00', close: '18:00' }, tue: null, wed: { open: '10:00', close: '18:00' },
   thu: { open: '10:00', close: '18:00' }, fri: { open: '10:00', close: '18:00' }, sat: { open: '10:00', close: '17:00' }, sun: null };
+
+test('native time input events survive another field change and are included in publication', async () => {
+  mockProfile.business_hours = CONFIRMED_HOURS;
+  render(<AdminSettingsPage />);
+  await screen.findByDisplayValue('合成店舗B');
+  const opening = screen.getByLabelText('月曜日の開店時間') as HTMLInputElement;
+  const closing = screen.getByLabelText('月曜日の閉店時間') as HTMLInputElement;
+  opening.value = '09:00'; fireEvent.input(opening);
+  closing.value = '12:00'; fireEvent.input(closing);
+  fireEvent.change(screen.getByRole('textbox', { name: '定休日（補足）' }), { target: { value: '合成休業日' } });
+  expect(opening.value).toBe('09:00'); expect(closing.value).toBe('12:00');
+  fireEvent.click(screen.getByRole('button', { name: '保存して公開する', exact: true }));
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(mockFetch.mock.calls[0][1].body).business_hours.mon).toEqual({ open: '09:00', close: '12:00' });
+});
 
 test('予約用の設定がなくても所在地と営業時間のある店舗を掲載公開できる', async () => {
   mockProfile.business_hours = CONFIRMED_HOURS;
@@ -437,6 +452,23 @@ describe('保存の入力確認', () => {
 });
 
 describe('ネット予約の準備状況', () => {
+  test('非公開への変更後は、公開済みチェックも保存済みの状態へ更新する', async () => {
+    mockProfile = { ...mockProfile, business_hours: CONFIRMED_HOURS, status: 'published' };
+    mockFetch.mockImplementation(async () => {
+      mockProfile = { ...mockProfile, status: 'draft' };
+      return { ok: true, json: async () => ({ ok: true }) };
+    });
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    const section = await screen.findByRole('region', { name: 'ネット予約の準備状況' });
+    await waitFor(() => expect(section.textContent).toContain('済み：無料掲載を公開'));
+    fireEvent.click(screen.getByRole('button', { name: '非公開にする', exact: true }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '非公開にする', exact: true }));
+    await screen.findByText('施設を非公開にしました');
+    await waitFor(() => expect(section.textContent).toContain('未完了：無料掲載を公開'));
+    expect(screen.getByRole('button', { name: '公開する', exact: true })).toBeTruthy();
+  });
+
   test('足りない項目を、それぞれの画面へのリンクつきで並べる', async () => {
     render(<AdminSettingsPage />);
     await screen.findByDisplayValue('合成店舗B');

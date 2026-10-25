@@ -12,7 +12,7 @@ const ROUTES: [string, Metadata, string][] = [
   ['/auth/signup', require('../app/auth/signup/layout').metadata, '新規登録'],
   ['/auth/forgot-password', require('../app/auth/forgot-password/layout').metadata, 'パスワードの再設定'],
   ['/auth/reset-password', require('../app/auth/reset-password/layout').metadata, '新しいパスワードを設定'],
-  ['/register/recover', require('../app/register/recover/layout').metadata, '送信済みの掲載申込を復旧'],
+  ['/register/recover', require('../app/register/recover/layout').metadata, '掲載申込の続き'],
 ];
 
 test.each(ROUTES)('%s has its own page title', (_route, metadata, title) => {

@@ -201,11 +201,13 @@ function AdminSettingsContent() {
   };
 
   const updateHour = (day: string, field: 'open' | 'close', value: string) => {
+    if ((hours[day]?.[field] ?? '') === value) return;
     setHours((prev) => ({
       ...prev,
       [day]: { ...(prev[day] ?? { open: '', close: '' }), [field]: value },
     }));
     setHoursEdited(true);
+    setDirty(true);
   };
 
   const copyHours = () => {
@@ -552,6 +554,8 @@ function AdminSettingsContent() {
                     aria-label={`${dayLabels[day]}曜日の開店時間`}
                     value={hours[day]?.open ?? ''}
                     onChange={(e) => updateHour(day, 'open', e.target.value)}
+                    onInput={(e) => updateHour(day, 'open', e.currentTarget.value)}
+                    onBlur={(e) => updateHour(day, 'open', e.currentTarget.value)}
                     className="min-w-0 flex-1 py-1.5! px-2! text-sm sm:w-32! sm:flex-none"
                   />
                   <span className="text-gray-500">〜</span>
@@ -560,6 +564,8 @@ function AdminSettingsContent() {
                     aria-label={`${dayLabels[day]}曜日の閉店時間`}
                     value={hours[day]?.close ?? ''}
                     onChange={(e) => updateHour(day, 'close', e.target.value)}
+                    onInput={(e) => updateHour(day, 'close', e.currentTarget.value)}
+                    onBlur={(e) => updateHour(day, 'close', e.currentTarget.value)}
                     className="min-w-0 flex-1 py-1.5! px-2! text-sm sm:w-32! sm:flex-none"
                   />
                 </div>
@@ -796,6 +802,7 @@ function AdminSettingsContent() {
             const body = await res.json().catch(() => null);
             if (res.ok && body?.ok === true) {
               setFacilityStatus('draft');
+              setReadinessKey((k) => k + 1);
               setToast({ type: 'success', message: '施設を非公開にしました' });
             } else {
               setToast({ type: 'error', message: '非公開への変更に失敗しました' });
