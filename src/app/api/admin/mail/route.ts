@@ -34,7 +34,7 @@ async function atomic(db: DB, actor: string, id: string, action: string, values:
     const code = result.error.code;
     if (code === '42501') return json({ error: '操作権限を再確認してください。' }, 403);
     if (code === 'P0002') return json({ error: 'メールが見つかりません。' }, 404);
-    if (code === '40001' || code === '23505') return json({ error: '内容または送信状況が変わりました。一覧を更新してご確認ください。' }, 409);
+    if (code === 'PT409' || code === '40001' || code === '23505') return json({ error: '内容または送信状況が変わりました。一覧を更新してご確認ください。' }, 409);
     if (['22023', '23514', '22P02'].includes(code)) return json({ error: '入力内容と送信日時をご確認ください。' }, 400);
     return serverError('platform-mail-write', databaseDiagnostic(result.error), path);
   }

@@ -70,26 +70,28 @@ BEGIN
     RAISE EXCEPTION 'invalid request' USING ERRCODE='22023';
   END IF;
   SELECT * INTO mail FROM public.platform_mail WHERE id=p_mail_id FOR UPDATE;
+  -- PT409 is a permanent business conflict. 40001 triggers automatic
+  -- transaction retries in affected PostgREST releases.
   IF p_action='save' THEN
     expected:=(p_values->>'revision')::integer;
     requested_contact:=(p_values->>'contactId')::uuid;
     IF requested_contact IS NOT NULL THEN
       SELECT email INTO contact_email FROM public.contacts WHERE id=requested_contact FOR UPDATE;
       IF NOT FOUND OR contact_email IS NULL OR contact_email<>p_values->>'to' THEN
-        RAISE EXCEPTION 'contact changed' USING ERRCODE='40001';
+        RAISE EXCEPTION 'contact changed' USING ERRCODE='PT409';
       END IF;
     END IF;
     IF (p_values->>'to') IS NULL OR (p_values->>'subject') IS NULL OR (p_values->>'body') IS NULL THEN
       RAISE EXCEPTION 'incomplete draft' USING ERRCODE='22023';
     END IF;
     IF mail.id IS NULL THEN
-      IF expected IS DISTINCT FROM 0 THEN RAISE EXCEPTION 'stale draft' USING ERRCODE='40001'; END IF;
+      IF expected IS DISTINCT FROM 0 THEN RAISE EXCEPTION 'stale draft' USING ERRCODE='PT409'; END IF;
       INSERT INTO public.platform_mail(id,created_by,contact_id,recipient,subject,body,scheduled_at)
         VALUES(p_mail_id,p_actor_id,requested_contact,p_values->>'to',p_values->>'subject',p_values->>'body',(p_values->>'scheduledAt')::timestamptz)
         RETURNING * INTO mail;
     ELSE
       IF mail.state<>'draft' OR mail.revision IS DISTINCT FROM expected OR mail.contact_id IS DISTINCT FROM requested_contact THEN
-        RAISE EXCEPTION 'stale or frozen draft' USING ERRCODE='40001';
+        RAISE EXCEPTION 'stale or frozen draft' USING ERRCODE='PT409';
       END IF;
       UPDATE public.platform_mail SET recipient=p_values->>'to',subject=p_values->>'subject',body=p_values->>'body',
         scheduled_at=(p_values->>'scheduledAt')::timestamptz,revision=revision+1,updated_at=now()
@@ -103,14 +105,14 @@ BEGIN
   IF p_action='reserve' THEN
     IF mail.state='pending' THEN RETURN to_jsonb(mail); END IF;
     IF mail.state<>'draft' OR mail.revision IS DISTINCT FROM (p_values->>'revision')::integer THEN
-      RAISE EXCEPTION 'stale or frozen draft' USING ERRCODE='40001';
+      RAISE EXCEPTION 'stale or frozen draft' USING ERRCODE='PT409';
     END IF;
     IF mail.contact_id IS NOT NULL THEN
       SELECT email INTO contact_email FROM public.contacts WHERE id=mail.contact_id FOR UPDATE;
-      IF NOT FOUND OR contact_email IS DISTINCT FROM mail.recipient THEN RAISE EXCEPTION 'contact changed' USING ERRCODE='40001'; END IF;
+      IF NOT FOUND OR contact_email IS DISTINCT FROM mail.recipient THEN RAISE EXCEPTION 'contact changed' USING ERRCODE='PT409'; END IF;
       IF EXISTS(SELECT 1 FROM public.contact_replies WHERE contact_id=mail.contact_id AND is_internal=false AND sent_at IS NULL AND delivery_abandoned_at IS NULL)
         OR EXISTS(SELECT 1 FROM public.platform_mail WHERE contact_id=mail.contact_id AND id<>mail.id AND state IN ('pending','scheduled','cancelling')) THEN
-        RAISE EXCEPTION 'an inquiry reply is pending' USING ERRCODE='40001';
+        RAISE EXCEPTION 'an inquiry reply is pending' USING ERRCODE='PT409';
       END IF;
     END IF;
     reserved_envelope:=p_values->'envelope';
@@ -129,7 +131,7 @@ BEGIN
     RETURN to_jsonb(mail);
   END IF;
   IF p_action='cancel' THEN
-    IF mail.state NOT IN ('scheduled','cancelling') THEN RAISE EXCEPTION 'not scheduled' USING ERRCODE='40001'; END IF;
+    IF mail.state NOT IN ('scheduled','cancelling') THEN RAISE EXCEPTION 'not scheduled' USING ERRCODE='PT409'; END IF;
     UPDATE public.platform_mail SET state='cancelling',revision=revision+1,updated_at=now() WHERE id=p_mail_id RETURNING * INTO mail;
     RETURN to_jsonb(mail);
   END IF;

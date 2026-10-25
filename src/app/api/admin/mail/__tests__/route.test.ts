@@ -93,7 +93,7 @@ test('draft save has no delivery side effect and excludes customer content from 
   expect((await call({ action: 'save', draft })).status).toBe(200); expect(mockProvider).not.toHaveBeenCalled(); expect(mockDispatch).not.toHaveBeenCalled();
   expect(mockAudit).toHaveBeenCalledWith(expect.objectContaining({ newValues: { event: 'draft_saved' } }));
 });
-test.each([['42501', 403], ['P0002', 404], ['40001', 409], ['23505', 409], ['22023', 400], ['23514', 400], ['22P02', 400], ['XX000', 500]])('atomic save rejects unconfirmed writes: %s', async (code, status) => {
+test.each([['42501', 403], ['P0002', 404], ['40001', 409], ['PT409', 409], ['23505', 409], ['22023', 400], ['23514', 400], ['22P02', 400], ['XX000', 500]])('atomic save rejects unconfirmed writes: %s', async (code, status) => {
   mockQueue = [{ data: null, error: { code } }]; expect((await call({ action: 'save', draft })).status).toBe(status); expect(mockAudit).not.toHaveBeenCalled();
 });
 test.each([null, { ...base, id: other }])('malformed/mismatched mutation receipt is not saved: %j', async result => { mockQueue = [{ data: result, error: null }]; expect((await call({ action: 'save', draft })).status).toBe(500); });

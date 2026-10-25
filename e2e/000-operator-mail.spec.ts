@@ -50,7 +50,7 @@ test('operator saves a durable draft; stale edits and unavailable transport pres
     const draft = { id: mail.id, revision: mail.revision, contactId: null, to: mail.recipient, subject, body: '別の画面で保存した本文', scheduledAt: null };
     expect((await page.request.post('/api/admin/mail', { headers, data: { action: 'save', draft } })).status()).toBe(200);
     const stale = await db.rpc('manage_platform_mail_atomic', { p_actor_id: person.id, p_mail_id: mail.id, p_action: 'save', p_values: draft });
-    expect(stale.error?.code).toBe('40001');
+    expect(stale.error?.code).toBe('PT409');
     await page.getByLabel('本文', { exact: true }).fill('古い画面の入力は保持されます');
     const [conflict] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/api/admin/mail') && r.request().method() === 'POST'), page.getByRole('button', { name: '下書き保存', exact: true }).click()]);
     expect(conflict.status()).toBe(409); await expect(page.getByLabel('本文', { exact: true })).toHaveValue('古い画面の入力は保持されます');
@@ -80,7 +80,7 @@ test('atomic mailbox permissions, concurrent reservations and old inquiry compos
     const first = randomUUID(), second = randomUUID(), schedule = new Date(Date.now() + 3600000).toISOString();
     expect((await rpc(first, 'save', draft(first, schedule))).error).toBeNull();
     expect((await rpc(second, 'save', draft(second, schedule))).error).toBeNull();
-    expect((await rpc(first, 'save', draft(first, schedule))).error?.code).toBe('40001');
+    expect((await rpc(first, 'save', draft(first, schedule))).error?.code).toBe('PT409');
     expect((await rpc(first, 'read', {}, ordinary.id)).error?.code).toBe('42501');
     expect((await db.from('platform_mail').insert({ id: randomUUID() })).error?.code).toBe('42501');
     const anonymous = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, { auth: { persistSession: false } });
@@ -92,13 +92,13 @@ test('atomic mailbox permissions, concurrent reservations and old inquiry compos
     expect((await rpc(first, 'reserve', { revision: 1, envelope: { ...envelope(schedule), from: 'Synthetic <forged@example.invalid>' } })).error?.code).toBe('22023');
     const outcomes = await Promise.all([first, second].map(id => rpc(id, 'reserve', { revision: 1, envelope: envelope(schedule) })));
     expect(outcomes.filter(result => !result.error)).toHaveLength(1); expect(outcomes.filter(result => result.error)).toHaveLength(1);
-    expect(['40001', '23505']).toContain(outcomes.find(result => result.error)!.error!.code);
+    expect(['PT409', '23505']).toContain(outcomes.find(result => result.error)!.error!.code);
     const winner = outcomes[0].error ? second : first;
     const retried = await rpc(winner, 'reserve', { revision: 999, envelope: { text: 'changed' } });
     expect(retried.error).toBeNull(); expect(retried.data.envelope).toEqual(envelope(schedule));
     const oldReply = { id: randomUUID(), contact_id: contactId, author_id: person.id, author_name: '合成運営', body: '合成返信', is_internal: false };
     expect((await db.from('contact_replies').insert(oldReply)).error?.code).toBe('23505');
-    expect((await rpc(winner, 'save', { ...draft(winner, schedule), revision: 2 })).error?.code).toBe('40001');
+    expect((await rpc(winner, 'save', { ...draft(winner, schedule), revision: 2 })).error?.code).toBe('PT409');
     const providerId = randomUUID();
     const observed = await rpc(winner, 'observe', { providerId, event: 'accepted' }); expect(observed.error).toBeNull(); expect(observed.data.state).toBe('scheduled');
     expect((await db.from('contact_replies').insert(oldReply)).error?.code).toBe('23505');
@@ -109,11 +109,11 @@ test('atomic mailbox permissions, concurrent reservations and old inquiry compos
     expect((await rpc(winner, 'observe', { providerId, event: 'accepted' })).data.state).toBe('cancelled');
     expect((await db.from('contact_replies').insert(oldReply)).error).toBeNull();
     const blocked = winner === first ? second : first;
-    expect((await rpc(blocked, 'reserve', { revision: 1, envelope: envelope(schedule) })).error?.code).toBe('40001');
+    expect((await rpc(blocked, 'reserve', { revision: 1, envelope: envelope(schedule) })).error?.code).toBe('PT409');
     const instant = randomUUID(); expect((await rpc(instant, 'save', draft(instant, null, false))).error).toBeNull();
     expect((await rpc(instant, 'reserve', { revision: 1, envelope: envelope() })).error).toBeNull();
     const instantProvider = randomUUID(); expect((await rpc(instant, 'observe', { providerId: instantProvider, event: 'accepted' })).data.state).toBe('sent');
-    expect((await rpc(instant, 'cancel')).error?.code).toBe('40001');
+    expect((await rpc(instant, 'cancel')).error?.code).toBe('PT409');
     expect((await rpc(instant, 'observe', { providerId: instantProvider, event: 'scheduled' })).data.state).toBe('sent');
     expect((await db.from('profiles').update({ is_platform_admin: false }).eq('id', person.id)).error).toBeNull();
     expect((await rpc(instant, 'read')).error?.code).toBe('42501');
