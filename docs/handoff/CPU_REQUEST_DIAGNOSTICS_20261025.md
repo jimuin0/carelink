@@ -55,3 +55,14 @@ first 15 requests, the measured 129-request intervals had median process CPU
 14.844 → 10.577 ms/request (about 29% lower). All runs returned the same 2,039
 anchor destinations. These local process CPU measurements do not establish
 monthly production quota compliance; Vercel CPU must be observed after release.
+
+Directory pages, related links, facility cards, pagination and search sort links
+also used default Next Link prefetching. A Preview browser check generated
+additional page work while navigating the large directory. These browse surfaces
+now use the existing BrowseLink default (`prefetch={false}`), preserving URL and
+click behavior. The existing homepage budget is retained, and additional browser
+tests cover six directory/search paths, including a hydration interaction and
+positive request/link controls so an unloaded page cannot pass a zero-count test.
+The local Chromium test against the pre-fix standalone build reproduced 45
+speculative page requests on `/tokyo`, failing the unchanged ≤8 budget. Its DB
+fetches were intercepted and returned synthetic facilities only.

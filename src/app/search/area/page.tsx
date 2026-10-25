@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import Link from '@/components/BrowseLink';
 import { getAreasByParent } from '@/lib/areas';
 
 export const metadata: Metadata = {
