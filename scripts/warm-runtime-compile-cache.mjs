@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { readFile, writeFile, rm } from 'node:fs/promises';
+import { readFile, writeFile, rm, mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 
 // Run only while building the image, without runtime secrets. /privacy is a
@@ -15,16 +15,21 @@ export async function warmRuntimeCompileCache({
 } = {}) {
   // Preload all modules only during the secret-free image build. Keep the
   // deployed launcher unchanged so cold starts load routes on demand.
-  const warmEntry = resolve(cwd, `.compile-cache-warmup-${randomUUID()}.cjs`);
+  const cacheDir = resolve(cwd, '.node-compile-cache');
+  await mkdir(cacheDir, { recursive: true });
+  // Only this directory is writable by the runtime user in the final image.
+  const warmEntry = resolve(cacheDir, `.compile-cache-warmup-${randomUUID()}.cjs`);
   const source = await readFile(resolve(cwd, 'server.js'), 'utf8');
-  await writeFile(warmEntry, source.replace('"preloadEntriesOnStart":false', '"preloadEntriesOnStart":true'));
+  await writeFile(warmEntry, source
+    .replace('"preloadEntriesOnStart":false', '"preloadEntriesOnStart":true')
+    .replaceAll('__dirname', 'require("node:path").resolve(__dirname, "..")'));
   const child = spawn(process.execPath, [warmEntry], {
     cwd,
     env: {
       ...process.env,
       HOSTNAME: '127.0.0.1',
       PORT: String(port),
-      NODE_COMPILE_CACHE: resolve(cwd, '.node-compile-cache'),
+      NODE_COMPILE_CACHE: cacheDir,
       NODE_COMPILE_CACHE_PORTABLE: '1',
     },
     // Do not copy application output into build diagnostics.
