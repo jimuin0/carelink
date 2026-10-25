@@ -9,8 +9,13 @@ test('店舗ログイン→再設定と利用者ログインで配色・外枠�
   await page.getByRole('link', { name: 'パスワードをお忘れの方' }).click();
   await expect(page).toHaveURL(/forgot-password\?redirect=%2Fadmin/);
   await expect(page.getByRole('button', { name: 'リセットメールを送信' })).toHaveCSS('background-color', 'rgb(142, 106, 97)');
-  await page.getByRole('link', { name: 'ログインページに戻る' }).click();
-  await expect(page).toHaveURL(/login\?redirect=%2Fadmin/);
+  // The URL can update before WebKit commits the return document. Wait for
+  // the navigation and the login form before starting another document load.
+  await Promise.all([
+    page.waitForURL(/login\?redirect=%2Fadmin/, { waitUntil: 'load' }),
+    page.getByRole('link', { name: 'ログインページに戻る' }).click(),
+  ]);
+  await expect(page.getByRole('button', { name: 'ログイン', exact: true })).toHaveCSS('background-color', 'rgb(142, 106, 97)');
   await page.goto('/auth/login?redirect=/mypage');
   await expect(page.locator('.theme-ecru')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'ログイン', exact: true })).toHaveCSS('background-color', 'rgb(3, 105, 161)');
