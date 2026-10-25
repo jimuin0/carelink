@@ -17,6 +17,7 @@ function fixture(every = 16) {
     cpuUsage: () => ({ user: (cpu += 1000), system: cpu / 2 }),
     uptime: () => 2,
     now: () => (time += 10),
+    bootId: 'synthetic-process-id',
     emit: (record) => records.push(record),
   });
   function start(url = '/search', method = 'GET') {
@@ -56,6 +57,7 @@ test('first request and every sixteenth request are sampled without reading secr
   assert.equal(f.records.length, 3);
   assert.deepEqual(f.records.map((r) => r.requests_started), [1, 16, 32]);
   assert.deepEqual(f.records[0], {
+    boot_id: 'synthetic-process-id',
     group: 'search', ended: 'finish', overlap: false, requests_started: 1,
     process_uptime_ms: 2000, wall_ms: 10, cpu_user_ms: 1,
     cpu_system_ms: 0.5, process_cpu_before_ms: 1.5, process_cpu_after_ms: 3,
@@ -132,10 +134,12 @@ test('preload preserves real HTTP responses and emits only the diagnostic schema
     assert.ok(line.startsWith('[runtime-cpu-sample] '));
     const record = JSON.parse(line.slice('[runtime-cpu-sample] '.length));
     assert.deepEqual(Object.keys(record).sort(), [
+      'boot_id',
       'group', 'ended', 'overlap', 'requests_started', 'process_uptime_ms',
       'wall_ms', 'cpu_user_ms', 'cpu_system_ms', 'process_cpu_before_ms', 'process_cpu_after_ms',
     ].sort());
     assert.equal(record.group, 'search');
+    assert.match(record.boot_id, /^[0-9a-f-]{36}$/);
     assert.equal(record.ended, 'finish');
     assert.ok(record.cpu_user_ms >= 0 && record.cpu_system_ms >= 0);
   }

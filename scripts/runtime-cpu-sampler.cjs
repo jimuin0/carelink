@@ -1,5 +1,7 @@
 'use strict';
 
+const { randomUUID } = require('node:crypto');
+
 // Process CPU across a sampled request is diagnostic evidence, not a billable
 // CPU metric. Background work can contribute; overlap is explicitly reported.
 function requestGroup(method, url) {
@@ -20,6 +22,7 @@ function attachCpuSampler(server, {
   cpuUsage = process.cpuUsage,
   uptime = process.uptime,
   now = performance.now.bind(performance),
+  bootId = randomUUID(),
   emit = (record) => console.info('[runtime-cpu-sample]', JSON.stringify(record)),
 } = {}) {
   let active = 0;
@@ -51,6 +54,7 @@ function attachCpuSampler(server, {
       const total = cpuUsage();
       if (candidate === selected) candidate = undefined;
       emit({
+        boot_id: bootId,
         group,
         ended,
         overlap: selected.overlap,

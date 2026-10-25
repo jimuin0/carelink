@@ -15,7 +15,8 @@ while increasing uncompressed transfer about 3.3×, so compression was retained.
 
 The runtime preload samples the first eligible request of each fixed route group
 and every sixteenth request when the server has no other active request. It logs
-only fixed groups, numeric process CPU and elapsed time, outcome, and overlap.
+only fixed groups, a random process correlation ID, numeric process CPU and
+elapsed time, outcome, and overlap. The random ID contains no user identity.
 Requests that start concurrently mark the sample as overlapping. Asset and write
 requests participate in overlap accounting but are not sampled. No raw paths,
 query values, headers, cookies, bodies, user identities or IP addresses are read
