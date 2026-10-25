@@ -796,6 +796,7 @@ function AdminSettingsContent() {
             const body = await res.json().catch(() => null);
             if (res.ok && body?.ok === true) {
               setFacilityStatus('draft');
+              setReadinessKey((k) => k + 1);
               setToast({ type: 'success', message: '施設を非公開にしました' });
             } else {
               setToast({ type: 'error', message: '非公開への変更に失敗しました' });
