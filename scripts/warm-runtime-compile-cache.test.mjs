@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, readdir, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
@@ -70,7 +70,7 @@ test('preloads only in the build launcher and preserves the deployed lazy config
     await warmRuntimeCompileCache({ cwd, port });
     assert.deepEqual(JSON.parse(await readFile(join(cwd, 'preload.json'), 'utf8')), { preloadEntriesOnStart: true });
     assert.equal(await readFile(join(cwd, 'server.js'), 'utf8'), original);
-    assert.equal(await readFile(join(cwd, 'warmup-path.txt'), 'utf8'), cwd);
+    assert.equal(await readFile(join(cwd, 'warmup-path.txt'), 'utf8'), await realpath(cwd));
     assert.ok(!(await readdir(join(cwd, '.node-compile-cache'))).some(name => name.startsWith('.compile-cache-warmup-')));
   });
 });
