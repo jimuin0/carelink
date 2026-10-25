@@ -25,6 +25,7 @@
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
     "GOOGLE_MAPS_API_KEY",
+    "HOSTNAME",
     "LINE_CHANNEL_ACCESS_TOKEN_CARELINK",
     "LINE_CHANNEL_SECRET",
     "LINE_CHANNEL_SECRET_CARELINK",
@@ -51,6 +52,8 @@
     "NEXT_PUBLIC_SUPABASE_URL",
     "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
     "NEXT_RUNTIME",
+    "NODE_COMPILE_CACHE",
+    "NODE_COMPILE_CACHE_PORTABLE",
     "NODE_ENV",
     "OPERATOR_NOTIFY_EMAIL",
     "PATH",
@@ -62,6 +65,7 @@
     "PGSERVICEFILE",
     "PGUSER",
     "PLAYWRIGHT_BASE_URL",
+    "PORT",
     "RECAPTCHA_SECRET_KEY",
     "RENDER_SERVICE_ID",
     "RESEND_API_KEY",
@@ -97,5 +101,11 @@
     "VERCEL_TOKEN"
   ],
   "scope": "Tracked executable process.env references, Render declared environment keys and workflow secret references. Dynamic names still require provider configuration review.",
-  "setting_status": "All provider setting states are unverified in this handoff; name presence is not proof that a value is configured."
+  "setting_status": "All provider setting states are unverified in this handoff; name presence is not proof that a value is configured.",
+  "runtime_compile_cache_defaults": {
+    "HOSTNAME": "Docker runtime binds 0.0.0.0; build-only warmup uses loopback",
+    "PORT": "Docker default 3000; warmup and its isolated fixture set an explicit local port",
+    "NODE_COMPILE_CACHE": "Docker runtime /app/.node-compile-cache; generated inside the final image without runtime secrets",
+    "NODE_COMPILE_CACHE_PORTABLE": "Docker runtime 1; bytecode is specific to the pinned Node/V8 version"
+  }
 }
