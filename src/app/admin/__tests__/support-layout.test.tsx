@@ -37,13 +37,13 @@ beforeEach(() => {
   membership.mockResolvedValue({ data: [] });
   profile.mockResolvedValue({ data: { is_platform_admin: true } });
 });
-test.each(['/admin/inquiries', '/admin/registrations'])('operator without facility has a support-only shell: %s', async path => {
+test.each(['/admin/inquiries', '/admin/registrations', '/admin/mail'])('operator without facility has a support-only shell: %s', async path => {
   pathname = path;
   await renderShell();
   expect(screen.getByText('support-content')).toBeInTheDocument();
   expect(screen.getByRole('navigation', { name: '運営サポート' })).toBeInTheDocument();
   expect(screen.getAllByRole('link').map(link => link.getAttribute('href')))
-    .toEqual(['/admin/inquiries', '/admin/registrations']);
+    .toEqual(['/admin/inquiries', '/admin/mail', '/admin/registrations']);
   expect(screen.queryByText('booking-listener')).not.toBeInTheDocument();
   expect(screen.queryByText('facility-nav')).not.toBeInTheDocument();
 });
