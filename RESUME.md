@@ -1,7 +1,7 @@
 # CareLink 再開入口（2026-10-20）
 
 > **2026-10-21 更新（最新の入口）**：まず [docs/handoff/CODEX_INSTRUCTIONS_20261021.md](docs/handoff/CODEX_INSTRUCTIONS_20261021.md) を読む。
-> **2026-10-26 更新**：Supabase の PostGIS 公開権限は現行障害ではなく実在する Security Advisor 指摘。チケット `SU-513978` に管理者用の移設手順が届いたが、変更直前の保護と COMMIT 後の復旧条件が未確定。本番移設も追加メールも承認・実行していない。[実測・安全な是正手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)を参照。
+> **2026-10-26 更新**：Supabase の PostGIS 公開権限は現行障害ではなく実在する Security Advisor 指摘。チケット `SU-513978` に管理者用の移設手順が届いた。変更直前の保護と COMMIT 後の復旧条件について、本人が許可した確認メール1通を追加送信し、回答待ち。本番移設は承認・実行していない。[実測・安全な是正手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)を参照。
 > **2026-10-24 追記**：PR #801 は CI E2E 461 成功で main `84f4497` へマージ。Vercel は非配信差分の本番ビルドを Ignored Build Step で省略し、公開 health は healthy/version `13b0d35`。新しい画像はこのマージで作成されていない。
 > 下の「再開直後の実作業」2 の Render cron 集約（PR #734）は切替完了・旧サービス suspend 済みで、再実施しない。
 > PR #739〜#756 はマージ・本番反映済み。残課題と作業手順は同指示書の 3〜4 章が正。
