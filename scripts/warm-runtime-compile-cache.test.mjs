@@ -55,6 +55,21 @@ test('prepares bytecode with a read-only local page and shuts down the server', 
     assert.ok(requests.every(({ method, path }) => method === 'GET' && path === '/privacy'));
     const cache = await readdir(join(cwd, '.node-compile-cache'), { recursive: true });
     assert.ok(cache.length > 1, 'graceful shutdown must flush actual bytecode entries');
+    assert.ok(!(await readdir(cwd)).some(name => name.startsWith('.compile-cache-warmup-')));
+  });
+});
+
+test('preloads only in the build launcher and preserves the deployed lazy configuration', async () => {
+  await fixture(`
+    const config = {"preloadEntriesOnStart":false};
+    fs.writeFileSync('preload.json', JSON.stringify(config));
+    ${httpServer(200)}
+  `, async (cwd, port) => {
+    const original = await readFile(join(cwd, 'server.js'), 'utf8');
+    await warmRuntimeCompileCache({ cwd, port });
+    assert.deepEqual(JSON.parse(await readFile(join(cwd, 'preload.json'), 'utf8')), { preloadEntriesOnStart: true });
+    assert.equal(await readFile(join(cwd, 'server.js'), 'utf8'), original);
+    assert.ok(!(await readdir(cwd)).some(name => name.startsWith('.compile-cache-warmup-')));
   });
 });
 

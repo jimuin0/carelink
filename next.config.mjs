@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  // Scale-to-zero containers should load the requested route, not every page
+  // and API on each cold start. Bytecode is still prepared at image build time.
+  experimental: { preloadEntriesOnStart: false },
   outputFileTracingIncludes: {
     '/api/og': [
       './node_modules/@resvg/resvg-wasm/index_bg.wasm',

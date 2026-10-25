@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { productionResolvedFrom } from '@/lib/email-from';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase-server';
-import { checkRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit, inMemoryRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { CRON_HEARTBEAT_STALE_THRESHOLD_MINUTES } from '@/lib/cron-jobs';
+import { isPublicReadOnlyPreview } from '@/lib/preview-capabilities';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -207,6 +208,25 @@ async function probeCronFreshness(): Promise<DepResult> {
 
 export async function GET(request: Request) {
   const requestStarted = performance.now();
+  // Public Preview deliberately has no private DB/notification credentials.
+  // Report its limited scope explicitly, never as full production health.
+  if (isPublicReadOnlyPreview()) {
+    if (inMemoryRateLimit(getClientIp(request), 60, 60_000, 'health')) {
+      return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+    }
+    const supabase = await probeSupabase();
+    return NextResponse.json({
+      status: supabase.ok ? 'degraded' : 'unhealthy',
+      scope: 'public-preview',
+      elapsed_ms: Math.round(performance.now() - requestStarted),
+      timestamp: new Date().toISOString(),
+      version: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'local',
+      deps: {
+        supabase,
+        private_capabilities: { ok: false, skipped: true, note: 'not_configured_preview' },
+      },
+    }, { status: supabase.ok ? 200 : 503, headers: { 'Cache-Control': 'no-store' } });
+  }
   // 無認証エンドポイントだが、1 リクエストで Stripe/Resend/Supabase(DB+RPC) を代理起動するため、
   // 連打されると外部 API への増幅 DoS・コスト増を招く。IP 単位でレート制限する。
   // 複数の正規監視（Render・外部監視・運用ダッシュボード）が同一の出口 IP を共有しても
