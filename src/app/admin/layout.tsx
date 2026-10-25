@@ -56,6 +56,7 @@ const navItems: { href: string; label: string; icon: string; platformAdmin?: boo
   // 届かない構造的欠陥だったため新設する（オーナー/admin なら誰でも閲覧可＝platformAdmin無し）。
   { href: '/admin/facility-inquiries', label: '問い合わせ', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
   { href: '/admin/inquiries', label: '問い合わせ(運営)', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', platformAdmin: true },
+  { href: '/admin/mail', label: 'メール', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', platformAdmin: true },
   { href: '/admin/registrations', label: '施設登録', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', platformAdmin: true },
   // line-richmenu / email-setup はプラットフォーム運営専用の内容（全ユーザー一括リッチメニュー・
   // carelink-jp.com のSPF/DKIM手順）で、施設オーナーが操作できる項目ではない。newsletters 等と
@@ -170,6 +171,7 @@ const navGroups: NavGroup[] = [
       // ※施設ごとの問い合わせ(facility_inquiries)は上の「メッセージ管理」グループの別項目。
       { href: '/admin/newsletters', label: 'ニュースレター' },
       { href: '/admin/inquiries', label: '問い合わせ(運営)' },
+      { href: '/admin/mail', label: 'メール' },
       { href: '/admin/registrations', label: '施設登録' },
       { href: '/admin/moderation', label: 'モデレーション' },
       { href: '/admin/feature-flags', label: 'Feature Flags' },
@@ -243,6 +245,7 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
           <header className="flex flex-wrap items-center justify-between gap-4 border-b bg-white px-4 py-3">
             <nav aria-label="運営サポート" className="flex gap-4">
               <Link href="/admin/inquiries">問い合わせ(運営)</Link>
+              <Link href="/admin/mail">メール</Link>
               <Link href="/admin/registrations">施設登録</Link>
             </nav>
             <AdminUserMenu />
