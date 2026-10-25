@@ -8,6 +8,7 @@ import { isPlatformSupportPath } from '@/lib/platform-support-path';
 import { getMembershipCacheKey } from '@/lib/admin-membership-cache-key';
 import { AUTH_UNAVAILABLE_BODY, AUTH_VERIFICATION_TIMEOUT_MS, verifyAuthUser } from '@/lib/auth-verification';
 import { GOOGLE_MAPS_EMBED_ORIGIN } from '@/lib/map-embed';
+import { shouldBlockCollectionCrawler } from '@/lib/crawler-policy';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
 
@@ -123,6 +124,19 @@ function buildCspHeader(nonce: string): string {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Reject collection crawls before nonce generation, auth, DB access and SSR.
+  // Googlebot/Bingbot and ordinary visitors still follow the existing flow.
+  if (shouldBlockCollectionCrawler(pathname, request.method, request.headers.get('user-agent') ?? '')) {
+    return NextResponse.json({ error: 'Collection crawling is disabled.' }, {
+      status: 403,
+      headers: {
+        'Cache-Control': 'no-store',
+        'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+        'X-Robots-Tag': 'noindex',
+      },
+    });
+  }
 
   // 全ページ応答に per-request nonce ベース CSP を付与する。
   // Next.js は request header の Content-Security-Policy から nonce を読み取り、自身の

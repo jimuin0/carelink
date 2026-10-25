@@ -29,7 +29,9 @@ afterAll(() => {
 describe('createServerSupabaseClient', () => {
   it('creates client with anon key', () => {
     createServerSupabaseClient();
-    expect(mockCreateClient).toHaveBeenCalledWith('https://test.supabase.co', 'anon-key-test');
+    expect(mockCreateClient).toHaveBeenCalledWith('https://test.supabase.co', 'anon-key-test', {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    });
   });
 
   it('throws when NEXT_PUBLIC_SUPABASE_URL is missing', () => {
@@ -50,7 +52,9 @@ describe('createServerSupabaseClient', () => {
 describe('createServiceRoleClient', () => {
   it('creates client with service role key', () => {
     createServiceRoleClient();
-    expect(mockCreateClient).toHaveBeenCalledWith('https://test.supabase.co', 'service-role-key');
+    expect(mockCreateClient).toHaveBeenCalledWith('https://test.supabase.co', 'service-role-key', {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    });
   });
 
   it('throws when SUPABASE_SERVICE_ROLE_KEY is missing', () => {
