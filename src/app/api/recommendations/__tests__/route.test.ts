@@ -25,6 +25,7 @@ let mockBookingsSelect: jest.Mock;
 let mockFavoritesSelect: jest.Mock;
 let mockPopularSelect: jest.Mock;
 let mockGetUser: jest.Mock;
+let mockFacilityLimit: jest.Mock;
 
 function setupDefaultMocks(
   hasUser: boolean = true,
@@ -75,14 +76,13 @@ function setupDefaultMocks(
     }),
   });
 
-  const mockPopularOrder = jest.fn().mockReturnValue({
-    limit: jest.fn().mockResolvedValue({
+  mockFacilityLimit = jest.fn().mockResolvedValue({
       data: [
         { id: 'popular-1', name: 'Popular Salon 1' },
         { id: 'popular-2', name: 'Popular Salon 2' },
       ],
-    }),
   });
+  const mockPopularOrder = jest.fn().mockReturnValue({ limit: mockFacilityLimit });
   const mockPopularEq = jest.fn();
   mockPopularEq.mockReturnValue({ eq: mockPopularEq, order: mockPopularOrder });
   mockPopularSelect = jest.fn().mockReturnValue({ eq: mockPopularEq });
@@ -178,15 +178,27 @@ describe('GET /api/recommendations', () => {
   test('limit defaults to 6', async () => {
     const res = await GET(makeRequest() as any);
 
-    // Should call limit(6) by default
     expect(res.status).toBe(200);
+    // Personalized lookup fetches twice the requested count for visited-ID filtering.
+    expect(mockFacilityLimit).toHaveBeenCalledWith(12);
   });
 
   test('limit max 12', async () => {
     const res = await GET(makeRequest(20) as any);
 
-    // Should cap at 12
     expect(res.status).toBe(200);
+    expect(mockFacilityLimit).toHaveBeenCalledWith(24);
+  });
+
+  test('blank limit also uses the default rather than one result', async () => {
+    const url = 'http://localhost/api/recommendations?limit=';
+    const req = new Request(url, { method: 'GET' });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(url), writable: true });
+
+    const res = await GET(req as any);
+
+    expect(res.status).toBe(200);
+    expect(mockFacilityLimit).toHaveBeenCalledWith(12);
   });
 
   test('limit が非数値 → 既定6にフォールバック（Number.isFinite false 分岐）', async () => {
@@ -231,6 +243,7 @@ describe('GET /api/recommendations', () => {
 
     const json = await res.json();
     expect(json.type).toBe('popular');
+    expect(mockFacilityLimit).toHaveBeenCalledWith(6);
   });
 
   test('popular fallback sorted by rating_count descending', async () => {

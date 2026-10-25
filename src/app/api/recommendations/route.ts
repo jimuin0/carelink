@@ -36,7 +36,9 @@ export async function GET(request: NextRequest) {
 
     // limit は非数値（NaN）・負数・0 を弾いて 1〜12 に正規化する。未指定/不正は既定 6。
     // NaN や負数のまま .limit() / limit*2 に渡すと PostgREST が不正クエリ化し 500 になる。
-    const rawLimit = Number(request.nextUrl.searchParams.get('limit'));
+    const limitParam = request.nextUrl.searchParams.get('limit');
+    // Number(null) and Number('') are both 0; omitted/blank values mean the default.
+    const rawLimit = limitParam === null || limitParam.trim() === '' ? NaN : Number(limitParam);
     const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.floor(rawLimit), 1), 12) : 6;
     const excludeId = request.nextUrl.searchParams.get('exclude');
 
