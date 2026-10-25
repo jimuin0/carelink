@@ -1,6 +1,6 @@
 import { cache } from 'react';
 import { notFound } from 'next/navigation';
-import Link from 'next/link';
+import Link from '@/components/BrowseLink';
 import type { Metadata } from 'next';
 import { getAreaBySlug, getAreasByParent, getAreaBreadcrumb, buildAreaSearchParam } from '@/lib/areas';
 import { searchAreaFacilities } from '@/lib/area-facilities';
