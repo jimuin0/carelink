@@ -9,7 +9,9 @@ const nextConfig = {
     ],
   },
   images: {
-    formats: ['image/avif', 'image/webp'],
+    // Container instances do their own image encoding. Prefer Next's default
+    // WebP format to avoid repeated, CPU-heavy AVIF encodes after cold starts.
+    formats: ['image/webp'],
     // 🔴 ここに外部ホストを足さないこと。remotePatterns に載ったホストは
     // 「任意の画像を next/image 経由で表示できるドメイン」になる。
     //

@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
+// Area/specialty links can exceed 1,800 after expansion. Render navigation
+// without speculative server renders; BrowseLink still navigates on click.
+import Link from '@/components/BrowseLink';
 import { regionGroups, businessTypes } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { businessTypeLabel } from '@/lib/business-type-label';
