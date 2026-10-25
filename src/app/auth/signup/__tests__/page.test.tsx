@@ -98,7 +98,7 @@ test('a failed submission retains the visible form and reload protection; confir
   expect(leaving.defaultPrevented).toBe(true);
   mockSignUp.mockResolvedValueOnce({ data: { session: null, user: { id: 'fixture' } }, error: null });
   submit();
-  await screen.findByText('確認メールを送信しました');
+  await screen.findByText('メールをご確認ください');
   const confirmed = new Event('beforeunload', { cancelable: true });
   window.dispatchEvent(confirmed);
   expect(confirmed.defaultPrevented).toBe(false);
@@ -162,7 +162,7 @@ test.each([{ reasons: ['pwned'] }, { reasons: ['length'] }, { reasons: ['charact
     expect(alert).toHaveAttribute('id', 'signup-password-error');
     expect(screen.getByLabelText('パスワード *')).toHaveFocus();
     expect(screen.getByLabelText('パスワード *')).toHaveAttribute('aria-invalid', 'true');
-    expect(screen.queryByText('確認メールを送信しました')).not.toBeInTheDocument();
+    expect(screen.queryByText('メールをご確認ください')).not.toBeInTheDocument();
     expect(screen.queryByText('Untrusted server text')).not.toBeInTheDocument();
     expect(mockReplace).not.toHaveBeenCalled();
 
@@ -171,7 +171,7 @@ test.each([{ reasons: ['pwned'] }, { reasons: ['length'] }, { reasons: ['charact
       fireEvent.change(screen.getByLabelText(label), { target: { value: 'corrected-local-fixture' } });
     }
     submit();
-    await screen.findByText('確認メールを送信しました');
+    await screen.findByText('メールをご確認ください');
     expect(mockSignUp).toHaveBeenCalledTimes(2);
     expect(mockReplace).not.toHaveBeenCalled();
   },
@@ -189,8 +189,36 @@ test.each(['', 'previous-password'])('autofill without change events submits the
   (screen.getByLabelText('パスワード *') as HTMLInputElement).value = 'autofilled-fixture';
   (screen.getByLabelText('パスワード（確認） *') as HTMLInputElement).value = 'autofilled-fixture';
   submit();
-  await screen.findByText('確認メールを送信しました');
+  await screen.findByText('メールをご確認ください');
   expect(mockSignUp).toHaveBeenCalledWith(expect.objectContaining({ password: 'autofilled-fixture' }));
+});
+
+test('a leaked-password rejection is cleared when native autofill replaces that password', async () => {
+  mockSignUp.mockResolvedValueOnce({ data: { session: null, user: null }, error: new AuthWeakPasswordError('fixture', 422, ['pwned']) });
+  render(<SignupPage />);
+  fillForm(); submit();
+  await screen.findByRole('alert');
+  expect(screen.getByRole('meter')).toHaveAttribute('aria-valuetext', '使用不可');
+  const field = screen.getByLabelText('パスワード *') as HTMLInputElement;
+  field.value = 'replacement-local-fixture';
+  fireEvent.focus(field);
+  await waitFor(() => expect(screen.getByRole('meter')).not.toHaveAttribute('aria-valuetext', '使用不可'));
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(mockSignUp).toHaveBeenCalledTimes(1);
+});
+
+test('a rejection for an earlier in-flight password does not mark the newly edited password as leaked', async () => {
+  let finish!: (value: unknown) => void;
+  mockSignUp.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  render(<SignupPage />);
+  fillForm(); submit();
+  await waitFor(() => expect(mockSignUp).toHaveBeenCalledTimes(1));
+  fireEvent.change(screen.getByLabelText('パスワード *'), { target: { value: 'changed-during-request-fixture' } });
+  await act(async () => finish({ data: { session: null, user: null }, error: new AuthWeakPasswordError('fixture', 422, ['pwned']) }));
+  await screen.findByText('送信したパスワードは使用できません。変更後の内容でもう一度登録してください。');
+  expect(screen.getByLabelText('パスワード *')).toHaveValue('changed-during-request-fixture');
+  expect(screen.getByLabelText('パスワード *')).toHaveAttribute('aria-invalid', 'false');
+  expect(screen.getByRole('meter')).not.toHaveAttribute('aria-valuetext', '使用不可');
 });
 
 test('native autofill reconciles identity fields before validation and Auth', async () => {
@@ -202,7 +230,7 @@ test('native autofill reconciles identity fields before validation and Auth', as
   (screen.getByLabelText(/^電話番号/) as HTMLInputElement).value = '０９２－１２３－４５６７';
   (screen.getByLabelText(/^都道府県/) as HTMLSelectElement).value = '福岡県';
   submit();
-  await screen.findByText('確認メールを送信しました');
+  await screen.findByText('メールをご確認ください');
   expect(mockSignUp).toHaveBeenCalledWith(expect.objectContaining({
     email: 'visible@example.invalid',
     options: expect.objectContaining({ data: { display_name: '表示中の担当者', phone: '092-123-4567', prefecture: '福岡県' } }),
@@ -273,7 +301,7 @@ test('既登録の疑似user応答も送達を断定しない確認・ログイ�
   mockSignUp.mockResolvedValue({ data: { session: null, user: { identities: [] } }, error: null });
   render(<SignupPage />);
   fillForm(); submit();
-  await screen.findByText('確認メールを送信しました');
+  await screen.findByText('メールをご確認ください');
   expect(screen.getByRole('link', { name: '確認後、ログインして続ける' })).toBeVisible();
   expect(mockResend).not.toHaveBeenCalled();
 });
@@ -289,7 +317,7 @@ test('初期セッション確認の通信例外でも登録可能', async () =>
   mockSignUp.mockResolvedValue({ data: { session: null, user: { id: 'fixture' } }, error: null });
   render(<SignupPage />);
   fillForm(); submit();
-  await screen.findByText('確認メールを送信しました');
+  await screen.findByText('メールをご確認ください');
 });
 
 test.each([false, true])('再送は60秒待機し、成功/失敗(%s)後も連打を防ぐ', async (fails) => {
@@ -298,7 +326,7 @@ test.each([false, true])('再送は60秒待機し、成功/失敗(%s)後も連�
   mockResend.mockResolvedValue({ error: fails ? { message: 'private' } : null });
   render(<SignupPage />);
   fillForm(); submit();
-  await screen.findByText('確認メールを送信しました');
+  await screen.findByText('メールをご確認ください');
   expect(screen.getByRole('button', { name: '再送は1分後にできます' })).toBeDisabled();
   await act(async () => { jest.advanceTimersByTime(60_000); });
   const button = screen.getByRole('button', { name: '確認メールを再送する' });
@@ -338,7 +366,7 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await screen.findByText('確認メールを送信しました');
+    await screen.findByText('メールをご確認ください');
     // 偽陽性防止: 呼ばれていないことを明示的に主張する（呼び出し引数ではなく「呼ばれたか」自体）。
     expect(mockReplace).not.toHaveBeenCalled();
     expect(mockRefresh).not.toHaveBeenCalled();
@@ -431,7 +459,7 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await screen.findByText('確認メールを送信しました');
+    await screen.findByText('メールをご確認ください');
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
@@ -504,7 +532,7 @@ describe('店舗アカウント作成（掲載申込の続き）', () => {
     mockSignUp.mockResolvedValue({ data: { session: null, user: { id: 'u1' } }, error: null });
     render(<SignupPage />);
     fillForm(); submit();
-    await screen.findByText('確認メールを送信しました');
+    await screen.findByText('メールをご確認ください');
     expect(screen.getByTestId('signup-sent-to')).toHaveTextContent('test@example.com');
     expect(screen.getByRole('link', { name: '確認後、ログインして続ける' }))
       .toHaveAttribute('href', `/auth/login?redirect=${encodeURIComponent('/admin/onboarding?handoff=registration')}`);

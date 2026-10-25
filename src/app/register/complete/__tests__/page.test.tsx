@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import RegisterCompletePage from '../page';
 import { resolveRegisteredSalon } from '@/lib/register-complete';
 
@@ -24,8 +24,10 @@ test('confirmed receipt displays reference and forwards the signed claim to look
   expect(screen.getByText('掲載申込を受け付けました')).toBeVisible();
   // 受付番号は書き写せる短い参照（先頭8桁）を大きく出し、照会用の完全な番号を添える。
   expect(screen.getByTestId('receipt-short')).toHaveTextContent('1111-1111');
+  expect(screen.getByText(id)).not.toBeVisible();
+  fireEvent.click(screen.getByText('お問い合わせ用の番号'));
   expect(screen.getByText(id)).toBeVisible();
   expect(screen.getByText('店舗名')).toBeVisible();
-  expect(screen.getByRole('link', { name: '店舗アカウントを作成して始める' })).toBeVisible();
+  expect(screen.getByRole('link', { name: '店舗アカウントを作成する' })).toBeVisible();
   expect(resolveRegisteredSalon).toHaveBeenCalledWith(id, 'signed-fixture');
 });

@@ -17,8 +17,10 @@ test('confirmed receipt is checked server-side before display and carries only a
   render(<RegistrationReceipt />);
   await screen.findByText('掲載申込を受け付けました');
   expect(screen.getByText(summary.name)).toBeVisible();
+  expect(screen.getByText(receiptId)).not.toBeVisible();
+  fireEvent.click(screen.getByText('お問い合わせ用の番号'));
   expect(screen.getByText(receiptId)).toBeVisible();
-  expect(screen.getByText(/一般公開は完了していません/)).toBeVisible();
+  expect(screen.getByText(/申込の送信だけでは公開されません/)).toBeVisible();
   expect(fetchMock.mock.calls[0][0]).toBe('/api/salons/summary');
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ intentId });
   expect(screen.getByRole('link', { name: '店舗アカウントを作成する' })).toHaveAttribute('href', salonHandoffAuthPath('signup'));

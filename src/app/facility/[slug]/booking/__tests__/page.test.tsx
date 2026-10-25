@@ -31,7 +31,7 @@ beforeEach(() => {
 test('掲載のみなら予約入力へ進まず、電話・お問い合わせフォーム・詳細を表示する', async () => {
   render(await BookingPage(props()));
   expect(screen.queryByText('予約入力画面')).toBeNull();
-  expect(screen.getByRole('heading', { name: 'ネット予約は準備中です' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'ネット予約は受け付けていません' })).toBeTruthy();
   expect(screen.getByRole('link', { name: '店舗に電話する' }).getAttribute('href')).toBe('tel:000-0000-0000');
   expect(screen.getByText('000-0000-0000')).toBeTruthy();
   expect(screen.getByRole('link', { name: 'お問い合わせフォームで問い合わせる' }).getAttribute('href')).toBe('/facility/synthetic-facility#contact-section');
@@ -45,7 +45,7 @@ test.each([null, '', '電話はお問い合わせください'])('電話番号�
   (getFacilityBySlug as jest.Mock).mockResolvedValue({ facility: { id: 'synthetic-id', name: 'テスト施設', phone } });
   render(await BookingPage(props()));
   expect(screen.queryByRole('link', { name: '店舗に電話する' })).toBeNull();
-  expect(screen.getByText('ご予約については、お問い合わせフォームから店舗へ直接お問い合わせください。')).toBeTruthy();
+  expect(screen.getByText('ご不明な点は、お問い合わせフォームから店舗へ直接お問い合わせください。')).toBeTruthy();
   expect(screen.getByRole('link', { name: 'お問い合わせフォームで問い合わせる' }).getAttribute('href')).toBe('/facility/synthetic-facility#contact-section');
 });
 

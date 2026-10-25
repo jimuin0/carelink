@@ -106,7 +106,7 @@ test.describe('/register 送信', () => {
     await expect(page.getByRole('heading', { name: '受付状況を確認できませんでした' })).toBeVisible();
     await expect(page.getByRole('link', { name: '受付状況を問い合わせる' })).toBeVisible();
     await expect(page.getByRole('heading', { name: '掲載申込を受け付けました' })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: '店舗アカウントを作成して始める' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: '店舗アカウントを作成する' })).toHaveCount(0);
   });
   test('POST結果不明では完了へ進まず同画面の再送を止める', async ({ page }) => {
     let attempts = 0;

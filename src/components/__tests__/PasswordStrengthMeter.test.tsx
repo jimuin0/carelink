@@ -45,3 +45,12 @@ test('loading failure stays neutral and can recover after clearing the field', a
   view.rerender(<PasswordStrengthMeter password="high" />);
   await waitFor(() => expect(screen.getByRole('meter')).toHaveAttribute('aria-valuetext', '高い'));
 });
+
+test('a server-confirmed leak overrides an otherwise high estimate, and a changed password can be estimated again', async () => {
+  const view = render(<PasswordStrengthMeter password="high" compromised />);
+  expect(screen.getByRole('meter')).toHaveAttribute('aria-valuetext', '使用不可');
+  expect(screen.getByRole('meter')).toHaveAttribute('aria-valuenow', '1');
+  expect(screen.queryByText('流出の有無は登録時に確認します。')).not.toBeInTheDocument();
+  view.rerender(<PasswordStrengthMeter password="middle" />);
+  await waitFor(() => expect(screen.getByRole('meter')).toHaveAttribute('aria-valuetext', '中程度'));
+});

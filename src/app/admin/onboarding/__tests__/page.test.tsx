@@ -545,7 +545,7 @@ describe('/admin/onboarding', () => {
     // 申込内容を取り込まない空の店舗になり、後から復旧しても ALREADY_MEMBER で取り込めない。
     mockSearchParams = new URLSearchParams({ facility_name: 'テストサロン', business_type: 'ヘアサロン' });
     render(<OnboardingPage />);
-    const link = await screen.findByRole('link', { name: '送信済みの掲載申込を復旧' });
+    const link = await screen.findByRole('link', { name: '掲載申込の続きへ' });
     expect(link).toHaveAttribute('href', '/register/recover');
     expect(screen.getByText(/ここで作成すると、申込の写真・営業時間・PR文などは引き継がれません/)).toBeInTheDocument();
     expect(mockFetch).not.toHaveBeenCalled();

@@ -106,9 +106,9 @@ function BookingNotReady({ slug, name, phone }: { slug: string; name: string; ph
         <h1 className="text-xl font-bold mb-2">{name}</h1>
         <p className="text-sm text-gray-500 mb-6">オンライン予約</p>
         <section className="bg-white rounded-xl border border-gray-200 p-6" aria-labelledby="booking-not-ready-heading">
-          <h2 id="booking-not-ready-heading" className="text-base font-bold text-gray-900 mb-2">ネット予約は準備中です</h2>
+          <h2 id="booking-not-ready-heading" className="text-base font-bold text-gray-900 mb-2">ネット予約は受け付けていません</h2>
           <p className="text-sm text-gray-600 mb-5">
-            ご予約については、{dialable ? 'お電話または' : ''}お問い合わせフォームから店舗へ直接お問い合わせください。
+            ご不明な点は、{dialable ? 'お電話または' : ''}お問い合わせフォームから店舗へ直接お問い合わせください。
           </p>
           <div className="flex flex-col gap-3">
             {dialable && (

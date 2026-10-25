@@ -205,7 +205,7 @@ function OnboardingContent() {
       try {
         if (!selectedRecovery || readSalonRecoveryContext(window.sessionStorage) !== selectedRecovery) throw new Error('Selected recovery changed');
       } catch {
-        setFormError('復旧対象が変わっています。送信済みの掲載申込を復旧する画面で選び直してください。'); return;
+        setFormError('復旧対象が変わっています。掲載申込の続きへする画面で選び直してください。'); return;
       }
     }
     if (registrationHandoff) {
@@ -325,15 +325,19 @@ function OnboardingContent() {
   if (status === 'form') {
     return (
       <div className="section-container max-w-lg mx-auto py-16">
-        <SbPageHeader title={`${T.shop}情報を確認`} description={`無料掲載と${T.onlineBooking}の設定は別です。まず${T.shop}情報を確認してください`} />
+        <SbPageHeader title={`${T.shop}情報を確認`} description={`${T.shop}情報を確認して、管理画面へ進みます。`} />
         {/* 🔴 引き継ぎ無しで店舗を作ると、送信済みの掲載申込（写真・営業時間・PR文など）は取り込まれず、
             後から /register/recover で選んでも ALREADY_MEMBER で取り込めなくなる。古い案内メールの
             リンクなど、どの入口から来ても作成前に復旧画面を案内する（2026年10月22日）。 */}
-        {!registrationHandoff && !recoveredHandoff && <p className="text-sm text-gray-600 mb-4">掲載申込フォームから申込を送信済みの場合は、ここで作成せず<Link href={SALON_RECOVERY_PATH} className="text-primary underline">送信済みの掲載申込を復旧</Link>してください。ここで作成すると、申込の写真・営業時間・PR文などは引き継がれません。</p>}
-        {recoveredHandoff && <p className="text-sm mb-4">送信済みの掲載申込を引き継ぎます。所在地：{receiptAddress || '未入力（管理画面で設定してください）'}。原申込の店舗名・業種・写真は保持します。ここではまだ一覧に公開されません。</p>}
-        <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
+        {!registrationHandoff && !recoveredHandoff && <p className="text-sm text-gray-600 mb-4">掲載申込フォームから申込を送信済みの場合は、ここで作成せず<Link href={SALON_RECOVERY_PATH} className="text-primary underline">掲載申込の続きへ</Link>してください。ここで作成すると、申込の写真・営業時間・PR文などは引き継がれません。</p>}
+        {recoveredHandoff && <div className="mb-6 rounded-xl border border-gray-200 bg-white p-5 text-sm leading-6">
+          <p className="font-bold">掲載申込の内容を引き継ぎました。</p>
+          <p className="mt-2">所在地：{receiptAddress || '未入力（管理画面で設定してください）'}</p>
+          <p className="mt-3 text-gray-600">まだ公開されません。次に管理画面で掲載情報を設定します。</p>
+        </div>}
+        <div className="bg-white rounded-xl shadow-xs p-6 space-y-6">
           <div>
-            <label htmlFor="onboarding-facility-name" className="form-label">
+            <label htmlFor="onboarding-facility-name" className="form-label mb-2!">
               {T.shopName} <span className="text-red-500">*</span>
             </label>
             <SbInput
@@ -345,7 +349,7 @@ function OnboardingContent() {
             />
           </div>
           <div>
-            <label htmlFor="onboarding-business-type" className="form-label">
+            <label htmlFor="onboarding-business-type" className="form-label mb-2!">
               {T.businessType} <span className="text-red-500">*</span>
             </label>
             <select
@@ -362,12 +366,12 @@ function OnboardingContent() {
               ))}
             </select>
           </div>
-          <label className="flex items-start gap-2 text-sm text-gray-600">
+          <label className="flex items-start gap-3 text-sm leading-6 text-gray-600">
             <input
               type="checkbox"
               checked={licenseWarranted}
               onChange={(e) => setLicenseWarranted(e.target.checked)}
-              className="mt-0.5 rounded-sm border-gray-300"
+              className="mt-1 shrink-0 rounded-sm border-gray-300"
             />
             <span>
               {LICENSE_WARRANTY_TEXT}
@@ -399,7 +403,7 @@ function OnboardingContent() {
       <div className="section-container max-w-lg mx-auto text-center py-16">
         <p role="alert" className="text-red-600 font-bold mb-4">エラーが発生しました</p>
         <p className="text-sm text-gray-600 mb-6">{error}</p>
-        {(registrationHandoff || recoveredHandoff) && <p className="text-sm text-gray-600 mb-6">同じタブの受付情報が使えない場合は、申込時のメールアドレスでログインし、<Link href={SALON_RECOVERY_PATH} className="text-primary underline">送信済みの掲載申込を復旧</Link>してください。別のメールで申込済みの場合や他の管理者に取り込み済みの場合は、再申込せず、受付番号を添えて<Link href="/contact" className="text-primary underline">お問い合わせ</Link>ください。</p>}
+        {(registrationHandoff || recoveredHandoff) && <p className="text-sm text-gray-600 mb-6">同じタブの受付情報が使えない場合は、申込時のメールアドレスでログインし、<Link href={SALON_RECOVERY_PATH} className="text-primary underline">掲載申込の続きへ</Link>してください。別のメールで申込済みの場合や他の管理者に取り込み済みの場合は、再申込せず、受付番号を添えて<Link href="/contact" className="text-primary underline">お問い合わせ</Link>ください。</p>}
         <button type="button" onClick={() => window.location.reload()} className="btn-primary px-8 py-3">再読み込みして登録状況を確認</button>
       </div>
     );

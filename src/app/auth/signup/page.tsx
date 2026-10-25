@@ -155,6 +155,11 @@ function SignupContent() {
   const termsAgreed = useWatch({ control, name: 'terms_agreed' }) === true;
   const password = useWatch({ control, name: 'password', defaultValue: '' });
   const passwordField = register('password');
+  const syncPassword = (value: string) => {
+    const previous = getValues('password');
+    setValue('password', value);
+    if (value !== previous && errors.password?.type === 'pwned') clearErrors('password');
+  };
 
   // ログイン済みユーザーが /auth/signup に来た場合にフォームを表示し続けないよう、
   // loginページと同様にマウント時のセッション確認でredirect先へ即座に送る。
@@ -227,8 +232,12 @@ function SignupContent() {
         if (/already registered/i.test(error.message ?? '')) {
           showVerificationGuidance(data.email);
         } else if (error.code === 'weak_password') {
-          setError('password', { type: 'server', message: getSignupErrorMessage(error) });
-          setFocus('password');
+          if (getValues('password') === data.password) {
+            setError('password', { type: (error as PasswordUpdateError).reasons?.includes('pwned') ? 'pwned' : 'server', message: getSignupErrorMessage(error) });
+            setFocus('password');
+          } else {
+            setToast({ type: 'error', message: '送信したパスワードは使用できません。変更後の内容でもう一度登録してください。' });
+          }
         } else {
           setToast({ type: 'error', message: getSignupErrorMessage(error) });
         }
@@ -326,9 +335,9 @@ function SignupContent() {
   if (pendingVerificationEmail) {
     return (
       <div className="space-y-5 text-center" aria-live="polite">
-        <p className="text-gray-700 font-medium">確認メールを送信しました</p>
+        <p className="text-gray-700 font-medium">メールをご確認ください</p>
         {/* 送信先を見せないと、入力ミスに気づけないまま「届かない」と待ち続けることになる。 */}
-        <p className="text-sm text-gray-700">送信先：<span className="font-bold break-all" data-testid="signup-sent-to">{pendingVerificationEmail}</span></p>
+        <p className="text-sm text-gray-700">メールアドレス：<span className="font-bold break-all" data-testid="signup-sent-to">{pendingVerificationEmail}</span></p>
         <p className="text-sm text-gray-600 leading-relaxed">メールのリンクを開いて、確認を完了してください。</p>
         {/* 確認メールのリンクはメールアプリが別のタブ・別のブラウザで開くことが多い。確認さえ済めば、
             このタブ（掲載申込の受付情報が残っているタブ）でログインして同じ続きへ進める。 */}
@@ -361,9 +370,9 @@ function SignupContent() {
             </p>
           )}
           <form ref={formRef} onSubmit={submitVisibleFields} noValidate>
-            <fieldset disabled={!clientReady} className="space-y-7">
+            <fieldset disabled={!clientReady} className="space-y-6">
             <div>
-              <label htmlFor="signup-name" className="mb-3 block text-sm font-medium text-gray-700">お名前 <span className="text-red-600">*</span></label>
+              <label htmlFor="signup-name" className="mb-2 block text-sm font-medium text-gray-700">お名前 <span className="text-red-600">*</span></label>
               <input
                 {...register('display_name')}
                 id="signup-name"
@@ -375,11 +384,11 @@ function SignupContent() {
                 minLength={1}
                 maxLength={50}
               />
-              {errors.display_name && <p id="signup-name-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.display_name.message}</p>}
+              {errors.display_name && <p id="signup-name-error" className="mt-2 text-sm leading-6 text-red-700" role="alert">{errors.display_name.message}</p>}
             </div>
 
             <div>
-              <label htmlFor="signup-email" className="mb-3 block text-sm font-medium text-gray-700">メールアドレス <span className="text-red-600">*</span></label>
+              <label htmlFor="signup-email" className="mb-2 block text-sm font-medium text-gray-700">メールアドレス <span className="text-red-600">*</span></label>
               <input
                 {...register('email')}
                 id="signup-email"
@@ -390,11 +399,11 @@ function SignupContent() {
                 aria-describedby={errors.email ? 'signup-email-error' : undefined}
                 aria-invalid={Boolean(errors.email)}
               />
-              {errors.email && <p id="signup-email-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.email.message}</p>}
+              {errors.email && <p id="signup-email-error" className="mt-2 text-sm leading-6 text-red-700" role="alert">{errors.email.message}</p>}
             </div>
 
             <div>
-              <label htmlFor="signup-phone" className="mb-3 block text-sm font-medium text-gray-700">電話番号 <span className="text-red-600">*</span></label>
+              <label htmlFor="signup-phone" className="mb-2 block text-sm font-medium text-gray-700">電話番号 <span className="text-red-600">*</span></label>
               <input
                 {...register('phone')}
                 id="signup-phone"
@@ -408,11 +417,11 @@ function SignupContent() {
                 maxLength={20}
               />
               <p id="signup-phone-help" className="mt-1.5 text-sm leading-6 text-gray-600">ハイフンあり・なし、どちらでも入力できます。</p>
-              {errors.phone && <p id="signup-phone-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.phone.message}</p>}
+              {errors.phone && <p id="signup-phone-error" className="mt-2 text-sm leading-6 text-red-700" role="alert">{errors.phone.message}</p>}
             </div>
 
             <div>
-              <label htmlFor="signup-prefecture" className="mb-3 block text-sm font-medium text-gray-700">都道府県 <span className="text-red-600">*</span></label>
+              <label htmlFor="signup-prefecture" className="mb-2 block text-sm font-medium text-gray-700">都道府県 <span className="text-red-600">*</span></label>
               <select
                 {...register('prefecture')}
                 id="signup-prefecture"
@@ -426,11 +435,11 @@ function SignupContent() {
                   <option key={p} value={p}>{p}</option>
                 ))}
               </select>
-              {errors.prefecture && <p id="signup-prefecture-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.prefecture.message}</p>}
+              {errors.prefecture && <p id="signup-prefecture-error" className="mt-2 text-sm leading-6 text-red-700" role="alert">{errors.prefecture.message}</p>}
             </div>
 
             <div>
-              <label htmlFor="signup-password" className="mb-3 block text-sm font-medium text-gray-700">パスワード <span className="text-red-600">*</span></label>
+              <label htmlFor="signup-password" className="mb-2 block text-sm font-medium text-gray-700">パスワード <span className="text-red-600">*</span></label>
               <div className="relative">
                 <input
                   {...passwordField}
@@ -438,11 +447,12 @@ function SignupContent() {
                   onBlur={event => {
                     // Publish native autofill before RHF's blur handler stores it
                     // without notifying value watchers (setValue then deduplicates it).
-                    setValue('password', event.currentTarget.value);
+                    syncPassword(event.currentTarget.value);
                     void passwordField.onBlur(event);
                   }}
-                  onInput={event => setValue('password', event.currentTarget.value)}
-                  onFocus={event => setValue('password', event.currentTarget.value)}
+                  onChange={event => { syncPassword(event.currentTarget.value); void passwordField.onChange(event); }}
+                  onInput={event => syncPassword(event.currentTarget.value)}
+                  onFocus={event => syncPassword(event.currentTarget.value)}
                   type={showPassword ? 'text' : 'password'}
                   className="form-input pr-10"
                   autoComplete="new-password"
@@ -475,12 +485,12 @@ function SignupContent() {
                 </button>
               </div>
               <p id="signup-password-help" className="mt-1.5 text-sm leading-6 text-gray-600">{PASSWORD_RULES_HINT}</p>
-              <PasswordStrengthMeter password={password} />
-              {errors.password && <p id="signup-password-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.password.message}</p>}
+              <PasswordStrengthMeter password={password} compromised={errors.password?.type === 'pwned'} />
+              {errors.password && <p id="signup-password-error" className="mt-2 text-sm leading-6 text-red-700" role="alert">{errors.password.message}</p>}
             </div>
 
             <div>
-              <label htmlFor="signup-password-confirm" className="mb-3 block text-sm font-medium text-gray-700">パスワード（確認） <span className="text-red-600">*</span></label>
+              <label htmlFor="signup-password-confirm" className="mb-2 block text-sm font-medium text-gray-700">パスワード（確認） <span className="text-red-600">*</span></label>
               <input
                 {...register('password_confirm')}
                 id="signup-password-confirm"
@@ -493,7 +503,7 @@ function SignupContent() {
                 minLength={PASSWORD_MIN_LENGTH}
                 maxLength={PASSWORD_MAX_BYTES}
               />
-              {errors.password_confirm && <p id="signup-password-confirm-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.password_confirm.message}</p>}
+              {errors.password_confirm && <p id="signup-password-confirm-error" className="mt-2 text-sm leading-6 text-red-700" role="alert">{errors.password_confirm.message}</p>}
             </div>
 
             <label htmlFor="signup-terms" className="flex items-start gap-3 text-sm leading-6 text-gray-600">
@@ -503,7 +513,7 @@ function SignupContent() {
               <span><Link href="/terms" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">利用規約</Link>
                 および<Link href="/privacy" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">プライバシーポリシー</Link>に同意する（必須）</span>
             </label>
-            {errors.terms_agreed && <p id="signup-terms-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.terms_agreed.message}</p>}
+            {errors.terms_agreed && <p id="signup-terms-error" className="mt-2 text-sm leading-6 text-red-700" role="alert">{errors.terms_agreed.message}</p>}
             <Button type="submit" disabled={isSubmitting || isGoogleSigningIn} size="lg" fullWidth>
               {isSubmitting ? (shopAccountSignup ? `${T.account}を作成中...` : '登録中...') : shopAccountSignup ? `${T.account}を作成` : '新規登録'}
             </Button>

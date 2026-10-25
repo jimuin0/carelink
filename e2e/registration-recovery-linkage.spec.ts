@@ -50,12 +50,12 @@ async function login(page: Page, person: Awaited<ReturnType<typeof identity>>, r
   await page.fill('#login-password', person.password);
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();
   await page.waitForURL(url => url.pathname === redirect.split('?')[0],{waitUntil:'domcontentloaded'});
-  if(redirect==='/register/recover')await expect(page.getByRole('heading',{name:'送信済みの掲載申込を復旧',exact:true})).toBeVisible();
+  if(redirect==='/register/recover')await expect(page.getByRole('heading',{name:'掲載申込の続き',exact:true})).toBeVisible();
 }
 async function selectRecovery(page: Page, id: string) {
   const row = recoveryRow(page, id);
   await expect(row).toBeVisible();
-  await row.getByRole('button', { name: 'この申込の店舗情報を確認' }).click();
+  await row.getByRole('button', { name: 'この申込で続ける' }).click();
   await page.waitForURL('**/admin/onboarding?handoff=recovered');
 }
 function recoveryRow(page: Page, id: string) {
@@ -92,11 +92,11 @@ test('failed list -> explicit retry recovers the same authenticated receipt with
   // the application's failure; a navigation announcement must not satisfy it.
   const recoveryError = page.getByRole('main').getByRole('alert');
   await expect(recoveryError).toBeVisible();
-  await expect(page.getByText('一致する受付を確認できませんでした。', { exact: false })).toBeHidden();
+  await expect(page.getByText('一致する申込が見つかりませんでした。', { exact: false })).toBeHidden();
   await page.unroute('**/api/salons/recovery');
   const restored = page.waitForResponse(r => new URL(r.url()).pathname === '/api/salons/recovery'
     && r.request().method() === 'POST' && r.request().postDataJSON().action === 'list');
-  await page.getByRole('button', { name: '先頭から再確認', exact: true }).click();
+  await page.getByRole('button', { name: '一覧を更新', exact: true }).click();
   const response = await restored;
   expect(response.status()).toBe(200);
   expect(await response.json()).toMatchObject({ state: 'ready', receipts: [{ receipt_id: id, facility_name: name }] });
@@ -129,7 +129,7 @@ test('Auth unavailable 503 -> no logout -> explicit retry reads original receipt
   await page.unroute('**/api/salons/recovery');
   const restored = page.waitForResponse(r => new URL(r.url()).pathname === '/api/salons/recovery'
     && r.request().method() === 'POST');
-  await page.getByRole('button', { name: '先頭から再確認', exact: true }).click();
+  await page.getByRole('button', { name: '一覧を更新', exact: true }).click();
   expect((await restored).status()).toBe(200);
   await expect(recoveryRow(page, id)).toBeVisible();
   await expect(alert).toBeHidden();
@@ -212,8 +212,8 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   await page.goto(`/facility/${created.slug}/booking`,{waitUntil:'domcontentloaded'});
   // Not-ready booking page (2026-10-23): framed notice; a dialable shop phone adds the call
   // link, and the shop page's inquiry form is always offered so no visitor is stranded.
-  await expect(page.getByRole('heading', { name: 'ネット予約は準備中です', exact: true })).toBeVisible();
-  await expect(page.getByText('ご予約については、お電話またはお問い合わせフォームから店舗へ直接お問い合わせください。', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'ネット予約は受け付けていません', exact: true })).toBeVisible();
+  await expect(page.getByText('ご不明な点は、お電話またはお問い合わせフォームから店舗へ直接お問い合わせください。', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: '店舗に電話する' })).toHaveAttribute('href', 'tel:09000000000');
   await expect(page.getByRole('link', { name: 'お問い合わせフォームで問い合わせる' }))
     .toHaveAttribute('href', `/facility/${created.slug}#contact-section`);
