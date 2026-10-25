@@ -126,6 +126,26 @@ function SignupContent() {
   const [isResendCoolingDown, setIsResendCoolingDown] = useState(false);
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const authOperationInFlight = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const signupCompleted = useRef(false);
+
+  useEffect(() => {
+    if (pendingVerificationEmail || isGoogleSigningIn) return;
+    const warnBeforeDiscard = (event: BeforeUnloadEvent) => {
+      if (signupCompleted.current) return;
+      // Read native controls at departure: password-manager autofill may not
+      // emit React events. Keep credentials only in the current form, never
+      // in browser storage or telemetry.
+      const fields = formRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select');
+      if (!fields || !Array.from(fields).some(field =>
+        field instanceof HTMLInputElement && field.type === 'checkbox' ? field.checked : Boolean(field.value),
+      )) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeDiscard);
+    return () => window.removeEventListener('beforeunload', warnBeforeDiscard);
+  }, [pendingVerificationEmail, isGoogleSigningIn]);
 
   const { register, handleSubmit, getValues, setValue, control, setError, clearErrors, setFocus, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
@@ -214,6 +234,7 @@ function SignupContent() {
       }
 
       if (result.session) {
+        signupCompleted.current = true;
         router.replace(redirect);
         router.refresh();
         return;
@@ -234,6 +255,9 @@ function SignupContent() {
   };
 
   const submitVisibleFields = (event: FormEvent<HTMLFormElement>) => {
+    // Cancel native navigation before reading controls, including if an
+    // unexpected form-read failure occurs before RHF takes over submission.
+    event.preventDefault();
     // Autofill can update the native controls without emitting change events.
     // Reconcile at submission so validation and Auth use exactly what is visible,
     // including the current consent checkbox. Never persist or log credentials.
@@ -327,7 +351,7 @@ function SignupContent() {
               LINEで登録するには、利用規約・プライバシーポリシーへの同意が必要です。下の同意欄にチェックしてから、もう一度「LINEで登録」を押してください。
             </p>
           )}
-          <form onSubmit={submitVisibleFields} noValidate>
+          <form ref={formRef} onSubmit={submitVisibleFields} noValidate>
             <fieldset disabled={!clientReady} className="space-y-7">
             <div>
               <label htmlFor="signup-name" className="mb-3 block text-sm font-medium text-gray-700">お名前 <span className="text-red-600">*</span></label>

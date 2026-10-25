@@ -70,6 +70,40 @@ function submit() {
   fireEvent.click(screen.getByRole('button', { name: /^(新規登録|店舗アカウントを作成)$/ }));
 }
 
+test('native autofill is protected from accidental reload without storing the draft', () => {
+  const storage = jest.spyOn(Storage.prototype, 'setItem');
+  render(<SignupPage />);
+  const empty = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(empty);
+  expect(empty.defaultPrevented).toBe(false);
+  // Autofill need not emit a React change event.
+  (screen.getByLabelText(/^お名前/) as HTMLInputElement).value = '合成担当者';
+  const leaving = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(leaving);
+  expect(leaving.defaultPrevented).toBe(true);
+  expect(storage).not.toHaveBeenCalled();
+  storage.mockRestore();
+});
+
+test('a failed submission retains the visible form and reload protection; confirmation releases it', async () => {
+  mockSignUp.mockResolvedValueOnce({ data: { session: null, user: null }, error: { code: 'unexpected_failure' } });
+  render(<SignupPage />);
+  fillForm();
+  submit();
+  await screen.findByRole('alert');
+  expect(screen.getByLabelText('パスワード *')).toHaveValue('password123');
+  expect(screen.getByRole('checkbox', { name: /利用規約/ })).toBeChecked();
+  const leaving = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(leaving);
+  expect(leaving.defaultPrevented).toBe(true);
+  mockSignUp.mockResolvedValueOnce({ data: { session: null, user: { id: 'fixture' } }, error: null });
+  submit();
+  await screen.findByText('確認メールを送信しました');
+  const confirmed = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(confirmed);
+  expect(confirmed.defaultPrevented).toBe(false);
+});
+
 test('the strength meter reflects typing and native autofill when the field is focused or left', async () => {
   render(<SignupPage />);
   const field = screen.getByLabelText('パスワード *') as HTMLInputElement;
