@@ -232,9 +232,34 @@ jobs:
         # 従来は chromium のみで webkit 系の E2E が実行されない盲点があった。
         # 2026-10-23: apt の取得が 28 分止まり、ジョブ全体の 30 分上限で E2E が 1 本も走らずに
         # 打ち切られた（#795）。1 回 8 分で切り、3 回まで取り直す。
+        # root の apt 子プロセスは一般ユーザーの timeout では終了できず、次の試行が
+        # dpkg lock で失敗する。依存導入だけを root の timeout 配下で実行する。
         run: |
+          playwright_node="$(command -v node)"
+          playwright_cli="$PWD/node_modules/playwright/cli.js"
+          # This disposable runner owns the configuration; never remove lock
+          # files or kill unrelated package-manager processes to recover.
+          sudo tee /etc/apt/apt.conf.d/99carelink-ci-network >/dev/null <<'EOF'
+          Acquire::Retries "2";
+          Acquire::http::Timeout "30";
+          Acquire::https::Timeout "30";
+          DPkg::Lock::Timeout "60";
+          EOF
+          dependencies_installed=0
           for attempt in 1 2 3; do
-            if timeout 480 npx playwright install --with-deps chromium webkit; then
+            if sudo timeout --kill-after=15s 480 "$playwright_node" "$playwright_cli" install-deps chromium webkit; then
+              dependencies_installed=1
+              break
+            fi
+            echo "playwright OS dependencies failed or timed out (attempt $attempt)" >&2
+            # A bounded retry may have interrupted package configuration. The
+            # root timeout has already terminated its own process group.
+            sudo timeout --kill-after=15s 120 dpkg --configure -a
+            sleep 10
+          done
+          test "$dependencies_installed" -eq 1
+          for attempt in 1 2 3; do
+            if timeout --kill-after=15s 480 "$playwright_node" "$playwright_cli" install chromium webkit; then
               exit 0
             fi
             echo "playwright install failed or timed out (attempt $attempt)" >&2
