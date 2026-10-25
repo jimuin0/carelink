@@ -90,6 +90,11 @@ async function sendWeeklyReports(
   // timeoutし、未処理施設のメールが恒久欠落するリスクがあった。前段でバルク一括取得し
   // ページ単位で一括取得し、ループ内はマップ参照にする。取得障害・上限到達では送信前に停止する。
   const targetFacilityIds = [...byFacility.keys()].filter((id) => !optedOutSet.has(id));
+  // 全施設が明示的に OFF の場合、空の in.() フィルタで宛先を検索しない。
+  // 送信対象が無い run は正常終了し、opt-out 件数だけを記録する。
+  if (targetFacilityIds.length === 0) {
+    return { sent: 0, failed: 0, skipped: 0, optedOut: byFacility.size };
+  }
 
   const { rows: owners, error: ownersError } = await fetchAllPaged<{ facility_id: string; user_id: string }>(
     async (offset, limit) => {
