@@ -26,6 +26,8 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
+      - name: Runtime compile-cache build contract
+        run: node --test scripts/warm-runtime-compile-cache.test.mjs
       - name: Verify admin schedule export against cron registry
         run: |
           node --test scripts/export-admin-schedules.test.mjs
