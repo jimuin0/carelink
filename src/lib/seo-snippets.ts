@@ -19,15 +19,6 @@ interface BusinessTypeContext {
 
 /* Stryker disable StringLiteral, ArrayDeclaration */
 const businessTypeContext: Record<string, BusinessTypeContext> = {
-  ...Object.fromEntries(Object.entries(medicalBusinessTypeSlugs).map(([slug, name]) => [slug, {
-    keyword: name,
-    description: `${name}の所在地・診療時間・施設紹介・公式サイトなどの掲載情報`,
-    searchPoints: ['診療科・診療内容', '診療時間・休診日', 'アクセス・バリアフリー', '予約の要否・受付方法'],
-    faqs: [
-      { q: '予約なしでも受診できますか？', a: '予約の要否は医療機関ごとに異なります。施設紹介・公式サイトで受付方法をご確認ください。ネット予約は対応施設のみ利用できます。' },
-      { q: '複数の診療科に対応していますか？', a: '掲載の分類は施設区分または主な診療科です。診療科の一覧や対応する診療内容は施設紹介・公式サイトをご確認ください。' },
-    ],
-  }])),
   'hair-salon': {
     keyword: 'ヘアサロン・美容室',
     description: 'カット・カラー・パーマ・縮毛矯正・ヘッドスパなど、ヘアスタイル全般のメニューを提供する美容室',
@@ -169,7 +160,21 @@ export function stripPromoSentences(intro: string): string {
 }
 
 export function getBusinessTypeContext(typeSlug: string): BusinessTypeContext | null {
-  return businessTypeContext[typeSlug] ?? null;
+  const medicalName = Object.hasOwn(medicalBusinessTypeSlugs, typeSlug)
+    ? medicalBusinessTypeSlugs[typeSlug]
+    : null;
+  if (medicalName) {
+    return {
+      keyword: medicalName,
+      description: `${medicalName}の所在地・診療時間・施設紹介・公式サイトなどの掲載情報`,
+      searchPoints: ['診療科・診療内容', '診療時間・休診日', 'アクセス・バリアフリー', '予約の要否・受付方法'],
+      faqs: [
+        { q: '予約なしでも受診できますか？', a: '予約の要否は医療機関ごとに異なります。施設紹介・公式サイトで受付方法をご確認ください。ネット予約は対応施設のみ利用できます。' },
+        { q: '複数の診療科に対応していますか？', a: '掲載の分類は施設区分または主な診療科です。診療科の一覧や対応する診療内容は施設紹介・公式サイトをご確認ください。' },
+      ],
+    };
+  }
+  return Object.hasOwn(businessTypeContext, typeSlug) ? businessTypeContext[typeSlug] : null;
 }
 
 /**
@@ -183,7 +188,7 @@ export function generatePrefTypeContent(
   const prefName = getPrefectureName(prefectureSlug);
   const typeName = businessTypeLabel(getBusinessTypeName(typeSlug));
   const prefSeo = getPrefectureSeo(prefectureSlug);
-  const typeCtx = businessTypeContext[typeSlug];
+  const typeCtx = getBusinessTypeContext(typeSlug);
 
   if (!prefName || !typeName || !typeCtx) return null;
 
@@ -276,7 +281,7 @@ export function generateCityTypeContent(
 ): GeneratedSeoContent | null {
   const prefName = getPrefectureName(prefectureSlug);
   const typeName = businessTypeLabel(getBusinessTypeName(typeSlug));
-  const typeCtx = businessTypeContext[typeSlug];
+  const typeCtx = getBusinessTypeContext(typeSlug);
   if (!prefName || !typeName || !typeCtx) return null;
 
   const intro = medicalBusinessTypes.includes(typeName)
