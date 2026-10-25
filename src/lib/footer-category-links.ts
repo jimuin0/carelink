@@ -16,10 +16,10 @@ export function renderFooterCategoryLinks(types: readonly string[], prefectures:
       const href = prefectureSlug && typeSlug
         ? `/${prefectureSlug}/${typeSlug}`
         : `/search?type=${encodeURIComponent(type)}&area=${encodeURIComponent(prefecture)}`;
-      return `<a href="${escapeHtml(href)}" class="text-xs text-gray-400 hover:text-gray-300 transition-colors py-1 inline-block">${escapeHtml(prefecture)}</a>`;
+      return `<a href="${escapeHtml(href)}">${escapeHtml(prefecture)}</a>`;
     }).join('');
     const headingHref = `/search?type=${encodeURIComponent(type)}`;
-    return `<div><h3 class="text-xs font-bold mb-1.5"><a href="${escapeHtml(headingHref)}" class="text-gray-300 hover:text-white transition-colors">${escapeHtml(businessTypeLabel(type))}</a></h3><div class="flex flex-wrap gap-x-2.5 gap-y-0.5">${links}</div></div>`;
+    return `<div><h3 class="text-xs font-bold mb-1.5"><a href="${escapeHtml(headingHref)}" class="text-gray-300 hover:text-white transition-colors">${escapeHtml(businessTypeLabel(type))}</a></h3><div class="footer-category-areas">${links}</div></div>`;
   }).join('');
 }
 

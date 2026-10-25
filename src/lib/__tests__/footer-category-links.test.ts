@@ -36,7 +36,7 @@ test('text and attributes escape all HTML delimiters and cannot inject markup', 
   const element = parse(html);
   expect(element.querySelectorAll('script, img, svg, [onerror], [onclick]')).toHaveLength(0);
   expect(element.querySelector('h3 a')).toHaveTextContent(text);
-  expect(element.querySelector('div.flex a')).toHaveTextContent(text);
+  expect(element.querySelector('.footer-category-areas a')).toHaveTextContent(text);
   expect(html).toContain('&amp;&lt;&gt;&quot;&#39;');
   for (const link of element.querySelectorAll('a')) expect(link.getAttribute('href')).toMatch(/^\/search\?/);
 });
@@ -50,6 +50,6 @@ test.each([
   ['合成 未登録業種', '東京都'],
   ['ヘアサロン', '合成 未登録地域'],
 ])('a missing slug on either side falls back to the encoded search: %s / %s', (type, area) => {
-  const link = parse(renderFooterCategoryLinks([type], [area])).querySelector('div.flex a');
+  const link = parse(renderFooterCategoryLinks([type], [area])).querySelector('.footer-category-areas a');
   expect(link?.getAttribute('href')).toBe(`/search?type=${encodeURIComponent(type)}&area=${encodeURIComponent(area)}`);
 });
