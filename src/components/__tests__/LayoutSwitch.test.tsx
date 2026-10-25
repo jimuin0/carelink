@@ -12,7 +12,7 @@ import MobileBottomNav from '../search/MobileBottomNav';
 
 let mockPathname = '/search';
 let mockSearch = new URLSearchParams();
-jest.mock('next/navigation', () => ({ usePathname: () => mockPathname, useSearchParams: () => mockSearch }));
+jest.mock('next/navigation', () => ({ usePathname: () => mockPathname, useSearchParams: () => mockSearch, useRouter: () => ({ push: jest.fn() }) }));
 jest.mock('next/dynamic', () => ({ __esModule: true, default: () => () => null }));
 jest.mock('../search/SearchHeader', () => ({ __esModule: true, default: () => null }));
 jest.mock('../Header', () => ({ __esModule: true, default: () => null }));

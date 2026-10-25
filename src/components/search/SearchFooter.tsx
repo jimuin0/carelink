@@ -1,10 +1,13 @@
-// フッターは全ページに出る大量の回遊リンク。既定で先読みしない
-// （理由と実測は components/BrowseLink.tsx）。
+'use client';
+
+// Keep every SEO anchor in HTML, with one delegated router handler and no prefetch.
 import Link from '@/components/BrowseLink';
+import { useFooterNavigation } from '@/components/useFooterNavigation';
 import { regionGroups, businessTypes } from '@/lib/constants';
-import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
+import { getPrefectureSlug } from '@/lib/seo-constants';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import CookieSettingsButton from '@/components/CookieSettingsButton';
+import { FOOTER_CATEGORY_LINKS_HTML } from '@/lib/footer-category-links';
 
 // 神奈川・愛知・福岡・京都は src/data/city-slugs.ts に区レベルのslugが存在せず市レベルのみ
 // （東京・大阪だけが区レベルを持つ）。旧実装は区レベルの名称・slugをハードコードしており、
@@ -27,8 +30,9 @@ export const majorCities: { pref: string; cities: { slug: string; name: string }
  *   別の空き要素ではなくフッター自身の padding で取る。
  */
 export default function SearchFooter({ className = '' }: { className?: string }) {
+  const navigate = useFooterNavigation();
   return (
-    <footer className={`bg-gray-900 text-gray-300 ${className}`.trim()}>
+    <footer className={`bg-gray-900 text-gray-300 ${className}`.trim()} onClick={navigate}>
       {/* SEO: エリア×業種 内部リンク（details内だがHTML上は存在→Googlebot クロール可能） */}
       <div className="border-b border-gray-800">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -45,13 +49,13 @@ export default function SearchFooter({ className = '' }: { className?: string })
                     {region.prefectures.map((pref) => {
                       const slug = getPrefectureSlug(pref);
                       return (
-                        <Link
+                        <a
                           key={pref}
                           href={slug ? `/${slug}` : `/search?area=${encodeURIComponent(pref)}`}
                           className="text-xs text-gray-400 hover:text-white transition-colors py-1 inline-block"
                         >
                           {pref}
-                        </Link>
+                        </a>
                       );
                     })}
                   </div>
@@ -64,13 +68,13 @@ export default function SearchFooter({ className = '' }: { className?: string })
               {majorCities.map(({ pref, cities }) => (
                 <div key={pref} className="flex flex-wrap gap-x-3 gap-y-0.5">
                   {cities.map((c) => (
-                    <Link
+                    <a
                       key={`${pref}-${c.slug}`}
                       href={`/${pref}/${c.slug}`}
                       className="text-xs text-gray-400 hover:text-white transition-colors py-1 inline-block"
                     >
                       {c.name}
-                    </Link>
+                    </a>
                   ))}
                 </div>
               ))}
@@ -82,40 +86,8 @@ export default function SearchFooter({ className = '' }: { className?: string })
               業種×エリアから探す
               <svg className="w-4 h-4 text-gray-400 transition-transform [[open]>&]:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             </summary>
-            <div className="space-y-4">
-              {businessTypes.map((type) => (
-                <div key={type}>
-                  <h3 className="text-xs font-bold mb-1.5">
-                    <Link
-                      href={`/search?type=${encodeURIComponent(type)}`}
-                      className="text-gray-300 hover:text-white transition-colors"
-                    >
-                      {businessTypeLabel(type)}
-                    </Link>
-                  </h3>
-                  <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
-                    {regionGroups.flatMap((region) =>
-                      region.prefectures.map((pref) => {
-                        const pSlug = getPrefectureSlug(pref);
-                        const tSlug = getBusinessTypeSlug(type);
-                        const href = pSlug && tSlug
-                          ? `/${pSlug}/${tSlug}`
-                          : `/search?type=${encodeURIComponent(type)}&area=${encodeURIComponent(pref)}`;
-                        return (
-                          <Link
-                            key={`${type}-${pref}`}
-                            href={href}
-                            className="text-xs text-gray-400 hover:text-gray-300 transition-colors py-1 inline-block"
-                          >
-                            {pref}
-                          </Link>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+            {/* Only immutable, escaped public taxonomy; never request/user data. */}
+            <div className="space-y-4" dangerouslySetInnerHTML={{ __html: FOOTER_CATEGORY_LINKS_HTML }} />
           </details>
         </div>
       </div>
@@ -136,13 +108,13 @@ export default function SearchFooter({ className = '' }: { className?: string })
             <h2 className="text-white font-bold text-sm mb-3">業種から探す</h2>
             <nav className="flex flex-col gap-1.5 text-sm">
               {businessTypes.map((type) => (
-                <Link
+                <a
                   key={type}
                   href={`/search?type=${encodeURIComponent(type)}`}
                   className="hover:text-white transition-colors"
                 >
                   {businessTypeLabel(type)}
-                </Link>
+                </a>
               ))}
             </nav>
           </div>

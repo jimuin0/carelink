@@ -33,3 +33,25 @@ secret-free compile-cache warmup. Node remains pinned to 24.22.1. Existing auth,
 CSP nonce, no-store headers, bot policy, DB permissions and health behavior stay
 unchanged. Node integration tests exercise actual HTTP responses, sparse sampling,
 overlap, aborted responses, and exclusion of synthetic private values.
+
+## Footer rendering improvement
+
+Synthetic local CPU profiling highlighted repeated Next Link/React rendering in
+the large SEO footer. Category×prefecture links now use immutable HTML generated
+once from the public taxonomy. All text and attribute values are escaped. No
+request, user, facility, cookie or session data enters this shared string.
+The actual anchor URLs remain in the initial HTML, including closed details.
+
+One delegated footer handler routes ordinary internal clicks through Next's
+router. Modifier/middle clicks, downloads, external URLs, fragments, non-self
+targets and already-handled events retain native or existing link behavior.
+The small set of static navigation links retains BrowseLink. SEO destination
+counts, escaping, router behavior and both footers' document-preserving browser
+navigation are tested. Existing CSP, no-store and prefetch budgets are unchanged.
+
+Six alternating runs of independently built baseline/optimized pages used only
+three synthetic facilities and intercepted all outbound fetches. Excluding the
+first 15 requests, the measured 129-request intervals had median process CPU
+14.844 → 10.577 ms/request (about 29% lower). All runs returned the same 2,039
+anchor destinations. These local process CPU measurements do not establish
+monthly production quota compliance; Vercel CPU must be observed after release.
