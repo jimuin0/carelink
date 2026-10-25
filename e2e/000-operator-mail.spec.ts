@@ -47,6 +47,8 @@ test('operator saves a durable draft; stale edits and unavailable transport pres
     await page.getByRole('button', { name: new RegExp(subject) }).click();
     await expect(page.getByLabel('本文', { exact: true })).toHaveValue('合成本文。実際には送信しません。');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    // Auth fields are gone; only this disposable synthetic draft is captured.
+    await info.attach('operator-mail-composer', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
     const draft = { id: mail.id, revision: mail.revision, contactId: null, to: mail.recipient, subject, body: '別の画面で保存した本文', scheduledAt: null };
     expect((await page.request.post('/api/admin/mail', { headers, data: { action: 'save', draft } })).status()).toBe(200);
     const stale = await db.rpc('manage_platform_mail_atomic', { p_actor_id: person.id, p_mail_id: mail.id, p_action: 'save', p_values: draft });
@@ -60,6 +62,7 @@ test('operator saves a durable draft; stale edits and unavailable transport pres
     await page.getByRole('button', { name: '送信内容を確認', exact: true }).click();
     const preview = page.getByRole('dialog', { name: '送信内容の確認' });
     await expect(preview.getByText('差出人：CareLink <support@carelink-jp.com>', { exact: true })).toBeVisible();
+    await info.attach('operator-mail-confirmation', { body: await page.screenshot(), contentType: 'image/png' });
     const [unavailable] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/api/admin/mail') && r.request().method() === 'POST'), preview.getByRole('button', { name: 'この内容で送信', exact: true }).click()]);
     expect(unavailable.status()).toBe(503); await expect(preview.getByRole('alert')).toContainText('下書きは保持されています');
     expect((await db.from('platform_mail').select('state,envelope,reserved_at').eq('id', mail.id).single()).data).toEqual({ state: 'draft', envelope: null, reserved_at: null });
