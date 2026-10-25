@@ -1,7 +1,7 @@
 # CareLink 再開入口（2026-10-20）
 
 > **2026-10-21 更新（最新の入口）**：まず [docs/handoff/CODEX_INSTRUCTIONS_20261021.md](docs/handoff/CODEX_INSTRUCTIONS_20261021.md) を読む。
-> **2026-10-24 訂正**：Supabase の PostGIS 公開権限は現行障害ではなく実在する Security Advisor 指摘。初回の自動回答を受け、10/24 に非承認の手順確認メールを 1 通送信した。具体的な手順回答と移設の本人承認は未了。[実測・安全な是正手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)を参照。
+> **2026-10-26 更新**：Supabase の PostGIS 公開権限は現行障害ではなく実在する Security Advisor 指摘。チケット `SU-513978` に管理者用の移設手順が届いたが、変更直前の保護と COMMIT 後の復旧条件が未確定。本番移設も追加メールも承認・実行していない。[実測・安全な是正手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)を参照。
 > **2026-10-24 追記**：PR #801 は CI E2E 461 成功で main `84f4497` へマージ。Vercel は非配信差分の本番ビルドを Ignored Build Step で省略し、公開 health は healthy/version `13b0d35`。新しい画像はこのマージで作成されていない。
 > 下の「再開直後の実作業」2 の Render cron 集約（PR #734）は切替完了・旧サービス suspend 済みで、再実施しない。
 > PR #739〜#756 はマージ・本番反映済み。残課題と作業手順は同指示書の 3〜4 章が正。
@@ -27,7 +27,7 @@ Node22.22.2以上、Python3、Gitを用意し `npm ci`。file依存2件はrepo�
 
 - PR733 / abd8e800: 実装・ローカル検証・本番配信照合の記録あり。573 suites/12,305 tests、branches11,309/11,309、E2E head/main各374。これは過去証拠であり今回の再実行ではない。
 - PR734 / c33a53ac: mainへマージ済み。cron集約の575 suites/12,330 tests、100%分岐とCI成功がPRに記録。本番healthは今回healthy/version c33a53aを読取確認。**Renderの切替値・suspend・実ジョブ確認は今回未確認**。18→5サービスへの切替値・suspend状態・実行ログを最優先で読み取り確認する。手順・rollbackは [cron正本](docs/render-cron-consolidation.md)。推測で切替/再送しない。
-- Supabase `public.spatial_ref_sys` 公開書込権限: 10/24 に継続を実測。チケット `SU-513978` に具体的手順を質問する非承認メールを 1 通送信済み。回答・移設の本人承認・実作業は未了。現行障害と混同しない。詳細は[2026-10-24 の訂正と検証手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)。
+- Supabase `public.spatial_ref_sys` 公開書込権限: 10/26 に継続を実測。チケット `SU-513978` に管理者手順の回答あり。変更直前の保護・COMMIT 後の復旧条件、移設の本人承認・実作業は未了。現行障害と混同しない。詳細は[PostGIS の実測と検証手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)。
 - 原票151全文のうち149未回収。名前/hashは [原票索引](docs/handoff/original-source-index.json)。旧Mac原保存先 `/private/tmp/carelink-audit-20260924.8xy8L8` と旧CareLink docsが候補。2件のみ取得済みという過去判定。Git全blob/関連アーカイブ/Drive既知候補で149件は見つからず。旧Mac名の解決、SSH/SMB Bonjourは結果なし。現在Macはpersonal hotspot「kam」だった。旧MacIP/共有可否は未確認。原票回収完了・全指摘解消を認定しない。
 - 過去menu500、Safari/nav timeout、health遅延、Render trigger欠落の根因は証拠不足。現行テスト成功で過去原因確定に置換しない。
 - 実Google OAuth受入は本人同意待ち。模擬Google+独立PG試験と実provider試験は別。10/19集計ではprepared/started/succeeded/tracked/connected各0。未知のDB外イベント不存在までは未証明。
