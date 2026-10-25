@@ -22,7 +22,8 @@ No production service-role or notification credential is copied. When
 - Public searches keep their existing anon/RLS reads. The optional private
   monthly-booking-count badge is omitted. Availability is unknown (`null`),
   never invented as available or full, and no anonymous booking read is used.
-- `/api/health` checks the public database, enforces an in-memory IP rate limit,
+- `/api/health` checks the public database, retains the existing IP rate limiter
+  (including its bounded fallback when the private RPC capability is absent),
   and reports `scope: public-preview`. Successful public DB access returns
   **degraded**, with private capabilities explicitly skipped, rather than
   claiming full health. DB failure remains HTTP 503/unhealthy.

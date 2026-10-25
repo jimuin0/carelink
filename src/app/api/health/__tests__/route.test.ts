@@ -15,7 +15,7 @@ jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/rate-limit');
 
 import { GET } from '../route';
-import { checkRateLimit, inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 const mockCheckRateLimit = checkRateLimit as jest.MockedFunction<typeof checkRateLimit>;
 
@@ -24,7 +24,6 @@ describe('public Preview health scope', () => {
   beforeEach(() => {
     process.env = { ...originalEnv, VERCEL_ENV: 'preview' };
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-    jest.mocked(inMemoryRateLimit).mockReturnValue(false);
   });
   afterEach(() => { process.env = originalEnv; });
 
@@ -39,13 +38,13 @@ describe('public Preview health scope', () => {
     expect(body.version).toBe(ok ? 'local' : 'abcdef1');
     expect(body.deps.private_capabilities).toEqual({ ok: false, skipped: true, note: 'not_configured_preview' });
     expect(mockRpc).not.toHaveBeenCalled();
-    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(null, '127.0.0.1', 60, 60_000, 'health');
     expect(global.fetch).not.toHaveBeenCalled();
     expect(response.headers.get('cache-control')).toBe('no-store');
   });
 
   test('rate-limited public Preview probes cannot reach the database', async () => {
-    jest.mocked(inMemoryRateLimit).mockReturnValue(true);
+    mockCheckRateLimit.mockResolvedValue(true);
     const response = await GET(makeReq());
     expect(response.status).toBe(429);
     expect(mockSelect).not.toHaveBeenCalled();

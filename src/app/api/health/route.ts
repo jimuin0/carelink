@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { productionResolvedFrom } from '@/lib/email-from';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase-server';
-import { checkRateLimit, inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { CRON_HEARTBEAT_STALE_THRESHOLD_MINUTES } from '@/lib/cron-jobs';
 import { isPublicReadOnlyPreview } from '@/lib/preview-capabilities';
@@ -211,7 +211,7 @@ export async function GET(request: Request) {
   // Public Preview deliberately has no private DB/notification credentials.
   // Report its limited scope explicitly, never as full production health.
   if (isPublicReadOnlyPreview()) {
-    if (inMemoryRateLimit(getClientIp(request), 60, 60_000, 'health')) {
+    if (await checkRateLimit(null, getClientIp(request), 60, 60_000, 'health')) {
       return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
     }
     const supabase = await probeSupabase();
