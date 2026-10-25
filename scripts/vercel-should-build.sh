@@ -14,10 +14,10 @@ if [ -z "$PREVIOUS_SHA" ] && [ "${VERCEL_ENV:-}" = preview ]; then
     | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{const v=JSON.parse(s).version;if(typeof v==="string"&&/^[0-9a-f]{7}$/.test(v))process.stdout.write(v)}catch{}})' \
     2>/dev/null)"
   if [[ "$LIVE_VERSION" =~ ^[0-9a-f]{7}$ ]] \
-    && git fetch --quiet --no-tags --depth=200 origin main >/dev/null 2>&1; then
+    && git fetch --quiet --no-tags --deepen=200 origin "$(git rev-parse HEAD)" >/dev/null 2>&1; then
     # A short hash is accepted only when it identifies exactly one fetched
     # commit. Missing history, network failure, or ambiguity means build.
-    MATCHES="$(git rev-list FETCH_HEAD | grep -E "^${LIVE_VERSION}[0-9a-f]{33}$" || true)"
+    MATCHES="$(git rev-list HEAD | grep -E "^${LIVE_VERSION}[0-9a-f]{33}$" || true)"
     if [ "$(printf '%s\n' "$MATCHES" | grep -c .)" -eq 1 ]; then
       PREVIOUS_SHA="$MATCHES"
     fi

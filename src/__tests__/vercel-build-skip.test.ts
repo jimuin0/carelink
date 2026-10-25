@@ -96,6 +96,7 @@ describe('Vercel の配信スキップ判定', () => {
     mkdirSync(join(cwd, 'docs'));
     writeFileSync(join(cwd, 'docs', 'handoff.md'), 'handoff\n');
     commit(cwd, 'docs only');
+    git(cwd, 'push', '-q', 'origin', 'preview');
     expect(previewDecision()).toBe(0);
   });
 
@@ -108,6 +109,7 @@ describe('Vercel の配信スキップ判定', () => {
     mkdirSync(join(cwd, 'docs'));
     writeFileSync(join(cwd, 'docs', 'handoff.md'), 'handoff\n');
     commit(cwd, 'docs after application change');
+    git(cwd, 'push', '-q', 'origin', 'preview');
     expect(previewDecision()).toBe(1);
   });
 
@@ -117,6 +119,7 @@ describe('Vercel の配信スキップ判定', () => {
     mkdirSync(join(cwd, 'docs'));
     writeFileSync(join(cwd, 'docs', 'handoff.md'), 'handoff\n');
     commit(cwd, 'docs only');
+    git(cwd, 'push', '-q', 'origin', 'preview');
     expect(previewDecision('0000000')).toBe(1);
   });
 
