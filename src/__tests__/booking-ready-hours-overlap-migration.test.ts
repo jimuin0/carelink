@@ -100,7 +100,7 @@ describe(`${FILE} の形`, () => {
       expect(read(f)).not.toMatch(/FUNCTION\s+(public\.)?(create_booking_for_menus_atomic|change_booking_atomic)\s*\(/i);
       // staff_has_working_time・working_time_meets_business_hours は 20261023190000 だけが
       // （最短のメニュー以上の重なりを要るように）定義し直す。それ以外は触らない。
-      if (f !== '20261023190000_booking_ready_min_menu_overlap.sql') {
+      if (f !== '20261023190000_booking_ready_min_menu_overlap.sql' && f !== '20261026040703_facility_business_periods.sql') {
         expect(read(f)).not.toMatch(/FUNCTION\s+(public\.)?(staff_has_working_time|working_time_meets_business_hours)\s*\(/i);
       }
     }

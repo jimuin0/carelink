@@ -27,3 +27,8 @@ test.each([
 ])('営業時間が%sなら下書きを作らない', (_label, hours) => {
   expect(suggestStaffWeekFromBusinessHours(hours)).toBeNull();
 });
+
+test('split business hours do not silently create a staff shift covering the break', () => {
+  const hours = { mon: { open: '09:00', close: '12:00', periods: [{ open: '09:00', close: '12:00' }, { open: '15:00', close: '18:00' }] }, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
+  expect(suggestStaffWeekFromBusinessHours(hours)).toBeNull();
+});

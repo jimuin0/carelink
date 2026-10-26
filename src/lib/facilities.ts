@@ -1,8 +1,9 @@
+import { businessWindows, type MinuteWindow } from './business-hours';
 import { cache } from 'react';
 import { createServerSupabaseClient, createServiceRoleClient } from './supabase-server';
 import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityReview, SearchParams, ScheduleOverride } from '@/types';
 import { cachedFetch } from './redis';
-import { jstMonthInfo, dayOfWeekUtc } from './admin-date';
+import { jstMonthInfo, dayOfWeekUtc, addDays } from './admin-date';
 import { SLOT_OCCUPYING_STATUSES } from './booking-status';
 import type { CancelPolicy } from './cancel-fee';
 import { isCardBookingReady } from './facility-publish-gate';
@@ -696,11 +697,11 @@ export async function getAvailableFacilityIds(
     .select(BOOKING_READINESS_COLS)
     .in('id', facilityIds);
   if (cardsError) return null;
-  const openWindows = new Map<string, { start: number; end: number }>();
+  const openWindows = new Map<string, MinuteWindow[]>();
   for (const card of (cards || []) as unknown as ReadinessCard[]) {
     if (!isCardBookingReady(card)) continue;
-    const openWindow = facilityOpenWindow(card.business_hours, dayOfWeek);
-    if (openWindow) openWindows.set(card.id, openWindow);
+    const windows = businessWindows(card.business_hours, dayOfWeek);
+    if (windows.length > 0) openWindows.set(card.id, windows);
   }
   if (openWindows.size === 0) return new Set();
   const bookableIds = [...openWindows.keys()];
@@ -779,8 +780,8 @@ export async function getAvailableFacilityIds(
   const serviceRoleSupabase = createServiceRoleClient();
   const { data: bookings, error: bookingsError } = await serviceRoleSupabase
     .from('bookings')
-    .select('staff_id, start_time, end_time')
-    .eq('booking_date', dateStr)
+    .select('staff_id, booking_date, start_time, end_time')
+    .in('booking_date', [addDays(dateStr, -1), dateStr, addDays(dateStr, 1)])
     // 枠を占有する全状態（pending/confirmed/arrived/completed）。arrived（来店中）/ completed
     // （同日施術済）を取りこぼすと、その枠を「空きあり」と過大表示し RPC の実占有と乖離する。
     .in('status', SLOT_OCCUPYING_STATUSES)
@@ -788,11 +789,12 @@ export async function getAvailableFacilityIds(
   // 予約を読めないと、満席の枠を空きありと出してしまう。
   if (bookingsError) return null;
 
-  const staffBookings = new Map<string, { start: string; end: string }[]>();
+  const staffBookings = new Map<string, { start: number; end: number }[]>();
   for (const b of bookings || []) {
     if (!b.staff_id) continue;
     const list = staffBookings.get(b.staff_id) || [];
-    list.push({ start: b.start_time, end: b.end_time });
+    const offset = b.booking_date ? (Date.parse(b.booking_date) - Date.parse(dateStr)) / 60_000 : 0;
+    list.push({ start: offset + timeToMinutes(b.start_time), end: offset + timeToMinutes(b.end_time) });
     staffBookings.set(b.staff_id, list);
   }
 
@@ -830,15 +832,15 @@ export async function getAvailableFacilityIds(
     // はみ出していても、その部分は予約枠にならない）。
     // 【2026年7月9日 恒久根治】時間帯の指定は、その時間帯の空きだけを見る（午前が満枠・午後が空きの
     // スタッフを午前の検索で「空きあり」にしない）。今は「その時間帯に始まる枠」で判定する。
-    const bookable = hasBookableSlot({
-      workStart: Math.max(timeToMinutes(workStart), open.start),
-      workEnd: Math.min(timeToMinutes(workEnd), open.end),
+    const bookable = open.some(window => hasBookableSlot({
+      workStart: Math.max(timeToMinutes(workStart), window.start),
+      workEnd: Math.min(timeToMinutes(workEnd), window.end),
       duration: shortestMenu.get(facilityId) ?? MENU_DURATION_FALLBACK_MINUTES,
       buffer: bufferMinutes.get(facilityId) ?? 0,
-      bookings: (staffBookings.get(staffId) || []).map((b) => ({ start: timeToMinutes(b.start), end: timeToMinutes(b.end) })),
+      bookings: staffBookings.get(staffId) || [],
       notAfterSeconds,
       startWindow,
-    });
+    }));
     if (bookable) availableFacilities.add(facilityId);
   }
 

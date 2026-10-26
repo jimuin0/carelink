@@ -4,6 +4,11 @@ This is an isolated migration experiment. The production Vercel project, domain,
 root package.json/package-lock.json, database, cron and provider credentials are
 unchanged. Do not merge or promote this branch as a production migration.
 
+The application base is the published main commit `2ecc6dc4a5eb247cf7ea2be39e473d86d71cd9ac`.
+The canonical schema-fingerprint workflow also runs on this staging branch, so
+the period-aware business-hours migration and its real disposable-DB fixtures
+are checked alongside the Workers browser suite.
+
 ## Reproduce
 
 Run `node scripts/prepare-cloudflare-staging.mjs` from the repository root. It

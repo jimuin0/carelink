@@ -44,7 +44,7 @@ describe('validateHoursForm', () => {
 
   test('閉店が開店以前なら保存させない', () => {
     const hours = filled(); hours.mon = { open: '19:00', close: '19:00' };
-    expect(validateHoursForm(hours, [])).toEqual({ ok: false, message: '月曜日の閉店時間は開店時間より後にしてください' });
+    expect(validateHoursForm(hours, [])).toEqual({ ok: false, message: '月曜日の開始と終了は別の時刻にしてください。終日営業は00:00〜24:00です' });
   });
 
   test('全曜日を休みにはできない', () => {
@@ -70,4 +70,22 @@ describe('copyFirstHoursToOpenDays', () => {
     const hours = blank(); delete hours.mon;
     expect(copyFirstHoursToOpenDays(hours, [])).toBeNull();
   });
+});
+
+test('split periods survive load, save and copy without sharing mutable periods', () => {
+  const split = { open: '09:00', close: '12:30', periods: [{ open: '09:00', close: '12:30' }, { open: '15:00', close: '18:20' }] };
+  const draft = initialHoursForm({ mon: split });
+  expect(draft.hours.mon).toEqual(split);
+  expect(validateHoursForm(draft.hours, DAYS.filter(day => day !== 'mon'))).toMatchObject({ ok: true, value: { mon: split } });
+  const copy = copyFirstHoursToOpenDays(draft.hours, []);
+  expect(copy?.tue).toEqual(split);
+  expect(copy?.tue.periods).not.toBe(split.periods);
+  expect(copy?.tue.periods?.[0]).not.toBe(split.periods[0]);
+});
+
+test('overlap after midnight is rejected and daily night opening is accepted', () => {
+  const hours = Object.fromEntries(DAYS.map(day => [day, { open: '18:00', close: '05:00' }]));
+  expect(validateHoursForm(hours, [])).toMatchObject({ ok: true });
+  hours.tue = { open: '04:00', close: '12:00' };
+  expect(validateHoursForm(hours, [])).toMatchObject({ ok: false, message: expect.stringContaining('重複') });
 });

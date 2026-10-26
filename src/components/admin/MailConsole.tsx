@@ -7,7 +7,7 @@ import Modal from '@/components/Modal';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { inquiryListRow, inquiryCursor } from '@/lib/admin-inquiry-list-contract';
 import { PLATFORM_MAIL_FROM, PLATFORM_MAIL_REPLY_TO, buildPlatformMailEnvelope, mailJapanTime, mailTimeLabel,
-  platformMailRecordSchema, platformMailContactSchema, mailReplySummarySchema, mailThreadSchema, mailDisplayName, mailReplyLabels, mailHasFailed, type MailThread, type PlatformMailRecord, type PlatformMailDraft, type PlatformMailContact } from '@/lib/platform-mail-contract';
+  platformMailRecordSchema, platformMailStatusSchema, platformMailContactSchema, mailReplySummarySchema, mailThreadSchema, mailDisplayName, mailReplyLabels, mailHasFailed, type MailThread, type PlatformMailRecord, type PlatformMailDraft, type PlatformMailContact } from '@/lib/platform-mail-contract';
 
 type Folder = 'inbox' | 'draft' | 'scheduled' | 'sent' | 'pending' | 'failed';
 const folders: { id: Folder; label: string }[] = [
@@ -21,6 +21,9 @@ const labels: Record<PlatformMailRecord['state'], string> = { draft: '下書き'
 const deliveryLabels: Record<string, string> = { accepted: '送信受付済み', scheduled: '送信待ち', sent: '送信済み', delivered: '配信完了', delayed: '配信に遅れがあります', bounced: '宛先へ届けられませんでした', complained: '迷惑メールの報告あり', cancelled: '取り消し済み', failed: '配信失敗' };
 const listSchema = z.object({ messages: z.array(platformMailRecordSchema), nextCursor: z.object({ at: z.string(), id: z.uuid() }).nullable() });
 const replySchema = z.object({ mail: platformMailRecordSchema, warning: z.string().optional(), providerId: z.uuid().optional() });
+const syncSchema = z.object({ checked: z.number().int().nonnegative(), unconfirmed: z.number().int().nonnegative(), remaining: z.boolean(), nextCursor: z.object({ at: z.iso.datetime({ offset: true }), id: z.uuid() }).nullable(), observations: z.array(platformMailStatusSchema).max(2) });
+const syncWarnings = ['一部の配信状況は未確認です。「一覧を更新」で再確認できます。', '最新の配信状況を確認できませんでした。保存済みの情報を表示します。'];
+type SyncOutcome = { forbidden: boolean; warning: string | null; observations: z.infer<typeof syncSchema>['observations'] };
 const inputClass = 'form-input w-full min-w-0';
 const errorMessage = (error: unknown, fallback: string) => error instanceof Error && !(error instanceof TypeError) && !(error instanceof z.ZodError) ? error.message : fallback;
 const fromRecord = (mail: PlatformMailRecord): PlatformMailDraft => ({ id: mail.id, revision: mail.revision, contactId: mail.contact_id,
@@ -50,6 +53,8 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
   const [providerId, setProviderId] = useState<string | undefined>();
   const requestSequence = useRef(0);
   const selectionSequence = useRef(0);
+  const statusSync = useRef<{ generation: number; promise: Promise<SyncOutcome> } | null>(null);
+  const syncCursor = useRef<z.infer<typeof syncSchema>['nextCursor']>(null);
   const dirty = composer !== null && JSON.stringify(composer) !== saved;
 
   useEffect(() => {
@@ -59,10 +64,39 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
     return () => window.removeEventListener('beforeunload', guard);
   }, [dirty]);
 
+  const synchronize = useCallback((): Promise<SyncOutcome> => {
+    // One inspection per explicit reload, shared by list and selected history.
+    // Advance even past unconfirmed records so they cannot starve later mail.
+    if (statusSync.current?.generation !== refresh) {
+      const promise = fetch('/api/admin/mail', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sync', cursor: syncCursor.current }), signal: AbortSignal.timeout(40000) })
+        .then(async response => {
+          if (response.status === 401 || response.status === 403) return { forbidden: true, warning: null, observations: [] };
+          if (!response.ok) throw new Error('status unavailable');
+          const result = syncSchema.parse(await response.json());
+          if (statusSync.current?.generation === refresh) syncCursor.current = result.nextCursor;
+          return { forbidden: false, warning: result.unconfirmed > 0 || result.remaining ? syncWarnings[0] : null, observations: result.observations };
+        }).catch(() => ({ forbidden: false, warning: syncWarnings[1], observations: [] }));
+      statusSync.current = { generation: refresh, promise };
+    }
+    return statusSync.current.promise;
+  }, [refresh]);
+
   const load = useCallback(async (after: unknown = null) => {
     const sequence = ++requestSequence.current;
     setLoading(true); setLoadError(false);
     try {
+      if (after === null) {
+        const result = await synchronize();
+        if (sequence !== requestSequence.current) return;
+        if (result.forbidden) { setForbidden(true); setContacts([]); setMessages([]); return; }
+        if (result.warning) setNotice(result.warning);
+        else setNotice(current => syncWarnings.includes(current) ? '' : current);
+        setMail(current => {
+          const observed = result.observations.find(item => item.id === current?.id);
+          return current && current.state !== 'draft' && observed && observed.revision >= current.revision ? { ...current, ...observed } : current;
+        });
+      }
       const query = new URLSearchParams({ folder });
       if (after !== null) query.set('cursor', JSON.stringify(after));
       const response = await fetch('/api/admin/mail?' + query, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
@@ -83,7 +117,7 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
       setForbidden(false);
     } catch { if (sequence === requestSequence.current) setLoadError(true); }
     finally { if (sequence === requestSequence.current) setLoading(false); }
-  }, [folder]);
+  }, [folder, synchronize]);
 
   useEffect(() => {
     let active = true;
@@ -113,6 +147,9 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
       setThread(null); setThreadError(false); setThreadLoading(threadId !== null);
       if (threadId === null) return;
       try {
+        const synced = await synchronize();
+        if (!active) return;
+        if (synced.forbidden) throw new Error('thread unauthorized');
         const response = await fetch('/api/admin/mail?contactId=' + encodeURIComponent(threadId), { cache: 'no-store', signal: AbortSignal.timeout(15000) });
         if (!response.ok) throw new Error('thread unavailable');
         const result = mailThreadSchema.parse(await response.json());
@@ -122,7 +159,7 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
       finally { if (active) setThreadLoading(false); }
     });
     return () => { active = false; };
-  }, [threadId, refresh]);
+  }, [threadId, synchronize]);
 
   const navigate = (action: () => void) => {
     if (busy) return;

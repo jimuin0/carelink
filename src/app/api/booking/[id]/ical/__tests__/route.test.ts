@@ -498,3 +498,13 @@ test.each([true, false])('booking read error with data=%s cannot disclose calend
   expect(text).not.toContain('private-db-diagnostic');
   expect(text).not.toContain('BEGIN:VCALENDAR');
 });
+
+test.each(['24:00', '24:00:00'])('iCal API normalizes midnight %s across a month boundary', async end => {
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  createServiceRoleClient.mockReturnValue({from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:{id:BOOKING_UUID,user_id:'user-123',booking_date:'2030-01-31',start_time:'23:00:00',end_time:end}})})})})});
+  const response=await GET(makeRequest() as any,{params:Promise.resolve({id:BOOKING_UUID})});
+  expect(response.status).toBe(200);const calendar=await response.text();
+  expect(calendar).toContain('DTSTART;TZID=Asia/Tokyo:20300131T230000');
+  expect(calendar).toContain('DTEND;TZID=Asia/Tokyo:20300201T000000');
+  expect(calendar).not.toContain('T240000');
+});

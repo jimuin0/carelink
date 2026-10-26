@@ -19,7 +19,7 @@ name: schema-fingerprint
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/cloudflare-staging]
   pull_request:
     branches: [main]
 
@@ -106,6 +106,9 @@ jobs:
 
       - name: Fingerprint literal changes and service-only ACL (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/fingerprint-literal-fixtures.sql
+
+      - name: Business periods, overnight and 24-hour slots (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/business-periods-fixtures.sql
 
       - name: Complete points ledger and owner-scoped aggregate (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/points-balance-read-fixtures.sql

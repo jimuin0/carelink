@@ -246,6 +246,22 @@ jobs:
           Acquire::https::Timeout "15";
           DPkg::Lock::Timeout "60";
           EOF
+          # Azure's regional Ubuntu mirror repeatedly stalled package downloads
+          # on fresh runners. Use the official archive with the same suites and
+          # signing keys; keep dependency validation and the bounded retries.
+          sudo python3 - <<'PYTHON'
+          from pathlib import Path
+          source_dir = Path('/etc/apt/sources.list.d')
+          sources = [Path('/etc/apt/sources.list'), *source_dir.glob('*.sources'), *source_dir.glob('*.list')]
+          for source in sources:
+              if not source.exists():
+                  continue
+              original = source.read_text()
+              updated = original.replace('http://azure.archive.ubuntu.com', 'https://archive.ubuntu.com').replace('https://azure.archive.ubuntu.com', 'https://archive.ubuntu.com')
+              if updated != original:
+                  source.write_text(updated)
+                  print('Using official Ubuntu archive:', source.name)
+          PYTHON
           dependencies_installed=0
           for attempt in 1 2 3; do
             if sudo timeout --kill-after=15s 180 "$playwright_node" "$playwright_cli" install-deps chromium webkit; then

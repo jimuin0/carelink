@@ -160,9 +160,16 @@ test('two-store operator keeps explicit store through dashboard, today bookings 
   if (bookings.error) throw new Error(`Disposable bookings setup failed (${bookings.error.code})`);
   await login(page, actor);
   for (const path of ['/admin', '/admin/menus', '/admin/staff', '/admin/analytics']) {
-    await page.goto(`${path}?facility_id=${second}`);
-    await expect(page.getByRole('region', { name: '編集する店舗' }).getByRole('link', { name: `${names.b}（選択中）`, exact: true })).toHaveAttribute('aria-current', 'page');
-    expect(new URL(page.url()).searchParams.get('facility_id')).toBe(second);
+    await test.step(`selected store persists on ${path}`, async () => {
+      const document = await page.goto(`${path}?facility_id=${second}`);
+      expect(document?.ok()).toBe(true);
+      // WebKit can fire load while Next still streams the loading fallback.
+      // Wait for that actual document body to finish, then keep the same DOM
+      // assertion and timeout. A successful header alone is not readiness.
+      expect(await document!.finished()).toBeNull();
+      await expect(page.getByRole('region', { name: '編集する店舗' }).getByRole('link', { name: `${names.b}（選択中）`, exact: true })).toHaveAttribute('aria-current', 'page');
+      expect(new URL(page.url()).searchParams.get('facility_id')).toBe(second);
+    });
   }
   await page.goto(`/admin?facility_id=${second}`);
   const todayLink = page.getByRole('link', { name: /本日の予約一覧/ });
