@@ -62,6 +62,8 @@ test('owner saves, reloads and publishes split, night, early and all-day hours i
   const visitor = await browser.newContext();
   try {
     const publicPage = await visitor.newPage(); await publicPage.goto(`/facility/${slug}`);
+    await publicPage.getByRole('button', { name: '必須のみ', exact: true }).click();
+    await publicPage.getByRole('tab', { name: 'アクセス', exact: true }).click();
     await expect(publicPage.getByText('09:00 〜 12:30 ／ 15:00 〜 18:20', { exact: true }).first()).toBeVisible();
     const structured = await publicPage.locator('script[type="application/ld+json"]').allTextContents();
     expect(structured.join('')).toContain('15:00');
