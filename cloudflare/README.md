@@ -105,6 +105,9 @@ https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/c
 
 ## Hosted verification boundary
 
+See [STATUS.md](STATUS.md) for the latest deployed commit, exact verification
+results and the remaining human database-creation step.
+
 The synthetic Worker is available at
 https://carelink-staging.tokuhal-jimuin0.workers.dev. Missing DB/mail/cron
 dependencies deliberately produce health 503; this is not full application
