@@ -31,6 +31,7 @@ export const platformMailRecordSchema = z.object({
   created_at: z.iso.datetime({ offset: true }), updated_at: z.iso.datetime({ offset: true }),
 }).strip();
 export type PlatformMailRecord = z.infer<typeof platformMailRecordSchema>;
+export const platformMailStatusSchema = platformMailRecordSchema.pick({ id: true, revision: true, state: true, delivery_status: true, updated_at: true });
 export type PlatformMailDraft = z.infer<typeof platformMailDraftSchema>;
 export type PlatformMailEnvelope = z.infer<typeof platformMailEnvelopeSchema>;
 

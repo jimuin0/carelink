@@ -34,6 +34,8 @@ test('operator saves a durable draft; stale edits and unavailable transport pres
     await page.getByRole('button', { name: 'ログイン', exact: true }).click();
     await page.waitForURL('**/admin/mail');
     await expect(page.getByRole('heading', { name: 'メール', exact: true })).toBeVisible();
+    const checked = await page.request.post('/api/admin/mail', { headers, data: { action: 'sync', cursor: { at: '2099-01-01T00:00:00Z', id: randomUUID() } } });
+    expect(checked.status()).toBe(200); expect(await checked.json()).toEqual({ checked: 0, unconfirmed: 0, remaining: false, nextCursor: null, observations: [] });
     await page.getByRole('button', { name: /新規作成/ }).click();
     await page.getByLabel('宛先', { exact: true }).fill('synthetic-recipient@example.invalid');
     await page.getByLabel('件名', { exact: true }).fill(subject);

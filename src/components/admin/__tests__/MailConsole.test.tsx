@@ -14,16 +14,16 @@ const mockFetch = jest.fn();
 const mockSync = jest.fn();
 let records: typeof base[], commands: Record<string, unknown>[];
 let saveFailure = false, unknown = false, mismatch = false;
-const response = (body: unknown, status = 200): { ok: boolean; status: number; json: () => Promise<unknown>; clone: () => ReturnType<typeof response> } => ({ ok: status >= 200 && status < 300, status, json: async () => body, clone: () => response(body, status) });
+const response = (body: unknown, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 beforeEach(() => {
   records = []; commands = []; saveFailure = false; unknown = false; mismatch = false;
-  mockSync.mockReset().mockResolvedValue(response({ checked: 0, unconfirmed: 0, remaining: false }));
+  mockSync.mockReset().mockResolvedValue(response({ checked: 0, unconfirmed: 0, remaining: false, nextCursor: null, observations: [] }));
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: mockFetch });
   mockFetch.mockReset().mockImplementation(async (url: string, init?: RequestInit) => {
     if (!init?.method) {
       if (url.includes('contactId=')) return response({ contact, messages: records.filter(item => item.contact_id === id), replies: [] });
-      if (url.includes('folder=inbox')) return response({ contacts: [{ ...contact, replySummary: { replied: false, draft: false, scheduled: false, pending: false, failed: false } }], nextCursor: null });
-      return response({ messages: records, nextCursor: null });
+      if (url.includes('folder=inbox')) return response({ contacts: [{ ...contact, replySummary: { replied: false, draft: false, scheduled: false, pending: false, failed: false } }], nextCursor: null, observations: [] });
+      return response({ messages: records, nextCursor: null, observations: [] });
     }
     const command = JSON.parse(init.body as string);
     if (command.action === 'sync') return mockSync();
@@ -132,7 +132,7 @@ test('compact inbox exposes readable reply flags, Japan timestamp and display-on
   const implementation = mockFetch.getMockImplementation()!;
   const summary = { replied: true, draft: true, scheduled: true, pending: true, failed: true };
   mockFetch.mockImplementation((url: string, init?: RequestInit) => url.includes('folder=inbox')
-    ? response({ contacts: [{ ...contact, name: '　山田　　太郎  ', replySummary: summary }], nextCursor: null }) : implementation(url, init));
+    ? response({ contacts: [{ ...contact, name: '　山田　　太郎  ', replySummary: summary }], nextCursor: null, observations: [] }) : implementation(url, init));
   render(<MailConsole />); const row = await screen.findByRole('button', { name: /山田　太郎/ });
   expect(row).toHaveTextContent('掲載について'); expect(row).toHaveTextContent(contact.message);
   for (const label of ['返信済み', '下書きあり', '予約中', '送信結果不明', '送信失敗']) expect(within(row).getByText(label)).toBeInTheDocument();
@@ -182,7 +182,7 @@ test('mount and manual reload inspect delivery before reading the inbox without 
   fireEvent.click(screen.getByRole('button', { name: '一覧を更新' })); await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(screen.getByRole('button', { name: '一覧を更新' })).toBeEnabled()); expect(commands).toHaveLength(0);
 });
-test.each([{ checked: 0, unconfirmed: 1, remaining: false }, { checked: 3, unconfirmed: 0, remaining: true }])('unconfirmed status and bounded backlog are visible: %j', async result => {
+test.each([{ checked: 0, unconfirmed: 1, remaining: false, nextCursor: null, observations: [] }, { checked: 3, unconfirmed: 0, remaining: true, nextCursor: { at, id }, observations: [] }])('unconfirmed status and bounded backlog are visible: %j', async result => {
   mockSync.mockResolvedValue(response(result)); await ready(); expect(screen.getByText('一部の配信状況は未確認です。「一覧を更新」で再確認できます。')).toBeInTheDocument();
 });
 test.each([response({}, 503), response({})])('failed status inspection preserves the inbox with an explicit warning', async result => {
@@ -196,7 +196,7 @@ test('late delivery inspection cannot resurrect an unmounted mailbox', async () 
   let resolve!: (value: unknown) => void; const pending = new Promise(done => { resolve = done; });
   mockSync.mockReturnValue(pending); const view = render(<MailConsole />);
   await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1)); view.unmount();
-  await act(async () => { resolve(response({ checked: 0, unconfirmed: 0, remaining: false })); await pending; });
+  await act(async () => { resolve(response({ checked: 0, unconfirmed: 0, remaining: false, nextCursor: null, observations: [] })); await pending; });
   expect(mockFetch.mock.calls.some(([url, init]) => !init?.method && String(url).includes('folder='))).toBe(false);
 });
 test('a failed inspection after unmount cannot leak a stale notice', async () => {
@@ -205,4 +205,77 @@ test('a failed inspection after unmount cannot leak a stale notice', async () =>
   await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1)); view.unmount();
   await act(async () => { reject(new Error('closed')); await pending.catch(() => {}); });
   expect(screen.queryByRole('status')).not.toBeInTheDocument();
+});
+
+test('unconfirmed rows advance the next manual check and a successful check clears only the stale warning', async () => {
+  mockSync.mockResolvedValueOnce(response({ checked: 0, unconfirmed: 2, remaining: true, nextCursor: { at, id }, observations: [] }));
+  await ready(); expect(screen.getByText(/一部の配信状況は未確認/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '一覧を更新' }));
+  await waitFor(() => expect(screen.queryByText(/一部の配信状況は未確認/)).not.toBeInTheDocument());
+  const syncRequests = mockFetch.mock.calls.filter(([, init]) => init?.body && JSON.parse(init.body).action === 'sync');
+  expect(JSON.parse(syncRequests[1][1].body).cursor).toEqual({ at, id });
+});
+test('selected reply history waits for delivery inspection, then reads the confirmed state', async () => {
+  records = [{ ...base, state: 'scheduled', delivery_status: 'scheduled', contact_id: id }];
+  await ready(); fireEvent.click(screen.getByRole('button', { name: /合成問い合わせ/ }));
+  const history = await screen.findByRole('region', { name: 'お問い合わせと返信の履歴' });
+  expect(within(history).getByText('送信予約済み')).toBeInTheDocument();
+  let resolve!: (value: unknown) => void; const pending = new Promise(done => { resolve = done; }); mockSync.mockReturnValueOnce(pending);
+  mockFetch.mockClear(); fireEvent.click(screen.getByRole('button', { name: '一覧を更新' }));
+  await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(2));
+  expect(mockFetch.mock.calls.some(([url]) => String(url).includes('contactId='))).toBe(false);
+  await act(async () => { records = [{ ...records[0], state: 'sent', delivery_status: 'delivered' }]; resolve(response({ checked: 1, unconfirmed: 0, remaining: false, nextCursor: null, observations: [] })); await pending; });
+  await waitFor(() => expect(within(screen.getByRole('region', { name: 'お問い合わせと返信の履歴' })).getByText('ご案内・配信完了', { exact: true })).toBeInTheDocument());
+  expect(mockSync).toHaveBeenCalledTimes(2); expect(commands).toHaveLength(0);
+});
+
+test('confirmed status updates the selected frozen mail without a stale folder row replacing it', async () => {
+  records = [{ ...base, state: 'scheduled', delivery_status: 'scheduled' }];
+  await ready(); fireEvent.click(screen.getByRole('button', { name: '送信予約', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /ご案内.*synthetic/ }));
+  mockSync.mockResolvedValueOnce(response({ checked: 1, unconfirmed: 0, remaining: false, nextCursor: null,
+    observations: [{ id, revision: 2, state: 'sent', delivery_status: 'delivered', updated_at: at }] }));
+  fireEvent.click(screen.getByRole('button', { name: '一覧を更新' }));
+  await waitFor(() => expect(within(screen.getByRole('region', { name: 'メールの内容' })).getByText('配信完了')).toBeInTheDocument());
+  expect(screen.queryByRole('button', { name: '予約を取り消す' })).not.toBeInTheDocument();
+});
+test('an older status cannot downgrade a newer selected record', async () => {
+  records = [{ ...base, revision: 3, state: 'sent', delivery_status: 'delivered' }];
+  await ready(); fireEvent.click(screen.getByRole('button', { name: '送信済み', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /ご案内.*synthetic/ }));
+  mockSync.mockResolvedValueOnce(response({ checked: 1, unconfirmed: 0, remaining: false, nextCursor: null,
+    observations: [{ id, revision: 2, state: 'scheduled', delivery_status: 'scheduled', updated_at: at }] }));
+  fireEvent.click(screen.getByRole('button', { name: '一覧を更新' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: '一覧を更新' })).toBeEnabled());
+  expect(within(screen.getByRole('region', { name: 'メールの内容' })).getByText('配信完了')).toBeInTheDocument();
+});
+test('a status receipt cannot overwrite an editable draft or unsaved text', async () => {
+  await ready(); await fill(); fireEvent.click(screen.getByRole('button', { name: '下書き保存' })); await screen.findByText('下書きを保存しました。');
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '未保存の本文' } });
+  mockSync.mockResolvedValueOnce(response({ checked: 1, unconfirmed: 0, remaining: false, nextCursor: null,
+    observations: [{ id: records[0].id, revision: records[0].revision + 1, state: 'sent', delivery_status: 'delivered', updated_at: at }] }));
+  fireEvent.click(screen.getByRole('button', { name: '一覧を更新' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: '一覧を更新' })).toBeEnabled());
+  expect(screen.getByLabelText('本文')).toHaveValue('未保存の本文'); expect(commands.filter(command => command.action === 'send')).toHaveLength(0);
+});
+test('late synchronization from an older folder cannot replace the current check cursor', async () => {
+  let resolve!: (value: unknown) => void; const pending = new Promise(done => { resolve = done; });
+  mockSync.mockReturnValueOnce(pending); render(<MailConsole />);
+  await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1)); fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));
+  await screen.findByText('メールはありません。');
+  await act(async () => { resolve(response({ checked: 0, unconfirmed: 2, remaining: true, nextCursor: { at, id }, observations: [] })); await pending; });
+  fireEvent.click(screen.getByRole('button', { name: '受信トレイ', exact: true })); await screen.findByRole('button', { name: /合成問い合わせ/ });
+  const syncRequests = mockFetch.mock.calls.filter(([, init]) => init?.body && JSON.parse(init.body).action === 'sync');
+  expect(JSON.parse(syncRequests[syncRequests.length - 1][1].body).cursor).toBeNull();
+});
+test('revoked access during a selected history refresh cannot reveal history', async () => {
+  await ready(); fireEvent.click(screen.getByRole('button', { name: /合成問い合わせ/ })); await screen.findByRole('region', { name: 'お問い合わせと返信の履歴' });
+  mockSync.mockResolvedValueOnce(response({}, 403)); fireEvent.click(screen.getByRole('button', { name: '一覧を更新' }));
+  await screen.findByText('運営アカウントでログインしてください'); expect(screen.queryByRole('region', { name: 'お問い合わせと返信の履歴' })).not.toBeInTheDocument();
+});
+
+test('a confirmed status without a selected mail does not open a message', async () => {
+  mockSync.mockResolvedValueOnce(response({ checked: 1, unconfirmed: 0, remaining: false, nextCursor: null,
+    observations: [{ id, revision: 2, state: 'sent', delivery_status: 'delivered', updated_at: at }] }));
+  await ready(); expect(screen.queryByRole('region', { name: 'メールの内容' })).not.toBeInTheDocument(); expect(commands).toHaveLength(0);
 });
