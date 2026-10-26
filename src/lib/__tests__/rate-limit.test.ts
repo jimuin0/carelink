@@ -137,6 +137,29 @@ describe('checkRateLimit', () => {
     (createServiceRoleClient as jest.Mock).mockReset();
   });
 
+  test.each(['rpc-result', 'rpc-rejection', 'client-error', 'client-string'])(
+    '障害本文を記録せず制限を継続する: %s', async mode => {
+      const privateMarker = 'synthetic-private-rate-limit-body';
+      (createServiceRoleClient as jest.Mock).mockImplementation(() => {
+        if (mode === 'client-error') throw new Error(privateMarker);
+        if (mode === 'client-string') throw privateMarker;
+        return { rpc: mode === 'rpc-result'
+          ? jest.fn().mockResolvedValue({ data: null, error: { message: privateMarker } })
+          : jest.fn().mockRejectedValue(new Error(privateMarker)) };
+      });
+      const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const prefix = `rl:privacy:${mode}`;
+        expect(await checkRateLimit(null, 'synthetic-client', 1, 60_000, prefix)).toBe(false);
+        expect(await checkRateLimit(null, 'synthetic-client', 1, 60_000, prefix)).toBe(true);
+        expect(log.mock.calls).toEqual(Array.from({ length: 2 }, () => [
+          '[rate-limit] Supabase RPC failure, falling back to in-memory:', 'dependency_failure',
+        ]));
+        expect(JSON.stringify(log.mock.calls)).not.toContain(privateMarker);
+      } finally { log.mockRestore(); }
+    },
+  );
+
   test('returns true when Supabase RPC returns true', async () => {
     (createServiceRoleClient as jest.Mock).mockReturnValue({
       rpc: jest.fn().mockResolvedValue({ data: true, error: null }),

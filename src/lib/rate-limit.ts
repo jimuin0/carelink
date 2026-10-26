@@ -115,13 +115,13 @@ export async function checkRateLimit(
     }));
     if (error) throw new Error(error.message);
     return data === true;
-  } catch (e) {
+  } catch {
     // Supabase RPC が落ちている / 未マイグレ / 接続失敗等の場合、
     // 例外を伝播させると API ルート全体が 500 になるため
     // in-memory フォールバックに切り替える（fail-safe）
     console.error(
       `[rate-limit] Supabase RPC failure, falling back to in-memory:`,
-      e instanceof Error ? e.message : String(e)
+      'dependency_failure'
     );
     return inMemoryRateLimit(ip, fallbackLimit, fallbackWindowMs, prefix);
   }
