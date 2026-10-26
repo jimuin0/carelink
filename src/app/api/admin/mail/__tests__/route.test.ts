@@ -15,6 +15,11 @@ let mockList: { data: unknown; error: unknown };
 let mockContact: { data: unknown; error: unknown };
 let mockRows: Record<string, unknown>;
 let mockQueue: { data: unknown; error: unknown }[];
+const mockInbox = jest.fn();
+const mockEvidence = jest.fn();
+const mockThread = jest.fn();
+jest.mock('@/lib/admin-inquiry-list', () => ({ readAdminInquiryList: (...args: unknown[]) => mockInbox(...args) }));
+jest.mock('@/lib/platform-mail-read', () => ({ readMailReplyEvidence: (...args: unknown[]) => mockEvidence(...args), readMailThread: (...args: unknown[]) => mockThread(...args) }));
 const mockRpc = jest.fn();
 const mockAudit = jest.fn();
 const mockProvider = jest.fn();
@@ -56,6 +61,9 @@ beforeEach(() => {
     observe: { ...base, state: 'sent', envelope, reserved_at: at, provider_message_id: other, accepted_at: at, delivery_status: 'accepted' },
     cancel: { ...base, state: 'cancelling', envelope, reserved_at: at, provider_message_id: other, accepted_at: at } };
   mockQueue = [];
+  mockInbox.mockResolvedValue({ state: 'confirmed', contacts: [mockContact.data], nextCursor: null });
+  mockEvidence.mockResolvedValue({ messages: [], replies: [] });
+  mockThread.mockResolvedValue({ messages: [], replies: [] });
   mockRpc.mockImplementation((_name: string, args: { p_action: string }) => mockBuilder(() => mockQueue.length ? mockQueue.shift() : { data: mockRows[args.p_action], error: null }));
   mockProvider.mockReturnValue({ opaque: 'synthetic-provider' });
   mockDispatch.mockResolvedValue({ state: 'accepted', id: other });
@@ -169,3 +177,29 @@ test.each(['GET', 'POST'])('unexpected dependency exceptions are safely caught: 
 });
 test('read errors before sending cannot dispatch', async () => { mockQueue = [{ data: null, error: { code: 'P0002' } }]; expect((await call({ action: 'send', id, revision: 1 })).status).toBe(404); expect(mockDispatch).not.toHaveBeenCalled(); });
 test('all result paths keep no-store headers', async () => { const result = await call({ action: 'save', draft }); expect(result).toBeInstanceOf(NextResponse); expect(result.headers.get('Cache-Control')).toBe('no-store'); });
+
+test('inbox links both stores without using ticket closure as a reply', async () => {
+  mockEvidence.mockResolvedValue({ messages: [{ ...base, contact_id: other, state: 'draft' }], replies: [] });
+  const result = await read('?folder=inbox');
+  expect((await result.json()).contacts[0].replySummary).toEqual({ replied: false, draft: true, pending: false, scheduled: false, failed: false });
+  expect(mockEvidence).toHaveBeenCalledWith(mockDb, [other]); expect(mockDispatch).not.toHaveBeenCalled();
+});
+test('inbox passes a validated contact cursor, rejecting malformed cursors', async () => {
+  const cursor = { id, createdAt: at };
+  expect((await read('?folder=inbox&cursor=' + encodeURIComponent(JSON.stringify(cursor)))).status).toBe(200);
+  expect(mockInbox).toHaveBeenCalledWith(mockDb, { status: 'all', cursor });
+  for (const value of ['bad', '{}']) expect((await read('?folder=inbox&cursor=' + encodeURIComponent(value))).status).toBe(400);
+});
+test('inbox joins only matching inquiry evidence', async () => {
+  mockEvidence.mockResolvedValue({ messages: [{ ...base, contact_id: id, state: 'sent' }], replies: [{ contact_id: other, is_internal: false, sent_at: at }] });
+  expect((await (await read('?folder=inbox')).json()).contacts[0].replySummary.replied).toBe(true);
+});
+test('inbox or history failure never fabricates an unreplied row', async () => {
+  mockInbox.mockResolvedValueOnce({ state: 'unavailable' }); expect((await read('?folder=inbox')).status).toBe(500);
+  mockEvidence.mockRejectedValueOnce(new Error('private')); expect((await read('?folder=inbox')).status).toBe(500);
+  mockThread.mockRejectedValueOnce(new Error('private')); const result = await read('?contactId=' + other); expect(result.status).toBe(500); expect(await result.text()).not.toContain('private');
+});
+test('failure folder filters delivery receipts, since failed mail retains sent state', async () => {
+  expect((await read('?folder=failed')).status).toBe(200);
+  expect(mockFilters.in).toHaveBeenCalledWith('delivery_status', ['failed', 'bounced']);
+});

@@ -126,3 +126,81 @@ test('atomic mailbox permissions, concurrent reservations and old inquiry compos
     expect((await db.auth.admin.deleteUser(person.id)).error).toBeNull(); expect((await db.auth.admin.deleteUser(ordinary.id)).error).toBeNull();
   }
 });
+
+test('compact inbox and unified history distinguish replies, drafts, queues and delivery on narrow and desktop widths', async ({ page }, info) => {
+  await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${230 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
+  const db = localDb(), person = await identity(db), marker = `合成一覧 ${randomUUID()}`;
+  const cases = ['未返信', '下書きあり', '予約中', '返信済み', '送信失敗', '送信結果不明', '旧返信', '配信完了'];
+  const ids = cases.map(() => randomUUID());
+  const receivedAt = new Date(Date.now() - 3600000).toISOString();
+  const mailIds: Record<string, string> = {};
+  const rpc = (id: string, action: string, values = {}) => db.rpc('manage_platform_mail_atomic', { p_actor_id: person.id, p_mail_id: id, p_action: action, p_values: values });
+  try {
+    expect((await db.from('contacts').insert(cases.map((label, index) => ({ id: ids[index], name: index === 0 ? '　山田　　太郎  ' : 'María  de la Cruz',
+      email: 'synthetic-inbox@example.invalid', inquiry_type: marker + ' ' + label, message: '合成問い合わせ本文 ' + label, created_at: receivedAt,
+      ticket_status: label === '未返信' ? 'closed' : 'open' })))).error).toBeNull();
+    for (const label of cases.filter(label => label !== '未返信')) {
+      const id = randomUUID(); mailIds[label] = id;
+      const scheduledAt = label === '予約中' ? new Date(Date.now() + 3600000).toISOString() : null;
+      const draft = { id, revision: 0, contactId: ids[cases.indexOf(label)], to: 'synthetic-inbox@example.invalid', subject: marker + ' ' + label, body: '合成返信本文 ' + label, scheduledAt };
+      expect((await rpc(id, 'save', draft)).error).toBeNull();
+      if (label === '下書きあり' || label === '旧返信') continue;
+      expect((await rpc(id, 'reserve', { revision: 1, envelope: { from: 'CareLink <support@carelink-jp.com>', replyTo: 'support@carelink-jp.com', to: draft.to,
+        subject: draft.subject, text: draft.body, ...(scheduledAt ? { scheduledAt } : {}) } })).error).toBeNull();
+      if (label === '送信結果不明') continue;
+      expect((await rpc(id, 'observe', { providerId: randomUUID(), event: label === '送信失敗' ? 'bounced' : label === '配信完了' ? 'delivered' : 'accepted' })).error).toBeNull();
+    }
+    expect((await db.from('contact_replies').insert([
+      { id: randomUUID(), contact_id: ids[0], author_id: person.id, author_name: '合成担当', body: '社内の記録は返信ではありません', is_internal: true, created_at: new Date(Date.now() - 1200000).toISOString() },
+      { id: randomUUID(), contact_id: ids[6], author_id: person.id, author_name: '合成担当', body: '旧画面から送信受付された合成返信', is_internal: false,
+        created_at: new Date(Date.now() - 1800000).toISOString(), sent_at: new Date(Date.now() - 1800000).toISOString() },
+    ])).error).toBeNull();
+    await page.goto('/auth/login?redirect=%2Fadmin%2Fmail');
+    await page.getByRole('button', { name: '必須のみ', exact: true }).click();
+    await page.getByLabel('メールアドレス', { exact: true }).fill(person.email);
+    await page.getByLabel('パスワード', { exact: true }).fill(person.password);
+    await page.getByRole('button', { name: 'ログイン', exact: true }).click(); await page.waitForURL('**/admin/mail');
+    const row = (label: string) => page.getByRole('region', { name: 'メール一覧', exact: true }).getByRole('button').filter({ hasText: marker + ' ' + label });
+    for (const label of cases) {
+      const expected = label === '旧返信' || label === '配信完了' ? '返信済み' : label;
+      await expect(row(label)).toContainText(expected);
+      if (['未返信', '下書きあり', '予約中', '送信失敗', '送信結果不明'].includes(label)) {
+        await expect(row(label)).toContainText('未返信'); await expect(row(label)).not.toContainText('返信済み');
+      }
+    }
+    await expect(row('旧返信')).toContainText('下書きあり');
+    await expect(row('未返信')).toContainText('山田　太郎');
+    expect((await db.from('contacts').select('name').eq('id', ids[0]).single()).data?.name).toBe('　山田　　太郎  ');
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      expect((await row('未返信').boundingBox())!.height).toBeLessThan(110);
+      await info.attach(`inbox-${width}`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+    }
+    await row('旧返信').click();
+    const history = page.getByRole('region', { name: 'お問い合わせと返信の履歴', exact: true });
+    await expect(history.getByRole('listitem')).toHaveCount(3);
+    await expect(history.getByRole('listitem').nth(0)).toContainText('合成問い合わせ本文 旧返信');
+    await expect(history.getByRole('listitem').nth(1)).toContainText('旧画面から送信受付された合成返信');
+    await expect(history.getByRole('listitem').nth(1)).toContainText('配信完了は未確認');
+    await expect(history.getByRole('listitem').nth(2)).toContainText('下書き');
+    await history.getByRole('button', { name: '下書きを編集', exact: true }).click();
+    await expect(page.getByLabel('本文', { exact: true })).toHaveValue('合成返信本文 旧返信');
+    await expect(history).toBeVisible();
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await info.attach(`thread-${width}`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+    }
+    await page.getByRole('button', { name: '送信エラー', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'メール一覧', exact: true }).getByRole('button').filter({ hasText: marker + ' 送信失敗' })).toContainText('宛先へ届けられませんでした');
+    const failed = await page.request.get('/api/admin/mail?folder=failed'); expect(failed.status()).toBe(200);
+    expect((await failed.json()).messages.map((mail: { id: string }) => mail.id)).toContain(mailIds['送信失敗']);
+    expect((await db.from('platform_mail').select('state,delivery_status').eq('id', mailIds['返信済み']).single()).data).toEqual({ state: 'sent', delivery_status: 'accepted' });
+    expect((await db.from('platform_mail').select('state,delivery_status').eq('id', mailIds['配信完了']).single()).data).toEqual({ state: 'sent', delivery_status: 'delivered' });
+  } finally {
+    expect((await db.from('contact_replies').delete().in('contact_id', ids)).error).toBeNull();
+    expect((await db.from('contacts').delete().in('id', ids)).error).toBeNull();
+    expect((await db.auth.admin.deleteUser(person.id)).error).toBeNull();
+  }
+});
