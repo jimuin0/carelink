@@ -42,7 +42,7 @@ src/
 ├── lib/                     # 共通ロジック（withRoute・各種 supabase クライアント・csrf 等）
 └── types/                   # 型定義
 supabase/migrations/         # DB マイグレーション（本数は `ls supabase/migrations/*.sql | wc -l` で取る）
-.github/workflows/           # CI（ci.yml 他・全13ファイル）。有効／無効は GitHub 側の状態＝「テスト・CI」節を見る
+.github/workflows/           # CI（ci.yml 他）。有効／無効は GitHub 側の状態＝「テスト・CI」節を見る
 render.yaml                  # Render Cron Jobs（本番スケジューラの実体）
 scripts/                     # 運用スクリプト・診断 SQL（diagnose-*.sql）・スキーマ fingerprint 生成
 load-tests/                  # k6 負荷テスト
@@ -347,6 +347,8 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 - Google 連携：`google-calendar` / Slack：`slack`
 
 ## cron スケジュール（SSOT＝`src/lib/cron-jobs.data.json`／`render.yaml` と `.github/workflows/cron.yml` に展開・UTC 指定／JST 併記）
+
+Cloudflare移行の隔離検証は `cloudflare-staging.yml`。`codex/cloudflare-staging` へのpushだけで起動し、別lockfile・使い捨てローカルDB・Workers実行環境で検査する。本番配信・ドメイン切替・本番データ接続・通知設定の移送は行わない。構成と制約は `cloudflare/README.md` を参照する。
 | path | cron(UTC) | JST |
 |------|-----------|-----|
 | booking-reminder | `5 * * * *` | 毎時05分（JST）。**送信するのは 9時台の run（09:05）だけ**（神原さん決定 2026年10月22日「朝9時に1回だけ」・`src/lib/reminder-schedule.ts`）。他の run は送信前 claim の回収と送達結果不明の監視だけ行い `skipped` を記録する。9時の run で送れなかった分（送信失敗・時間切れ＝deferred）は自動では再送されないため、run を `error`・503 で記録し Slack に件数を警報する |
