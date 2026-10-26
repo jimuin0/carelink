@@ -277,5 +277,5 @@ test('revoked access during a selected history refresh cannot reveal history', a
 test('a confirmed status without a selected mail does not open a message', async () => {
   mockSync.mockResolvedValueOnce(response({ checked: 1, unconfirmed: 0, remaining: false, nextCursor: null,
     observations: [{ id, revision: 2, state: 'sent', delivery_status: 'delivered', updated_at: at }] }));
-  await ready(); expect(screen.queryByRole('region', { name: 'メールの内容' })).not.toBeInTheDocument(); expect(commands).toHaveLength(0);
+  await ready(); expect(screen.getByRole('region', { name: 'メールの内容' })).toBeEmptyDOMElement(); expect(commands).toHaveLength(0);
 });
