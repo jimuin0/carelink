@@ -50,6 +50,21 @@ const nextConfig = {
     // 非 CSP セキュリティヘッダのみを定義する（ページに静的 CSP を出すと middleware の
     // nonce CSP と二重化して衝突するため、ページには CSP を出さない）。
     return [
+      // Fixed repository assets contain no session or facility data. Container
+      // public files otherwise return max-age=0, invoking Node on every miss.
+      // Cache only these exact paths at Vercel; browsers still revalidate and
+      // service-worker scripts, HTML, APIs and uploaded images remain excluded.
+      ...[
+        '/favicon.svg', '/apple-touch-icon.png', '/og-image.png', '/manifest.json',
+        '/icons/icon-192.png', '/icons/icon-192.svg', '/icons/icon-512.png', '/icons/icon-512.svg',
+        '/images/banner-eyelash.webp', '/images/banner-relax.webp', '/images/banner-hair.webp',
+        '/images/hero-tiny.webp', '/images/hero.webp', '/images/hero-640.webp', '/images/hero-1200.webp',
+        '/images/cta.webp', '/images/leaflet/leaflet.css', '/images/leaflet/marker-shadow.png',
+        '/images/leaflet/marker-icon-2x.png', '/images/leaflet/marker-icon.png',
+      ].map((source) => ({
+        source,
+        headers: [{ key: 'Vercel-CDN-Cache-Control', value: 'public, s-maxage=3600' }],
+      })),
       {
         // /api/* は middleware の matcher 対象外。JSON/画像が中心だが防御として静的 CSP を付与。
         source: '/api/:path*',
