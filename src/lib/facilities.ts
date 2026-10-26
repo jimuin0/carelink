@@ -862,7 +862,7 @@ export async function getMonthlyBookingCounts(facilityIds: string[]): Promise<Re
   // 「今月N件予約」バッジが全店で非表示になっていた（本番実測で確認）。この関数は
   // bookings 集計のみを行うため service role クライアントに置き換える。取得列は
   // facility_id のみ（PII非含有）。
-  const supabase = createServiceRoleClient();
+  const supabase = createServiceRoleClient({ reuseReadConnections: true });
   // 「今月」は JST 暦月で判定する。サーバ(UTC)で now.getMonth() を使うと
   // JST 月初早朝（JST 1日 00:00〜08:59 = UTC 前月末日 15:00〜23:59）にまだ前月扱いになり、
   // 「今月の予約数」が前月分を集計してしまう。admin-date の単一ソースで JST 月境界に統一する。

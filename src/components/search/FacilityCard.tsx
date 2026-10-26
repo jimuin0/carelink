@@ -1,3 +1,4 @@
+'use client';
 
 import { formatBusinessDay } from '@/lib/business-hours';
 import { isCardBookingReady } from '@/lib/facility-publish-gate';
@@ -21,6 +22,7 @@ function CardStarRating({ rating, count }: { rating: number; count: number }) {
 function getTodayHours(hours: FacilityCardData['business_hours']): string | null {
   if (!hours) return null;
   const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  // Keep the Japanese business day identical during SSR and hydration.
   const today = days[new Date(Date.now() + 9 * 3_600_000).getUTCDay()];
   const todayHours = hours[today];
   if (!todayHours) return null;

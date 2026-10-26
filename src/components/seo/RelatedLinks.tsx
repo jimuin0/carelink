@@ -1,4 +1,6 @@
-import Link from '@/components/BrowseLink';
+'use client';
+
+import { useFooterNavigation } from '@/components/useFooterNavigation';
 import {
   prefectureSlugs,
   allBusinessTypeSlugs,
@@ -21,11 +23,12 @@ interface Props {
 }
 
 export default function RelatedLinks({ currentPrefectureSlug, currentTypeSlug, currentCitySlug, regionGroup }: Props) {
+  const navigate = useFooterNavigation();
   const prefName = prefectureSlugs[currentPrefectureSlug];
   const cities = getCitiesForPrefecture(currentPrefectureSlug);
 
   return (
-    <section className="bg-white rounded-2xl p-6 sm:p-8">
+    <section className="bg-white rounded-2xl p-6 sm:p-8" onClick={navigate}>
       {/* 同県の市区町村 */}
       {cities.length > 0 && (
         <div className="mb-6">
@@ -37,13 +40,13 @@ export default function RelatedLinks({ currentPrefectureSlug, currentTypeSlug, c
               .filter(({ slug }) => slug !== currentCitySlug)
               .slice(0, 15)
               .map(({ slug, name }) => (
-                <Link
+                <a
                   key={slug}
                   href={currentTypeSlug ? `/${currentPrefectureSlug}/${slug}/${currentTypeSlug}` : `/${currentPrefectureSlug}/${slug}`}
                   className="px-3.5 py-1.5 bg-amber-50 border border-amber-100 rounded-full text-xs text-amber-700 hover:bg-amber-100 transition-colors"
                 >
                   {name}
-                </Link>
+                </a>
               ))}
           </div>
         </div>
@@ -58,13 +61,13 @@ export default function RelatedLinks({ currentPrefectureSlug, currentTypeSlug, c
           {allBusinessTypeSlugs
             .filter((ts) => ts !== currentTypeSlug)
             .map((ts) => (
-              <Link
+              <a
                 key={ts}
                 href={currentCitySlug ? `/${currentPrefectureSlug}/${currentCitySlug}/${ts}` : `/${currentPrefectureSlug}/${ts}`}
                 className="px-3.5 py-1.5 bg-sky-50 border border-sky-100 rounded-full text-xs text-sky-700 hover:bg-sky-100 transition-colors"
               >
                 {prefName}の{businessTypeLabel(businessTypeSlugs[ts])}
-              </Link>
+              </a>
             ))}
         </div>
       </div>
@@ -82,13 +85,13 @@ export default function RelatedLinks({ currentPrefectureSlug, currentTypeSlug, c
                 const pSlug = getPrefectureSlug(p);
                 if (!pSlug) return null;
                 return (
-                  <Link
+                  <a
                     key={pSlug}
                     href={`/${pSlug}/${currentTypeSlug}`}
                     className="px-3.5 py-1.5 bg-gray-50 border border-gray-200 rounded-full text-xs text-gray-600 hover:bg-gray-100 transition-colors"
                   >
                     {p}
-                  </Link>
+                  </a>
                 );
               })}
           </div>
@@ -108,13 +111,13 @@ export default function RelatedLinks({ currentPrefectureSlug, currentTypeSlug, c
                 const pSlug = getPrefectureSlug(p);
                 if (!pSlug) return null;
                 return (
-                  <Link
+                  <a
                     key={pSlug}
                     href={`/${pSlug}`}
                     className="px-3.5 py-1.5 bg-gray-50 border border-gray-200 rounded-full text-xs text-gray-600 hover:bg-gray-100 transition-colors"
                   >
                     {p}
-                  </Link>
+                  </a>
                 );
               })}
           </div>

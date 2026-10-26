@@ -14,6 +14,35 @@ const card: FacilityCardData = {
   booking_menu_count: 2, active_staff_count: 1, has_address: true,
 };
 
+test('displayed hours follow the Japanese business day across UTC midnight differences', () => {
+  jest.useFakeTimers();
+  try {
+    jest.setSystemTime(new Date('2026-10-25T14:59:00Z'));
+    const { rerender } = render(<FacilityCard facility={card} />);
+    expect(screen.queryByText('09:00 〜 18:00')).not.toBeInTheDocument();
+    jest.setSystemTime(new Date('2026-10-25T15:01:00Z'));
+    rerender(<FacilityCard facility={card} />);
+    expect(screen.getByText('09:00 〜 18:00')).toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test.each([
+  [{ periods: [{ open: '09:00', close: '12:00' }, { open: '14:00', close: '18:00' }] }, '09:00 〜 12:00 ／ 14:00 〜 18:00'],
+  [{ periods: [{ open: '20:00', close: '02:00' }] }, '20:00 〜 翌02:00'],
+  [{ periods: [{ open: '00:00', close: '24:00' }] }, '24時間営業'],
+])('client-rendered cards retain the new business periods: %j', (day, expected) => {
+  jest.useFakeTimers();
+  try {
+    jest.setSystemTime(new Date('2026-10-26T03:00:00Z'));
+    render(<FacilityCard facility={{ ...card, business_hours: { ...hours, mon: { ...day.periods[0], ...day } } }} />);
+    expect(screen.getByText(expected)).toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test('a bookable facility shows 予約OK', () => {
   render(<FacilityCard facility={card} />);
   expect(screen.getByText('予約OK')).toBeInTheDocument();
