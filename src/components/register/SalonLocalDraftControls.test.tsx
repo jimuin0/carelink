@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { createRef } from 'react';
+import { createRef, useLayoutEffect, useRef } from 'react';
+import type { UseFormWatch } from 'react-hook-form';
 import type { SalonFormValues } from '@/lib/validations';
 import { SalonLocalDraftControls, type SalonLocalDraftHandle } from './SalonLocalDraftControls';
 import { SalonLocalDraftError, type LocalSalonDraft } from '@/lib/salon-local-draft';
@@ -42,6 +43,28 @@ function mount(over: Record<string, unknown> = {}) {
 const enable = async () => { await waitFor(() => expect(screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' }));
   await waitFor(() => expect(screen.getByText('入力と元の写真を保存し、読み戻して確認しました。')).toBeInTheDocument()); };
+
+test('a newly enabled control uses its committed permission before passive effects run', async () => {
+  const clickedEnabled = jest.fn();
+  const watch = jest.fn(() => ({ unsubscribe: jest.fn() })) as unknown as UseFormWatch<SalonFormValues>;
+  function Harness({ allowed }: { allowed: boolean }) {
+    const root = useRef<HTMLDivElement>(null);
+    useLayoutEffect(() => {
+      if (!allowed) return;
+      const button = root.current!.querySelector('button')!;
+      clickedEnabled(!button.disabled);
+      button.click();
+    }, [allowed]);
+    return <div ref={root}><SalonLocalDraftControls getValues={() => values} watch={watch} photos={[]}
+      canSave={() => allowed} canRestore={() => true} onRestore={async () => {}} /></div>;
+  }
+  const view = render(<Harness allowed={false} />);
+  await act(async () => { await Promise.resolve(); });
+  view.rerender(<Harness allowed />);
+  expect(clickedEnabled).toHaveBeenCalledWith(true);
+  await waitFor(() => expect(api.saveLocalSalonDraft).toHaveBeenCalledTimes(1));
+  expect(screen.getByText('入力と元の写真を保存し、読み戻して確認しました。')).toBeInTheDocument();
+});
 async function before(ref: React.RefObject<SalonLocalDraftHandle | null>) {
   let result: boolean | undefined;
   await act(async () => { result = await ref.current!.beforeSubmit(values, []); }); return result;

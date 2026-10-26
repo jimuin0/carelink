@@ -65,6 +65,36 @@ test.each([['15', 15], ['480', 480]])('所要時間 %p 分は保存する', asyn
   expect(JSON.parse(mutations()[0][1].body).duration_minutes).toBe(minutes);
 });
 
+test('保存応答の本文を受信し終わるまで入力を閉じず、次の読取りを始めない', async () => {
+  await openNewMenu();
+  const ordinary = (global.fetch as jest.Mock).getMockImplementation()!;
+  let complete!: (value: unknown) => void;
+  const body = new Promise(resolve => { complete = resolve; });
+  const read = jest.fn(() => body);
+  (global.fetch as jest.Mock).mockImplementation((url, options) => options?.method
+    ? Promise.resolve({ ok: true, json: read }) : ordinary(url, options));
+  const readsBefore = (global.fetch as jest.Mock).mock.calls.filter(([, options]) => !options?.method).length;
+  fireEvent.click(screen.getByRole('button', { name: '保存' }));
+  await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+  expect((screen.getByLabelText(/メニュー名/) as HTMLInputElement).value).toBe('合成カット');
+  expect((global.fetch as jest.Mock).mock.calls.filter(([, options]) => !options?.method)).toHaveLength(readsBefore);
+  complete({ menu: {} });
+  await screen.findByText('追加しました');
+  expect(screen.queryByLabelText(/メニュー名/)).toBeNull();
+  expect(mutations()).toHaveLength(1);
+});
+
+test('成功ステータス後の本文エラーは、確定した保存を再送可能な失敗に変えない', async () => {
+  await openNewMenu();
+  const ordinary = (global.fetch as jest.Mock).getMockImplementation()!;
+  (global.fetch as jest.Mock).mockImplementation((url, options) => options?.method
+    ? Promise.resolve({ ok: true, json: async () => { throw new Error('synthetic body failure'); } }) : ordinary(url, options));
+  fireEvent.click(screen.getByRole('button', { name: '保存' }));
+  await screen.findByText('追加しました');
+  expect(screen.queryByLabelText(/メニュー名/)).toBeNull();
+  expect(mutations()).toHaveLength(1);
+});
+
 test('写真はファイルを選んでアップロードし、その公開 URL を保存する（URL を貼らせない）', async () => {
   await openNewMenu();
   expect(screen.queryByText('画像URL')).toBeNull();

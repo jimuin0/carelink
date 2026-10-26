@@ -1,6 +1,6 @@
 'use client';
 
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import type { UseFormWatch } from 'react-hook-form';
 import type { SalonFormValues } from '@/lib/validations';
 import { exportSalonDraftBackup } from '@/lib/salon-draft-backup';
@@ -60,7 +60,9 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
   const [saved, setSaved] = useState<LocalSalonDraft | null>(null);
   const [ownsSaved, setOwnsSaved] = useState(false);
   const [message, setMessage] = useState('自動保存は無効です。');
-  useEffect(() => { latest.current = props; });
+  // The enabled button and its event handler must observe the same committed
+  // permission. A passive effect leaves a window where a valid click is lost.
+  useLayoutEffect(() => { latest.current = props; });
 
   function serial<T>(action: () => Promise<T>): Promise<T> {
     const job = queue.current.then(action, action);

@@ -180,6 +180,9 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
         setToast({ type: 'error', message: e.error || '保存に失敗しました' });
         return;
       }
+      // Drain the response before the next read. Its success status already
+      // confirms the commit; a later body error must not invite another write.
+      await res.json().catch(() => undefined);
       setToast({ type: 'success', message: editForm.id ? '更新しました' : '追加しました' });
       setEditForm(null);
       await loadMenus(facilityId);

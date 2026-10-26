@@ -127,6 +127,9 @@ function NewCouponEditor({requested}:{requested:string|null}) {
         // 何を直せばよいか分からないため（formatApiErrorMessage が fieldErrors を整形する）
         setToast({ type: 'error', message: formatApiErrorMessage(err, '作成に失敗しました') });
       } else {
+        // Drain the successful response before navigation. A later body error
+        // must not turn an acknowledged commit into another create attempt.
+        await res.json().catch(() => undefined);
         finishCouponOperation(operationKey);
         setDirty(false);
         router.push(`/admin/coupons?facility_id=${facilityId}`);

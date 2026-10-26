@@ -54,14 +54,13 @@ test('disposable local database permits real write verification', async () => {
   assert.equal(called, true);
 });
 
-test('finite JSON mutations preserve bytes and advertise completion to the HTTP bridge', async () => {
+test('JSON mutation responses preserve status and Unicode payload bytes', async () => {
   const json = JSON.stringify({ menu: { name: '合成メニュー' } });
   const handler = createStagingHandler({ fetch() { return new Response(json,
     { status: 201, headers: { 'Content-Type': 'application/json; charset=utf-8' } }); } });
   const response = await handler.fetch(new Request('https://localhost:3000/api/admin/menus', { method: 'POST' }),
     { NEXT_PUBLIC_SUPABASE_URL: 'https://localhost:54330' });
   assert.equal(response.status, 201);
-  assert.equal(response.headers.get('Content-Length'), String(new TextEncoder().encode(json).byteLength));
   assert.equal(await response.text(), json);
 });
 

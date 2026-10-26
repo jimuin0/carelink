@@ -30,6 +30,14 @@ test('platform saves are confirmed, invalid booleans rejected, and revoked admin
   const created=await page.request.post('/api/admin/feature-flags',{headers,data:{key,enabled:false,rollout_pct:0}});
   expect(created.status()).toBe(201);expect(created.headers()['cache-control']).toBe('no-store');
   const flag=(await created.json()).flag;expect(flag.key).toBe(key);expect(flag.enabled).toBe(false);
+  // Observe the real after-response side effect in the disposable database.
+  // A successful HTTP result alone does not prove Workers retained audit work.
+  await expect.poll(async()=>{
+   const audit=await db.from('audit_logs').select('id').eq('user_id',actor)
+    .eq('table_name','feature_flags').eq('record_id',flag.id).eq('action','create');
+   if(audit.error)throw new Error('Isolated audit observation failed');
+   return audit.data.length;
+  }).toBe(1);
   const patched=await page.request.patch(`/api/admin/feature-flags/${flag.id}`,{headers,data:{rollout_pct:100}});expect(patched.status()).toBe(200);
   const persisted=await db.from('feature_flags').select('enabled,rollout_pct').eq('id',flag.id).single();expect(persisted.error).toBeNull();expect(persisted.data).toEqual({enabled:false,rollout_pct:100});
   const resolve=()=>page.request.patch(`/api/admin/inquiries/${ticket}`,{headers,data:{ticket_status:'resolved'}});

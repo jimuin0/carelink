@@ -59,8 +59,11 @@ rejects new transformations after that limit rather than charging overages:
 https://developers.cloudflare.com/images/pricing/#images-free. No Images Paid
 plan or image storage subscription is enabled.
 
-Finite JSON mutation responses carry a known byte length through the Workers
-HTTP bridge. GET/HTML/SSE responses retain streaming. The homepage map loads its
+Menu/coupon saves consume the successful JSON response before clearing input or
+navigating, completing the browser's fetch lifecycle. A body-read error after
+the success status does not turn an acknowledged commit into a retryable write.
+Server responses retain
+streaming. The homepage map loads its
 SVG code when visible, keeping region links and reserved layout available from
 the first response; this retains the existing initial JavaScript size budget.
 
@@ -69,6 +72,11 @@ Next's tuple queue and vinext's string queue. It still requires exactly one
 frozen prop and exercises the actual isolated Storage rejection and recovery.
 Local-draft reload tests also wait for the form's existing hydration readiness
 gate before toggling its controlled details panel.
+Draft controls synchronize their committed callbacks in a layout effect: a
+newly enabled button must not consult the preceding disabled permission through
+a stale passive-effect ref. The unit regression reproduces the dropped click
+before that passive effect runs. The isolated platform-control test also checks
+that the real after-response audit row reaches the database exactly once.
 
 ## Hosted verification boundary
 
