@@ -27,6 +27,23 @@ export function computeBusinessStatus(
   return isOpen ? 'open' : 'closed';
 }
 
+/** A public badge needs confirmed periods; missing legacy day data is not proof of opening. */
+export function computeCalendarBusinessStatus(businessHours: Props['businessHours'], timestamp: number): 'open' | 'closed' | 'holiday' | 'unknown' {
+  if (!businessHours) return 'unknown';
+  const now = new Date(timestamp + 9 * 3_600_000);
+  const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const today = days[now.getUTCDay()];
+  const todayHours = businessHours[today];
+  const periods = businessPeriods(todayHours);
+  // Availability keeps an unrestricted legacy fallback. A badge must not turn
+  // missing/invalid hours into a positive claim that a shop is open all day.
+  const windows = businessWindows({ ...businessHours, [today]: periods === null ? null : todayHours }, now.getUTCDay());
+  const minute = now.getUTCHours() * 60 + now.getUTCMinutes();
+  if (windows.some(window => minute >= window.start && minute < window.end)) return 'open';
+  if (periods === null) return 'unknown';
+  return todayHours ? 'closed' : 'holiday';
+}
+
 // 時刻の境界をまたいだ画面も更新する。通信やサーバー側の定期実行は使わない。
 function subscribeClock(onChange: () => void) {
   const timer = setInterval(onChange, 30_000);
@@ -49,22 +66,7 @@ export default function BusinessStatusBadge({ businessHours }: Props) {
   // 無限再レンダーの心配はない。
   const status = useSyncExternalStore(
     subscribeClock,
-    () => {
-      if (!businessHours) return 'unknown' as const;
-      // All listed facilities are in Japan; never use the visitor's timezone.
-      const now = new Date(Date.now() + 9 * 3_600_000);
-      const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-      const today = days[now.getUTCDay()];
-      const todayHours = businessHours[today];
-
-      const hours = now.getUTCHours();
-      const minutes = now.getUTCMinutes();
-
-      const windows = businessWindows(businessHours, now.getUTCDay());
-      const minute = hours * 60 + minutes;
-      if (windows.some(window => minute >= window.start && minute < window.end)) return 'open';
-      return todayHours ? 'closed' : 'holiday';
-    },
+    () => computeCalendarBusinessStatus(businessHours, Date.now()),
     getServerStatusSnapshot,
   );
 
