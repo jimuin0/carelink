@@ -1,5 +1,5 @@
 import { businessMinute, periodWindow, businessPeriods, mergeBusinessWindows, businessWindows,
-  businessIntervalFits, confirmedBusinessWeek, formatBusinessDay, WEEK_DAYS } from '../business-hours';
+  businessIntervalFits, confirmedBusinessWeek, formatBusinessDay, schemaBusinessPeriods, WEEK_DAYS } from '../business-hours';
 
 const closed = () => Object.fromEntries(WEEK_DAYS.map(day => [day, null]));
 const period = (open = '09:00', close = '20:00') => ({ open, close });
@@ -86,4 +86,15 @@ test('display distinguishes closure, unknown, 24-hour, split and overnight perio
   expect(formatBusinessDay(period('00:00', '24:00'))).toBe('24時間営業');
   expect(formatBusinessDay(period('18:00', '05:00'))).toBe('18:00 〜 翌05:00');
   expect(formatBusinessDay(split)).toBe('09:00 〜 12:30 ／ 15:00 〜 18:20');
+});
+
+
+test('structured data follows the end-of-day convention without changing actual hours', () => {
+  const allDay = period('00:00', '24:00');
+  expect(schemaBusinessPeriods(allDay)).toEqual([period('00:00', '23:59')]);
+  expect(allDay.close).toBe('24:00');
+  expect(schemaBusinessPeriods(period('18:00', '05:00'))).toEqual([period('18:00', '05:00')]);
+  expect(schemaBusinessPeriods(split)).toEqual(split.periods);
+  expect(schemaBusinessPeriods(null)).toEqual([]);
+  expect(schemaBusinessPeriods({})).toEqual([]);
 });

@@ -111,3 +111,12 @@ export function formatBusinessDay(value: unknown): string {
     return `${period.open} 〜 ${nextDay ? '翌' : ''}${period.close}`;
   }).join(' ／ ');
 }
+
+
+/** Google LocalBusiness uses 00:00..23:59 for an all-day structured-data entry.
+ * Keep the actual saved/displayed/booking closing time at 24:00.
+ * https://developers.google.com/search/docs/appearance/structured-data/local-business#business-hours
+ */
+export function schemaBusinessPeriods(value: unknown): BusinessPeriod[] {
+  return (businessPeriods(value) ?? []).map(period => ({ ...period, close: period.close === '24:00' ? '23:59' : period.close }));
+}

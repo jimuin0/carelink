@@ -1,4 +1,4 @@
-import { businessPeriods } from '@/lib/business-hours';
+import { schemaBusinessPeriods } from '@/lib/business-hours';
 import { hasSupabasePublicEnv } from '@/lib/supabase-build-env';
 import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
@@ -462,7 +462,7 @@ export default async function FacilityPage(props: Props) {
               ...(facility.business_hours && {
                 openingHoursSpecification: Object.entries(facility.business_hours as Record<string, { open: string; close: string } | null>)
                   .filter(([, v]) => v !== null)
-                  .flatMap(([day, hours]) => (businessPeriods(hours) ?? []).map(period => ({
+                  .flatMap(([day, hours]) => schemaBusinessPeriods(hours).map(period => ({
                     '@type': 'OpeningHoursSpecification',
                     dayOfWeek: { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' }[day],
                     opens: period.open,
