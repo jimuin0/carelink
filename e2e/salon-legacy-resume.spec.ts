@@ -74,21 +74,37 @@ async function frozenV1(page: Page) {
     const queue = target.__next_f || [];
     let downstream: (...values: unknown[]) => unknown = Array.prototype.push;
     target.__carelinkV1PropFreezes = 0;
+    const freezeProp = (chunk: string) => {
+      const marker = '"v2Enabled":true';
+      const count = chunk.split(marker).length - 1;
+      target.__carelinkV1PropFreezes! += count;
+      return chunk.replaceAll(marker, '"v2Enabled":false');
+    };
     Object.defineProperty(queue, 'push', {
       configurable: true,
       get: () => (...entries: unknown[]) => {
         const frozen = entries.map(entry => {
           if (!Array.isArray(entry) || typeof entry[1] !== 'string') return entry;
-          const marker = '"v2Enabled":true';
-          const count = entry[1].split(marker).length - 1;
-          target.__carelinkV1PropFreezes! += count;
-          return count ? [entry[0], entry[1].replaceAll(marker, '"v2Enabled":false'), ...entry.slice(2)] : entry;
+          return [entry[0], freezeProp(entry[1]), ...entry.slice(2)];
         });
         return downstream.apply(queue, frozen);
       },
       set: (handler: (...values: unknown[]) => unknown) => { downstream = handler; },
     });
     target.__next_f = queue;
+    // Workers/vinext carries the same real Flight props in a string queue.
+    // Freeze that bootstrap too; the exact one-prop assertion below remains
+    // mandatory, so an unsupported transport cannot silently skip this proof.
+    type Runtime = { bootstrap: { routeManifest: null; rsc?: { rsc: string[] } }; functions: Record<string, unknown> };
+    const runtimes = window as unknown as Record<symbol, Runtime>;
+    const runtime = runtimes[Symbol.for('vinext.navigationRuntime')] ??= { bootstrap: { routeManifest: null }, functions: {} };
+    const vinextQueue = (runtime.bootstrap.rsc ??= { rsc: [] }).rsc;
+    let vinextDownstream: (...values: string[]) => unknown = Array.prototype.push;
+    Object.defineProperty(vinextQueue, 'push', {
+      configurable: true,
+      get: () => (...entries: string[]) => vinextDownstream.apply(vinextQueue, entries.map(freezeProp)),
+      set: (handler: (...values: string[]) => unknown) => { vinextDownstream = handler; },
+    });
   });
   // Keep the real HTTP response/origin, TLS, CSP and browser address space.
   // Only the real bootstrap's parsed configuration prop is frozen before React.

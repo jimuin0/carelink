@@ -48,6 +48,29 @@ renderer's filesystem import is adapted: its own packaged Japanese font assets
 come from ASSETS, and resvg uses a precompiled Wasm module. The SVG/image renderer
 and its input escaping/limits remain the application's existing implementation.
 
+The Worker translates next.config.mjs's existing fixed-asset CDN allowlist to
+Cloudflare's CDN header while preserving browser revalidation. Cookies, errors,
+write responses and unmarked routes cannot acquire that cache policy.
+
+The legacy-registration browser proof freezes the same real Flight prop on both
+Next's tuple queue and vinext's string queue. It still requires exactly one
+frozen prop and exercises the actual isolated Storage rejection and recovery.
+
+## Hosted verification boundary
+
+The synthetic Worker is available at
+https://carelink-staging.tokuhal-jimuin0.workers.dev. Missing DB/mail/cron
+dependencies deliberately produce health 503; this is not full application
+health or a reason to connect production credentials. The initial deployed
+version is `76f966c1-8ffd-4f32-9f82-2299c9ed9442` (source `c8ef078`).
+
+The account remains Workers Free. Initial mixed-route samples had no exceeded
+CPU/memory errors, but active-version median CPU was 32.55 ms, above the nominal
+Free allowance of 10 ms. Cloudflare documents occasional over-limit flexibility;
+successful smoke requests do not establish sustained Free-plan suitability.
+See https://developers.cloudflare.com/workers/platform/limits/#cpu-time.
+No paid plan has been enabled.
+
 ## Completion requirements
 
 Build success or the static 90% compatibility report is not migration success.

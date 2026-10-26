@@ -14,12 +14,21 @@ export function createStagingHandler(app) {
       if (!isolated && !['GET', 'HEAD'].includes(request.method)) {
         return new Response('Synthetic staging is read-only', { status: 503 });
       }
-      if (new URL(request.url).pathname === '/robots.txt') {
+      if (new URL(request.url).pathname === '/robots.txt' && !isolated) {
         return new Response('User-agent: *\nDisallow: /\n', { headers: { 'Content-Type': 'text/plain', 'X-Robots-Tag': 'noindex' } });
       }
       const response = await app.fetch(request, env, context);
       const safe = new Response(response.body, response);
       safe.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+      // next.config.mjs marks only its fixed public asset allowlist. Translate
+      // that existing edge policy while retaining the browser revalidation
+      // contract; never apply it to cookies, errors, or unmarked responses.
+      if (['GET', 'HEAD'].includes(request.method) && safe.status === 200
+        && !safe.headers.has('Set-Cookie')
+        && safe.headers.get('Vercel-CDN-Cache-Control') === 'public, s-maxage=3600') {
+        safe.headers.set('Cache-Control', 'public, max-age=0');
+        safe.headers.set('Cloudflare-CDN-Cache-Control', 'public, max-age=3600');
+      }
       return safe;
     },
   };

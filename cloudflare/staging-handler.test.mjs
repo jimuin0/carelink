@@ -23,6 +23,14 @@ test('robots cannot advertise staging routes', async () => {
   assert.equal(response.headers.get('X-Robots-Tag'), 'noindex');
 });
 
+test('localhost CI exercises the actual crawler policy without making it indexable', async () => {
+  const handler = createStagingHandler({ fetch() { return new Response('User-Agent: GoogleOther\nDisallow: /'); } });
+  const response = await handler.fetch(new Request('https://localhost:3000/robots.txt'),
+    { NEXT_PUBLIC_SUPABASE_URL: 'https://localhost:54330' });
+  assert.match(await response.text(), /User-Agent: GoogleOther/);
+  assert.match(response.headers.get('X-Robots-Tag'), /noindex/);
+});
+
 test('responses preserve redirects, status and cookies while refusing indexing', async () => {
   const handler = createStagingHandler({ fetch(request, env, ctx) {
     assert.equal(ctx.marker, 'context');
@@ -44,4 +52,33 @@ test('disposable local database permits real write verification', async () => {
   assert.equal(response.status, 201);
   assert.equal(await response.text(), 'synthetic result');
   assert.equal(called, true);
+});
+
+test('fixed public assets retain browser revalidation and translate edge caching', async () => {
+  const handler = createStagingHandler({ fetch() {
+    return new Response('synthetic asset', { headers: { 'Vercel-CDN-Cache-Control': 'public, s-maxage=3600',
+      'Cache-Control': 'public, max-age=0, must-revalidate' } });
+  } });
+  for (const method of ['GET', 'HEAD']) {
+    const response = await handler.fetch(new Request('https://staging.invalid/favicon.svg', { method }), {});
+    assert.equal(response.headers.get('Cache-Control'), 'public, max-age=0');
+    assert.equal(response.headers.get('Cloudflare-CDN-Cache-Control'), 'public, max-age=3600');
+  }
+});
+
+test('cookies, errors, writes and unmarked responses cannot acquire asset caching', async () => {
+  for (const input of [
+    { headers: { 'Set-Cookie': 'synthetic=value', 'Vercel-CDN-Cache-Control': 'public, s-maxage=3600' } },
+    { status: 404, headers: { 'Vercel-CDN-Cache-Control': 'public, s-maxage=3600' } },
+    { method: 'POST', headers: { 'Vercel-CDN-Cache-Control': 'public, s-maxage=3600' } },
+    { headers: {} },
+  ]) {
+    const handler = createStagingHandler({ fetch() { return new Response('synthetic result', {
+      status: input.status ?? 200, headers: { ...input.headers, 'Cache-Control': 'no-store' },
+    }); } });
+    const response = await handler.fetch(new Request('https://localhost:3000/api/test', { method: input.method ?? 'GET' }),
+      { NEXT_PUBLIC_SUPABASE_URL: 'https://localhost:54330' });
+    assert.equal(response.headers.get('Cache-Control'), 'no-store');
+    assert.equal(response.headers.get('Cloudflare-CDN-Cache-Control'), null);
+  }
 });
