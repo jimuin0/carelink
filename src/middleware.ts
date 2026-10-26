@@ -338,6 +338,9 @@ export async function middleware(request: NextRequest) {
 export { signCacheValue, verifyCacheValue, getMembershipCacheKey };
 
 export const config = {
+  // Share the patched Node runtime and its prepared bytecode cache instead of
+  // compiling a separate Edge VM inside each scale-to-zero container.
+  runtime: 'nodejs',
   matcher: [
     '/((?!_next/static|_next/image|api/|favicon\\.svg|favicon\\.ico|apple-touch-icon\\.png|og-image\\.png|manifest\\.json|sw\\.js|.*\\.(?:svg|png|jpg|jpeg|gif|ico|webp)$).*)',
   ],
