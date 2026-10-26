@@ -1,5 +1,6 @@
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { SALON_LOCAL_DRAFT_DB, SALON_LOCAL_DRAFT_ID, SALON_LOCAL_DRAFT_STORE, SALON_LOCAL_DRAFT_TTL, type LocalSalonDraft } from '../src/lib/salon-local-draft';
+import { COOKIE_CONSENT_STORAGE_KEY, LEGACY_COOKIE_CONSENT_STORAGE_KEY } from '../src/lib/cookie-consent';
 
 // Browser-local synthetic input only. Every API/storage request is intercepted;
 // there are no database fixtures, email sends or live registration side effects.
@@ -47,6 +48,15 @@ const section = (page: Page) => page.getByRole('region', { name: 'この端末�
 const optIn = (page: Page) => section(page).getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' });
 async function ready(page: Page, hasSavedDraft = false) {
   await page.goto('/register');
+  // Complete the separate first-visit choice before scrolling to draft controls.
+  // Its lazy-loaded fixed banner can otherwise appear between mouse down/up
+  // and receive the release, leaving the draft button without a click event.
+  const answered = await page.evaluate(keys => keys.some(key => !!localStorage.getItem(key)),
+    [COOKIE_CONSENT_STORAGE_KEY, LEGACY_COOKIE_CONSENT_STORAGE_KEY]);
+  if (!answered) {
+    await page.getByRole('button', { name: '必須のみ', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Cookieの設定', exact: true })).toBeHidden();
+  }
   // SSR inputs are enabled before hydration; wait for the form's isReady gate
   // before toggling details so React cannot restore its initial closed state.
   await expect(page.getByRole('button', { name: '次へ', exact: true })).toBeEnabled();
@@ -176,8 +186,32 @@ test('different manual input cannot replace a saved draft; explicit clearing per
   await expect(page.locator('#reg-facility-name')).toHaveValue('');
   expect((await raw(page))?.revision).toBe(latest!.revision);
   expect((await raw(page))?.backup.payload.values.facility_name).toBe('端末に残す別の入力');
-  await section(page).getByRole('button', { name: '端末の下書きを削除' }).click();
-  await expect.poll(async () => (await raw(page))?.hasBackup).toBe(false);
+  // Traces are deliberately disabled for draft contents. Retain only native
+  // input-event metadata if deletion fails; never attach input/photo payloads.
+  await page.evaluate(() => {
+    const events: { type: string; trusted: boolean; prevented: boolean; disabled: boolean }[] = [];
+    Object.assign(window, { carelinkDraftDeleteEvents: events });
+    for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click']) {
+      document.addEventListener(type, event => {
+        const button = event.target instanceof Element ? event.target.closest('button') : null;
+        if (button?.textContent !== '端末の下書きを削除') return;
+        events.push({ type, trusted: event.isTrusted, prevented: event.defaultPrevented, disabled: button.disabled });
+      }, true);
+    }
+  });
+  const deletionEvents = () => page.evaluate(() => (window as unknown as {
+    carelinkDraftDeleteEvents: { type: string; trusted: boolean; prevented: boolean; disabled: boolean }[];
+  }).carelinkDraftDeleteEvents);
+  try {
+    await section(page).getByRole('button', { name: '端末の下書きを削除' }).click();
+    await expect.poll(async () => (await deletionEvents()).filter(event => event.type === 'click').length).toBe(1);
+    await expect.poll(async () => (await raw(page))?.hasBackup).toBe(false);
+  } catch (error) {
+    const events = await deletionEvents();
+    console.info('Local draft deletion native events:', JSON.stringify(events));
+    await test.info().attach('draft-deletion-native-events', { body: JSON.stringify(events), contentType: 'application/json' });
+    throw error;
+  }
   const cleared = await raw(page);
   await page.getByLabel('バックアップから入力を復元').setInputFiles(file);
   await expect(page.locator('#reg-facility-name')).toHaveValue('手動ファイルの元入力');

@@ -82,6 +82,15 @@ a stale passive-effect ref. The unit regression reproduces the dropped click
 before that passive effect runs. The isolated platform-control test also checks
 that the real after-response audit row reaches the database exactly once.
 
+The local-draft browser suite completes the first-visit essential-only Cookie
+choice before scrolling to draft controls. Native event diagnostics reproduced
+the lazy banner appearing between mouse-down on the enabled button and mouse-up
+on the banner, with unchanged button geometry; no button click was dispatched.
+The persistence assertions and single real click remain mandatory. A separate
+Mobile Safari project repeats this case 30 times without retries alongside the
+entire original suite; failure diagnostics retain only native event metadata,
+never input or photo contents.
+
 ## Hosted verification boundary
 
 The synthetic Worker is available at
