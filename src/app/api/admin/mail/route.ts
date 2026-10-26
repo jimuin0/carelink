@@ -19,6 +19,7 @@ const json = (data: unknown, status = 200) => NextResponse.json(data, { status, 
 const cursorSchema = z.object({ at: z.iso.datetime({ offset: true }), id: z.uuid() }).strict();
 const folders = { draft: ['draft'], pending: ['pending'], scheduled: ['scheduled', 'cancelling'], sent: ['sent', 'cancelled'] };
 const commandSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('sync') }).strict(),
   z.object({ action: z.literal('save'), draft: platformMailDraftSchema }).strict(),
   z.object({ action: z.literal('send'), id: z.uuid(), revision: z.number().int().positive() }).strict(),
   z.object({ action: z.literal('refresh'), id: z.uuid(), providerId: z.uuid().optional() }).strict(),
@@ -105,6 +106,38 @@ async function list(request: Request, ctx: RouteContext) {
   } catch { return serverError('platform-mail-list', new Error('MAIL_LIST_REQUEST_FAILED'), path); }
 }
 
+async function syncMailbox(db: DB, actor: string) {
+  // Only inspect existing operations. Never dispatch, cancel, or infer delivery
+  // from elapsed time. Bound each page visit to two provider observations.
+  const result = await db.from('platform_mail').select('*')
+    .in('state', ['pending', 'scheduled', 'sent', 'cancelling'])
+    .not('provider_message_id', 'is', null)
+    .or('delivery_status.is.null,delivery_status.in.(accepted,scheduled,sent,delayed)')
+    .order('updated_at', { ascending: true }).order('id', { ascending: true }).limit(3)
+    .abortSignal(AbortSignal.timeout(8000));
+  const records = z.array(platformMailRecordSchema).max(3).safeParse(result.data);
+  if (result.error || !records.success) return serverError('platform-mail-sync', new Error('MAIL_SYNC_LIST_UNAVAILABLE'), path);
+  if (records.data.length === 0) return json({ checked: 0, unconfirmed: 0, remaining: false });
+  const provider = platformMailProvider();
+  if (!provider) return json({ error: '配信状況を確認できません。保存済みの情報を表示します。' }, 503);
+  const results = await Promise.all(records.data.slice(0, 2).map(async item => {
+    const record = await atomic(db, actor, item.id, 'read');
+    if (record instanceof NextResponse) return record;
+    if (!record.provider_message_id || !record.envelope || !record.reserved_at) return false;
+    const observation = await inspectPlatformMail(provider, record.envelope, record.id, record.provider_message_id, record.reserved_at);
+    if (!observation) return false;
+    const confirmed = await atomic(db, actor, record.id, 'observe', { providerId: observation.id, event: observation.event });
+    if (confirmed instanceof NextResponse) return confirmed;
+    void writeAuditLog({ userId: actor, action: 'update', tableName: 'platform_mail', recordId: record.id,
+      newValues: { event: observation.event, state: confirmed.state } });
+    return true;
+  }));
+  const denied = results.find(result => result instanceof NextResponse);
+  if (denied instanceof NextResponse) return denied;
+  return json({ checked: results.filter(result => result === true).length,
+    unconfirmed: results.filter(result => result === false).length, remaining: records.data.length > 2 });
+}
+
 async function post(request: Request, ctx: RouteContext) {
   try {
     const denied = await authorize(ctx);
@@ -114,6 +147,7 @@ async function post(request: Request, ctx: RouteContext) {
     const command = input.data;
     const db = createServiceRoleClient();
     const actor = ctx.user!.id;
+    if (command.action === 'sync') return await syncMailbox(db, actor);
     if (command.action === 'save') {
       const record = await atomic(db, actor, command.draft.id, 'save', command.draft);
       if (record instanceof NextResponse) return record;

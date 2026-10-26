@@ -21,6 +21,7 @@ const labels: Record<PlatformMailRecord['state'], string> = { draft: '下書き'
 const deliveryLabels: Record<string, string> = { accepted: '送信受付済み', scheduled: '送信待ち', sent: '送信済み', delivered: '配信完了', delayed: '配信に遅れがあります', bounced: '宛先へ届けられませんでした', complained: '迷惑メールの報告あり', cancelled: '取り消し済み', failed: '配信失敗' };
 const listSchema = z.object({ messages: z.array(platformMailRecordSchema), nextCursor: z.object({ at: z.string(), id: z.uuid() }).nullable() });
 const replySchema = z.object({ mail: platformMailRecordSchema, warning: z.string().optional(), providerId: z.uuid().optional() });
+const syncSchema = z.object({ checked: z.number().int().nonnegative(), unconfirmed: z.number().int().nonnegative(), remaining: z.boolean() });
 const inputClass = 'form-input w-full min-w-0';
 const errorMessage = (error: unknown, fallback: string) => error instanceof Error && !(error instanceof TypeError) && !(error instanceof z.ZodError) ? error.message : fallback;
 const fromRecord = (mail: PlatformMailRecord): PlatformMailDraft => ({ id: mail.id, revision: mail.revision, contactId: mail.contact_id,
@@ -50,6 +51,7 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
   const [providerId, setProviderId] = useState<string | undefined>();
   const requestSequence = useRef(0);
   const selectionSequence = useRef(0);
+  const statusSync = useRef<Promise<Response> | null>(null);
   const dirty = composer !== null && JSON.stringify(composer) !== saved;
 
   useEffect(() => {
@@ -63,6 +65,21 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
     const sequence = ++requestSequence.current;
     setLoading(true); setLoadError(false);
     try {
+      if (after === null) {
+        // Share Strict Mode / concurrent reload work; no polling or send retry.
+        statusSync.current ??= fetch('/api/admin/mail', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'sync' }), signal: AbortSignal.timeout(40000) });
+        const pending = statusSync.current;
+        try {
+          const synced = await pending;
+          if (sequence !== requestSequence.current) return;
+          if (synced.status === 401 || synced.status === 403) { setForbidden(true); setContacts([]); setMessages([]); return; }
+          if (!synced.ok) throw new Error('status unavailable');
+          const result = syncSchema.parse(await synced.clone().json());
+          if (result.unconfirmed > 0 || result.remaining) setNotice('一部の配信状況は未確認です。「一覧を更新」で再確認できます。');
+        } catch { if (sequence === requestSequence.current) setNotice('最新の配信状況を確認できませんでした。保存済みの情報を表示します。'); }
+        finally { if (statusSync.current === pending) statusSync.current = null; }
+      }
       const query = new URLSearchParams({ folder });
       if (after !== null) query.set('cursor', JSON.stringify(after));
       const response = await fetch('/api/admin/mail?' + query, { cache: 'no-store', signal: AbortSignal.timeout(15000) });

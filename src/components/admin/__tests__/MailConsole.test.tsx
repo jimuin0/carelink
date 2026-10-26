@@ -11,11 +11,13 @@ const contact = { id, name: '合成問い合わせ', email: 'synthetic@example.i
 const base = { id, revision: 1, contact_id: null, recipient: contact.email, subject: 'ご案内', body: '架空の本文', state: 'draft', scheduled_at: null, reserved_at: null,
   accepted_at: null, provider_message_id: null, delivery_status: null, envelope: null, created_at: at, updated_at: at };
 const mockFetch = jest.fn();
+const mockSync = jest.fn();
 let records: typeof base[], commands: Record<string, unknown>[];
 let saveFailure = false, unknown = false, mismatch = false;
-const response = (body: unknown, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+const response = (body: unknown, status = 200): { ok: boolean; status: number; json: () => Promise<unknown>; clone: () => ReturnType<typeof response> } => ({ ok: status >= 200 && status < 300, status, json: async () => body, clone: () => response(body, status) });
 beforeEach(() => {
   records = []; commands = []; saveFailure = false; unknown = false; mismatch = false;
+  mockSync.mockReset().mockResolvedValue(response({ checked: 0, unconfirmed: 0, remaining: false }));
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: mockFetch });
   mockFetch.mockReset().mockImplementation(async (url: string, init?: RequestInit) => {
     if (!init?.method) {
@@ -23,7 +25,9 @@ beforeEach(() => {
       if (url.includes('folder=inbox')) return response({ contacts: [{ ...contact, replySummary: { replied: false, draft: false, scheduled: false, pending: false, failed: false } }], nextCursor: null });
       return response({ messages: records, nextCursor: null });
     }
-    const command = JSON.parse(init.body as string); commands.push(command);
+    const command = JSON.parse(init.body as string);
+    if (command.action === 'sync') return mockSync();
+    commands.push(command);
     if (command.action === 'save') {
       if (saveFailure) return response({ error: '保存できません。入力内容は保持されています。' }, 409);
       const draft = command.draft;
@@ -171,4 +175,34 @@ test('failed folder retains failure text and never substitutes delivered for pro
   const row = await screen.findByRole('button', { name: /ご案内.*synthetic/ });
   expect(row).toHaveTextContent('送信失敗'); expect(row).toHaveTextContent('宛先へ届けられませんでした');
   expect(row).not.toHaveTextContent('配信完了'); expect(mockFetch).toHaveBeenCalledWith('/api/admin/mail?folder=failed', expect.anything());
+});
+
+test('mount and manual reload inspect delivery before reading the inbox without sending', async () => {
+  await ready(); expect(mockSync).toHaveBeenCalledTimes(1); expect(commands).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button', { name: '一覧を更新' })); await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.getByRole('button', { name: '一覧を更新' })).toBeEnabled()); expect(commands).toHaveLength(0);
+});
+test.each([{ checked: 0, unconfirmed: 1, remaining: false }, { checked: 3, unconfirmed: 0, remaining: true }])('unconfirmed status and bounded backlog are visible: %j', async result => {
+  mockSync.mockResolvedValue(response(result)); await ready(); expect(screen.getByText('一部の配信状況は未確認です。「一覧を更新」で再確認できます。')).toBeInTheDocument();
+});
+test.each([response({}, 503), response({})])('failed status inspection preserves the inbox with an explicit warning', async result => {
+  mockSync.mockResolvedValue(result); await ready(); expect(screen.getByText('最新の配信状況を確認できませんでした。保存済みの情報を表示します。')).toBeInTheDocument();
+});
+test('network failure does not hide saved messages', async () => {
+  mockSync.mockRejectedValue(new TypeError('network')); await ready(); expect(screen.getByText(/最新の配信状況を確認できませんでした/)).toBeInTheDocument();
+});
+
+test('late delivery inspection cannot resurrect an unmounted mailbox', async () => {
+  let resolve!: (value: unknown) => void; const pending = new Promise(done => { resolve = done; });
+  mockSync.mockReturnValue(pending); const view = render(<MailConsole />);
+  await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1)); view.unmount();
+  await act(async () => { resolve(response({ checked: 0, unconfirmed: 0, remaining: false })); await pending; });
+  expect(mockFetch.mock.calls.some(([url, init]) => !init?.method && String(url).includes('folder='))).toBe(false);
+});
+test('a failed inspection after unmount cannot leak a stale notice', async () => {
+  let reject!: (error: Error) => void; const pending = new Promise((_resolve, fail) => { reject = fail; });
+  mockSync.mockReturnValue(pending); const view = render(<MailConsole />);
+  await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1)); view.unmount();
+  await act(async () => { reject(new Error('closed')); await pending.catch(() => {}); });
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
 });
