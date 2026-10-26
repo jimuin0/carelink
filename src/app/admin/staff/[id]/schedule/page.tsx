@@ -394,7 +394,7 @@ function StaffSchedulePageForm() {
                   />
                   <span className="text-gray-500">〜</span>
                   <SbInput
-                    type="time"
+                    type="text" placeholder="24:00" maxLength={5}
                     value={schedules[i].end_time}
                     onChange={(e) => {
                       const next = [...schedules];
@@ -449,7 +449,7 @@ function StaffSchedulePageForm() {
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">終了</label>
-                <SbInput type="time" value={newOverrideEnd} onChange={(e) => setNewOverrideEnd(e.target.value)} className="text-sm w-28!" />
+                <SbInput type="text" placeholder="24:00" maxLength={5} value={newOverrideEnd} onChange={(e) => setNewOverrideEnd(e.target.value)} className="text-sm w-28!" />
               </div>
             </>
           )}

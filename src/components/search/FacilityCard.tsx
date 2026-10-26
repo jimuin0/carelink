@@ -1,3 +1,5 @@
+
+import { formatBusinessDay } from '@/lib/business-hours';
 import { isCardBookingReady } from '@/lib/facility-publish-gate';
 import Image from 'next/image';
 import Link from '@/components/BrowseLink';
@@ -19,10 +21,10 @@ function CardStarRating({ rating, count }: { rating: number; count: number }) {
 function getTodayHours(hours: FacilityCardData['business_hours']): string | null {
   if (!hours) return null;
   const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-  const today = days[new Date().getDay()];
+  const today = days[new Date(Date.now() + 9 * 3_600_000).getUTCDay()];
   const todayHours = hours[today];
   if (!todayHours) return null;
-  return `${todayHours.open}〜${todayHours.close}`;
+  return formatBusinessDay(todayHours);
 }
 
 interface Props {

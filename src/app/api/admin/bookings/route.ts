@@ -18,7 +18,7 @@ const schema = z.object({
   staff_id: z.string().uuid().nullable().optional(),
   menu_ids: z.array(z.string().uuid()).min(1).max(20).refine(ids => new Set(ids).size === ids.length),
   booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidIsoDate),
-  start_time: z.string().regex(timeRegex), end_time: z.string().regex(timeRegex),
+  start_time: z.string().regex(timeRegex), end_time: z.union([z.string().regex(timeRegex), z.literal('24:00')]),
   customer_name: z.string().trim().min(1).max(100),
   email: z.string().email().max(254).nullable().optional(),
   phone: z.string().max(20).nullable().optional(), note: z.string().max(500).nullable().optional(),

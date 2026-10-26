@@ -18,6 +18,7 @@ import { FACILITY_INPUT_LIMITS } from '@/lib/facility-input-limits';
 import { toJsonValue } from '@/lib/json-value';
 import { normalizeFacilityLocation } from '@/lib/facility-location';
 import { isHttpUrl, normalizeWebsiteUrl, settingsErrorSummary, settingsFieldErrors, SETTINGS_FIELD_LABELS } from '@/lib/facility-settings-input';
+import { businessPeriods, confirmedBusinessWeek, MAX_BUSINESS_PERIODS, WEEK_DAYS } from '@/lib/business-hours';
 
 // facility_profiles の update() に渡すオブジェクトの型。
 // 以前は Record<string, unknown> にしていたが、Database 型配線後は
@@ -28,9 +29,11 @@ import { isHttpUrl, normalizeWebsiteUrl, settingsErrorSummary, settingsFieldErro
 type FacilityProfileUpdate = Database['public']['Tables']['facility_profiles']['Update'];
 
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+const END_TIME_REGEX = /^(?:([01]\d|2[0-3]):[0-5]\d|24:00)$/;
+const periodSchema = z.object({ open: z.string().regex(TIME_REGEX), close: z.string().regex(END_TIME_REGEX) });
 
 const businessHoursDaySchema = z.union([
-  z.object({ open: z.string().regex(TIME_REGEX), close: z.string().regex(TIME_REGEX) }),
+  periodSchema.extend({ periods: z.array(periodSchema).min(1).max(MAX_BUSINESS_PERIODS).optional() }),
   z.null(),
 ]);
 
@@ -217,10 +220,16 @@ async function patchSettings(request: NextRequest) {
   // Validate business hours consistency
   if (parsed.data.business_hours) {
     for (const [day, hours] of Object.entries(parsed.data.business_hours)) {
-      if (hours && hours.close <= hours.open) {
-        const message = `${dayLabels[day]}曜日の閉店時間は開店時間より後にしてください`;
+      if (hours && (!businessPeriods(hours) || (hours.periods &&
+        (hours.open !== hours.periods[0].open || hours.close !== hours.periods[0].close)))) {
+        const message = `${dayLabels[day]}曜日の営業時間を確認してください。終日営業は00:00〜24:00で設定してください`;
         return NextResponse.json({ error: message, fields: { business_hours: message } }, { status: 400 });
       }
+    }
+    if (Object.values(parsed.data.business_hours).some(day => day !== null) &&
+      !confirmedBusinessWeek({ ...Object.fromEntries(WEEK_DAYS.map(day => [day, null])), ...parsed.data.business_hours })) {
+      const message = '営業時間が重複しています。翌日の早朝に続く時間も含めて確認してください';
+      return NextResponse.json({ error: message, fields: { business_hours: message } }, { status: 400 });
     }
   }
 

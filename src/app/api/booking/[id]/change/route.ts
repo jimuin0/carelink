@@ -46,7 +46,7 @@ const changeSchema = z.object({
     .refine((d) => d >= getTodayString(), '過去の日付は指定できません')
     .refine((d) => d <= getMaxDateString(), '1年以上先の日付は指定できません'),
   start_time: changeTime,
-  end_time: changeTime,
+  end_time: z.union([changeTime, z.literal('24:00'), z.literal('24:00:00')]),
 }).refine((v) => v.start_time < v.end_time, {
   message: '終了時刻は開始時刻より後にしてください',
   path: ['end_time'],

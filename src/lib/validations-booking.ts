@@ -10,6 +10,8 @@ const timeString = z.string()
     return h < 24 && m < 60;
   }, '有効な時間を入力してください');
 
+const endTimeString = z.union([timeString, z.literal('24:00')]);
+
 export function getTodayString() {
   // JST（UTC+9）で今日の日付を取得（Vercel=UTC環境対応）
   const now = new Date();
@@ -45,7 +47,7 @@ export const bookingSchema = z.object({
     .refine((date) => date >= getTodayString(), '過去の日付は指定できません')
     .refine((date) => date <= getMaxDateString(), '1年以上先の日付は指定できません'),
   start_time: timeString,
-  end_time: timeString,
+  end_time: endTimeString,
   // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
   customer_name: z.string().trim().min(1, 'お名前は必須です').max(100),
   email: z.string().email('正しいメールアドレスを入力してください').max(254),

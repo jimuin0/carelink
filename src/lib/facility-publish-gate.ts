@@ -1,3 +1,4 @@
+import { businessWindows } from './business-hours';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasConfirmedBookingHours } from './booking-preparation';
 import { validateFacilityPrText } from './medical-ad-guard';
@@ -36,6 +37,7 @@ const CLOCK = /^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/;
 
 function clockSeconds(value: unknown): number | null {
   if (typeof value !== 'string') return null;
+  if (value === '24:00' || value === '24:00:00') return 86400;
   const match = CLOCK.exec(value);
   return match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3] ?? 0) : null;
 }
@@ -84,27 +86,14 @@ export function bookableMenusQuery(client: SupabaseClient, facilityId: string) {
 export function workingTimeMeetsBusinessHours(
   hours: unknown, dayOfWeek: number, start: unknown, end: unknown, minMinutes: number = BOOKING_DURATION_MIN_MINUTES,
 ): boolean {
-  let from = clockSeconds(start);
-  let to = clockSeconds(end);
-  const key = WEEKDAY_KEYS[dayOfWeek];
-  if (from === null || to === null || key === undefined) return false;
-  if (hours !== null && typeof hours === 'object' && !Array.isArray(hours) && Object.prototype.hasOwnProperty.call(hours, key)) {
-    const day = (hours as Record<string, unknown>)[key];
-    if (day === null) return false;
-    if (typeof day === 'object' && !Array.isArray(day)) {
-      const { open, close } = day as { open?: unknown; close?: unknown };
-      if (open != null && close != null) {
-        const opens = clockSeconds(open);
-        const closes = clockSeconds(close);
-        if (opens === null || closes === null) return false;
-        from = Math.max(from, opens);
-        to = Math.min(to, closes);
-      }
-    }
-  }
+  const from = clockSeconds(start);
+  const to = clockSeconds(end);
+  if (from === null || to === null || WEEKDAY_KEYS[dayOfWeek] === undefined) return false;
   const need = Math.min(Math.max(Number.isFinite(minMinutes) ? minMinutes : BOOKING_DURATION_MIN_MINUTES,
     BOOKING_DURATION_MIN_MINUTES), BOOKING_DURATION_MAX_MINUTES);
-  return to > from && to - from >= need * 60;
+  return businessWindows(hours, dayOfWeek).some(window =>
+    Math.min(to, window.end * 60) - Math.max(from, window.start * 60) >= need * 60);
+
 }
 
 /** 'YYYY-MM-DD' の曜日（0=日）。読めない日付は -1（どの曜日の営業時間にも当たらない）。 */

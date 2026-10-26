@@ -6584,6 +6584,18 @@ export type Database = {
         }
         Returns: number
       }
+      business_day_periods: { Args: { p_day: Json }; Returns: Json }
+      business_day_windows: {
+        Args: { p_dow: number; p_hours: Json }
+        Returns: {
+          end_min: number
+          start_min: number
+        }[]
+      }
+      business_interval_fits: {
+        Args: { p_dow: number; p_end: string; p_hours: Json; p_start: string }
+        Returns: boolean
+      }
       cancel_booking_with_points_atomic: {
         Args: {
           p_actor_id: string

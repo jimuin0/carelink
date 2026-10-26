@@ -1,3 +1,4 @@
+import { businessWindows } from '@/lib/business-hours';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
@@ -15,7 +16,7 @@ import type { AvailableSlot } from '@/types';
 /**
  * カレンダー1日分の状態。
  * - available / few / full … 営業日で、空き枠が 3以上 / 1〜2 / 0
- * - closed … 施設の定休日（business_hours の当該曜日が null）。満席とは意味が違う
+ * - closed … 施設の定休日（前日からの深夜営業を含め、営業時間が無い日）。満席とは意味が違う
  * - past   … 過ぎた日。予約できないが「満席」ではない
  * 数値 slots は status 判定用に 3 で丸めた内部値であり、客に見せる残り枠数ではない。
  */
@@ -97,13 +98,8 @@ export async function GET(request: Request) {
       .maybeSingle();
     if (hoursError) return serverError('availability-hours', hoursError, '/api/availability');
     const businessHours = (facRow?.business_hours ?? null) as Record<string, unknown> | null;
-    const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
-    const isClosedOn = (dateStr: string): boolean => {
-      if (!businessHours) return false;
-      const key = DAY_KEYS[new Date(`${dateStr}T00:00:00Z`).getUTCDay()];
-      if (!(key in businessHours)) return false;
-      return businessHours[key] == null;
-    };
+    const isClosedOn = (dateStr: string): boolean =>
+      businessWindows(businessHours, new Date(`${dateStr}T00:00:00Z`).getUTCDay()).length === 0;
 
     // slots は「status 判定用に 3 で丸めた内部値」であり、客に見せる残り枠数ではない。
     // 実際に 45 枠空いている日でも 3 を返すため、この数値をそのまま「本日残り3枠」と

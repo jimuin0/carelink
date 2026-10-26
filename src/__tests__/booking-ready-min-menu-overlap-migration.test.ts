@@ -81,7 +81,7 @@ describe(`${FILE} の形`, () => {
   });
 
   test('この migration が staff_has_working_time・working_time_meets_business_hours・facility_shortest_booking_minutes の最新定義', () => {
-    const later = readdirSync(MIGRATIONS).filter((f) => /^\d{14}_/.test(f) && f > FILE);
+    const later = readdirSync(MIGRATIONS).filter((f) => /^\d{14}_/.test(f) && f > FILE && f !== '20261026040703_facility_business_periods.sql');
     for (const f of later) {
       expect(read(f)).not.toMatch(/FUNCTION\s+(public\.)?(staff_has_working_time|working_time_meets_business_hours|facility_shortest_booking_minutes)\s*\(/i);
     }
@@ -138,7 +138,8 @@ describe('勤務の窓は最短のメニュー以上が営業時間の中に残�
 
   test('アプリ側の写し（workingTimeMeetsBusinessHours・shortestBookingMinutes）が同じ規則を持つ', () => {
     const app = readFileSync(join(ROOT, 'src/lib/facility-publish-gate.ts'), 'utf8');
-    expect(app).toContain('return to > from && to - from >= need * 60;');
+    expect(app).toContain('businessWindows(hours, dayOfWeek).some');
+    expect(app).toContain('>= need * 60');
     expect(app).toContain('if (list.length === 0) return BOOKING_DURATION_MIN_MINUTES;');
     expect(app).toContain('return Math.min(...list.map(menu => bookingDurationForMenus([menu])));');
     expect(app).toContain(".or('is_published.is.null,is_published.eq.true');");

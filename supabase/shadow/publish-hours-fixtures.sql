@@ -87,7 +87,7 @@ BEGIN
   FOREACH hours IN ARRAY ARRAY[
     '{"mon":{"open":"10:00","close":"19:00"}}',
     '{"mon":null,"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}',
-    '{"mon":{"open":"19:00","close":"10:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}'
+    '{"mon":{"open":"19:00","close":"19:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}'
   ] LOOP
     -- 営業時間と公開を同じ保存で送っても、確認済みでない営業時間では公開できない
     result := pg_temp.try_sql(format('SELECT public.update_facility_settings_atomic(%L,%L,%L::jsonb)', owner_id, a,

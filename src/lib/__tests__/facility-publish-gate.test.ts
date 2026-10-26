@@ -284,7 +284,7 @@ describe('掲載だけの公開条件', () => {
     ['未保存', null],
     ['曜日が欠けている', { mon: { open: '10:00', close: '19:00' } }],
     ['全曜日が定休日', { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }],
-    ['閉店が開店より前', { ...LISTING_HOURS, mon: { open: '19:00', close: '10:00' } }],
+    ['開始と終了が同時刻', { ...LISTING_HOURS, mon: { open: '19:00', close: '19:00' } }],
   ])('営業時間が%sなら公開できない', async (_label, business_hours) => {
     const located = { name: '合成店舗', prefecture: '東京都', city: '検証区', address: '検証町1-1' };
     const chain = profileChain({ ...located, business_hours });
@@ -591,4 +591,8 @@ describe('勤務の窓に要る長さ（最短のメニュー）', () => {
     const fits = await checkPublishReadiness(admin([{ duration_minutes: 60 }, { duration_minutes: 30 }]), 'f1');
     expect(fits.readiness).toEqual({ ready: true, missing: [] });
   });
+});
+
+test('staff end-of-day accepts 24:00 without wrapping it to midnight', () => {
+  expect(workingTimeMeetsBusinessHours({ mon: { open: '18:00', close: '05:00' } }, 1, '23:00', '24:00')).toBe(true);
 });

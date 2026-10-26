@@ -268,7 +268,7 @@ test('weekday rows wrap the time inputs below the day on narrow screens instead 
   await screen.findByText('スケジュールを保存');
   const row = dayBox('月').closest('label')!.parentElement!;
   expect(row.className.split(/\s+/)).toContain('flex-wrap');
-  const times = Array.from(row.querySelectorAll('input[type="time"]'));
+  const times = Array.from(row.querySelectorAll('input[type="time"], input[type="text"]'));
   expect(times).toHaveLength(2);
   for (const input of times) {
     const classes = input.className.split(/\s+/);

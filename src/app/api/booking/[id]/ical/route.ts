@@ -1,3 +1,4 @@
+import { toIcalLocalDateTime } from '@/lib/ical-date';
 /**
  * 予約 iCal (.ics) ダウンロード
  * GET /api/booking/[id]/ical
@@ -24,16 +25,6 @@ function escapeIcal(str: string): string {
 
 function toIcalDate(isoString: string): string {
   return isoString.replace(/[-:]/g, '').replace(/\.\d{3}/, '').replace('Z', 'Z');
-}
-
-// 予約日(DATE "YYYY-MM-DD") と時刻(TIME "HH:MM" または "HH:MM:SS") を iCal のローカル日時
-// "YYYYMMDDTHHMMSS" に組み立てる。旧実装は日付を持たず start_time/end_time(TIME) だけを
-// toIcalDate に通していたため DTSTART/DTEND が "100000" のような日付欠落値になり、
-// カレンダー取込が壊れていた。TZID=Asia/Tokyo と併用して JST として正しく解釈させる。
-function toIcalLocalDateTime(date: string, time: string): string {
-  const d = date.replace(/-/g, '');                 // "YYYYMMDD"
-  const t = (time.replace(/:/g, '') + '000000').slice(0, 6); // "HHMMSS"（秒欠落も0埋め）
-  return `${d}T${t}`;
 }
 
 export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {

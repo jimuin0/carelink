@@ -22,7 +22,7 @@ const scheduleSchema = z.object({
   schedules: z.array(z.object({
     day_of_week: z.number().int().min(0).max(6),
     start_time: z.string().regex(TIME_REGEX),
-    end_time: z.string().regex(TIME_REGEX),
+    end_time: z.union([z.string().regex(TIME_REGEX), z.literal('24:00')]),
   })).max(7),
 }).refine(
   // 【恒久根治】同じ曜日を複数件送っても zod は素通りし、insert 後に day_of_week 単位で
@@ -36,7 +36,7 @@ const overrideSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidIsoDate),
   is_holiday: z.boolean(),
   start_time: z.string().regex(TIME_REGEX).optional().nullable(),
-  end_time: z.string().regex(TIME_REGEX).optional().nullable(),
+  end_time: z.union([z.string().regex(TIME_REGEX), z.literal('24:00')]).optional().nullable(),
 }).refine(data => data.is_holiday || (data.start_time == null) === (data.end_time == null), { message: '開始時間と終了時間を両方入力してください' });
 
 const deleteOverrideSchema = z.object({

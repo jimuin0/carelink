@@ -1,9 +1,10 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
+import { businessMinute, businessPeriods, businessWindows, periodWindow, type BusinessDay } from '@/lib/business-hours';
 
 interface Props {
-  businessHours: Record<string, { open: string; close: string } | null> | null;
+  businessHours: Record<string, BusinessDay | null> | null;
   regularHoliday?: string | null;
 }
 
@@ -14,20 +15,39 @@ interface Props {
  */
 export function computeBusinessStatus(
   currentTime: string,
-  todayHours: { open: string; close: string } | null | undefined,
+  todayHours: BusinessDay | null | undefined,
 ): 'open' | 'closed' | 'holiday' {
   if (!todayHours) return 'holiday';
-  const { open, close } = todayHours;
-  const isOpen = close > open
-    ? currentTime >= open && currentTime < close
-    : currentTime >= open || currentTime < close; // 深夜営業（翌日跨ぎ）
+  const minute = businessMinute(currentTime);
+  const isOpen = minute !== null && (businessPeriods(todayHours) ?? []).some(period => {
+    const window = periodWindow(period)!;
+    return window.end > 1440 ? minute >= window.start || minute < window.end - 1440
+      : minute >= window.start && minute < window.end;
+  });
   return isOpen ? 'open' : 'closed';
 }
 
-// 購読すべき更新イベントが無い（現在時刻は常に「今読んだ値」を使うだけで、外部からの
-// 変化通知を待つ必要が無い）ため、subscribe は何もしない no-op。
-function subscribeNoop() {
-  return () => {};
+/** A public badge needs confirmed periods; missing legacy day data is not proof of opening. */
+export function computeCalendarBusinessStatus(businessHours: Props['businessHours'], timestamp: number): 'open' | 'closed' | 'holiday' | 'unknown' {
+  if (!businessHours) return 'unknown';
+  const now = new Date(timestamp + 9 * 3_600_000);
+  const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const today = days[now.getUTCDay()];
+  const todayHours = businessHours[today];
+  const periods = businessPeriods(todayHours);
+  // Availability keeps an unrestricted legacy fallback. A badge must not turn
+  // missing/invalid hours into a positive claim that a shop is open all day.
+  const windows = businessWindows({ ...businessHours, [today]: periods === null ? null : todayHours }, now.getUTCDay());
+  const minute = now.getUTCHours() * 60 + now.getUTCMinutes();
+  if (windows.some(window => minute >= window.start && minute < window.end)) return 'open';
+  if (periods === null) return 'unknown';
+  return todayHours ? 'closed' : 'holiday';
+}
+
+// 時刻の境界をまたいだ画面も更新する。通信やサーバー側の定期実行は使わない。
+function subscribeClock(onChange: () => void) {
+  const timer = setInterval(onChange, 30_000);
+  return () => clearInterval(timer);
 }
 
 function getServerStatusSnapshot(): 'open' | 'closed' | 'holiday' | 'unknown' {
@@ -45,20 +65,8 @@ export default function BusinessStatusBadge({ businessHours }: Props) {
   // getSnapshot が呼び出しごとに新しい値を返しても参照比較(Object.is)は値で一致し、
   // 無限再レンダーの心配はない。
   const status = useSyncExternalStore(
-    subscribeNoop,
-    () => {
-      if (!businessHours) return 'unknown' as const;
-      const now = new Date();
-      const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-      const today = days[now.getDay()];
-      const todayHours = businessHours[today];
-
-      const hours = now.getHours();
-      const minutes = now.getMinutes();
-      const currentTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-
-      return computeBusinessStatus(currentTime, todayHours);
-    },
+    subscribeClock,
+    () => computeCalendarBusinessStatus(businessHours, Date.now()),
     getServerStatusSnapshot,
   );
 

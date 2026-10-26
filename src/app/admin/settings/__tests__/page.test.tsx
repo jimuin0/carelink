@@ -117,7 +117,7 @@ test('未確認の営業時間を既定09時19時で上書きせず、入力情�
 
 test.each([
   { mon: { open: '10:00', close: '18:00' } },
-  { mon: { open: '18:00', close: '10:00' }, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null },
+  { mon: { open: '18:00', close: '18:00' }, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null },
   { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null },
 ])('不完全・不正な既存営業時間を、名前の保存だけで確認済み7曜日へ変換しない：%p', async businessHours => {
   mockProfile.business_hours = businessHours;

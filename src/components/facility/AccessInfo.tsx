@@ -1,3 +1,4 @@
+import { formatBusinessDay } from '@/lib/business-hours';
 import Link from 'next/link';
 import type { Facility } from '@/types';
 import { dayOrder, dayLabels } from '@/lib/constants';
@@ -61,7 +62,7 @@ export default function AccessInfo({ facility }: { facility: Facility }) {
                   <tr key={day} className="border-b border-gray-100">
                     <td className="py-2.5 pr-4 text-gray-500 w-16 font-medium">{dayLabels[day]}</td>
                     <td className="py-2.5">
-                      {hours ? `${hours.open} 〜 ${hours.close}` : <span className="text-gray-500">休み</span>}
+                      {hours ? formatBusinessDay(hours) : <span className="text-gray-500">休み</span>}
                     </td>
                   </tr>
                 );
