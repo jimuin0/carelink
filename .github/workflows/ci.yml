@@ -27,7 +27,7 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: Runtime compile-cache build contract
-        run: node --test scripts/warm-runtime-compile-cache.test.mjs scripts/runtime-cpu-sampler.test.cjs
+        run: node --test scripts/warm-runtime-compile-cache.test.mjs scripts/runtime-cpu-sampler.test.cjs scripts/static-asset-cdn-cache.test.cjs
       - name: Verify admin schedule export against cron registry
         run: |
           node --test scripts/export-admin-schedules.test.mjs
@@ -231,7 +231,8 @@ jobs:
         # playwright.config の 2 プロジェクト（chromium / Mobile Safari=webkit）を両方導入。
         # 従来は chromium のみで webkit 系の E2E が実行されない盲点があった。
         # 2026-10-23: apt の取得が 28 分止まり、ジョブ全体の 30 分上限で E2E が 1 本も走らずに
-        # 打ち切られた（#795）。1 回 8 分で切り、3 回まで取り直す。
+        # 打ち切られた（#795）。依存導入は1回3分で切り、3回まで取り直す。
+        # 8分待ちの再試行でも15分を消費したため、E2E本体の30分枠を確保する。
         # root の apt 子プロセスは一般ユーザーの timeout では終了できず、次の試行が
         # dpkg lock で失敗する。依存導入だけを root の timeout 配下で実行する。
         run: |
@@ -240,14 +241,14 @@ jobs:
           # This disposable runner owns the configuration; never remove lock
           # files or kill unrelated package-manager processes to recover.
           sudo tee /etc/apt/apt.conf.d/99carelink-ci-network >/dev/null <<'EOF'
-          Acquire::Retries "2";
-          Acquire::http::Timeout "30";
-          Acquire::https::Timeout "30";
+          Acquire::Retries "0";
+          Acquire::http::Timeout "15";
+          Acquire::https::Timeout "15";
           DPkg::Lock::Timeout "60";
           EOF
           dependencies_installed=0
           for attempt in 1 2 3; do
-            if sudo timeout --kill-after=15s 480 "$playwright_node" "$playwright_cli" install-deps chromium webkit; then
+            if sudo timeout --kill-after=15s 180 "$playwright_node" "$playwright_cli" install-deps chromium webkit; then
               dependencies_installed=1
               break
             fi

@@ -3,6 +3,7 @@
 > **2026-10-21 更新（最新の入口）**：まず [docs/handoff/CODEX_INSTRUCTIONS_20261021.md](docs/handoff/CODEX_INSTRUCTIONS_20261021.md) を読む。
 > **2026-10-26 更新**：Supabase の PostGIS 公開権限は現行障害ではなく実在する Security Advisor 指摘。チケット `SU-513978` に管理者用の移設手順が届いた。変更直前の保護と COMMIT 後の復旧条件について、本人が許可した確認メール1通を追加送信し、回答待ち。本番移設は承認・実行していない。[実測・安全な是正手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)を参照。
 > **2026-10-26 追記**：Render 統合後の初回日曜ジョブ `customer-segment`、`sync-google-ratings`、`weekly-report` は本番 `cron_logs` でいずれも `success` を確認した。`weekly-report` の処理数は 0 で、Render の統合サービスでも HTTP 200 と正常終了を確認済み。これらを再実行しない。下記の旧記録にある「初回確認待ち」は解消済み。[現在地](docs/handoff/CODEX_INSTRUCTIONS_20261021.md#3-残課題優先順)を参照。
+> **2026-10-26 原票探索更新**：旧MacのSMB共有へ接続できた。原票151件のうち149件は引き続き全文未回収。GitHubの[原票索引](docs/handoff/original-source-index.json)は名前・SHA-256・状態であり全文ではない。旧Macの引き継ぎzipと全履歴bundleの照合結果は[探索記録](docs/handoff/original-source-recovery-20261026.md)を参照する。
 > **2026-10-24 追記**：PR #801 は CI E2E 461 成功で main `84f4497` へマージ。Vercel は非配信差分の本番ビルドを Ignored Build Step で省略し、公開 health は healthy/version `13b0d35`。新しい画像はこのマージで作成されていない。
 > 下の「再開直後の実作業」2 の Render cron 集約（PR #734）は切替完了・旧サービス suspend 済みで、再実施しない。
 > PR #739〜#756 はマージ・本番反映済み。残課題と作業手順は同指示書の 3〜4 章が正。
@@ -29,7 +30,7 @@ Node22.22.2以上、Python3、Gitを用意し `npm ci`。file依存2件はrepo�
 - PR733 / abd8e800: 実装・ローカル検証・本番配信照合の記録あり。573 suites/12,305 tests、branches11,309/11,309、E2E head/main各374。これは過去証拠であり今回の再実行ではない。
 - PR734 / c33a53ac: mainへマージ済み。cron集約の575 suites/12,330 tests、100%分岐とCI成功がPRに記録。本番health/version c33a53aは当時の記録。Render切替と旧サービスsuspendは後続作業で完了し、2026-10-25の初回日曜ジョブ3本は本番 `cron_logs` で成功を確認した。手順・rollbackは [cron正本](docs/render-cron-consolidation.md)。推測で切替/再送しない。
 - Supabase `public.spatial_ref_sys` 公開書込権限: 10/26 に継続を実測。チケット `SU-513978` に管理者手順の回答あり。変更直前の保護・COMMIT 後の復旧条件、移設の本人承認・実作業は未了。現行障害と混同しない。詳細は[PostGIS の実測と検証手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)。
-- 原票151全文のうち149未回収。名前/hashは [原票索引](docs/handoff/original-source-index.json)。旧Mac原保存先 `/private/tmp/carelink-audit-20260924.8xy8L8` と旧CareLink docsが候補。2件のみ取得済みという過去判定。Git全blob/関連アーカイブ/Drive既知候補で149件は見つからず。旧Mac名の解決、SSH/SMB Bonjourは結果なし。現在Macはpersonal hotspot「kam」だった。旧MacIP/共有可否は未確認。原票回収完了・全指摘解消を認定しない。
+- 原票151全文のうち149未回収。名前/hashは [原票索引](docs/handoff/original-source-index.json) にあるが、GitHub上のその索引を原票本文と扱わない。2026-10-26に旧MacへSMB接続し、旧 `/private/tmp/carelink-audit-20260924.8xy8L8` の不存在、引き継ぎzip・Git履歴bundleの正確なハッシュ一致が既取得の2件だけであることを確認した。GitHubの別資料には一部の指摘・対応経過があるが、149件の全文の代わりにはならない。[探索範囲と次の手順](docs/handoff/original-source-recovery-20261026.md)を参照。原票回収完了・全指摘解消を認定しない。
 - 過去menu500、Safari/nav timeout、health遅延、Render trigger欠落の根因は証拠不足。現行テスト成功で過去原因確定に置換しない。
 - 実Google OAuth受入は本人同意待ち。模擬Google+独立PG試験と実provider試験は別。10/19集計ではprepared/started/succeeded/tracked/connected各0。未知のDB外イベント不存在までは未証明。
 - 画像保持/公開/店舗所有方針は本人判断待ち。その後の実装はエージェント担当。
