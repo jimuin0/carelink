@@ -1,0 +1,173 @@
+name: Cloudflare staging verification
+'on':
+  push:
+    branches:
+      - codex/cloudflare-staging
+permissions:
+  contents: read
+  packages: read
+concurrency:
+  group: cloudflare-staging-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  workers-e2e:
+    name: Cloudflare Workers isolated E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Prepare source-only Cloudflare workspace
+        working-directory: ${{ github.workspace }}
+        run: >-
+          node --test --experimental-test-coverage --test-coverage-include=cloudflare/staging-env.mjs
+          --test-coverage-include=cloudflare/staging-handler.mjs --test-coverage-branches=100
+          cloudflare/staging-env.test.mjs cloudflare/staging-handler.test.mjs
+
+          node scripts/prepare-cloudflare-staging.mjs
+
+          node -e 'console.log("CF_WORKSPACE="+require("./work/cloudflare-staging/current.json").workspace)'
+          >> "$GITHUB_ENV"
+      - name: Install pinned isolated toolchain
+        run: |-
+          npm ci --ignore-scripts
+          node scripts/ensure-eslint-plugin-link.mjs
+          npm audit --audit-level=moderate
+      - name: Cloudflare toolchain unit coverage
+        run: npm run test:coverage:ci -- --runInBand
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://synthetic.invalid
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: synthetic-staging-anon
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.104.0
+      - name: Pin local PostgREST with correct HEAD connection semantics
+        run: |
+          mkdir -p supabase/.temp
+          printf '%s' 'v14.15' > supabase/.temp/rest-version
+      - name: Authenticate image pulls to ghcr.io
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      - name: Start Supabase (fresh-apply gate)
+        run: |
+          for registry in ghcr.io public.ecr.aws docker.io; do
+            for attempt in 1 2; do
+              if SUPABASE_INTERNAL_IMAGE_REGISTRY="$registry" supabase start; then
+                echo "SUPABASE_INTERNAL_IMAGE_REGISTRY=$registry" >> "$GITHUB_ENV"
+                exit 0
+              fi
+              echo "supabase start failed with $registry (attempt $attempt)" >&2
+              supabase stop --no-backup >/dev/null 2>&1 || true
+              sleep 20
+            done
+          done
+          exit 1
+      - name: Verify local PostgREST HEAD connection semantics
+        run: python3 scripts/check-local-postgrest-head.py
+      - name: Generate schema types from the disposable local database
+        run: supabase gen types typescript --local --schema public > "$RUNNER_TEMP/carelink-database.types.ts"
+      - name: Upload generated local schema types
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-local-database-types
+          path: ${{ runner.temp }}/carelink-database.types.ts
+          if-no-files-found: error
+          retention-days: 7
+      - name: Export Supabase local credentials
+        id: supabase
+        run: |
+          STATUS=$(supabase status -o env)
+          unquote() { sed -E 's/^"//; s/"$//'; }
+          API_URL=$(echo "$STATUS" | grep '^API_URL=' | cut -d= -f2- | unquote)
+          ANON_KEY=$(echo "$STATUS" | grep '^ANON_KEY=' | cut -d= -f2- | unquote)
+          SERVICE_ROLE_KEY=$(echo "$STATUS" | grep '^SERVICE_ROLE_KEY=' | cut -d= -f2- | unquote)
+          # service_role key は /api/health の rate_limit プローブ（createServiceRoleClient →
+          # check_rate_limit RPC）が必須とする。欠けると criticalOk=false → 503 になり
+          # api-contract.spec.ts の status===200 / 'healthy'|'degraded' 期待が連鎖失敗する。
+          if [ -z "$API_URL" ] || [ -z "$ANON_KEY" ] || [ -z "$SERVICE_ROLE_KEY" ]; then
+            echo "❌ supabase status から API_URL / ANON_KEY / SERVICE_ROLE_KEY を取得できませんでした"
+            exit 1
+          fi
+          echo "url=$API_URL" >> "$GITHUB_OUTPUT"
+          echo "::add-mask::$ANON_KEY"
+          echo "anon=$ANON_KEY" >> "$GITHUB_OUTPUT"
+          echo "::add-mask::$SERVICE_ROLE_KEY"
+          echo "service_role=$SERVICE_ROLE_KEY" >> "$GITHUB_OUTPUT"
+      - name: Local Supabase API contracts (no skips)
+        env:
+          STAGING_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
+          STAGING_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ steps.supabase.outputs.service_role }}
+        run: >
+          node scripts/check-local-supabase-contract.mjs environment
+
+          npm run test:contract -- --runInBand --runTestsByPath
+          tests/contract/schema-invariants.contract.test.ts tests/contract/supabase-contract.test.ts
+          tests/contract/local-mutation.contract.test.ts --json
+          --outputFile="$RUNNER_TEMP/local-supabase-contract.json"
+
+          node scripts/check-local-supabase-contract.mjs results "$RUNNER_TEMP/local-supabase-contract.json"
+
+          echo "Isolated local Supabase API contracts passed with zero skips. This is not hosted staging or
+          production verification." >> "$GITHUB_STEP_SUMMARY"
+      - name: Install Playwright Browsers
+        run: |
+          playwright_node="$(command -v node)"
+          playwright_cli="$PWD/node_modules/playwright/cli.js"
+          # This disposable runner owns the configuration; never remove lock
+          # files or kill unrelated package-manager processes to recover.
+          sudo tee /etc/apt/apt.conf.d/99carelink-ci-network >/dev/null <<'EOF'
+          Acquire::Retries "0";
+          Acquire::http::Timeout "15";
+          Acquire::https::Timeout "15";
+          DPkg::Lock::Timeout "60";
+          EOF
+          dependencies_installed=0
+          for attempt in 1 2 3; do
+            if sudo timeout --kill-after=15s 180 "$playwright_node" "$playwright_cli" install-deps chromium webkit; then
+              dependencies_installed=1
+              break
+            fi
+            echo "playwright OS dependencies failed or timed out (attempt $attempt)" >&2
+            # A bounded retry may have interrupted package configuration. The
+            # root timeout has already terminated its own process group.
+            sudo timeout --kill-after=15s 120 dpkg --configure -a
+            sleep 10
+          done
+          test "$dependencies_installed" -eq 1
+          for attempt in 1 2 3; do
+            if timeout --kill-after=15s 480 "$playwright_node" "$playwright_cli" install chromium webkit; then
+              exit 0
+            fi
+            echo "playwright install failed or timed out (attempt $attempt)" >&2
+            sleep 10
+          done
+          exit 1
+      - name: Workers production build and isolated HTTPS E2E
+        run: node scripts/run-ci-e2e.mjs
+        env:
+          SALON_REGISTRATION_V2_ENABLED: 'true'
+          SKIP_ENV_VALIDATION: true
+          PLAYWRIGHT_BASE_URL: https://localhost:3000
+          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ steps.supabase.outputs.service_role }}
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop || true
+      - name: Upload E2E Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloudflare-playwright-report
+          path: work/cloudflare-staging/app-*/playwright-report/
+          retention-days: 30
+    defaults:
+      run:
+        working-directory: ${{ env.CF_WORKSPACE }}
