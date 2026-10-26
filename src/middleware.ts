@@ -1,5 +1,5 @@
 import { readAuthorization } from '@/lib/authorization-read';
-import { createServerClient } from '@supabase/ssr';
+import type { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { safeRedirect } from '@/lib/safe-redirect';
 import { loginDestination } from '@/lib/post-login-landing';
@@ -173,6 +173,8 @@ export async function middleware(request: NextRequest) {
   let authCookiesOpen = true;
   const authCookieDeadline = Date.now() + AUTH_VERIFICATION_TIMEOUT_MS;
   try {
+    // Public reads return above without initializing the cookie-auth SDK.
+    const { createServerClient } = await import('@supabase/ssr');
     supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -338,6 +340,9 @@ export async function middleware(request: NextRequest) {
 export { signCacheValue, verifyCacheValue, getMembershipCacheKey };
 
 export const config = {
+  // Share the patched Node runtime and its prepared bytecode cache instead of
+  // compiling a separate Edge VM inside each scale-to-zero container.
+  runtime: 'nodejs',
   matcher: [
     '/((?!_next/static|_next/image|api/|favicon\\.svg|favicon\\.ico|apple-touch-icon\\.png|og-image\\.png|manifest\\.json|sw\\.js|.*\\.(?:svg|png|jpg|jpeg|gif|ico|webp)$).*)',
   ],
