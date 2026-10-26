@@ -1,5 +1,7 @@
 # このセッションの未完了と修正状況（2026-10-26）
 
+> 2026-10-26 12:14 JST 読み取り更新。以下の旧表は当時の観測値として保持する。最新状態は末尾の「10/26 現在地」を優先する。
+
 この表は、CPU・Preview・SEO変異テスト・500エラー・配色・配信確認という、この会話で依頼された範囲の一覧。既存の事業判断待ちや本人同意待ちを「コード修正」で完了した扱いにしない。
 
 |優先|項目|確認済みの状態|完了条件・対応|
@@ -27,3 +29,28 @@ Firewallには `/search` GETかつAccept-Language不在の**ログ専用**ルー
 ## 既存の保留事項
 
 [既存引継ぎ](CODEX_INSTRUCTIONS_20261021.md)のPostGIS移設承認、実Google OAuth本人同意、実予約/通知の運用受入、店舗公開方針、原票149件の回収は、今回の性能修正とは別。明示保留の決済・キャンセル待ち・Google時差・LINE解除・実顧客返信などには着手しない。旧Macの参照や包括的な「全部修正」を、それらの承認・新規課金・本人同意の代行と解釈しない。
+
+## 10/26 現在地（原票149件を除く）
+
+- PR #826 のブラウザ依存導入の有界再試行は main `0e59c149` に入り、対象PRのE2Eは成功。上表4は現行未修正から外す。検索フッターの重複HTML削減も同PRで反映済み。
+- PR #831 の公開読取・固定アセットCPU削減は main `5418649a` に入り、対象PRのLint/型・Unit/Coverage・Security・E2Eは成功。Vercel本番は元コミット `b2afc3e` の配信が READY、公開 `/api/health` は `healthy`・version `b2afc3e`。元コミットとmainの追跡ファイル差分は原票探索の文書3ファイルのみで、アプリコードは一致。上表5の「反映待ち」は解消した。
+- VercelのCareLink `Fluid Active CPU` は画面の過去30日集計（9/25 21:00〜10/25 21:00表示）で13時間31分。これはPR #831以前の配信を含む。新配信後の自然流入で通常Hobby枠4時間/月相当を達成した証拠はまだない。短時間の比率を月間保証にしない。
+- 接続可能なSupabaseアカウントでCareLink専用のhosted検証プロジェクトは未特定。旧Macの `carelink-staging-requirement-audit-20261003.md` は、有料hosted stagingの常設を必須とした過去の判断を撤回し、隔離local Supabaseの実検査と外部条件付きskipを区別する。Previewへ本番service-roleを入れない。hosted Preview認証・書込みの実測は未実施のまま。
+- Supabase本番の PostGIS は引き続き `public`。`anon` の `public.spatial_ref_sys` INSERT/UPDATE/DELETE はすべてtrueで、Security Advisorの関連警告も継続。チケット `SU-513978` の追加確認メールには、この読み取り時点で新たなサポート回答なし。管理者の移設・本人の本番変更承認は未実施。
+- 本番Storage `carelink-uploads` は69オブジェクト中64件が既存の参照照合SQLでは未参照（読み取り時点）。未参照という結果だけで原本削除を許可しない。
+- GitHub Support チケット #4906011 はOpenで、旧PRコミットに残る個人メールアドレスのキャッシュ削除回答待ち。現行mainと現行PR headの修正と、旧コミットの非公開化を混同しない。個人メールアドレスはここへ転記しない。
+- 実新規登録→受信→ログインと実予約通知は本人管理の安全な受入が未完走。店舗の掲載・所有権、画像の保持・削除、任意の実Google OAuthは本人判断・同意待ち。過去menu500・Safari遷移・health遅延・Render trigger欠落は当時の根因証拠が不足するが、現在の再発確定とは扱わない。
+- 追記: PR #832 が main `61b13bb1` に入った。対象PRのE2Eを含むGitHub CIは成功。ただしVercelの新規ビルドは「Deployment rate limited — retry in 24 hours」で失敗し、公開 `/api/health` のversionは依然 `b2afc3e`。したがって#832の運営メールUIはGitHub反映済み・本番未反映であり、配信後の実動作確認も未実施。新規課金で制限を解除しない。
+
+## 10/26 12:42 JST 以降の配信確認
+
+- 上の #832 未配信という観測は解消済み。API/CLI の日次制限は変更せず、Vercel Dashboard から main `61b13bb1f78263832ccd47bff4a89e8685dd4322` を指定した Production 配信 `dpl_5ZQuZhyuNPdEX2ouDdMWdj1GFx52` が READY。公開 health は `healthy`・version `61b13bb`。本番 `/admin/mail` を認証済みの読取操作で確認し、一覧の状態・日時と選択した問い合わせの時系列、390/1440px の表示を確認した。送信・予約・保存・取消は行っていない。対象配信の error/fatal runtime logs は確認時点で0件。
+- PR #832 head `54a8ddeb` の CI run `40262107024` と main run `40264511584` は成功。head と squash main の tree は一致。E2E は497成功・既存の意図的skip6件、使い捨てDB契約は19成功・skip0。実顧客の配達成功や保留中の実運用受入を認定する証拠ではない。
+- ルートからの Vercel CLI dry run が Git 無視対象の作業資料・coverage・認証状態をアップロード候補に含める問題を発見した。PR #835 の `.vercelignore` で除外し、実CLIの dry run により候補が追跡対象ソースのみとなり、アプリ・lockfile・file依存を保持することを確認。私的資料の実アップロードは行っていない。これはCLIの送信対象制御であり、アプリ実行コードの変更ではない。
+- 既存の明示保留は本人回答により維持。未参照画像64件は、旧店舗掲載申込の外観・内観・メニュー写真枠と照合。7/12の60件は10組・各枠のeTagが同一、9/29の4件は外観枠。匿名アップロードのため持ち主は未特定で削除せず保持する。参照なしという結果だけで削除しない。他の本人判断・所有者対応・原票不足は上の現在地を維持する。
+### 13:01 JST 配信再確認
+
+- 上記の配信待ちは後続配信で解消した。Vercel production deployment `dpl_5ZQuZhyuNPdEX2ouDdMWdj1GFx52` は main `61b13bb1` で READY、公開 `/api/health` は `healthy`・version `61b13bb`。PR #832 のアプリコードは本番へ反映済み。認証済み管理者による実メール受信・返信操作は未実施であり、E2Eの合格と混同しない。
+- PR #834 でこの台帳の読み取り状態を main `d655ba9b` に保存した。対象PRの必須CIとE2Eは成功。文書のみの後続Vercel deployment `dpl_EXiQZQ1ZAxfnmpczP822qKeEY8Xj` は CANCELED で、公開アプリのコードは直前の `61b13bb1` と同じ。GitHubのVercel check はビルド上限で失敗したままなので、文書コミット自体の本番配信成功とは記録しない。
+
+- 本人回答では原票149件の別保存先は不明で、重要性も未確定。現行修正の前提にせず、同じ探索は繰り返さない。2026-10-26 13:01〜13:16 JSTの本番CPUは約12秒・約134実行・エラー/タイムアウト0。固定比率なら30日9.6時間で通常4時間未達、月間達成の証明とはしない。

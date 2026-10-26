@@ -61,8 +61,8 @@ export async function onRequestError(
     void context;
     void request.method;
     alertCaughtError('onRequestError', err, request.path);
-  } catch (e) {
-    // 通知系の例外で本体応答を破壊しないよう完全 swallow
-    console.error('[instrumentation.onRequestError] alert failed:', e);
+  } catch {
+    // 通知系の例外は上流本文を含み得る。本文やstackを最終ログへ転記しない。
+    console.error('[instrumentation.onRequestError] alert failed');
   }
 }

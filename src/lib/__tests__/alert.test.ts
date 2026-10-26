@@ -15,8 +15,13 @@ jest.mock('@/lib/supabase-server', () => ({
     rpc: jest.fn().mockResolvedValue({ data: [], error: null }),
   })),
 }));
+jest.mock('../slack', () => {
+  const actual = jest.requireActual('../slack');
+  return { ...actual, postToSlackWithThreadGrouping: jest.fn(actual.postToSlackWithThreadGrouping) };
+});
 
 import { postAlert, alertError, alertWarning, alertCaughtError, alertDeliveryFailures } from '../alert';
+import * as slack from '../slack';
 
 describe('alert', () => {
   let originalFetch: typeof fetch;
@@ -232,39 +237,16 @@ describe('alert', () => {
     expect(body.text).toContain('production');
   });
 
-  // Branch coverage: line 95 (true branch) — e instanceof Error → e.message
-  // postToSlackWithThreadGrouping が Error を throw したときに catch が `e.message` を使う
-  test('postToSlackWithThreadGrouping が Error を throw → catch の e.message ブランチ', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockImplementation(() => {
-      throw new Error('supabase-error');
-    });
+  test.each([new Error('synthetic-private-alert-failure'), 'synthetic-private-alert-failure'])(
+    '想定外の通知失敗は本文を記録せず安全に終了する: %p', async failure => {
+    const post = jest.mocked(slack.postToSlackWithThreadGrouping).mockRejectedValueOnce(failure);
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    postAlert({ level: 'error', message: 'crash-test' });
-    await new Promise((r) => setTimeout(r, 100));
-    // consoleSpy should have been called via the catch block using e.message
-    consoleSpy.mockRestore();
-    // Restore default mock
-    createServiceRoleClient.mockImplementation(() => ({
-      rpc: jest.fn().mockResolvedValue({ data: [], error: null }),
-    }));
-  });
-
-  // Branch coverage: line 95 (false branch) — !(e instanceof Error) → String(e)
-  // postToSlackWithThreadGrouping が非 Error 値を throw したときに String(e) を使う
-  test('postToSlackWithThreadGrouping が非 Error 値を throw → catch の String(e) ブランチ', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockImplementation(() => {
-      throw 'non-error-string';
-    });
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    postAlert({ level: 'error', message: 'string-throw-test' });
-    await new Promise((r) => setTimeout(r, 100));
-    consoleSpy.mockRestore();
-    // Restore default mock
-    createServiceRoleClient.mockImplementation(() => ({
-      rpc: jest.fn().mockResolvedValue({ data: [], error: null }),
-    }));
+    try {
+      postAlert({ level: 'error', message: 'failure-test' });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(consoleSpy.mock.calls).toEqual([['[alert] Slack post failed:', 'notification_failure']]);
+      expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain('synthetic-private-alert-failure');
+    } finally { consoleSpy.mockRestore(); post.mockClear(); }
   });
 
   describe('alertCaughtError（catch 経路の Slack 通知ヘルパー）', () => {
