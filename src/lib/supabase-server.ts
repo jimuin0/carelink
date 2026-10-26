@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database-overrides';
+import { createPublicReadFetch } from './public-read-transport';
 
 // These data clients have no user session to refresh. Without this, each
 // short-lived client starts an unref'ed Auth interval that survives the request
@@ -16,7 +17,10 @@ export function createServerSupabaseClient() {
   if (!url || !key) {
     throw new Error('NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required');
   }
-  return createClient<Database>(url, key, statelessOptions);
+  return createClient<Database>(url, key, {
+    ...statelessOptions,
+    global: { fetch: createPublicReadFetch(url) },
+  });
 }
 
 // Service role client for server-side operations that bypass RLS.

@@ -26,6 +26,7 @@ COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build /app/scripts/warm-runtime-compile-cache.mjs /tmp/warm-runtime-compile-cache.mjs
 COPY --from=build /app/scripts/runtime-cpu-sampler.cjs /app/scripts/runtime-cpu-preload.cjs /app/runtime-diagnostics/
+COPY --from=build /app/scripts/static-asset-cdn-cache.cjs /app/runtime-diagnostics/
 RUN mkdir /app/.node-compile-cache && chown node:node /app/.node-compile-cache
 USER node
 # Generate on the exact runtime Node/V8 and directory layout. Portable mode
