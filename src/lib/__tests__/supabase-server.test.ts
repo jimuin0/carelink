@@ -31,6 +31,7 @@ describe('createServerSupabaseClient', () => {
     createServerSupabaseClient();
     expect(mockCreateClient).toHaveBeenCalledWith('https://test.supabase.co', 'anon-key-test', {
       auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+      global: { fetch: expect.any(Function) },
     });
   });
 
