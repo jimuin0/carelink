@@ -5,6 +5,7 @@ Claude Code（2026-10-20〜21）から Codex へ戻すための指示書。Codex
 ・[HANDOFF_AUDIT.md](../../HANDOFF_AUDIT.md)・[AGENTS.md](../../AGENTS.md) にある。
 
 **2026-10-24 訂正**：下表 3 の「回答待ち」は古い。[PostGIS 実測と対応手順](POSTGIS_SECURITY_ADVISOR_20261024.md)を現在の正とする。
+**2026-10-26 訂正**：下表 2 の初回日曜ジョブは確認済み。本番 `cron_logs` の最新各行は `customer-segment` 2026-10-25 07:00:38 UTC `success`（processed 0 / skipped 3）、`sync-google-ratings` 09:00:23 UTC `success`（0 / 0）、`weekly-report` 22:10:21 UTC `success`（0 / 0）。統合 Render `carelink-daily-summary` の週次レポートは HTTP 200・正常終了。処理数 0 のため週次メール送信の実運用確認ではない。再実行しない。
 
 ## 1. 現在地（2026-10-21 実測）
 
@@ -57,7 +58,7 @@ Supabase MCP の `apply_migration` で本番へ適用した（今後の順序は
 | # | 内容 | 担当・状態 | Codex がやること |
 |---|---|---|---|
 | 1 | `carelink-uploads` の未参照ファイル 64 件（約 17.9MB）。7/12 のテスト申込 10 フォルダ 60 件＋9/29 の切替日 4 件。どの `salons` 行にも紐づかない | **本人が削除するか判断待ち**（エージェントは完全削除しない） | 本人が削除したと言ったら、使用中の 1 件が残り、未参照が 0 になったかだけ読み取りで確認する。抽出 SQL は下の「付録」 |
-| 2 | 日曜の週次 cron 3 本（customer-segment・sync-google-ratings・weekly-report）の集約後初回 | 10/25(日) に初回。同じ仕組みの favorites-digest（10/19）と threads-token-refresh（10/21）は成功済み | 10/25 以降に `cron_logs` で 3 本の結果を確認する。`skipped` は対象 0 件で正常 |
+| 2 | 日曜の週次 cron 3 本（customer-segment・sync-google-ratings・weekly-report）の集約後初回 | **10/25 の3本とも本番 `cron_logs` で `success` を確認済み**。`weekly-report` の Render 応答も HTTP 200・正常終了。対象処理数は 0 | 再実行しない。対象が発生した時の実送信・内容は今回の確認範囲外 |
 | 3 | Supabase 所有者対応：`public` の PostGIS に伴う `spatial_ref_sys` 公開書込権限と `st_estimatedextent` 指摘 | チケット `SU-513978` に回答あり。PostGIS の非破壊移設には本人の書面承認待ち。現行障害ではない | [10/24 実測・手順](POSTGIS_SECURITY_ADVISOR_20261024.md)を参照。承認なしに本番拡張を変更・外部送信しない。移設後はアドバイザーと位置検索を読み取りで確認 |
 | 4 | 店舗登録の方針（誰を・どう掲載するか） | **本人の事業判断待ち** | 判断が出たら実装する。勝手に決めない |
 | 5 | 実運用確認：本人による「新規登録→メール→ログイン→管理画面」と、実際の予約 1 件の受付・通知 | 神原鍼灸院のオーナーアカウントは 10/21 に本人ログイン済み（管理画面・写真登録は動作）。実予約の受付はまだ | 本番で試験予約はしない。本人が実予約を受けたら、通知メールと管理画面の表示を本人に確認してもらう |

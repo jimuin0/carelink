@@ -2,6 +2,7 @@
 
 > **2026-10-21 更新（最新の入口）**：まず [docs/handoff/CODEX_INSTRUCTIONS_20261021.md](docs/handoff/CODEX_INSTRUCTIONS_20261021.md) を読む。
 > **2026-10-26 更新**：Supabase の PostGIS 公開権限は現行障害ではなく実在する Security Advisor 指摘。チケット `SU-513978` に管理者用の移設手順が届いた。変更直前の保護と COMMIT 後の復旧条件について、本人が許可した確認メール1通を追加送信し、回答待ち。本番移設は承認・実行していない。[実測・安全な是正手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)を参照。
+> **2026-10-26 追記**：Render 統合後の初回日曜ジョブ `customer-segment`、`sync-google-ratings`、`weekly-report` は本番 `cron_logs` でいずれも `success` を確認した。`weekly-report` の処理数は 0 で、Render の統合サービスでも HTTP 200 と正常終了を確認済み。これらを再実行しない。下記の旧記録にある「初回確認待ち」は解消済み。[現在地](docs/handoff/CODEX_INSTRUCTIONS_20261021.md#3-残課題優先順)を参照。
 > **2026-10-24 追記**：PR #801 は CI E2E 461 成功で main `84f4497` へマージ。Vercel は非配信差分の本番ビルドを Ignored Build Step で省略し、公開 health は healthy/version `13b0d35`。新しい画像はこのマージで作成されていない。
 > 下の「再開直後の実作業」2 の Render cron 集約（PR #734）は切替完了・旧サービス suspend 済みで、再実施しない。
 > PR #739〜#756 はマージ・本番反映済み。残課題と作業手順は同指示書の 3〜4 章が正。
@@ -12,7 +13,7 @@
 ## 再開直後の実作業（優先順）
 
 1. **対象**: 上記公開repoのCareLinkのみ。任意の空フォルダへ `git clone https://github.com/jimuin0/carelink.git`。現行コードの開発再開に過去アーカイブの全移送は不要。
-2. **未完了の最優先**: PR734のRender集約について、workspace jimuinのサービス版・切替値・suspend状態・実行ログを読取確認し、[切替手順](docs/render-cron-consolidation.md) と照合する。既に実施済みなら再切替しない。未実施なら既存安全条件と権限を確認して指定の順序で進める。文書更新を外部切替完了としない。
+2. **確認済み・再実行禁止**: PR734のRender集約は切替完了、旧サービスは suspend 済み。2026-10-25の初回日曜ジョブ3本は本番 `cron_logs` で成功を確認した。現行の未完了作業は[残課題](docs/handoff/CODEX_INSTRUCTIONS_20261021.md#3-残課題優先順)と[PostGIS の実測](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)を参照する。
 3. **最初の確認は限定する**: `git status --short`、`git rev-parse HEAD`、`python3 scripts/verify-handoff.py`、進行中の関連テスト/デプロイ/cron操作の有無を確認。別作業を停止・上書きしない。manifest対象コミットは `git log -1 --format=%H -- HANDOFF_MANIFEST.json` で特定する。そのコミットが完成した引継ぎ一式であり、資料作成前のコミットではない。
 4. **確認済みを再実行しない**: 対象が一致すれば下記および[検証記録](docs/handoff/RESTORE_VERIFICATION.md)の保存結果を使う。同じ全体テストを重複起動しない。関連コード変更・環境差・失敗がある場合だけ必要な再検査を選ぶ。資料だけの変更で全体テストを繰り返さない。通常のブランチ名は `codex/` と既存規則で判断し、不要な確認を挟まない。
 5. **認証待ちと独立作業**: Supabase所有者のACL是正は依頼送信済みで完了未確認。重複送信せず対応後に権限を検証する。実Google同意は本人操作で任意機能のため優先を下げる。認証待ちでも現行コードの独立した調査・実装・合成データ検証を続ける。原票149件は過去指摘の照合制約で、現在の開発再開の前提ではない。画像保持・公開・店舗所有は技術不足と分けて本人の事業判断として扱う。着手不能なら具体的阻害要因と、その間に進めた作業を報告する。
@@ -26,7 +27,7 @@ Node22.22.2以上、Python3、Gitを用意し `npm ci`。file依存2件はrepo�
 ## 最新状況と優先順位
 
 - PR733 / abd8e800: 実装・ローカル検証・本番配信照合の記録あり。573 suites/12,305 tests、branches11,309/11,309、E2E head/main各374。これは過去証拠であり今回の再実行ではない。
-- PR734 / c33a53ac: mainへマージ済み。cron集約の575 suites/12,330 tests、100%分岐とCI成功がPRに記録。本番healthは今回healthy/version c33a53aを読取確認。**Renderの切替値・suspend・実ジョブ確認は今回未確認**。18→5サービスへの切替値・suspend状態・実行ログを最優先で読み取り確認する。手順・rollbackは [cron正本](docs/render-cron-consolidation.md)。推測で切替/再送しない。
+- PR734 / c33a53ac: mainへマージ済み。cron集約の575 suites/12,330 tests、100%分岐とCI成功がPRに記録。本番health/version c33a53aは当時の記録。Render切替と旧サービスsuspendは後続作業で完了し、2026-10-25の初回日曜ジョブ3本は本番 `cron_logs` で成功を確認した。手順・rollbackは [cron正本](docs/render-cron-consolidation.md)。推測で切替/再送しない。
 - Supabase `public.spatial_ref_sys` 公開書込権限: 10/26 に継続を実測。チケット `SU-513978` に管理者手順の回答あり。変更直前の保護・COMMIT 後の復旧条件、移設の本人承認・実作業は未了。現行障害と混同しない。詳細は[PostGIS の実測と検証手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)。
 - 原票151全文のうち149未回収。名前/hashは [原票索引](docs/handoff/original-source-index.json)。旧Mac原保存先 `/private/tmp/carelink-audit-20260924.8xy8L8` と旧CareLink docsが候補。2件のみ取得済みという過去判定。Git全blob/関連アーカイブ/Drive既知候補で149件は見つからず。旧Mac名の解決、SSH/SMB Bonjourは結果なし。現在Macはpersonal hotspot「kam」だった。旧MacIP/共有可否は未確認。原票回収完了・全指摘解消を認定しない。
 - 過去menu500、Safari/nav timeout、health遅延、Render trigger欠落の根因は証拠不足。現行テスト成功で過去原因確定に置換しない。
