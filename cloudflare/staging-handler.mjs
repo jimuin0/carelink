@@ -17,8 +17,24 @@ export function createStagingHandler(app) {
       if (new URL(request.url).pathname === '/robots.txt' && !isolated) {
         return new Response('User-agent: *\nDisallow: /\n', { headers: { 'Content-Type': 'text/plain', 'X-Robots-Tag': 'noindex' } });
       }
-      const response = await app.fetch(request, env, context);
-      const safe = new Response(response.body, response);
+      let applicationRequest = request;
+      if (['/_next/image', '/_vinext/image'].includes(new URL(request.url).pathname.replace(/\/$/, ''))) {
+        // vinext currently negotiates AVIF ahead of next.config's WebP-only
+        // format list. Keep the application's existing format policy.
+        const headers = new Headers(request.headers);
+        headers.set('Accept', (headers.get('Accept') || '').split(',')
+          .filter(value => !value.trim().startsWith('image/avif')).join(','));
+        applicationRequest = new Request(request, { headers });
+      }
+      const response = await app.fetch(applicationRequest, env, context);
+      // A finite JSON mutation response must finish even when a caller checks
+      // its status and navigates without consuming the fetch body. Give the
+      // Workers HTTP bridge a known-length body; keep GET/SSE/HTML streaming.
+      const finiteJson = !['GET', 'HEAD'].includes(request.method)
+        && response.headers.get('Content-Type')?.startsWith('application/json') && response.body !== null;
+      const body = finiteJson ? await response.arrayBuffer() : response.body;
+      const safe = new Response(body, response);
+      if (finiteJson) safe.headers.set('Content-Length', String(body.byteLength));
       safe.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
       // next.config.mjs marks only its fixed public asset allowlist. Translate
       // that existing edge policy while retaining the browser revalidation

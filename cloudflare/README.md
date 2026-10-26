@@ -52,9 +52,23 @@ The Worker translates next.config.mjs's existing fixed-asset CDN allowlist to
 Cloudflare's CDN header while preserving browser revalidation. Cookies, errors,
 write responses and unmarked routes cannot acquire that cache policy.
 
+Images use the official Cloudflare Images optimizer binding (offline simulation
+in development/CI). The Worker removes AVIF negotiation to retain next.config's
+WebP-only policy. Images Free includes 5,000 unique transformations/month and
+rejects new transformations after that limit rather than charging overages:
+https://developers.cloudflare.com/images/pricing/#images-free. No Images Paid
+plan or image storage subscription is enabled.
+
+Finite JSON mutation responses carry a known byte length through the Workers
+HTTP bridge. GET/HTML/SSE responses retain streaming. The homepage map loads its
+SVG code when visible, keeping region links and reserved layout available from
+the first response; this retains the existing initial JavaScript size budget.
+
 The legacy-registration browser proof freezes the same real Flight prop on both
 Next's tuple queue and vinext's string queue. It still requires exactly one
 frozen prop and exercises the actual isolated Storage rejection and recovery.
+Local-draft reload tests also wait for the form's existing hydration readiness
+gate before toggling its controlled details panel.
 
 ## Hosted verification boundary
 

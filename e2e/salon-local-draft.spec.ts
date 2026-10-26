@@ -36,6 +36,10 @@ async function raw(page: Page) {
 async function openTools(page: Page) {
   const tools = page.locator('#register-draft-tools');
   await tools.waitFor({ state: 'attached' });
+  // Reload callers also reach this helper before hydration. On input steps,
+  // wait for React's existing readiness gate before toggling controlled details.
+  const next = page.getByRole('button', { name: '次へ', exact: true });
+  if (await next.count()) await expect(next).toBeEnabled();
   if (!(await tools.evaluate(element => (element as HTMLDetailsElement).open))) await tools.locator('summary').click();
   await expect(tools.getByRole('region', { name: 'この端末の下書き' })).toBeVisible();
 }

@@ -36,9 +36,29 @@ function applyFill(container: HTMLElement, prefCodes: string[], color: string) {
 export default function JapanRegionMap() {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
+  const [showMap, setShowMap] = useState(false);
   const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
   const hoveredRef = useRef<string | null>(null);
   const listenersAttached = useRef(false);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    // The map sits below the first viewport. Keep its fixed-size region links
+    // available immediately and load the SVG code only when it is visible.
+    if (typeof IntersectionObserver === 'undefined') {
+      const frame = requestAnimationFrame(() => setShowMap(true));
+      return () => cancelAnimationFrame(frame);
+    }
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        setShowMap(true);
+        observer.disconnect();
+      }
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   const setHovered = (name: string | null) => {
     hoveredRef.current = name;
@@ -46,6 +66,7 @@ export default function JapanRegionMap() {
   };
 
   useEffect(() => {
+    if (!showMap) return;
     const container = containerRef.current;
     if (!container) return;
 
@@ -110,7 +131,7 @@ export default function JapanRegionMap() {
     }
 
     return () => cleanup?.();
-  }, [router]);
+  }, [router, showMap]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -124,7 +145,7 @@ export default function JapanRegionMap() {
     // ラベルは地図上の px 座標で置くので、外枠を地図と同じ大きさに固定する（幅が変わるとずれる）。
     <div ref={containerRef} className="relative mx-auto" style={{ width: JAPAN_MAP_SIZE.width, height: JAPAN_MAP_SIZE.height }}>
       <div className="flex justify-center">
-        <Japan
+        {showMap && <Japan
           type="select-single"
           size={JAPAN_MAP_SIZE.width}
           mapColor={BASE_COLOR}
@@ -134,7 +155,7 @@ export default function JapanRegionMap() {
           disableClick
           disableHover
           onSelect={() => {}}
-        />
+        />}
       </div>
 
       <div className="absolute inset-0 pointer-events-none">

@@ -5,6 +5,7 @@ import path from "node:path";
 import nextConfig from "./next.config.mjs";
 import { stagingEnv } from './cloudflare/staging-env.mjs';
 import { kvDataAdapter } from '@vinext/cloudflare/cache/kv-data-adapter';
+import { imagesOptimizer } from '@vinext/cloudflare/images/images-optimizer';
 
 export default defineConfig({
   // Workerd's RSC loader imports this exact SSR module name. Vite otherwise
@@ -27,6 +28,7 @@ export default defineConfig({
     vinext({
       nextConfig: { ...nextConfig, output: undefined },
       cache: { data: kvDataAdapter({ appPrefix: 'carelink-staging' }) },
+      images: { optimizer: imagesOptimizer() },
     }),
     cloudflare({
       viteEnvironment: {

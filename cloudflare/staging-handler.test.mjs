@@ -54,6 +54,41 @@ test('disposable local database permits real write verification', async () => {
   assert.equal(called, true);
 });
 
+test('finite JSON mutations preserve bytes and advertise completion to the HTTP bridge', async () => {
+  const json = JSON.stringify({ menu: { name: '合成メニュー' } });
+  const handler = createStagingHandler({ fetch() { return new Response(json,
+    { status: 201, headers: { 'Content-Type': 'application/json; charset=utf-8' } }); } });
+  const response = await handler.fetch(new Request('https://localhost:3000/api/admin/menus', { method: 'POST' }),
+    { NEXT_PUBLIC_SUPABASE_URL: 'https://localhost:54330' });
+  assert.equal(response.status, 201);
+  assert.equal(response.headers.get('Content-Length'), String(new TextEncoder().encode(json).byteLength));
+  assert.equal(await response.text(), json);
+});
+
+test('empty mutation responses retain their no-body status', async () => {
+  const handler = createStagingHandler({ fetch() { return new Response(null,
+    { status: 204, headers: { 'Content-Type': 'application/json' } }); } });
+  const response = await handler.fetch(new Request('https://localhost:3000/api/admin/test', { method: 'DELETE' }),
+    { NEXT_PUBLIC_SUPABASE_URL: 'https://localhost:54330' });
+  assert.equal(response.status, 204);
+  assert.equal(response.body, null);
+  assert.equal(response.headers.get('Content-Length'), null);
+});
+
+test('image negotiation respects WebP-only configuration without changing unrelated headers', async () => {
+  const handler = createStagingHandler({ fetch(request) {
+    assert.equal(request.headers.get('X-Synthetic'), 'preserved');
+    assert.doesNotMatch(request.headers.get('Accept'), /image\/avif/);
+    return new Response('synthetic image');
+  } });
+  for (const path of ['/_next/image', '/_vinext/image/']) {
+    for (const accept of ['image/avif,image/webp,image/*', 'image/webp', undefined]) {
+      const headers = { 'X-Synthetic': 'preserved', ...(accept ? { Accept: accept } : {}) };
+      await handler.fetch(new Request(`https://staging.invalid${path}?url=test`, { headers }), {});
+    }
+  }
+});
+
 test('fixed public assets retain browser revalidation and translate edge caching', async () => {
   const handler = createStagingHandler({ fetch() {
     return new Response('synthetic asset', { headers: { 'Vercel-CDN-Cache-Control': 'public, s-maxage=3600',
