@@ -43,6 +43,10 @@ of Next's Node server. Existing production CI configuration remains unchanged.
 
 ## Runtime adaptations
 
+The Cloudflare build replaces Vercel Speed Insights with an empty component:
+its Vercel-only collection endpoint is unavailable here. Production's Vercel
+component and consent-based application analytics remain unchanged.
+
 `output: standalone` is disabled only for the Workers build. Only the OG
 renderer's filesystem import is adapted: its own packaged Japanese font assets
 come from ASSETS, and resvg uses a precompiled Wasm module. The SVG/image renderer

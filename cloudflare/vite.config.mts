@@ -8,6 +8,8 @@ import { kvDataAdapter } from '@vinext/cloudflare/cache/kv-data-adapter';
 import { imagesOptimizer } from '@vinext/cloudflare/images/images-optimizer';
 
 export default defineConfig({
+  // Vercel's telemetry endpoint does not exist on this isolated Worker.
+  resolve: { alias: { '@vercel/speed-insights/next': path.resolve('cloudflare/speed-insights.mjs') } },
   // Workerd's RSC loader imports this exact SSR module name. Vite otherwise
   // chooses index.mjs for the application's CommonJS package scope.
   environments: {
