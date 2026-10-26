@@ -84,7 +84,7 @@ END $$;
 CREATE OR REPLACE FUNCTION public.working_time_meets_business_hours(
   p_hours jsonb,p_dow integer,p_start time,p_end time,p_min_minutes integer
 ) RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path = '' AS $$
-  SELECT coalesce(EXISTS(SELECT 1 FROM public.business_day_windows(p_hours,p_dow) w
+  SELECT coalesce(p_start IS NOT NULL AND p_end IS NOT NULL AND p_end>p_start AND EXISTS(SELECT 1 FROM public.business_day_windows(p_hours,p_dow) w
     WHERE least(extract(epoch FROM p_end)/60,w.end_min)-greatest(extract(epoch FROM p_start)/60,w.start_min)
       >= least(greatest(coalesce(p_min_minutes,15),15),480)),false);
 $$;

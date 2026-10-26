@@ -264,6 +264,12 @@ describe('GET /api/availability', () => {
       expect(json.dates[FRI].status).toBe('full'); // 営業日で空きゼロは full のまま
     });
 
+    test('前日から続く深夜営業があれば、当日の営業開始が休みでも closed にしない', async () => {
+      setupDefaultMocks({ monthSlots: 5, businessHours: { wed: { open: '18:00', close: '05:00' }, thu: null } });
+      const json = await (await GET(makeRequest(VALID_UUID, undefined, YEAR, MONTH) as any)).json();
+      expect(json.dates[THU].status).toBe('available');
+    });
+
     test('営業日は枠があれば closed にならない', async () => {
       setupDefaultMocks({ monthSlots: 5, businessHours: { thu: null } });
       const res = await GET(makeRequest(VALID_UUID, undefined, YEAR, MONTH) as any);
