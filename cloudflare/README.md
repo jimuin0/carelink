@@ -91,6 +91,13 @@ Mobile Safari project repeats this case 30 times without retries alongside the
 entire original suite; failure diagnostics retain only native event metadata,
 never input or photo contents.
 
+The disposable CI runner retains bounded dependency installation retries. After
+an Azure Ubuntu mirror timeout, the next attempt selects the same official
+Ubuntu archive already configured as the runner's fallback; package signatures
+and required browser libraries remain enforced. The production workflow and
+the developer's machine are unaffected. Runner mirror configuration source:
+https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/configure-apt-sources.sh.
+
 ## Hosted verification boundary
 
 The synthetic Worker is available at

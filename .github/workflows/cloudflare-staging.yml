@@ -139,6 +139,12 @@ jobs:
           EOF
           dependencies_installed=0
           for attempt in 1 2 3; do
+            # Repeated Azure downloads stalled despite bounded HTTP timeouts.
+            # On retry use the runner's existing signed Ubuntu archive fallback.
+            if [ "$attempt" -eq 2 ] && [ -f /etc/apt/apt-mirrors.txt ]; then
+              sudo sed -i 's|http://azure\.archive\.ubuntu\.com/ubuntu/|https://archive.ubuntu.com/ubuntu/|g' /etc/apt/apt-mirrors.txt
+              echo "Retrying browser OS dependencies using the official Ubuntu archive."
+            fi
             if sudo timeout --kill-after=15s 180 "$playwright_node" "$playwright_cli" install-deps chromium webkit; then
               dependencies_installed=1
               break
