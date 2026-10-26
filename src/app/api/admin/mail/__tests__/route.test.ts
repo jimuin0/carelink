@@ -29,7 +29,7 @@ const mockCancel = jest.fn();
 const mockFilters: Record<string, jest.Mock> = {};
 function mockBuilder(result: () => unknown) {
   const chain: Record<string, unknown> = {};
-  for (const key of ['select', 'eq', 'in', 'order', 'limit', 'or', 'abortSignal', 'maybeSingle']) {
+  for (const key of ['select', 'eq', 'in', 'not', 'order', 'limit', 'or', 'abortSignal', 'maybeSingle']) {
     const fn = jest.fn(() => chain); chain[key] = fn; mockFilters[key] = fn;
   }
   chain.then = (resolve: (value: unknown) => unknown, reject: (value: unknown) => unknown) => Promise.resolve().then(result).then(resolve, reject);
@@ -202,4 +202,56 @@ test('inbox or history failure never fabricates an unreplied row', async () => {
 test('failure folder filters delivery receipts, since failed mail retains sent state', async () => {
   expect((await read('?folder=failed')).status).toBe(200);
   expect(mockFilters.in).toHaveBeenCalledWith('delivery_status', ['failed', 'bounced']);
+});
+
+describe('bounded mailbox status synchronization', () => {
+  const queued = { ...base, state: 'scheduled', delivery_status: 'scheduled', provider_message_id: other, envelope, reserved_at: at };
+  beforeEach(() => { mockList.data = [queued]; mockRows.read = queued; mockRows.observe = { ...queued, state: 'sent', delivery_status: 'delivered' }; });
+  test('opening a mailbox reconciles the exact queued message without resending or cancelling', async () => {
+    const result = await call({ action: 'sync' });
+    expect(await result.json()).toMatchObject({ checked: 1, unconfirmed: 0, remaining: false, nextCursor: null });
+    expect(mockInspect).toHaveBeenCalledWith(expect.anything(), envelope, id, other, at);
+    expect(mockRpc.mock.calls.map(call => call[1].p_action)).toEqual(['read', 'observe']);
+    expect(mockDispatch).not.toHaveBeenCalled(); expect(mockCancel).not.toHaveBeenCalled();
+    const selected = mockFrom.mock.results[mockFrom.mock.calls.findIndex(([table]) => table === 'platform_mail')].value;
+    expect(selected.not).toHaveBeenCalledWith('provider_message_id', 'is', null);
+    expect(selected.limit).toHaveBeenCalledWith(3);
+    expect(mockAudit).toHaveBeenCalledWith(expect.objectContaining({ newValues: { event: 'delivered', state: 'sent' } }));
+  });
+  test('empty mailbox needs no provider credentials', async () => {
+    mockList.data = []; mockProvider.mockReturnValue(null);
+    expect(await (await call({ action: 'sync' })).json()).toMatchObject({ checked: 0, unconfirmed: 0, remaining: false, nextCursor: null });
+    expect(mockInspect).not.toHaveBeenCalled();
+  });
+  test.each([{ data: [], error: { message: 'private' } }, { data: [{}], error: null }, { data: Array(4).fill(queued), error: null }])('query errors and invalid receipts do not become empty success: %j', async list => {
+    mockList = list; expect((await call({ action: 'sync' })).status).toBe(500); expect(mockInspect).not.toHaveBeenCalled();
+  });
+  test('missing provider fails explicitly with records preserved', async () => { mockProvider.mockReturnValue(null); expect((await call({ action: 'sync' })).status).toBe(503); expect(mockRpc).not.toHaveBeenCalled(); });
+  test('two concurrent observations are the upper bound, and backlog is explicit', async () => {
+    mockList.data = Array.from({ length: 3 }, (_, n) => ({ ...queued, id: `11111111-1111-4111-8111-${String(n).padStart(12, '0')}` }));
+    mockRpc.mockImplementation((_name: string, args: { p_action: string; p_mail_id: string }) => mockBuilder(() => ({ data: { ...(mockRows[args.p_action] as object), id: args.p_mail_id }, error: null })));
+    expect(await (await call({ action: 'sync' })).json()).toMatchObject({ checked: 2, unconfirmed: 0, remaining: true, nextCursor: { at, id: '11111111-1111-4111-8111-000000000001' } });
+    expect(mockInspect).toHaveBeenCalledTimes(2);
+  });
+  test.each([{ provider_message_id: null }, { envelope: null }, { reserved_at: null }])('lost frozen metadata is unconfirmed, never sent: %j', async changed => {
+    mockRows.read = { ...queued, ...changed };
+    expect(await (await call({ action: 'sync' })).json()).toMatchObject({ checked: 0, unconfirmed: 1, remaining: false, nextCursor: null }); expect(mockInspect).not.toHaveBeenCalled();
+  });
+  test('provider outage or unmatched evidence remains unconfirmed', async () => {
+    mockInspect.mockResolvedValue(null);
+    expect(await (await call({ action: 'sync' })).json()).toMatchObject({ checked: 0, unconfirmed: 1, remaining: false, nextCursor: null });
+    expect(mockRpc.mock.calls.map(call => call[1].p_action)).toEqual(['read']);
+  });
+  test.each(['read', 'observe'])('privilege revocation at %s cannot be bypassed by a prior role read', async action => {
+    mockRpc.mockImplementation((_name: string, args: { p_action: string }) => mockBuilder(() => args.p_action === action ? { data: null, error: { code: '42501' } } : { data: mockRows[args.p_action], error: null }));
+    expect((await call({ action: 'sync' })).status).toBe(403); expect(mockDispatch).not.toHaveBeenCalled();
+  });
+});
+
+test('mail sync advances past unconfirmed operations with a validated keyset cursor', async () => {
+  const cursor = { at, id }; mockList.data = [];
+  const result = await call({ action: 'sync', cursor }); expect(result.status).toBe(200);
+  const selected = mockFrom.mock.results[mockFrom.mock.calls.findIndex(([table]) => table === 'platform_mail')].value;
+  expect(selected.or).toHaveBeenCalledWith('and(or(delivery_status.is.null,delivery_status.in.(accepted,scheduled,sent,delayed)),or(updated_at.gt.' + at + ',and(updated_at.eq.' + at + ',id.gt.' + id + ')))');
+  expect((await call({ action: 'sync', cursor: { at: 'injected', id } })).status).toBe(400);
 });
