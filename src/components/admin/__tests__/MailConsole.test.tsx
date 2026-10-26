@@ -19,8 +19,8 @@ beforeEach(() => {
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: mockFetch });
   mockFetch.mockReset().mockImplementation(async (url: string, init?: RequestInit) => {
     if (!init?.method) {
-      if (url.includes('contactId=')) return response({ contact });
-      if (url.startsWith('/api/admin/inquiries')) return response({ contacts: [contact], nextCursor: null });
+      if (url.includes('contactId=')) return response({ contact, messages: records.filter(item => item.contact_id === id), replies: [] });
+      if (url.includes('folder=inbox')) return response({ contacts: [{ ...contact, replySummary: { replied: false, draft: false, scheduled: false, pending: false, failed: false } }], nextCursor: null });
       return response({ messages: records, nextCursor: null });
     }
     const command = JSON.parse(init.body as string); commands.push(command);
@@ -99,7 +99,7 @@ test('unsaved edits are protected from navigation and reload', async () => {
   fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true })); fireEvent.click(await screen.findByRole('button', { name: '保存せずに移動' })); await waitFor(() => expect(screen.queryByLabelText('本文')).not.toBeInTheDocument());
 });
 test('reply recipient is the original stored contact and cannot be edited', async () => {
-  await ready(); fireEvent.click(screen.getByRole('button', { name: /合成問い合わせ/ })); fireEvent.click(screen.getByRole('button', { name: '返信を書く' }));
+  await ready(); fireEvent.click(screen.getByRole('button', { name: /合成問い合わせ/ })); await waitFor(() => expect(screen.getByRole('button', { name: '返信を書く' })).toBeEnabled()); fireEvent.click(screen.getByRole('button', { name: '返信を書く' }));
   expect(screen.getByLabelText('宛先')).toHaveValue(contact.email); expect(screen.getByLabelText('宛先')).toHaveAttribute('readonly');
 });
 test('late selected-contact response cannot overwrite a new composition', async () => {
@@ -122,4 +122,53 @@ test('selecting the current folder reloads it instead of leaving a blank list', 
   fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true })); await screen.findByRole('button', { name: /ご案内.*synthetic/ });
   fireEvent.click(screen.getByRole('button', { name: /ご案内.*synthetic/ }));
   fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true })); await screen.findByRole('button', { name: /ご案内.*synthetic/ });
+});
+
+test('compact inbox exposes readable reply flags, Japan timestamp and display-only names', async () => {
+  const implementation = mockFetch.getMockImplementation()!;
+  const summary = { replied: true, draft: true, scheduled: true, pending: true, failed: true };
+  mockFetch.mockImplementation((url: string, init?: RequestInit) => url.includes('folder=inbox')
+    ? response({ contacts: [{ ...contact, name: '　山田　　太郎  ', replySummary: summary }], nextCursor: null }) : implementation(url, init));
+  render(<MailConsole />); const row = await screen.findByRole('button', { name: /山田　太郎/ });
+  expect(row).toHaveTextContent('掲載について'); expect(row).toHaveTextContent(contact.message);
+  for (const label of ['返信済み', '下書きあり', '予約中', '送信結果不明', '送信失敗']) expect(within(row).getByText(label)).toBeInTheDocument();
+  expect(row.querySelector('time')).toHaveAttribute('datetime', at);
+  expect(screen.getByRole('button', { name: '受信トレイ', exact: true })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '送信エラー', exact: true })).toBeInTheDocument();
+  expect(row.textContent).not.toContain('山田　　太郎');
+});
+
+test('one chronological thread includes incoming, legacy acceptance, internal notes and editable drafts', async () => {
+  const implementation = mockFetch.getMockImplementation()!;
+  mockFetch.mockImplementation((url: string, init?: RequestInit) => url.includes('contactId=') ? response({ contact,
+    messages: [{ ...base, contact_id: id, created_at: '2026-10-25T15:00:00Z', subject: '返信の下書き', body: '保存中の返信' }],
+    replies: [
+      { id: '33333333-3333-4333-8333-333333333333', contact_id: id, author_name: ' 運営  担当 ', body: '旧画面の返信', is_internal: false, sent_at: '2026-10-25T13:00:00Z', created_at: at, delivery_abandoned_at: null },
+      { id: '44444444-4444-4444-8444-444444444444', contact_id: id, author_name: '運営', body: '社内記録', is_internal: true, sent_at: null, created_at: '2026-10-25T14:00:00Z', delivery_abandoned_at: null },
+    ],
+  }) : implementation(url, init));
+  await ready(); fireEvent.click(screen.getByRole('button', { name: /合成問い合わせ/ }));
+  const history = await screen.findByRole('region', { name: 'お問い合わせと返信の履歴' });
+  expect(within(history).getAllByRole('listitem').map(item => within(item).getByRole('heading').textContent)).toEqual(['お問い合わせ', '返信・送信受付済み（配信完了は未確認）', '内部メモ', '下書き']);
+  expect(within(history).getByText('旧画面の返信')).toBeInTheDocument(); expect(within(history).getByText('運営 担当')).toBeInTheDocument();
+  fireEvent.click(within(history).getByRole('button', { name: '下書きを編集' }));
+  expect(screen.getByLabelText('本文')).toHaveValue('保存中の返信'); expect(commands).toHaveLength(0);
+});
+
+test('history failures are explicit and retryable; a failure cannot become an empty successful thread', async () => {
+  const implementation = mockFetch.getMockImplementation()!; let fail = true;
+  mockFetch.mockImplementation((url: string, init?: RequestInit) => url.includes('contactId=') && fail ? response({}, 503) : implementation(url, init));
+  await ready(); fireEvent.click(screen.getByRole('button', { name: /合成問い合わせ/ }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('返信履歴を読み込めませんでした');
+  expect(screen.getByRole('button', { name: '返信を書く' })).toBeDisabled();
+  fail = false; fireEvent.click(screen.getByRole('button', { name: '再読み込み' }));
+  await screen.findByRole('region', { name: 'お問い合わせと返信の履歴' }); expect(commands).toHaveLength(0);
+});
+
+test('failed folder retains failure text and never substitutes delivered for provider acceptance', async () => {
+  records = [{ ...base, state: 'sent', delivery_status: 'bounced' }];
+  await ready(); fireEvent.click(screen.getByRole('button', { name: '送信エラー', exact: true }));
+  const row = await screen.findByRole('button', { name: /ご案内.*synthetic/ });
+  expect(row).toHaveTextContent('送信失敗'); expect(row).toHaveTextContent('宛先へ届けられませんでした');
+  expect(row).not.toHaveTextContent('配信完了'); expect(mockFetch).toHaveBeenCalledWith('/api/admin/mail?folder=failed', expect.anything());
 });

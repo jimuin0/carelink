@@ -65,3 +65,48 @@ export function mailJapanTime(value: string): string | null {
 export function mailTimeLabel(value: string): string {
   return new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 }
+
+/** Display only: retain the first separator's width, NBSP and the stored name. */
+export function mailDisplayName(name: string): string {
+  return name.replace(/^[ \u3000]+|[ \u3000]+$/g, '').replace(/([ \u3000])[ \u3000]+/g, '$1');
+}
+
+export const mailReplySummarySchema = z.object({
+  replied: z.boolean(), draft: z.boolean(), scheduled: z.boolean(), pending: z.boolean(), failed: z.boolean(),
+});
+export type MailReplySummary = z.infer<typeof mailReplySummarySchema>;
+export const legacyMailReplySchema = z.object({
+  id: z.uuid(), contact_id: z.uuid(), author_name: z.string(), body: z.string(), is_internal: z.boolean(),
+  created_at: z.iso.datetime({ offset: true }), sent_at: z.iso.datetime({ offset: true }).nullable(),
+  delivery_abandoned_at: z.iso.datetime({ offset: true }).nullable(),
+}).strip();
+export type LegacyMailReply = z.infer<typeof legacyMailReplySchema>;
+export const mailReplyEvidenceSchema = platformMailRecordSchema.pick({
+  id: true, contact_id: true, state: true, delivery_status: true,
+});
+export const mailThreadSchema = z.object({
+  contact: platformMailContactSchema, messages: z.array(platformMailRecordSchema), replies: z.array(legacyMailReplySchema),
+});
+export type MailThread = z.infer<typeof mailThreadSchema>;
+
+export function mailHasFailed(mail: Pick<PlatformMailRecord, 'delivery_status'>): boolean {
+  return mail.delivery_status === 'failed' || mail.delivery_status === 'bounced';
+}
+
+/** Ticket closure and draft/queue creation are never evidence of a reply. */
+export function summarizeMailReplies(messages: z.infer<typeof mailReplyEvidenceSchema>[], replies: LegacyMailReply[]): MailReplySummary {
+  return {
+    replied: messages.some(mail => mail.state === 'sent' && !mailHasFailed(mail))
+      || replies.some(reply => !reply.is_internal && reply.sent_at !== null),
+    draft: messages.some(mail => mail.state === 'draft'),
+    scheduled: messages.some(mail => mail.state === 'scheduled' || mail.state === 'cancelling'),
+    pending: messages.some(mail => mail.state === 'pending')
+      || replies.some(reply => !reply.is_internal && reply.sent_at === null && reply.delivery_abandoned_at === null),
+    failed: messages.some(mailHasFailed),
+  };
+}
+
+export function mailReplyLabels(summary: MailReplySummary): string[] {
+  return [summary.replied ? '返信済み' : '未返信', ...(summary.draft ? ['下書きあり'] : []),
+    ...(summary.scheduled ? ['予約中'] : []), ...(summary.pending ? ['送信結果不明'] : []), ...(summary.failed ? ['送信失敗'] : [])];
+}

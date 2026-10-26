@@ -6,6 +6,10 @@ import { writeAuditLog } from '@/lib/audit-logger';
 import { buildPlatformMailEnvelope, platformMailContactSchema, platformMailDraftSchema, platformMailRecordSchema, type PlatformMailRecord } from '@/lib/platform-mail-contract';
 import { platformMailProvider, dispatchPlatformMail, inspectPlatformMail, cancelPlatformMail } from '@/lib/platform-mail-delivery';
 import type { Json } from '@/types/database.types';
+import { inquiryCursor } from '@/lib/admin-inquiry-list-contract';
+import { readAdminInquiryList } from '@/lib/admin-inquiry-list';
+import { readMailReplyEvidence, readMailThread } from '@/lib/platform-mail-read';
+import { summarizeMailReplies } from '@/lib/platform-mail-contract';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 export const dynamic = 'force-dynamic';
@@ -57,15 +61,29 @@ async function list(request: Request, ctx: RouteContext) {
       if (!result.data) return json({ error: 'お問い合わせが見つかりません。' }, 404);
       const contact = platformMailContactSchema.safeParse(result.data);
       if (!contact.success) return serverError('platform-mail-contact', new Error('MAIL_CONTACT_RECEIPT_INVALID'), path);
-      return json({ contact: contact.data });
+      const history = await readMailThread(db, contact.data.id);
+      return json({ contact: contact.data, ...history });
     }
     if (params.has('id')) {
       if (params.has('folder') || params.has('cursor') || !z.uuid().safeParse(params.get('id')).success) return json({ error: 'メールを選び直してください。' }, 400);
       const record = await atomic(db, ctx.user!.id, params.get('id')!, 'read');
       return record instanceof NextResponse ? record : json({ mail: record });
     }
-    const folder = z.enum(['draft', 'pending', 'scheduled', 'sent']).safeParse(params.get('folder') ?? 'draft');
+    const folder = z.enum(['inbox', 'draft', 'pending', 'scheduled', 'sent', 'failed']).safeParse(params.get('folder') ?? 'draft');
     if (!folder.success) return json({ error: '一覧の条件を確認してください。' }, 400);
+    if (folder.data === 'inbox') {
+      let cursor: unknown = null;
+      if (params.has('cursor')) {
+        try { cursor = JSON.parse(params.get('cursor')!); } catch { return json({ error: '一覧を更新してください。' }, 400); }
+        if (!inquiryCursor.safeParse(cursor).success) return json({ error: '一覧を更新してください。' }, 400);
+      }
+      const result = await readAdminInquiryList(db, { status: 'all', cursor });
+      if (result.state !== 'confirmed') return serverError('platform-mail-inbox', new Error('MAIL_INBOX_UNAVAILABLE'), path);
+      const evidence = await readMailReplyEvidence(db, result.contacts.map(contact => contact.id));
+      return json({ contacts: result.contacts.map(contact => ({ ...contact, replySummary: summarizeMailReplies(
+        evidence.messages.filter(mail => mail.contact_id === contact.id), evidence.replies.filter(reply => reply.contact_id === contact.id),
+      ) })), nextCursor: result.nextCursor });
+    }
     let cursor: z.infer<typeof cursorSchema> | null = null;
     if (params.has('cursor')) {
       let raw: unknown;
@@ -74,8 +92,9 @@ async function list(request: Request, ctx: RouteContext) {
       if (!parsed.success) return json({ error: '一覧を更新してください。' }, 400);
       cursor = parsed.data;
     }
-    let query = db.from('platform_mail').select('*').in('state', folders[folder.data])
-      .order('updated_at', { ascending: false }).order('id', { ascending: false }).limit(41);
+    let query = db.from('platform_mail').select('*');
+    query = folder.data === 'failed' ? query.in('delivery_status', ['failed', 'bounced']) : query.in('state', folders[folder.data]);
+    query = query.order('updated_at', { ascending: false }).order('id', { ascending: false }).limit(41);
     if (cursor) query = query.or('updated_at.lt.' + cursor.at + ',and(updated_at.eq.' + cursor.at + ',id.lt.' + cursor.id + ')');
     const result = await query.abortSignal(AbortSignal.timeout(8000));
     const records = z.array(platformMailRecordSchema).max(41).safeParse(result.data);
