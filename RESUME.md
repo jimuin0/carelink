@@ -1,5 +1,7 @@
 # CareLink 再開入口（2026-10-20）
 
+> **2026-10-26 Cloudflare 検証環境**：現在の依頼は CareLink だけの別環境移行。本番・既存リンクは変更しない。[現在地・検証結果・本人操作待ち](cloudflare/STATUS.md)を先に確認する。Cloudflare CLI の既存許可を再確認しない。検証 DB 作成は本人が新規パスワードを設定する画面で待機中。
+
 > **2026-10-21 更新（最新の入口）**：まず [docs/handoff/CODEX_INSTRUCTIONS_20261021.md](docs/handoff/CODEX_INSTRUCTIONS_20261021.md) を読む。
 > **2026-10-26 更新**：Supabase の PostGIS 公開権限は現行障害ではなく実在する Security Advisor 指摘。チケット `SU-513978` に管理者用の移設手順が届いた。変更直前の保護と COMMIT 後の復旧条件について、本人が許可した確認メール1通を追加送信し、回答待ち。本番移設は承認・実行していない。[実測・安全な是正手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)を参照。
 > **2026-10-26 追記**：Render 統合後の初回日曜ジョブ `customer-segment`、`sync-google-ratings`、`weekly-report` は本番 `cron_logs` でいずれも `success` を確認した。`weekly-report` の処理数は 0 で、Render の統合サービスでも HTTP 200 と正常終了を確認済み。これらを再実行しない。下記の旧記録にある「初回確認待ち」は解消済み。[現在地](docs/handoff/CODEX_INSTRUCTIONS_20261021.md#3-残課題優先順)を参照。
