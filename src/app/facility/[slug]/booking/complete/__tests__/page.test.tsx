@@ -36,3 +36,9 @@ it('calendar download moves 24:00 to midnight of the next year', async () => {
  expect(ics).toContain('DTEND;TZID=Asia/Tokyo:20310101T000000');
  expect(ics).not.toContain('T240000');
 });
+
+it('an impossible completion date cannot throw while normalizing a midnight end', async () => {
+ mockStatus.mockResolvedValue({data:{status:'confirmed'}});
+ render(await BookingCompletePage({...props,searchParams:Promise.resolve({id:'beaf0000-0000-4000-8000-000000000001',date:'2030-99-99',time:'23:00',end_time:'24:00',facility:'Synthetic'})}));
+ expect(screen.queryByRole('link',{name:'カレンダーに追加（.ics）'})).toBeNull();
+});

@@ -1,3 +1,4 @@
+import { isValidIsoDate } from '@/lib/date-utils';
 import { toIcalLocalDateTime } from '@/lib/ical-date';
 import Link from 'next/link';
 import PushPermissionBanner from '@/components/push/PushPermissionBanner';
@@ -49,7 +50,6 @@ interface Props {
   searchParams: Promise<{ id?: string; date?: string; time?: string; end_time?: string; facility?: string; has_intake?: string }>;
 }
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}$/;
 
 // iCal(RFC 5545) の TEXT 値エスケープ。施設名はオーナー制御で「,」「;」「\」改行を含み得るため、
@@ -64,7 +64,7 @@ function escapeIcal(str: string): string {
 }
 
 function buildIcsContent(date?: string, time?: string, endTime?: string, facility?: string, bookingId?: string): string | null {
-  if (!date || !time || !DATE_RE.test(date) || !TIME_RE.test(time)) return null;
+  if (!date || !time || !isValidIsoDate(date) || !TIME_RE.test(time)) return null;
 
   const now = new Date();
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
