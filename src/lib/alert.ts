@@ -151,9 +151,9 @@ export function postAlert(payload: AlertPayload): void {
       if (!result.ok) {
         console.error('[alert] Slack post failed:', result.error);
       }
-    } catch (e) /* istanbul ignore next */ {
-      // Slack 死亡時の最終フォールバック（postToSlackWithThreadGrouping は throw しないため到達不可）
-      console.error('[alert] Slack post failed:', e instanceof Error ? e.message : String(e));
+    } catch {
+      // 通知系の想定外障害でも本文やstackをログへ転記しない。
+      console.error('[alert] Slack post failed:', 'notification_failure');
     }
   });
 }

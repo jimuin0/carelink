@@ -31,6 +31,17 @@ describe('onRequestError', () => {
 
     expect(alertCaughtError).toHaveBeenCalledWith('onRequestError', expect.any(Error), '/blog/example');
   });
+
+  test('通知の例外本文をフォールバックログへ転記しない', async () => {
+    const privateMarker = 'synthetic-private-notification-body';
+    jest.mocked(alertCaughtError).mockImplementationOnce(() => { throw new Error(privateMarker); });
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(onRequestError(new Error('render failed'), request, {})).resolves.toBeUndefined();
+      expect(log.mock.calls).toEqual([['[instrumentation.onRequestError] alert failed']]);
+      expect(JSON.stringify(log.mock.calls)).not.toContain(privateMarker);
+    } finally { log.mockRestore(); }
+  });
 });
 
 

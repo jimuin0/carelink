@@ -17,9 +17,16 @@
  */
 
 import { createServiceRoleClient } from './supabase-server';
-import { isTransientSupabaseError, summarizeDependencyError } from './err';
+import { isTransientSupabaseError } from './err';
 
 const SLACK_API_BASE = 'https://slack.com/api';
+// Provider bodies and transport exceptions may contain private data. Only fixed
+// operational codes may leave this boundary and reach callers' logs/alerts.
+const SAFE_SLACK_ERROR_CODES = new Set([
+  'not_authed', 'invalid_auth', 'token_revoked', 'account_inactive',
+  'missing_scope', 'channel_not_found', 'not_in_channel', 'is_archived',
+  'restricted_action', 'ratelimited', 'internal_error', 'fatal_error',
+]);
 const TRANSIENT_GROUPING_SUPPRESSION_MS = 60 * 60 * 1000;
 const transientGroupingSuppressions = new Map<string, number>();
 
@@ -96,11 +103,11 @@ export async function postToSlack(opts: SlackPostOptions): Promise<SlackPostResu
       return { ok: false, error: `http_${res.status}` };
     }
 
-    const json = (await res.json()) as { ok: boolean; ts?: string; channel?: string; error?: string };
-    if (!json.ok) return { ok: false, error: json.error || 'unknown' };
+    const json = (await res.json()) as { ok: boolean; ts?: string; channel?: string; error?: unknown };
+    if (!json.ok) return { ok: false, error: typeof json.error === 'string' && SAFE_SLACK_ERROR_CODES.has(json.error) ? json.error : 'unknown' };
     return { ok: true, ts: json.ts, channel: json.channel };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : 'fetch_failed' };
+  } catch {
+    return { ok: false, error: 'fetch_failed' };
   }
 }
 
@@ -144,12 +151,12 @@ export async function postToSlackWithThreadGrouping(opts: {
       existingTs = data[0].thread_ts;
     } else if (error) {
       transientGroupingFailure = isTransientSupabaseError(error);
-      console.error('[slack-thread] get_incident_thread failed:', summarizeDependencyError(error));
+      console.error('[slack-thread] get_incident_thread failed:', transientGroupingFailure ? 'Supabase 接続障害（Cloudflare 522）' : 'dependency_failure');
     }
   } catch (e) {
     // RPC 失敗時は thread 集約なしで通常投稿にフォールバック
     transientGroupingFailure = isTransientSupabaseError(e);
-    console.error('[slack-thread] get_incident_thread failed:', summarizeDependencyError(e));
+    console.error('[slack-thread] get_incident_thread failed:', transientGroupingFailure ? 'Supabase 接続障害（Cloudflare 522）' : 'dependency_failure');
   }
 
   // 2. 既存スレッドがあれば reply、なければ親として post
@@ -174,14 +181,15 @@ export async function postToSlackWithThreadGrouping(opts: {
   if (!existingTs && !transientGroupingFailure) {
     try {
       const supabase = createServiceRoleClient();
-      await supabase.rpc('record_incident_thread', {
+      const { error } = await supabase.rpc('record_incident_thread', {
         p_key: opts.thread_key,
         p_channel: postResult.channel || channel,
         p_thread_ts: postResult.ts,
       });
-    } catch (e) {
+      if (error) console.error('[slack-thread] record_incident_thread failed:', 'dependency_failure');
+    } catch {
       // 記録失敗は致命ではない（次回も親として post されるだけ）
-      console.error('[slack-thread] record_incident_thread failed:', summarizeDependencyError(e));
+      console.error('[slack-thread] record_incident_thread failed:', 'dependency_failure');
     }
   }
 

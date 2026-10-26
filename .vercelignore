@@ -1,0 +1,30 @@
+# Upload application source only. Git-ignored work and reports can contain
+# private evidence or authentication state; Docker ignores apply too late.
+.git
+.vercel
+.env*
+*.pem
+node_modules
+.next
+out
+build
+coverage
+playwright-report
+test-results
+e2e/.auth
+work
+.local-consolidation*
+.ci-local-artifacts
+outputs
+supabase/.temp
+supabase/.branches
+.stryker-tmp
+reports/mutation
+.claude
+*.tsbuildinfo
+*.log
+.DS_Store
+.husky/_
+.swc
+.pnp*
+.yarn/install-state.gz
