@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { preview } from 'vite';
-import { createLocalCertificate } from './ci-test-tls.mjs';
+import { createLocalCertificate } from '../scripts/ci-test-tls.mjs';
 
 if (process.env.GITHUB_ACTIONS !== 'true' || process.env.CI !== 'true'
   || process.env.PLAYWRIGHT_BASE_URL !== 'https://localhost:3000'

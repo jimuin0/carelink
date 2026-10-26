@@ -34,7 +34,8 @@ for (const name of ['package.json', 'package-lock.json', 'vite.config.mts']) {
 }
 copy('cloudflare/cloudflare.config.mts', 'cloudflare.config.ts');
 for (const name of ['og-assets.mjs', 'staging-worker.mjs', 'staging-handler.mjs', 'staging-env.mjs']) copy(`cloudflare/${name}`, `cloudflare/${name}`);
-copy('cloudflare/start-ci-https.mjs', 'scripts/start-ci-https.mjs');
+copy('cloudflare/start-ci-https.mjs', 'cloudflare/start-ci-https.mjs');
+copy('cloudflare/playwright.config.mts', 'playwright.cloudflare.config.ts');
 writeFileSync(path.join(parent, 'current.json'), JSON.stringify({
   workspace, sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
   productionEnvironmentCopied: false,

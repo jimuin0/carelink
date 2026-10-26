@@ -36,11 +36,13 @@ jobs:
           npm ci --ignore-scripts
           node scripts/ensure-eslint-plugin-link.mjs
           npm audit --audit-level=moderate
+        working-directory: ${{ env.CF_WORKSPACE }}
       - name: Cloudflare toolchain unit coverage
         run: npm run test:coverage:ci -- --runInBand
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://synthetic.invalid
           NEXT_PUBLIC_SUPABASE_ANON_KEY: synthetic-staging-anon
+        working-directory: ${{ env.CF_WORKSPACE }}
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
@@ -49,11 +51,13 @@ jobs:
         run: |
           mkdir -p supabase/.temp
           printf '%s' 'v14.15' > supabase/.temp/rest-version
+        working-directory: ${{ env.CF_WORKSPACE }}
       - name: Authenticate image pulls to ghcr.io
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
         run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+        working-directory: ${{ env.CF_WORKSPACE }}
       - name: Start Supabase (fresh-apply gate)
         run: |
           for registry in ghcr.io public.ecr.aws docker.io; do
@@ -68,10 +72,13 @@ jobs:
             done
           done
           exit 1
+        working-directory: ${{ env.CF_WORKSPACE }}
       - name: Verify local PostgREST HEAD connection semantics
         run: python3 scripts/check-local-postgrest-head.py
+        working-directory: ${{ env.CF_WORKSPACE }}
       - name: Generate schema types from the disposable local database
         run: supabase gen types typescript --local --schema public > "$RUNNER_TEMP/carelink-database.types.ts"
+        working-directory: ${{ env.CF_WORKSPACE }}
       - name: Upload generated local schema types
         uses: actions/upload-artifact@v4
         with:
@@ -99,6 +106,7 @@ jobs:
           echo "anon=$ANON_KEY" >> "$GITHUB_OUTPUT"
           echo "::add-mask::$SERVICE_ROLE_KEY"
           echo "service_role=$SERVICE_ROLE_KEY" >> "$GITHUB_OUTPUT"
+        working-directory: ${{ env.CF_WORKSPACE }}
       - name: Local Supabase API contracts (no skips)
         env:
           STAGING_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
@@ -116,6 +124,7 @@ jobs:
 
           echo "Isolated local Supabase API contracts passed with zero skips. This is not hosted staging or
           production verification." >> "$GITHUB_STEP_SUMMARY"
+        working-directory: ${{ env.CF_WORKSPACE }}
       - name: Install Playwright Browsers
         run: |
           playwright_node="$(command -v node)"
@@ -149,6 +158,7 @@ jobs:
             sleep 10
           done
           exit 1
+        working-directory: ${{ env.CF_WORKSPACE }}
       - name: Workers production build and isolated HTTPS E2E
         run: node scripts/run-ci-e2e.mjs
         env:
@@ -158,9 +168,11 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ steps.supabase.outputs.service_role }}
+        working-directory: ${{ env.CF_WORKSPACE }}
       - name: Stop Supabase
         if: always()
-        run: supabase stop || true
+        run: if [ -n "$CF_WORKSPACE" ]; then cd "$CF_WORKSPACE" && supabase stop || true; fi
+        working-directory: ${{ github.workspace }}
       - name: Upload E2E Report
         uses: actions/upload-artifact@v4
         if: always()
@@ -168,6 +180,3 @@ jobs:
           name: cloudflare-playwright-report
           path: work/cloudflare-staging/app-*/playwright-report/
           retention-days: 30
-    defaults:
-      run:
-        working-directory: ${{ env.CF_WORKSPACE }}

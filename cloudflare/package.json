@@ -14,7 +14,7 @@
     "test:ci": "jest --ci",
     "test:coverage": "jest --coverage",
     "test:coverage:ci": "jest --ci --coverage --coverageReporters=lcov --coverageReporters=text-summary --coverageReporters=json-summary",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --config playwright.cloudflare.config.ts",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:security": "playwright test e2e/security.spec.ts",
     "test:e2e:perf": "playwright test e2e/performance.spec.ts",
