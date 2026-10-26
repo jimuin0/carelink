@@ -151,7 +151,7 @@ test('compact inbox and unified history distinguish replies, drafts, queues and 
       expect((await rpc(id, 'observe', { providerId: randomUUID(), event: label === '送信失敗' ? 'bounced' : label === '配信完了' ? 'delivered' : 'accepted' })).error).toBeNull();
     }
     expect((await db.from('contact_replies').insert([
-      { id: randomUUID(), contact_id: ids[0], author_id: person.id, author_name: '合成担当', body: '社内の記録は返信ではありません', is_internal: true },
+      { id: randomUUID(), contact_id: ids[0], author_id: person.id, author_name: '合成担当', body: '社内の記録は返信ではありません', is_internal: true, created_at: new Date(Date.now() - 1200000).toISOString() },
       { id: randomUUID(), contact_id: ids[6], author_id: person.id, author_name: '合成担当', body: '旧画面から送信受付された合成返信', is_internal: false,
         created_at: new Date(Date.now() - 1800000).toISOString(), sent_at: new Date(Date.now() - 1800000).toISOString() },
     ])).error).toBeNull();
