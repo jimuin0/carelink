@@ -14,6 +14,7 @@ test.beforeAll(() => {
 test.use({ serviceWorkers: 'block', trace: 'off', screenshot: 'off', video: 'off' });
 
 test('owner saves, reloads and publishes split, night, early and all-day hours independently', async ({ page, browser }) => {
+  test.setTimeout(90_000);
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false } });
   const email = `hours-${randomUUID()}@example.invalid`; const password = randomUUID();

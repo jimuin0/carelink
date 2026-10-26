@@ -2260,7 +2260,7 @@
 "function|update_waitlist_updated_at()|returns=trigger|volatile=v|secdef=f|body_md5=e7a0919a4073eaabf72630cc53a76237",
 "function|webhook_dispatch_v2_version()|returns=integer|volatile=v|secdef=f|body_md5=36e005612776e387b4792ec42d3108ad",
 "function|working_time_meets_business_hours(p_hours jsonb, p_dow integer, p_start time without time zone, p_end time without time zone)|returns=boolean|volatile=s|secdef=f|body_md5=e9b9e72118e457b861ebcf9115d6eafc",
-"function|working_time_meets_business_hours(p_hours jsonb, p_dow integer, p_start time without time zone, p_end time without time zone, p_min_minutes integer)|returns=boolean|volatile=s|secdef=f|body_md5=90d85f12a5cf309a7bede07d68ed5179",
+"function|working_time_meets_business_hours(p_hours jsonb, p_dow integer, p_start time without time zone, p_end time without time zone, p_min_minutes integer)|returns=boolean|volatile=s|secdef=f|body_md5=e199fa0ee1f3066bc90c50480d44c902",
 "grant|ab_test_events|anon|DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
 "grant|ab_test_events|authenticated|DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
 "grant|ab_test_events|service_role|DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
