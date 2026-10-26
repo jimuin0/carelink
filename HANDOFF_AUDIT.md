@@ -15,7 +15,7 @@ F: 他案件は探索対象外。旧版を自動で不要にはしない。旧Ca
 - package.jsonはNext16/React19なのに旧AGENTSはNext15/React18。新しい入口を正本として解消。
 - 最新mainにはPR734のcron集約が入り、PR733までの本番照合記録だけでは現在の外部切替状態を示さない。
 - このMacにある全ファイルを公開できるとは確認していない。分類集計はlocal-inventory-summary.json。全ファイル名/hash詳細は機密候補を含むためローカル600権限で保存し、集計とそのhashだけ公開。
-- 原票149件は取得不能が継続。旧Mac接続未成立はデータ消失の証明ではない。
+- 原票149件は全文未回収が継続。2026-10-26に旧MacのSMB共有へ接続し、既知の旧 `/private/tmp` 候補、CareLink引き継ぎzip、全履歴bundleを照合したが、正確なSHA-256一致は既取得の2件だけ。[探索記録](docs/handoff/original-source-recovery-20261026.md)を参照。調査範囲外のバックアップや別保存先まで消失した証明ではない。
 - git submodule/symlinkはgit-inventory.jsonを参照。LFS利用は属性とpointer走査で別途検証する。
 - 実行中のOSプロセスの一覧から他者の意図や外部未確定操作の不在は断定しない。cron専用worktreeは変更しない。外部操作を今回再実行しない。
 
