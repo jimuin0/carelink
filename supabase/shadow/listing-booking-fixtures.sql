@@ -30,9 +30,10 @@ WHERE id='72000000-0000-4000-8000-000000000001';
 DO $$ DECLARE new_id uuid; value jsonb;
 BEGIN
   IF NOT public.facility_booking_ready('72000000-0000-4000-8000-000000000001') THEN RAISE EXCEPTION 'Ready rejected'; END IF;
-  FOREACH value IN ARRAY ARRAY['null'::jsonb,'{}'::jsonb,'[]'::jsonb,'{"mon":null}'::jsonb,'{"mon":{"open":"18:00","close":"10:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}'::jsonb] LOOP
+  FOREACH value IN ARRAY ARRAY['null'::jsonb,'{}'::jsonb,'[]'::jsonb,'{"mon":null}'::jsonb,'{"mon":{"open":"18:00","close":"18:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}'::jsonb] LOOP
     IF public.confirmed_booking_hours(value) THEN RAISE EXCEPTION 'Malformed hours accepted'; END IF;
   END LOOP;
+  IF NOT public.confirmed_booking_hours('{"mon":{"open":"18:00","close":"05:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}') THEN RAISE EXCEPTION 'Overnight hours rejected'; END IF;
   IF EXISTS(SELECT 1 FROM public.get_available_slots('72000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000003','2030-01-07',180)) THEN RAISE EXCEPTION 'Midnight wrap accepted'; END IF;
   IF (SELECT count(*) FROM public.get_available_slots('72000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000003','2030-01-07',15))<>4 THEN RAISE EXCEPTION 'Late slots incorrect or looping'; END IF;
   IF EXISTS(SELECT 1 FROM public.get_available_slots('72000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000003','2030-01-07',0)) THEN RAISE EXCEPTION 'Zero duration accepted'; END IF;
