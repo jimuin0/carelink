@@ -1713,6 +1713,22 @@ describe('getAvailableFacilityIds：予約画面で選べる枠だけを数え�
   const available = async (now: number, timeSlot?: string, date = '2026-05-01') =>
     (await getAvailableFacilityIds(['fac-1'], date, timeSlot, now))!.has('fac-1');
 
+  test('adjacent calendar dates use offsets: previous-day midnight buffer blocks an early slot', async () => {
+    const chains = mockTables({
+      facility_card_view: [{ ...readyCard('fac-1'), business_hours: { ...OPEN_ALL_WEEK, fri: { open: '00:00', close: '24:00' } } }],
+      facility_menus: [{ facility_id: 'fac-1', duration_minutes: 15 }],
+      facility_profiles: [{ id: 'fac-1', booking_buffer_minutes: 15 }],
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '00:00', end_time: '00:15' }],
+      bookings: [{ staff_id: 'staff-1', booking_date: '2026-04-30', start_time: '23:45', end_time: '24:00' }],
+    });
+    expect(await available(jst('00:00') - 86400_000)).toBe(false);
+    expect(chains.bookings.in).toHaveBeenCalledWith('booking_date', ['2026-04-30', '2026-05-01', '2026-05-02']);
+    mockTables({
+      bookings: [{ staff_id: 'staff-1', booking_date: '2026-05-02', start_time: '09:00', end_time: '18:00' }],
+    });
+    expect(await available(jst('08:00'))).toBe(true);
+  });
+
   test('当日、営業が終わった後（21:51）は空きなし（どの時間帯でも）', async () => {
     mockTables({});
     expect(await available(jst('21:51'))).toBe(false);

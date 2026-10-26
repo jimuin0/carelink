@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { verifyAuthUser } from '@/lib/auth-verification';
-import { businessTypes, facilityFeatures, prefectures, dayOrder, dayLabels } from '@/lib/constants';
+import { businessTypes, facilityFeatures, prefectures } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
@@ -24,6 +24,7 @@ import { LISTING_PUBLISH_REQUIREMENT } from '@/lib/register-photo-policy';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
 import { BOOKING_CSV_MAX_ROWS, buildBookingCsv, readBookingCsvRows } from '@/lib/booking-csv-export';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import BusinessHoursEditor from '@/components/admin/BusinessHoursEditor';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
 const CancelPolicySettings = dynamic(() => import('@/components/admin/CancelPolicySettings'), { ssr: false });
@@ -198,14 +199,11 @@ function AdminSettingsContent() {
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
     );
     setHoursEdited(true);
+    setDirty(true);
   };
 
-  const updateHour = (day: string, field: 'open' | 'close', value: string) => {
-    if ((hours[day]?.[field] ?? '') === value) return;
-    setHours((prev) => ({
-      ...prev,
-      [day]: { ...(prev[day] ?? { open: '', close: '' }), [field]: value },
-    }));
+  const updateHoursDay = (day: string, value: HoursDraft[string]) => {
+    setHours(prev => ({ ...prev, [day]: value }));
     setHoursEdited(true);
     setDirty(true);
   };
@@ -532,49 +530,7 @@ function AdminSettingsContent() {
           </p>
         )}
         <FieldError id="fac-hours-error" message={fieldErrors.business_hours} />
-        <div className="space-y-3">
-          {dayOrder.map((day) => (
-            // スマホ（幅 320〜390px）では時刻の入力を曜日の下の行へ折り返す（1行だと閉店時間がカードの外へはみ出した）。
-            <div key={day} className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <span className="w-8 text-sm font-medium text-center">{dayLabels[day]}</span>
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={!closedDays.includes(day)}
-                  onChange={() => toggleClosed(day)}
-                  aria-label={`${dayLabels[day]}曜日に営業する`}
-                  className="rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500"
-                />
-                <span className="text-xs text-gray-600">営業</span>
-              </label>
-              {!closedDays.includes(day) ? (
-                <div className="flex w-full items-center gap-2 sm:w-auto">
-                  <SbInput
-                    type="time"
-                    aria-label={`${dayLabels[day]}曜日の開店時間`}
-                    value={hours[day]?.open ?? ''}
-                    onChange={(e) => updateHour(day, 'open', e.target.value)}
-                    onInput={(e) => updateHour(day, 'open', e.currentTarget.value)}
-                    onBlur={(e) => updateHour(day, 'open', e.currentTarget.value)}
-                    className="min-w-0 flex-1 py-1.5! px-2! text-sm sm:w-32! sm:flex-none"
-                  />
-                  <span className="text-gray-500">〜</span>
-                  <SbInput
-                    type="time"
-                    aria-label={`${dayLabels[day]}曜日の閉店時間`}
-                    value={hours[day]?.close ?? ''}
-                    onChange={(e) => updateHour(day, 'close', e.target.value)}
-                    onInput={(e) => updateHour(day, 'close', e.currentTarget.value)}
-                    onBlur={(e) => updateHour(day, 'close', e.currentTarget.value)}
-                    className="min-w-0 flex-1 py-1.5! px-2! text-sm sm:w-32! sm:flex-none"
-                  />
-                </div>
-              ) : (
-                <span className="text-sm text-gray-500">定休日</span>
-              )}
-            </div>
-          ))}
-        </div>
+        <BusinessHoursEditor hours={hours} closedDays={closedDays} onDayChange={updateHoursDay} onToggleClosed={toggleClosed} />
         <button type="button" onClick={copyHours} className="mt-3 text-sm text-sky-700 underline">
           最初に入力した曜日の時間を、ほかの営業日にも入れる
         </button>

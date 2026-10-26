@@ -1,3 +1,4 @@
+import { businessWindows } from '@/lib/business-hours';
 import { notFound } from 'next/navigation';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
@@ -6,7 +7,6 @@ import Link from 'next/link';
 import BoardScheduleGrid, { type BoardRow, type BoardMenu } from '@/components/admin/BoardScheduleGrid';
 import { todayJst, isValidIsoDate, addDays } from '@/lib/admin-date';
 import { computeBoardHourRange } from '@/lib/board-time';
-import { dayOrder } from '@/lib/constants';
 import FacilitySelector from '@/components/admin/FacilitySelector';
 import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
 
@@ -148,8 +148,9 @@ export default async function AdminSchedulePage(props: Props) {
   // getUTCDay は 0=日…6=土。dayOrder（mon=0）への変換は (n+6)%7。
   const [yy, mm, dd] = date.split('-').map(Number);
   const dowUtc = new Date(Date.UTC(yy, mm - 1, dd)).getUTCDay();
-  const dayKey = dayOrder[(dowUtc + 6) % 7];
-  const dayBusiness = businessHours?.[dayKey] ?? null;
+  const windows = businessHours ? businessWindows(businessHours, dowUtc) : [];
+  const clock = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+  const dayBusiness = windows.length ? { open: clock(windows[0].start), close: clock(windows[windows.length - 1].end) } : null;
   // 表示時間帯 = 営業時間（無ければ既定）を基準に、枠外予約があれば前後へ自動拡張。
   const { openHour, closeHour } = computeBoardHourRange(
     dayBusiness,

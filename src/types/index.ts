@@ -1,3 +1,4 @@
+import type { BusinessDay } from '@/lib/business-hours';
 // 予約ステータスは booking-status.ts を単一の真実とする（BookingStatus は全7値）。
 // 以前ここで 5 値の独自 union を再定義し arrived / cancel_fee_paid が欠落していた（DB CHECK 制約と乖離）。
 import type { BookingStatus } from '@/lib/booking-status';
@@ -59,7 +60,7 @@ export interface Facility {
   access_info: string | null;
   phone: string | null;
   website_url: string | null;
-  business_hours: Record<string, { open: string; close: string } | null> | null;
+  business_hours: Record<string, BusinessDay | null> | null;
   regular_holiday: string | null;
   seat_count: number | null;
   staff_count: number | null;
@@ -137,7 +138,7 @@ export interface FacilityCardData {
   menu_count: number;
   coupon_count: number;
   photo_count: number;
-  business_hours: Record<string, { open: string; close: string } | null> | null;
+  business_hours: Record<string, BusinessDay | null> | null;
   seat_count: number | null;
   /** Online-booking readiness inputs from facility_card_view (see isCardBookingReady). */
   booking_menu_count?: number | null;

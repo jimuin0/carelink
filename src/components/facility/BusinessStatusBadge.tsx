@@ -1,9 +1,10 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
+import { businessMinute, businessPeriods, businessWindows, periodWindow, type BusinessDay } from '@/lib/business-hours';
 
 interface Props {
-  businessHours: Record<string, { open: string; close: string } | null> | null;
+  businessHours: Record<string, BusinessDay | null> | null;
   regularHoliday?: string | null;
 }
 
@@ -14,20 +15,22 @@ interface Props {
  */
 export function computeBusinessStatus(
   currentTime: string,
-  todayHours: { open: string; close: string } | null | undefined,
+  todayHours: BusinessDay | null | undefined,
 ): 'open' | 'closed' | 'holiday' {
   if (!todayHours) return 'holiday';
-  const { open, close } = todayHours;
-  const isOpen = close > open
-    ? currentTime >= open && currentTime < close
-    : currentTime >= open || currentTime < close; // 深夜営業（翌日跨ぎ）
+  const minute = businessMinute(currentTime);
+  const isOpen = minute !== null && (businessPeriods(todayHours) ?? []).some(period => {
+    const window = periodWindow(period)!;
+    return window.end > 1440 ? minute >= window.start || minute < window.end - 1440
+      : minute >= window.start && minute < window.end;
+  });
   return isOpen ? 'open' : 'closed';
 }
 
-// 購読すべき更新イベントが無い（現在時刻は常に「今読んだ値」を使うだけで、外部からの
-// 変化通知を待つ必要が無い）ため、subscribe は何もしない no-op。
-function subscribeNoop() {
-  return () => {};
+// 時刻の境界をまたいだ画面も更新する。通信やサーバー側の定期実行は使わない。
+function subscribeClock(onChange: () => void) {
+  const timer = setInterval(onChange, 30_000);
+  return () => clearInterval(timer);
 }
 
 function getServerStatusSnapshot(): 'open' | 'closed' | 'holiday' | 'unknown' {
@@ -45,19 +48,22 @@ export default function BusinessStatusBadge({ businessHours }: Props) {
   // getSnapshot が呼び出しごとに新しい値を返しても参照比較(Object.is)は値で一致し、
   // 無限再レンダーの心配はない。
   const status = useSyncExternalStore(
-    subscribeNoop,
+    subscribeClock,
     () => {
       if (!businessHours) return 'unknown' as const;
-      const now = new Date();
+      // All listed facilities are in Japan; never use the visitor's timezone.
+      const now = new Date(Date.now() + 9 * 3_600_000);
       const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-      const today = days[now.getDay()];
+      const today = days[now.getUTCDay()];
       const todayHours = businessHours[today];
 
-      const hours = now.getHours();
-      const minutes = now.getMinutes();
-      const currentTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+      const hours = now.getUTCHours();
+      const minutes = now.getUTCMinutes();
 
-      return computeBusinessStatus(currentTime, todayHours);
+      const windows = businessWindows(businessHours, now.getUTCDay());
+      const minute = hours * 60 + minutes;
+      if (windows.some(window => minute >= window.start && minute < window.end)) return 'open';
+      return todayHours ? 'closed' : 'holiday';
     },
     getServerStatusSnapshot,
   );

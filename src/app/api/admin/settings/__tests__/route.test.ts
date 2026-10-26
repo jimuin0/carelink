@@ -328,11 +328,11 @@ test('PATCH: name 空文字 → 400', async () => {
   expect(res.status).toBe(400);
 });
 
-test('PATCH: business_hours で close <= open → 400', async () => {
+test('PATCH: business_hours で開始と終了が同時刻 → 400', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   const res = await PATCH(makePatchRequest({
     name: 'test',
-    business_hours: { mon: { open: '18:00', close: '09:00' } },
+    business_hours: { mon: { open: '18:00', close: '18:00' } },
   }));
   expect(res.status).toBe(400);
 });
@@ -814,9 +814,30 @@ test.each([
   expect(json.fields).toEqual({ [field]: json.error });
 });
 
-test('PATCH: 閉店が開店より前の営業時間は営業時間の欄として返す', async () => {
+test('PATCH: 開始と終了が同時刻の営業時間は営業時間の欄として返す', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  const res = await PATCH(makePatchRequest({ name: 'test', business_hours: { mon: { open: '18:00', close: '10:00' } } }));
+  const res = await PATCH(makePatchRequest({ name: 'test', business_hours: { mon: { open: '18:00', close: '18:00' } } }));
   expect(res.status).toBe(400);
-  expect((await res.json()).fields).toEqual({ business_hours: '月曜日の閉店時間は開店時間より後にしてください' });
+  expect((await res.json()).fields).toEqual({ business_hours: '月曜日の営業時間を確認してください。終日営業は00:00〜24:00で設定してください' });
+});
+
+test.each([
+  { open: '09:00', close: '12:00', periods: [{ open: '09:00', close: '09:00' }] },
+  { open: '10:00', close: '12:00', periods: [{ open: '09:00', close: '12:00' }] },
+  { open: '09:00', close: '13:00', periods: [{ open: '09:00', close: '12:00' }] },
+  { open: '09:00', close: '12:00', periods: [{ open: '09:00', close: '12:00' }, { open: '11:00', close: '13:00' }] },
+])('PATCH rejects invalid or overlapping explicit periods even in a partial week: %p', async mon => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  expect((await PATCH(makePatchRequest({ ...VALID_BODY, business_hours: { mon } }))).status).toBe(400);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+
+test.each([
+  { open: '18:00', close: '05:00' },
+  { open: '00:00', close: '24:00' },
+  { open: '09:00', close: '12:00', periods: [{ open: '09:00', close: '12:00' }, { open: '15:00', close: '18:20' }] },
+])('PATCH accepts a night, all-day or split schedule without changing other facilities: %p', async mon => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  expect((await PATCH(makePatchRequest({ ...VALID_BODY, business_hours: { mon } }))).status).toBe(200);
 });

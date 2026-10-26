@@ -163,8 +163,8 @@ describe('bookingSchema — deep tests', () => {
     expect(bookingSchema.safeParse({ ...validBooking, email }).success).toBe(true);
   });
 
-  test('end_time が不正 (24:00) → エラー', () => {
-    expect(bookingSchema.safeParse({ ...validBooking, end_time: '24:00' }).success).toBe(false);
+  test('end_time は日の終わり (24:00) を受け付ける', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, end_time: '24:00' }).success).toBe(true);
   });
 
   test('end_time が 00:00 → 通過', () => {

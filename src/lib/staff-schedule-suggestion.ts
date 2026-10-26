@@ -1,3 +1,4 @@
+import { businessWindows } from './business-hours';
 import { hasConfirmedBookingHours } from './booking-preparation';
 
 /**
@@ -27,7 +28,14 @@ export interface SuggestedStaffDay {
 
 export function suggestStaffWeekFromBusinessHours(businessHours: unknown): SuggestedStaffDay[] | null {
   if (!hasConfirmedBookingHours(businessHours)) return null;
-  const hours = businessHours as Record<string, OpenWindow | null>;
+  // One staff shift per calendar day cannot faithfully express split shifts.
+  // Do not silently fill the lunch break or an overnight boundary with work.
+  if (DOW_KEYS.some((_, day) => businessWindows(businessHours, day).length > 1)) return null;
+  const hours = Object.fromEntries(DOW_KEYS.map((key, day) => {
+    const window = businessWindows(businessHours, day)[0];
+    const clock = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+    return [key, window ? { open: clock(window.start), close: clock(window.end) } : null];
+  })) as Record<string, OpenWindow | null>;
   const windows = DOW_KEYS.map(key => hours[key]);
   // 確定済みの営業時間には営業日が必ず1日以上ある。休みの曜日にチェックを入れたときの
   // 初期表示は、その店舗の最初の営業日の時間にする（09:00〜19:00 を持ち込まない）。
