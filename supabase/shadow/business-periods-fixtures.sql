@@ -33,7 +33,7 @@ UPDATE public.facility_profiles SET status = 'published',
 UPDATE public.staff_schedules SET start_time='00:00',end_time='24:00' WHERE staff_id='fe630000-0000-4000-8000-000000000001';
 INSERT INTO public.staff_schedules(staff_id,day_of_week,start_time,end_time) VALUES
  ('fe630000-0000-4000-8000-000000000001',2,'00:00','24:00');
-DO $$ DECLARE hours jsonb; v_slot record; total integer; BEGIN
+DO $$ DECLARE hours jsonb; v_slot record; total integer; booking_id uuid; BEGIN
   FOR hours IN SELECT value FROM jsonb_array_elements('[{"open":"09:00","close":"20:00"},{"open":"18:00","close":"05:00"},{"open":"05:00","close":"12:00"},{"open":"00:00","close":"24:00"},{"open":"09:00","close":"12:30","periods":[{"open":"09:00","close":"12:30"},{"open":"15:00","close":"18:20"}]}]') LOOP
     hours:=jsonb_build_object('mon',hours,'tue',null,'wed',null,'thu',null,'fri',null,'sat',null,'sun',null);
     PERFORM pg_temp.assert_min(public.confirmed_booking_hours(hours),'A/B/C/all-day/split valid');
@@ -51,6 +51,28 @@ DO $$ DECLARE hours jsonb; v_slot record; total integer; BEGIN
     END IF;
   END LOOP;
   PERFORM pg_temp.assert_min(NOT public.business_interval_fits(hours,1,'12:00','15:30'),'a booking cannot span lunch');
+  BEGIN
+    PERFORM public.create_booking_for_menus_atomic('fe610000-0000-4000-8000-000000000001','fe630000-0000-4000-8000-000000000001',NULL,
+      'fe620000-0000-4000-8000-000000000001',NULL,'2030-01-07','12:00','13:00','Synthetic','hours@example.invalid',NULL,NULL,3000,0,'confirmed',true,ARRAY['fe620000-0000-4000-8000-000000000001'::uuid]);
+    RAISE EXCEPTION 'lunch booking unexpectedly accepted';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'BOOKING_OUTSIDE_HOURS:%' THEN RAISE; END IF; END;
+  booking_id:=public.create_booking_for_menus_atomic('fe610000-0000-4000-8000-000000000001','fe630000-0000-4000-8000-000000000001',NULL,
+    'fe620000-0000-4000-8000-000000000001',NULL,'2030-01-07','15:00','16:00','Synthetic','hours@example.invalid',NULL,NULL,3000,0,'confirmed',true,ARRAY['fe620000-0000-4000-8000-000000000001'::uuid]);
+  BEGIN
+    PERFORM public.change_booking_atomic(booking_id,NULL,'2030-01-07','12:00','13:00',true);
+    RAISE EXCEPTION 'lunch change unexpectedly accepted';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'BOOKING_OUTSIDE_HOURS:%' THEN RAISE; END IF; END;
+  PERFORM pg_temp.assert_min((SELECT start_time='15:00' FROM public.bookings WHERE id=booking_id),'rejected change preserves original booking');
+  UPDATE public.facility_profiles SET business_hours=jsonb_build_object('mon',jsonb_build_object('open','18:00','close','05:00'),'tue',null,'wed',null,'thu',null,'fri',null,'sat',null,'sun',null),booking_buffer_minutes=15
+    WHERE id='fe610000-0000-4000-8000-000000000001';
+  PERFORM public.create_booking_for_menus_atomic('fe610000-0000-4000-8000-000000000001','fe630000-0000-4000-8000-000000000001',NULL,
+    'fe620000-0000-4000-8000-000000000001',NULL,'2030-01-07','23:00','24:00','Synthetic','hours@example.invalid',NULL,NULL,3000,0,'confirmed',true,ARRAY['fe620000-0000-4000-8000-000000000001'::uuid]);
+  PERFORM pg_temp.assert_min(NOT EXISTS(SELECT 1 FROM public.get_available_slots('fe610000-0000-4000-8000-000000000001','fe630000-0000-4000-8000-000000000001','2030-01-08',60) s WHERE s.slot_start='00:00'),'previous calendar date buffer removes midnight slot');
+  BEGIN
+    PERFORM public.create_booking_for_menus_atomic('fe610000-0000-4000-8000-000000000001','fe630000-0000-4000-8000-000000000001',NULL,
+      'fe620000-0000-4000-8000-000000000001',NULL,'2030-01-08','00:00','01:00','Synthetic','hours@example.invalid',NULL,NULL,3000,0,'confirmed',true,ARRAY['fe620000-0000-4000-8000-000000000001'::uuid]);
+    RAISE EXCEPTION 'adjacent-date buffer conflict unexpectedly accepted';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'BOOKING_CONFLICT:%' THEN RAISE; END IF; END;
   PERFORM pg_temp.assert_min(NOT public.confirmed_booking_hours(hours || '{"tue":{"open":"00:00","close":"00:00"}}'),'equal times invalid');
 END $$;
 ROLLBACK;
