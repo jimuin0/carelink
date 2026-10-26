@@ -32,6 +32,8 @@ deleted, and node_modules is not linked from another checkout.
 - No production notification, OAuth, payment or cron credentials are copied.
 - Responses have X-Robots-Tag, and robots.txt disallows all crawling.
 - There are no custom domain routes or scheduled triggers in this config.
+- The KV binding is a new CareLink staging namespace. Development and CI use a
+  local simulation (`remote: false`), never the hosted cache.
 - Real database/auth/booking tests run only against the disposable local
   Supabase stack in GitHub CI. Their result is not hosted staging verification.
 

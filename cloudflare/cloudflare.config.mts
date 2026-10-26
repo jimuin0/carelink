@@ -16,6 +16,7 @@ export default defineConfig({
     },
     env: {
       ASSETS: bindings.assets(),
+      VINEXT_KV_CACHE: bindings.kv({ id: 'c87104605d3740bab9c7f8d13ffd75d0', dev: { remote: false } }),
       ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, bindings.text(value)])),
     },
   }),
