@@ -41,3 +41,10 @@ Firewallには `/search` GETかつAccept-Language不在の**ログ専用**ルー
 - GitHub Support チケット #4906011 はOpenで、旧PRコミットに残る個人メールアドレスのキャッシュ削除回答待ち。現行mainと現行PR headの修正と、旧コミットの非公開化を混同しない。個人メールアドレスはここへ転記しない。
 - 実新規登録→受信→ログインと実予約通知は本人管理の安全な受入が未完走。店舗の掲載・所有権、画像の保持・削除、任意の実Google OAuthは本人判断・同意待ち。過去menu500・Safari遷移・health遅延・Render trigger欠落は当時の根因証拠が不足するが、現在の再発確定とは扱わない。
 - 追記: PR #832 が main `61b13bb1` に入った。対象PRのE2Eを含むGitHub CIは成功。ただしVercelの新規ビルドは「Deployment rate limited — retry in 24 hours」で失敗し、公開 `/api/health` のversionは依然 `b2afc3e`。したがって#832の運営メールUIはGitHub反映済み・本番未反映であり、配信後の実動作確認も未実施。新規課金で制限を解除しない。
+
+## 10/26 12:42 JST 以降の配信確認
+
+- 上の #832 未配信という観測は解消済み。API/CLI の日次制限は変更せず、Vercel Dashboard から main `61b13bb1f78263832ccd47bff4a89e8685dd4322` を指定した Production 配信 `dpl_5ZQuZhyuNPdEX2ouDdMWdj1GFx52` が READY。公開 health は `healthy`・version `61b13bb`。本番 `/admin/mail` を認証済みの読取操作で確認し、一覧の状態・日時と選択した問い合わせの時系列、390/1440px の表示を確認した。送信・予約・保存・取消は行っていない。対象配信の error/fatal runtime logs は確認時点で0件。
+- PR #832 head `54a8ddeb` の CI run `40262107024` と main run `40264511584` は成功。head と squash main の tree は一致。E2E は497成功・既存の意図的skip6件、使い捨てDB契約は19成功・skip0。実顧客の配達成功や保留中の実運用受入を認定する証拠ではない。
+- ルートからの Vercel CLI dry run が Git 無視対象の作業資料・coverage・認証状態をアップロード候補に含める問題を発見した。PR #835 の `.vercelignore` で除外し、実CLIの dry run により候補が追跡対象ソースのみとなり、アプリ・lockfile・file依存を保持することを確認。私的資料の実アップロードは行っていない。これはCLIの送信対象制御であり、アプリ実行コードの変更ではない。
+- 既存の明示保留は本人回答により維持。未参照画像64件は保持判断も未確定で、本人から由来の説明を求められている。参照なしという結果だけで削除しない。他の本人判断・所有者対応・原票不足は上の現在地を維持する。
