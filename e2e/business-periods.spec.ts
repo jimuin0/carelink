@@ -13,7 +13,7 @@ test.beforeAll(() => {
 });
 test.use({ serviceWorkers: 'block', trace: 'off', screenshot: 'off', video: 'off' });
 
-test('owner saves, reloads and publishes split, night, early and all-day hours independently', async ({ page, browser }) => {
+test('owner saves, reloads and publishes split, night, early and all-day hours independently', async ({ page, browser }, info) => {
   test.setTimeout(90_000);
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false } });
@@ -56,6 +56,9 @@ test('owner saves, reloads and publishes split, night, early and all-day hours i
   expect((await saved).status()).toBe(200);
   await page.reload();
   await expect(mon.getByLabel('月曜日の2枠目の開店時間', { exact: true })).toHaveValue('15:00');
+  const proof = info.outputPath('business-hours-split.png');
+  await mon.screenshot({ path: proof });
+  await info.attach('business-hours-split', { path: proof, contentType: 'image/png' });
   const published = page.waitForResponse(r => r.url().includes('/api/admin/settings') && r.request().method() === 'PATCH');
   await page.getByRole('button', { name: '公開する', exact: true }).click();
   expect((await published).status()).toBe(200);

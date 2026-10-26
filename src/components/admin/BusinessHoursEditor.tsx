@@ -32,16 +32,16 @@ export default function BusinessHoursEditor({ hours, closedDays, onDayChange, on
           <input type="checkbox" aria-label={`${dayLabels[day]}曜日に営業する`} checked={!closed} onChange={() => onToggleClosed(day)} />
           この曜日に営業を開始する
         </label>
-        {closed ? <p className="text-sm text-gray-500">休業（前日から翌朝までの営業がある場合、その時間は継続します）</p> : <>
+        {closed ? <p className="text-sm text-gray-500">休み（前日からの営業は継続します）</p> : <>
           <div className="space-y-3">{periods.map((period, index) => {
             const label = `${dayLabels[day]}曜日の${index === 0 ? '' : `${index + 1}枠目の`}`;
-            return <div key={index} className="flex flex-wrap items-center gap-2">
-              <span className="w-14 text-xs text-gray-500">時間帯{index + 1}</span>
-              <SbInput type="time" aria-label={`${label}開店時間`} value={period.open} onChange={event => update(index, 'open', event.target.value)} onInput={event => update(index, 'open', event.currentTarget.value)} onBlur={event => update(index, 'open', event.target.value)} className="min-w-0 w-28! py-2! px-2! text-sm" />
+            return <div key={index} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+              <span className="col-span-3 text-xs text-gray-500">時間帯{index + 1}</span>
+              <SbInput type="time" aria-label={`${label}開店時間`} value={period.open} onChange={event => update(index, 'open', event.target.value)} onInput={event => update(index, 'open', event.currentTarget.value)} onBlur={event => update(index, 'open', event.target.value)} className="min-w-0 w-full! py-2! px-2! text-sm" />
               <span aria-hidden="true">〜</span>
-              <SbInput type="text" placeholder="18:00" maxLength={5} aria-label={`${label}閉店時間`} value={period.close} onChange={event => update(index, 'close', event.target.value)} onInput={event => update(index, 'close', event.currentTarget.value)} onBlur={event => update(index, 'close', event.target.value)} className="min-w-0 w-24! py-2! px-2! text-sm" />
-              {period.close && period.open && period.close < period.open && <span className="text-xs text-gray-600">翌日</span>}
-              {periods.length > 1 && <button type="button" aria-label={`${dayLabels[day]}曜日の時間帯${index + 1}を削除`} onClick={() => setPeriods(day, periods.filter((_, at) => at !== index))} className="min-h-11 px-2 text-sm text-rose-700">削除</button>}
+              <SbInput type="text" placeholder="18:00" maxLength={5} aria-label={`${label}閉店時間`} value={period.close} onChange={event => update(index, 'close', event.target.value)} onInput={event => update(index, 'close', event.currentTarget.value)} onBlur={event => update(index, 'close', event.target.value)} className="min-w-0 w-full! py-2! px-2! text-sm" />
+              {period.close && period.open && period.close < period.open && <span className="col-start-3 text-xs text-gray-600">翌日</span>}
+              {periods.length > 1 && <button type="button" aria-label={`${dayLabels[day]}曜日の時間帯${index + 1}を削除`} onClick={() => setPeriods(day, periods.filter((_, at) => at !== index))} className="col-span-3 min-h-11 justify-self-end px-2 text-sm text-rose-700">削除</button>}
             </div>;
           })}</div>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">

@@ -26,3 +26,13 @@ it.each([null,{status:'unknown'}])('unknown booking state %# is visibly unconfir
  mockStatus.mockResolvedValue({data});render(await BookingCompletePage(props));expect(screen.getByRole('heading',{name:'予約の受付状況を確認しています'})).toBeVisible();expect(screen.queryByRole('link',{name:'カレンダーに追加（.ics）'})).toBeNull();
 });
 it('dependency rejection cannot show the booking as confirmed',async()=>{mockStatus.mockRejectedValue(new Error('synthetic'));render(await BookingCompletePage(props));expect(screen.getByText(/予約番号で店舗へ確認/)).toBeVisible();});
+
+it('calendar download moves 24:00 to midnight of the next year', async () => {
+ mockStatus.mockResolvedValue({data:{status:'confirmed'}});
+ render(await BookingCompletePage({...props,searchParams:Promise.resolve({id:'beaf0000-0000-4000-8000-000000000001',date:'2030-12-31',time:'23:00',end_time:'24:00',facility:'Synthetic'})}));
+ const href=screen.getByRole('link',{name:'カレンダーに追加（.ics）'}).getAttribute('href')!;
+ const ics=decodeURIComponent(href.slice(href.indexOf(',')+1));
+ expect(ics).toContain('DTSTART;TZID=Asia/Tokyo:20301231T230000');
+ expect(ics).toContain('DTEND;TZID=Asia/Tokyo:20310101T000000');
+ expect(ics).not.toContain('T240000');
+});

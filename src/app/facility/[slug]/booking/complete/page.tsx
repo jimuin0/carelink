@@ -1,3 +1,4 @@
+import { toIcalLocalDateTime } from '@/lib/ical-date';
 import Link from 'next/link';
 import PushPermissionBanner from '@/components/push/PushPermissionBanner';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -68,13 +69,11 @@ function buildIcsContent(date?: string, time?: string, endTime?: string, facilit
   const now = new Date();
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 
-  const [h, m] = time.split(':');
-  const dtStart = date.replace(/-/g, '') + 'T' + h.padStart(2, '0') + m.padStart(2, '0') + '00';
+  const dtStart = toIcalLocalDateTime(date, time);
 
   let dtEnd: string;
   if (endTime && TIME_RE.test(endTime)) {
-    const [eh, em] = endTime.split(':');
-    dtEnd = date.replace(/-/g, '') + 'T' + eh.padStart(2, '0') + em.padStart(2, '0') + '00';
+    dtEnd = toIcalLocalDateTime(date, endTime);
   } else {
     // Fallback: +1 hour with proper day rollover
     const startDate = new Date(`${date}T${time}:00`);
