@@ -1,5 +1,7 @@
 # このセッションの未完了と修正状況（2026-10-26）
 
+> 2026-10-26 12:14 JST 読み取り更新。以下の旧表は当時の観測値として保持する。最新状態は末尾の「10/26 現在地」を優先する。
+
 この表は、CPU・Preview・SEO変異テスト・500エラー・配色・配信確認という、この会話で依頼された範囲の一覧。既存の事業判断待ちや本人同意待ちを「コード修正」で完了した扱いにしない。
 
 |優先|項目|確認済みの状態|完了条件・対応|
@@ -27,3 +29,15 @@ Firewallには `/search` GETかつAccept-Language不在の**ログ専用**ルー
 ## 既存の保留事項
 
 [既存引継ぎ](CODEX_INSTRUCTIONS_20261021.md)のPostGIS移設承認、実Google OAuth本人同意、実予約/通知の運用受入、店舗公開方針、原票149件の回収は、今回の性能修正とは別。明示保留の決済・キャンセル待ち・Google時差・LINE解除・実顧客返信などには着手しない。旧Macの参照や包括的な「全部修正」を、それらの承認・新規課金・本人同意の代行と解釈しない。
+
+## 10/26 現在地（原票149件を除く）
+
+- PR #826 のブラウザ依存導入の有界再試行は main `0e59c149` に入り、対象PRのE2Eは成功。上表4は現行未修正から外す。検索フッターの重複HTML削減も同PRで反映済み。
+- PR #831 の公開読取・固定アセットCPU削減は main `5418649a` に入り、対象PRのLint/型・Unit/Coverage・Security・E2Eは成功。Vercel本番は元コミット `b2afc3e` の配信が READY、公開 `/api/health` は `healthy`・version `b2afc3e`。元コミットとmainの追跡ファイル差分は原票探索の文書3ファイルのみで、アプリコードは一致。上表5の「反映待ち」は解消した。
+- VercelのCareLink `Fluid Active CPU` は画面の過去30日集計（9/25 21:00〜10/25 21:00表示）で13時間31分。これはPR #831以前の配信を含む。新配信後の自然流入で通常Hobby枠4時間/月相当を達成した証拠はまだない。短時間の比率を月間保証にしない。
+- 接続可能なSupabaseアカウントでCareLink専用のhosted検証プロジェクトは未特定。旧Macの `carelink-staging-requirement-audit-20261003.md` は、有料hosted stagingの常設を必須とした過去の判断を撤回し、隔離local Supabaseの実検査と外部条件付きskipを区別する。Previewへ本番service-roleを入れない。hosted Preview認証・書込みの実測は未実施のまま。
+- Supabase本番の PostGIS は引き続き `public`。`anon` の `public.spatial_ref_sys` INSERT/UPDATE/DELETE はすべてtrueで、Security Advisorの関連警告も継続。チケット `SU-513978` の追加確認メールには、この読み取り時点で新たなサポート回答なし。管理者の移設・本人の本番変更承認は未実施。
+- 本番Storage `carelink-uploads` は69オブジェクト中64件が既存の参照照合SQLでは未参照（読み取り時点）。未参照という結果だけで原本削除を許可しない。
+- GitHub Support チケット #4906011 はOpenで、旧PRコミットに残る個人メールアドレスのキャッシュ削除回答待ち。現行mainと現行PR headの修正と、旧コミットの非公開化を混同しない。個人メールアドレスはここへ転記しない。
+- 実新規登録→受信→ログインと実予約通知は本人管理の安全な受入が未完走。店舗の掲載・所有権、画像の保持・削除、任意の実Google OAuthは本人判断・同意待ち。過去menu500・Safari遷移・health遅延・Render trigger欠落は当時の根因証拠が不足するが、現在の再発確定とは扱わない。
+- 追記: PR #832 が main `61b13bb1` に入った。対象PRのE2Eを含むGitHub CIは成功。ただしVercelの新規ビルドは「Deployment rate limited — retry in 24 hours」で失敗し、公開 `/api/health` のversionは依然 `b2afc3e`。したがって#832の運営メールUIはGitHub反映済み・本番未反映であり、配信後の実動作確認も未実施。新規課金で制限を解除しない。
