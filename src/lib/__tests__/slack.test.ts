@@ -232,6 +232,7 @@ describe('postToSlackWithThreadGrouping (Phase 7c)', () => {
 
   test('RPC 失敗 → 通常投稿にフォールバック', async () => {
     mockRpc.mockRejectedValueOnce(new Error('RPC down'));
+    mockRpc.mockResolvedValueOnce({ data: null, error: null });
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
     const res = await postToSlackWithThreadGrouping({
@@ -490,6 +491,18 @@ describe('postToSlackWithThreadGrouping 追加分岐', () => {
     expect(res.ok).toBe(true);
     expect(consoleSpy.mock.calls).toEqual([['[slack-thread] record_incident_thread failed:', 'dependency_failure']]);
     consoleSpy.mockRestore();
+  });
+
+  test('record_incident_thread がerrorを返す場合も本文を出さず失敗を記録する', async () => {
+    mockRpc.mockResolvedValueOnce({ data: [], error: null });
+    mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'synthetic-private-record-body' } });
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const result = await postToSlackWithThreadGrouping({ thread_key: 'record-error-result', text: 'msg' });
+      expect(result.ok).toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(log.mock.calls).toEqual([['[slack-thread] record_incident_thread failed:', 'dependency_failure']]);
+    } finally { log.mockRestore(); }
   });
 
   test('record_incident_thread が 非Error throw でも吸収', async () => {

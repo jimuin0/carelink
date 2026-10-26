@@ -181,11 +181,12 @@ export async function postToSlackWithThreadGrouping(opts: {
   if (!existingTs && !transientGroupingFailure) {
     try {
       const supabase = createServiceRoleClient();
-      await supabase.rpc('record_incident_thread', {
+      const { error } = await supabase.rpc('record_incident_thread', {
         p_key: opts.thread_key,
         p_channel: postResult.channel || channel,
         p_thread_ts: postResult.ts,
       });
+      if (error) console.error('[slack-thread] record_incident_thread failed:', 'dependency_failure');
     } catch {
       // 記録失敗は致命ではない（次回も親として post されるだけ）
       console.error('[slack-thread] record_incident_thread failed:', 'dependency_failure');
