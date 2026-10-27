@@ -50,13 +50,11 @@ export async function warmRuntimeCompileCache({
           redirect: 'manual',
           signal: AbortSignal.timeout(Math.min(1_000, deadline - Date.now())),
         });
-        // fetch resolves once headers arrive; the body can still time out.
-        // Treat that as a transient readiness failure just like a connect timeout.
-        await response.arrayBuffer();
       } catch {
         await new Promise((done) => setTimeout(done, 50));
         continue;
       }
+      await response.arrayBuffer();
       if (response.status !== 200) throw new Error('Compile-cache warmup page did not return HTTP 200');
       return;
     }

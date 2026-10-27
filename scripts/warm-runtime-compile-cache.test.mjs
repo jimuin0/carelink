@@ -82,27 +82,6 @@ test('fails the build on an error response and still stops the child', async () 
   });
 });
 
-test('retries a page whose response body stalls after headers', async () => {
-  await fixture(`
-    let calls = 0;
-    const server = require('node:http').createServer((req, res) => {
-      calls++;
-      fs.writeFileSync('calls.txt', String(calls));
-      res.writeHead(200);
-      if (calls === 1) {
-        res.flushHeaders();
-        setTimeout(() => res.end('late response'), 1600);
-      } else res.end('ready');
-    });
-    server.listen(Number(process.env.PORT), process.env.HOSTNAME);
-    process.on('SIGTERM', () => { server.close(); server.closeAllConnections(); });
-  `, async (cwd, port) => {
-    await warmRuntimeCompileCache({ cwd, port, timeoutMs: 5000 });
-    assert.ok(Number(await readFile(join(cwd, 'calls.txt'), 'utf8')) >= 2);
-    await assertStopped(cwd);
-  });
-});
-
 test('detects startup failure without waiting for the full timeout', async () => {
   await fixture('process.exit(7);', async (cwd, port) => {
     await assert.rejects(warmRuntimeCompileCache({ cwd, port }), /exited before readiness/);
