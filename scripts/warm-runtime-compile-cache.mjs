@@ -50,11 +50,13 @@ export async function warmRuntimeCompileCache({
           redirect: 'manual',
           signal: AbortSignal.timeout(Math.min(1_000, deadline - Date.now())),
         });
+        // Headers may arrive while route modules are still compiling. A body
+        // timeout is the same bounded readiness retry as a connection timeout.
+        await response.arrayBuffer();
       } catch {
         await new Promise((done) => setTimeout(done, 50));
         continue;
       }
-      await response.arrayBuffer();
       if (response.status !== 200) throw new Error('Compile-cache warmup page did not return HTTP 200');
       return;
     }
