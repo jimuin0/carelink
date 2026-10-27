@@ -55,6 +55,18 @@ beforeEach(() => {
   });
 });
 
+test('時間の一括コピーをキャンセルすると入力済みの他曜日を保持する', async () => {
+  render(<AdminSettingsPage />);
+  await screen.findByDisplayValue('合成店舗B');
+  fireEvent.change(screen.getByLabelText('月曜日の開店時間'), { target: { value: '10:00' } });
+  fireEvent.change(screen.getByLabelText('月曜日の閉店時間'), { target: { value: '19:00' } });
+  fireEvent.change(screen.getByLabelText('火曜日の開店時間'), { target: { value: '08:00' } });
+  fireEvent.click(screen.getByRole('button', { name: '最初に入力した曜日の時間を、ほかの営業日にも入れる' }));
+  fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+  expect((screen.getByLabelText('火曜日の開店時間') as HTMLInputElement).value).toBe('08:00');
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+
 test.each(['error', 'throw', 'malformed', 'user-with-error'])('Auth %s shows retry rather than empty settings, preserving the requested tenant', async mode => {
   if (mode === 'throw') mockGetUser.mockRejectedValueOnce(new Error('synthetic dependency failure'));
   else mockGetUser.mockResolvedValueOnce(mode === 'malformed' ? {} : {

@@ -1,4 +1,4 @@
-import { formatBusinessDay } from '@/lib/business-hours';
+import { businessPeriods, formatBusinessDay, periodWindow } from '@/lib/business-hours';
 import Link from 'next/link';
 import type { Facility } from '@/types';
 import { dayOrder, dayLabels } from '@/lib/constants';
@@ -54,15 +54,19 @@ export default function AccessInfo({ facility }: { facility: Facility }) {
             <span className="w-1 h-5 bg-sky-500 rounded-full" />
             営業時間
           </h3>
+          <p className="mb-2 text-xs text-gray-600">翌日までの営業は、開始した曜日に表示しています。</p>
           <table className="w-full text-sm">
             <tbody>
-              {dayOrder.map((day) => {
+              {dayOrder.map((day, index) => {
                 const hours = facility.business_hours?.[day];
+                const previous = facility.business_hours?.[dayOrder[(index + 6) % 7]];
+                const carry = (businessPeriods(previous) ?? []).find(period => periodWindow(period)!.end > 1440);
                 return (
                   <tr key={day} className="border-b border-gray-100">
                     <td className="py-2.5 pr-4 text-gray-500 w-16 font-medium">{dayLabels[day]}</td>
                     <td className="py-2.5">
-                      {hours ? formatBusinessDay(hours) : <span className="text-gray-500">休み</span>}
+                      {formatBusinessDay(hours)}
+                      {carry && <span className="block text-xs text-gray-600">前日から{carry.close}まで営業</span>}
                     </td>
                   </tr>
                 );

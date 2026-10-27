@@ -1,6 +1,6 @@
 'use client';
 
-import { formatBusinessDay } from '@/lib/business-hours';
+import { businessPeriods, formatBusinessDay, periodWindow } from '@/lib/business-hours';
 import { isCardBookingReady } from '@/lib/facility-publish-gate';
 import Image from 'next/image';
 import Link from '@/components/BrowseLink';
@@ -8,6 +8,32 @@ import type { FacilityCardData } from '@/types';
 import { SHIMMER_BLUR, cardUrl } from '@/lib/image-utils';
 import { formatFacilityLocality } from '@/lib/facility-location';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import { useSyncExternalStore } from 'react';
+
+// One shared clock for the entire result list, not one timer per card.
+const clockListeners = new Set<() => void>();
+let clockTimer: ReturnType<typeof setTimeout> | undefined;
+function notifyClock() { for (const listener of clockListeners) listener(); }
+function tickClock() {
+  notifyClock();
+  if (clockListeners.size) clockTimer = setTimeout(tickClock, 60_000 - Date.now() % 60_000);
+}
+function subscribeClock(listener: () => void) {
+  clockListeners.add(listener);
+  if (clockListeners.size === 1) {
+    clockTimer = setTimeout(tickClock, 60_000 - Date.now() % 60_000);
+    window.addEventListener('focus', notifyClock);
+    document.addEventListener('visibilitychange', notifyClock);
+  }
+  return () => {
+    clockListeners.delete(listener);
+    if (clockListeners.size === 0) {
+      clearTimeout(clockTimer);
+      window.removeEventListener('focus', notifyClock);
+      document.removeEventListener('visibilitychange', notifyClock);
+    }
+  };
+}
 
 function CardStarRating({ rating, count }: { rating: number; count: number }) {
   return (
@@ -23,10 +49,19 @@ function getTodayHours(hours: FacilityCardData['business_hours']): string | null
   if (!hours) return null;
   const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
   // Keep the Japanese business day identical during SSR and hydration.
-  const today = days[new Date(Date.now() + 9 * 3_600_000).getUTCDay()];
+  const now = new Date(Date.now() + 9 * 3_600_000);
+  const day = now.getUTCDay();
+  const today = days[day];
   const todayHours = hours[today];
-  if (!todayHours) return null;
-  return formatBusinessDay(todayHours);
+  const minute = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const prior = businessPeriods(hours[days[(day + 6) % 7]]) ?? [];
+  const carry = prior.find(period => {
+    const window = periodWindow(period)!;
+    return window.end > 1440 && minute < window.end - 1440;
+  });
+  const todayText = todayHours ? formatBusinessDay(todayHours) : null;
+  if (carry) return `前日から ${carry.close}まで${todayText ? ` ／ 本日 ${todayText}` : ''}`;
+  return todayText;
 }
 
 interface Props {
@@ -38,7 +73,7 @@ interface Props {
 }
 
 export default function FacilityCard({ facility, showBadges = true, monthlyBookings, isAvailable, priority = false }: Props) {
-  const todayHours = getTodayHours(facility.business_hours);
+  const todayHours = useSyncExternalStore(subscribeClock, () => getTodayHours(facility.business_hours), () => null);
   const hasCoupons = (facility.coupon_count ?? 0) > 0;
   const bookingReady = isCardBookingReady(facility);
 

@@ -45,6 +45,7 @@ function AdminSettingsContent() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [pendingHoursCopy, setPendingHoursCopy] = useState<HoursDraft | null>(null);
   useUnsavedGuard(dirty);
   const [saving, setSaving] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
@@ -216,6 +217,16 @@ function AdminSettingsContent() {
       setToast({ type: 'error', message: '先にいずれかの曜日の開店・閉店時間を入力してください' });
       return;
     }
+    const replacesInput = Object.entries(next).some(([day, value]) => {
+      const old = hours[day];
+      return old && JSON.stringify(old) !== JSON.stringify(value) &&
+        (old.open || old.close || old.periods?.some(period => period.open || period.close));
+    });
+    if (replacesInput) { setPendingHoursCopy(next); return; }
+    applyHoursCopy(next);
+  };
+
+  const applyHoursCopy = (next: HoursDraft) => {
     setHours(next);
     setHoursEdited(true);
     setDirty(true);
@@ -534,6 +545,7 @@ function AdminSettingsContent() {
         )}
         <FieldError id="fac-hours-error" message={fieldErrors.business_hours} />
         <BusinessHoursEditor hours={hours} closedDays={closedDays} onDayChange={updateHoursDay} onToggleClosed={toggleClosed} />
+        <ConfirmDialog open={pendingHoursCopy !== null} title="営業時間をコピーしますか？" message="他の営業日に入力済みの時間帯も置き換わります。保存するまで公開内容は変わりません。" confirmLabel="置き換える" onCancel={() => setPendingHoursCopy(null)} onConfirm={() => { if (pendingHoursCopy) applyHoursCopy(pendingHoursCopy); setPendingHoursCopy(null); }} />
         <button type="button" onClick={copyHours} className="mt-3 text-sm text-sky-700 underline">
           最初に入力した曜日の時間を、ほかの営業日にも入れる
         </button>

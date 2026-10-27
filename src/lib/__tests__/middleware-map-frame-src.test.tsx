@@ -56,6 +56,13 @@ const FACILITY = {
   building: null, latitude: 34.7832, longitude: 135.4688, features: [], business_hours: null, phone: null,
 } as unknown as Facility;
 
+test('明示的な休みと未設定を区別して公開表示する', () => {
+  const markup = renderToStaticMarkup(<AccessInfo facility={{ ...FACILITY, business_hours: { mon: null } } as unknown as Facility} />);
+  expect(markup).toContain('休み');
+  expect(markup).toContain('未設定');
+  expect(markup).toContain('翌日までの営業は、開始した曜日に表示しています。');
+});
+
 function iframeSrcs(markup: string): string[] {
   return [...markup.matchAll(/<iframe[^>]*\ssrc="([^"]+)"/g)].map((m) => m[1]!.replace(/&amp;/g, '&'));
 }

@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import FacilityCard from '../FacilityCard';
 import type { FacilityCardData } from '@/types';
 
@@ -13,6 +13,27 @@ const card: FacilityCardData = {
   menu_count: 2, coupon_count: 0, photo_count: 1, business_hours: hours, seat_count: null,
   booking_menu_count: 2, active_staff_count: 1, has_address: true,
 };
+
+test('shows the previous opening during the early-morning carryover', () => {
+  jest.useFakeTimers();
+  try {
+    jest.setSystemTime(new Date('2026-10-26T19:00:00Z'));
+    render(<FacilityCard facility={{ ...card, business_hours: { ...hours, mon: { open: '18:00', close: '05:00' }, tue: null } }} />);
+    expect(screen.getByText('前日から 05:00まで')).toBeInTheDocument();
+  } finally { jest.useRealTimers(); }
+});
+
+test('refreshes the previous opening at its closing boundary without navigation', () => {
+  jest.useFakeTimers();
+  try {
+    jest.setSystemTime(new Date('2026-10-26T19:59:00Z'));
+    const result = render(<FacilityCard facility={{ ...card, business_hours: { ...hours, mon: { open: '18:00', close: '05:00' }, tue: null } }} />);
+    expect(screen.getByText('前日から 05:00まで')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(60_000));
+    expect(screen.queryByText('前日から 05:00まで')).not.toBeInTheDocument();
+    result.unmount();
+  } finally { jest.useRealTimers(); }
+});
 
 test('displayed hours follow the Japanese business day across UTC midnight differences', () => {
   jest.useFakeTimers();

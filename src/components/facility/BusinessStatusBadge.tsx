@@ -41,13 +41,29 @@ export function computeCalendarBusinessStatus(businessHours: Props['businessHour
   const minute = now.getUTCHours() * 60 + now.getUTCMinutes();
   if (windows.some(window => minute >= window.start && minute < window.end)) return 'open';
   if (periods === null) return 'unknown';
+  // An unknown previous day may still be open past midnight.
+  if (businessPeriods(businessHours[days[(now.getUTCDay() + 6) % 7]]) === null) return 'unknown';
   return todayHours ? 'closed' : 'holiday';
 }
 
 // 時刻の境界をまたいだ画面も更新する。通信やサーバー側の定期実行は使わない。
 function subscribeClock(onChange: () => void) {
-  const timer = setInterval(onChange, 30_000);
-  return () => clearInterval(timer);
+  let timer: ReturnType<typeof setTimeout>;
+  let active = true;
+  const tick = () => {
+    onChange();
+    if (active) timer = setTimeout(tick, 60_000 - (Date.now() % 60_000));
+  };
+  timer = setTimeout(tick, 60_000 - (Date.now() % 60_000));
+  const refresh = () => onChange();
+  window.addEventListener('focus', refresh);
+  document.addEventListener('visibilitychange', refresh);
+  return () => {
+    active = false;
+    clearTimeout(timer);
+    window.removeEventListener('focus', refresh);
+    document.removeEventListener('visibilitychange', refresh);
+  };
 }
 
 function getServerStatusSnapshot(): 'open' | 'closed' | 'holiday' | 'unknown' {
