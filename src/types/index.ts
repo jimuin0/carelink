@@ -61,6 +61,7 @@ export interface Facility {
   phone: string | null;
   website_url: string | null;
   business_hours: Record<string, BusinessDay | null> | null;
+  show_business_status?: boolean;
   regular_holiday: string | null;
   seat_count: number | null;
   staff_count: number | null;

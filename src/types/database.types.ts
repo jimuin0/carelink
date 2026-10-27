@@ -2364,6 +2364,7 @@ export type Database = {
           regular_holiday: string | null
           remarks: string | null
           seat_count: number | null
+          show_business_status: boolean
           slug: string
           staff_breakdown: Json | null
           staff_count: number | null
@@ -2435,6 +2436,7 @@ export type Database = {
           regular_holiday?: string | null
           remarks?: string | null
           seat_count?: number | null
+          show_business_status?: boolean
           slug: string
           staff_breakdown?: Json | null
           staff_count?: number | null
@@ -2506,6 +2508,7 @@ export type Database = {
           regular_holiday?: string | null
           remarks?: string | null
           seat_count?: number | null
+          show_business_status?: boolean
           slug?: string
           staff_breakdown?: Json | null
           staff_count?: number | null

@@ -68,6 +68,21 @@ test('owner saves, reloads and publishes split, night, early and all-day hours i
     await publicPage.getByRole('button', { name: '必須のみ', exact: true }).click();
     await publicPage.getByRole('tab', { name: 'アクセス', exact: true }).click();
     await expect(publicPage.getByText('09:00 〜 12:30 ／ 15:00 〜 18:20', { exact: true }).first()).toBeVisible();
+    const automaticStatus = publicPage.getByRole('status').filter({ hasText: /営業中|営業時間外|定休日/ });
+    await expect(automaticStatus).toBeVisible();
+    for (const visible of [false, true]) {
+      await page.getByLabel('公開ページに「営業中」などの自動表示を出す', { exact: true }).setChecked(visible);
+      const preferenceSaved = page.waitForResponse(r => r.url().includes('/api/admin/settings') && r.request().method() === 'PATCH');
+      await page.getByRole('button', { name: '保存する', exact: true }).click();
+      expect((await preferenceSaved).status()).toBe(200);
+      expect((await db.from('facility_profiles').select('show_business_status').eq('id', id).single()).data?.show_business_status).toBe(visible);
+      await page.reload();
+      await expect(page.getByLabel('公開ページに「営業中」などの自動表示を出す', { exact: true })).toBeChecked({ checked: visible });
+      await publicPage.reload(); await publicPage.getByRole('tab', { name: 'アクセス', exact: true }).click();
+      await expect(publicPage.getByText('09:00 〜 12:30 ／ 15:00 〜 18:20', { exact: true }).first()).toBeVisible();
+      if (visible) await expect(automaticStatus).toBeVisible();
+      else await expect(automaticStatus).toHaveCount(0);
+    }
     const structured = await publicPage.locator('script[type="application/ld+json"]').allTextContents();
     expect(structured.join('')).toContain('15:00');
   } finally { await visitor.close(); }
