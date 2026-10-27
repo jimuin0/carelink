@@ -20,7 +20,8 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
   const searchParams = await props.searchParams;
   const { choices, selectedId: facilityId } = await loadAdminFacilitySelection(supabase, verification.user.id, searchParams.facility_id ?? null);
   const selector = <FacilitySelector choices={choices} selectedId={facilityId} path="/admin" />;
-  if (!facilityId) return <div><SbPageHeader title="ダッシュボード" />{selector}</div>;
+  const addStore = <p className="mb-4 text-sm"><a href="/register" target="_blank" rel="noopener noreferrer" className="text-primary underline">別の店舗を申し込む（新しいタブ）</a></p>;
+  if (!facilityId) return <div><SbPageHeader title="ダッシュボード" />{selector}{addStore}</div>;
   const facilityHref = (path: string) => `${path}${path.includes('?') ? '&' : '?'}facility_id=${facilityId}`;
 
 
@@ -146,6 +147,7 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
   return (
     <div>
       {selector}
+      {addStore}
       <SbPageHeader
         title="ダッシュボード"
         description="本日の予約状況と店舗セットアップの概要"

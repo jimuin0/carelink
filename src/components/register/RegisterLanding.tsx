@@ -298,7 +298,7 @@ export default function RegisterLanding({ listingAreas = [] }: { listingAreas?: 
               </div>
               <div className="py-5">
                 <dt className="font-medium">複数店舗はどのように登録しますか？</dt>
-                <dd className="mt-2 leading-relaxed">店舗ごとに掲載申込が必要です。現在、自己登録できる店舗オーナーアカウントは1アカウントにつき1店舗です。複数店舗の管理権限や既存掲載の統合は、登録前に運営へお問い合わせください。</dd>
+                <dd className="mt-2 leading-relaxed">店舗ごとに掲載申込が必要です。同じ確認済みメールアドレスのアカウントで各申込を引き継ぎ、管理画面で店舗を選択できます。既存掲載の統合については登録前に運営へお問い合わせください。</dd>
               </div>
               <div className="py-5">
                 <dt className="font-medium">送信後にエラーが出た場合、再送してよいですか？</dt>

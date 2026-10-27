@@ -9,6 +9,8 @@ test('successful setup performs a fresh same-origin request, not a cached App Ro
     navigateAfterFacilitySetup();
     expect(replace).toHaveBeenCalledTimes(1);
     expect(replace).toHaveBeenCalledWith('/admin');
+    navigateAfterFacilitySetup('68000000-0000-4000-8000-000000000001');
+    expect(replace).toHaveBeenLastCalledWith('/admin?facility_id=68000000-0000-4000-8000-000000000001');
   } finally {
     Reflect.deleteProperty(globalThis, 'window');
   }

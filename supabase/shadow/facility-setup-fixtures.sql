@@ -82,7 +82,7 @@ BEGIN
 END $$;
 SELECT pg_temp.assert_setup((SELECT count(*)=1 FROM public.audit_logs WHERE user_id='68000000-0000-4000-8000-000000000001'
   AND new_values->>'license_warranted'='true'), 'no replay license duplicate');
-SELECT pg_temp.assert_setup((SELECT outcome='already_member' FROM public.setup_facility_from_registration(
+SELECT pg_temp.assert_setup((SELECT outcome='unverified' FROM public.setup_facility_from_registration(
   '68000000-0000-4000-8000-000000000001','legacy','69000000-0000-4000-8000-000000000002',NULL,NULL,clock_timestamp(),'{}',true)), 'same owner different receipt not consumed');
 SELECT pg_temp.assert_setup((SELECT claimed_facility_id IS NULL AND claimed_by_user_id IS NULL FROM public.salons WHERE id='69000000-0000-4000-8000-000000000002'), 'second branch remains separate');
 SELECT pg_temp.assert_setup((SELECT outcome='conflict' AND facility_id IS NULL FROM public.setup_facility_from_registration(
@@ -285,5 +285,54 @@ BEGIN
     '{"facility_name":"Synthetic invalid clinic","business_type":"未定義の診療科"}',true);
   PERFORM pg_temp.assert_setup(result.outcome='invalid','unknown category still rejected');
 END $medical$;
+
+-- Multiple verified receipts create separate drafts for one owner; retries and
+-- similarly named duplicate receipts never create a second copy.
+DO $multi_store$
+DECLARE actor uuid := gen_random_uuid(); outsider uuid := gen_random_uuid();
+  direct_actor uuid := gen_random_uuid(); direct_receipt uuid := gen_random_uuid();
+  first_receipt uuid := gen_random_uuid(); second_receipt uuid := gen_random_uuid();
+  duplicate_receipt uuid := gen_random_uuid(); mismatch_receipt uuid := gen_random_uuid();
+  unconfirmed_receipt uuid := gen_random_uuid();
+  first_result record; second_result record; result record;
+  address_email text := actor::text || '@example.invalid';
+BEGIN
+  INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
+    (actor,address_email,clock_timestamp()),(outsider,outsider::text||'@example.invalid',clock_timestamp());
+  INSERT INTO public.salons(id,facility_name,business_type,representative_name,contact_name,email,phone,source,address)
+  VALUES (first_receipt,'Synthetic first','ヘアサロン','Synthetic','Synthetic',address_email,'09000000000','register','Synthetic 1'),
+         (second_receipt,'Synthetic second','ヘアサロン','Synthetic','Synthetic',address_email,'09000000000','register','Synthetic 2'),
+         (duplicate_receipt,'Synthetic first','ヘアサロン','Synthetic','Synthetic',address_email,'09000000000','register','Synthetic 1'),
+         (mismatch_receipt,'Synthetic third','ヘアサロン','Synthetic','Synthetic','other@example.invalid','09000000000','register','Synthetic 3'),
+         (unconfirmed_receipt,'Synthetic fourth','ヘアサロン','Synthetic','Synthetic',address_email,'09000000000','register','Synthetic 4');
+  SELECT * INTO first_result FROM public.setup_facility_from_registration(actor,'legacy',first_receipt,NULL,NULL,clock_timestamp(),'{}',true);
+  SELECT * INTO second_result FROM public.setup_facility_from_registration(actor,'legacy',second_receipt,NULL,NULL,clock_timestamp(),'{"facility_name":"tampered"}',true);
+  PERFORM pg_temp.assert_setup(first_result.outcome='created' AND second_result.outcome='created'
+    AND first_result.facility_id<>second_result.facility_id,'same verified owner can create separate stores');
+  PERFORM pg_temp.assert_setup((SELECT count(*)=2 FROM public.facility_members WHERE user_id=actor AND role='owner'), 'owner is bound to both');
+  PERFORM pg_temp.assert_setup((SELECT name='Synthetic second' FROM public.facility_profiles WHERE id=second_result.facility_id), 'additional store uses receipt fields');
+  SELECT * INTO result FROM public.setup_facility_from_registration(actor,'legacy',second_receipt,NULL,NULL,clock_timestamp(),'{}',true);
+  PERFORM pg_temp.assert_setup(result.outcome='replay' AND result.facility_id=second_result.facility_id,'retry preserves exact store');
+  SELECT * INTO result FROM public.setup_facility_from_registration(actor,'legacy',duplicate_receipt,NULL,NULL,clock_timestamp(),'{}',true);
+  PERFORM pg_temp.assert_setup(result.outcome='conflict','same owner duplicate receipt blocked');
+  SELECT * INTO result FROM public.setup_facility_from_registration(actor,'legacy',mismatch_receipt,NULL,NULL,clock_timestamp(),'{}',true);
+  PERFORM pg_temp.assert_setup(result.outcome='unverified','different email cannot add store');
+  UPDATE auth.users SET email_confirmed_at=NULL WHERE id=actor;
+  SELECT * INTO result FROM public.setup_facility_from_registration(actor,'legacy',unconfirmed_receipt,NULL,NULL,clock_timestamp(),'{}',true);
+  PERFORM pg_temp.assert_setup(result.outcome='unverified','unconfirmed account cannot add store');
+  UPDATE auth.users SET email_confirmed_at=clock_timestamp() WHERE id=actor;
+  SELECT * INTO result FROM public.setup_facility_from_registration(outsider,'legacy',second_receipt,NULL,NULL,clock_timestamp(),'{}',true);
+  PERFORM pg_temp.assert_setup(result.outcome='conflict','other user cannot take claimed store');
+  SELECT * INTO result FROM public.setup_facility_from_registration(actor,'none',NULL,NULL,NULL,NULL,'{"facility_name":"unkeyed","business_type":"ヘアサロン"}',true);
+  PERFORM pg_temp.assert_setup(result.outcome='already_member','unkeyed extra creation blocked');
+  INSERT INTO auth.users(id,email,email_confirmed_at) VALUES(direct_actor,direct_actor::text||'@example.invalid',clock_timestamp());
+  INSERT INTO public.salons(id,facility_name,business_type,representative_name,contact_name,email,phone,source,address)
+    VALUES(direct_receipt,'Direct synthetic','ヘアサロン','Synthetic','Synthetic',direct_actor::text||'@example.invalid','09000000000','register','Synthetic 1');
+  SELECT * INTO result FROM public.setup_facility_from_registration(direct_actor,'none',NULL,NULL,NULL,NULL,
+    '{"facility_name":"Direct synthetic","business_type":"ヘアサロン"}',true);
+  PERFORM pg_temp.assert_setup(result.outcome='created','direct first store created');
+  SELECT * INTO result FROM public.setup_facility_from_registration(direct_actor,'legacy',direct_receipt,NULL,NULL,clock_timestamp(),'{}',true);
+  PERFORM pg_temp.assert_setup(result.outcome='conflict','same-name direct store with incomplete location fails closed');
+END $multi_store$;
 ROLLBACK;
 \echo 'facility setup fixtures passed; all synthetic records rolled back'

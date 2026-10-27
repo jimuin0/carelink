@@ -55,7 +55,7 @@ export function salonRecoveryAuthPath(page: 'signup' | 'login'): string {
  * 確認メールのリンクはメールアプリが新しいタブ・別のブラウザで開くため、受付情報は必ず失われる。
  * 汎用の「通信環境を確認して再読み込み」を出し続けると永久に進めないので、確認済みメールで
  * 申込を一覧できる /register/recover へ自動で送り、「申込を選んでください」と案内する。
- * 重複防止（1アカウント1店舗・ALREADY_MEMBER・取り込み済み申込）はサーバー側が引き続き判定する。
+ * 重複防止（取込済み申込の再確認や既存店舗との照合）はサーバー側が引き続き判定する。
  */
 export const SALON_RECOVERY_SELECT_PATH = `${SALON_RECOVERY_PATH}?from=handoff`;
 /**

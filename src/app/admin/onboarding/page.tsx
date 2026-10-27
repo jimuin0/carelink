@@ -280,7 +280,7 @@ function OnboardingContent() {
       const data = await res.json();
       if (!mounted.current) return;
       if (res.ok && data?.success === true && typeof data.facilityId === 'string' && UUID_REGEX.test(data.facilityId)) {
-        navigateAfterFacilitySetup();
+        navigateAfterFacilitySetup(data.facilityId);
       } else if (!res.ok && res.status >= 400 && res.status < 500 && typeof data?.error === 'string'
         && data?.success !== true) {
         // 入力・引き継ぎの拒否（4xx）は作成されていないことが確定している。

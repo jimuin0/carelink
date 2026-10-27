@@ -120,6 +120,14 @@ function findBasicInfoLink(root: AnyNode) {
   return matches[0];
 }
 
+test('別の店舗の申込は元の受付情報を共有しない新しいタブで開く', async () => {
+  mockSupabase({ prefecture: '東京都', city: '渋谷区' });
+  const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
+  const links = findElementsWithDirectText(root, '別の店舗を申し込む（新しいタブ）');
+  expect(links).toHaveLength(1);
+  expect(links[0].props).toMatchObject({ href: '/register', target: '_blank', rel: 'noopener noreferrer' });
+});
+
 test('(viii-a) prefecture と city が両方揃っていれば「基本情報」は完了扱い（line-through）', async () => {
   mockSupabase({ prefecture: '東京都', city: '渋谷区' });
   const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
