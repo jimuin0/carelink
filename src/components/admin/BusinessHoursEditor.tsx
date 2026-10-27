@@ -4,6 +4,8 @@ import { dayLabels, dayOrder } from '@/lib/constants';
 import { MAX_BUSINESS_PERIODS, type BusinessPeriod } from '@/lib/business-hours';
 import type { HoursDraft, HoursWindow } from '@/lib/business-hours-form';
 import { SbInput } from './SbUi';
+import { useState } from 'react';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Props {
   hours: HoursDraft;
@@ -13,6 +15,7 @@ interface Props {
 }
 
 export default function BusinessHoursEditor({ hours, closedDays, onDayChange, onToggleClosed }: Props) {
+  const [pendingDay, setPendingDay] = useState<string | null>(null);
   const setPeriods = (day: string, periods: BusinessPeriod[]) => {
     onDayChange(day, periods.length === 1 ? periods[0] : { ...periods[0], periods });
   };
@@ -46,10 +49,14 @@ export default function BusinessHoursEditor({ hours, closedDays, onDayChange, on
           })}</div>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
             <button type="button" disabled={periods.length >= MAX_BUSINESS_PERIODS} onClick={() => setPeriods(day, [...periods, { open: '', close: '' }])} className="min-h-11 text-sky-700 underline disabled:text-gray-400">時間帯を追加</button>
-            <button type="button" onClick={() => setPeriods(day, [{ open: '00:00', close: '24:00' }])} className="min-h-11 text-sky-700 underline">24時間営業にする</button>
+            <button type="button" onClick={() => {
+              if (periods.some(period => period.open || period.close)) setPendingDay(day);
+              else setPeriods(day, [{ open: '00:00', close: '24:00' }]);
+            }} className="min-h-11 text-sky-700 underline">24時間営業にする</button>
           </div>
         </>}
       </fieldset>;
     })}
+    <ConfirmDialog open={pendingDay !== null} title="営業時間を置き換えますか？" message={`${pendingDay ? dayLabels[pendingDay] : ''}曜日の入力済みの時間帯を24時間営業に置き換えます。保存するまで公開内容は変わりません。`} confirmLabel="置き換える" onCancel={() => setPendingDay(null)} onConfirm={() => { if (pendingDay) setPeriods(pendingDay, [{ open: '00:00', close: '24:00' }]); setPendingDay(null); }} />
   </div>;
 }

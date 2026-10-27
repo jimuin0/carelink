@@ -53,14 +53,17 @@ const mondayAt = (clock: string) => Date.parse(`2030-01-07T${clock}:00+09:00`);
 test.each([['09:00', 'open'], ['12:30', 'closed'], ['14:00', 'closed'], ['15:00', 'open'], ['18:20', 'closed']])(
   'JST public badge respects both periods at %s', (clock, expected) => {
     const mon = { open: '09:00', close: '12:30', periods: [{ open: '09:00', close: '12:30' }, { open: '15:00', close: '18:20' }] };
-    expect(computeCalendarBusinessStatus({ mon }, mondayAt(clock))).toBe(expected);
+    expect(computeCalendarBusinessStatus({ sun: null, mon }, mondayAt(clock))).toBe(expected);
   });
 test('a night opening belongs to its starting day and continues across the week boundary', () => {
   const hours = { sun: { open: '18:00', close: '05:00' }, mon: null };
   expect(computeCalendarBusinessStatus(hours, mondayAt('04:59'))).toBe('open');
   expect(computeCalendarBusinessStatus(hours, mondayAt('05:00'))).toBe('holiday');
-  expect(computeCalendarBusinessStatus({ mon: { open: '18:00', close: '05:00' } }, mondayAt('04:00'))).toBe('closed');
+  expect(computeCalendarBusinessStatus({ mon: { open: '18:00', close: '05:00' } }, mondayAt('04:00'))).toBe('unknown');
   expect(computeCalendarBusinessStatus({ mon: { open: '00:00', close: '24:00' } }, mondayAt('23:59'))).toBe('open');
+});
+test('does not claim a closed day when the preceding day is unknown', () => {
+  expect(computeCalendarBusinessStatus({ mon: null }, mondayAt('04:00'))).toBe('unknown');
 });
 test('missing or malformed hours never claim that an unconfigured shop is open', () => {
   expect(computeCalendarBusinessStatus(null, mondayAt('12:00'))).toBe('unknown');

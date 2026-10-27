@@ -86,6 +86,7 @@ test('display distinguishes closure, unknown, 24-hour, split and overnight perio
   expect(formatBusinessDay(period('00:00', '24:00'))).toBe('24時間営業');
   expect(formatBusinessDay(period('18:00', '05:00'))).toBe('18:00 〜 翌05:00');
   expect(formatBusinessDay(split)).toBe('09:00 〜 12:30 ／ 15:00 〜 18:20');
+  expect(formatBusinessDay({ ...split, periods: [...split.periods].reverse() })).toBe('09:00 〜 12:30 ／ 15:00 〜 18:20');
 });
 
 

@@ -28,9 +28,19 @@ test('edits split periods and overnight hours without losing native input events
   fireEvent.click(within(mon).getByRole('button', { name: '月曜日の時間帯2を削除' }));
   expect(within(mon).queryByLabelText('月曜日の2枠目の閉店時間')).not.toBeInTheDocument();
   fireEvent.click(within(mon).getByRole('button', { name: '24時間営業にする' }));
+  fireEvent.click(screen.getByRole('button', { name: '置き換える' }));
   expect(within(mon).getByLabelText('月曜日の閉店時間')).toHaveValue('24:00');
   fireEvent.click(within(mon).getByLabelText('月曜日に営業する'));
   expect(within(mon).queryByLabelText('月曜日の開店時間')).not.toBeInTheDocument();
   fireEvent.click(within(mon).getByLabelText('月曜日に営業する'));
   expect(within(mon).getByLabelText('月曜日の閉店時間')).toHaveValue('24:00');
+});
+
+test('rejecting replacement preserves the existing hours', () => {
+  render(<Editor />);
+  const mon = screen.getByRole('group', { name: '月曜日' });
+  fireEvent.click(within(mon).getByRole('button', { name: '24時間営業にする' }));
+  fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+  expect(within(mon).getByLabelText('月曜日の開店時間')).toHaveValue('18:00');
+  expect(within(mon).getByLabelText('月曜日の閉店時間')).toHaveValue('05:00');
 });
