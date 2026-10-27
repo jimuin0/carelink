@@ -841,3 +841,18 @@ test.each([
   mockAdminFrom.mockReturnValue(updateChain());
   expect((await PATCH(makePatchRequest({ ...VALID_BODY, business_hours: { mon } }))).status).toBe(200);
 });
+
+test.each([true, false])('PATCH saves the explicit automatic-status preference through the owner-fenced RPC: %s', async visible => {
+  expect((await PATCH(makePatchRequest({ ...VALID_BODY, show_business_status: visible }))).status).toBe(200);
+  expect(mockAdminRpc).toHaveBeenCalledWith('update_facility_settings_atomic', expect.objectContaining({ p_actor_id: USER_ID, p_facility_id: FACILITY_UUID,
+    p_patch: expect.objectContaining({ show_business_status: visible }) }));
+});
+test.each([null, 'false', 0, {}])('PATCH does not coerce an invalid visibility value: %j', async value => {
+  expect((await PATCH(makePatchRequest({ ...VALID_BODY, show_business_status: value }))).status).toBe(400);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+test('PATCH omitting automatic-status preference does not reset a stored choice', async () => {
+  expect((await PATCH(makePatchRequest({ name: 'Synthetic clinic' }))).status).toBe(200);
+  const patch = mockAdminRpc.mock.calls.find(call => call[0] === 'update_facility_settings_atomic')![1].p_patch;
+  expect(patch).not.toHaveProperty('show_business_status');
+});

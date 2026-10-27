@@ -83,6 +83,7 @@ function AdminSettingsContent() {
   const [creditCard, setCreditCard] = useState(false);
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
   const [regularHoliday, setRegularHoliday] = useState('');
+  const [showBusinessStatus, setShowBusinessStatus] = useState(true);
   const [facilityStatus, setFacilityStatus] = useState<'draft' | 'published' | 'suspended'>('draft');
   const [autoConfirm, setAutoConfirm] = useState(false);
   const [bufferMinutes, setBufferMinutes] = useState(0);
@@ -158,6 +159,7 @@ function AdminSettingsContent() {
         setCreditCard(data.credit_card ?? false);
         setSelectedFeatures(data.features || []);
         setRegularHoliday(data.regular_holiday || '');
+        setShowBusinessStatus(data.show_business_status !== false);
         setFacilityStatus(toFacilityStatus(data.status));
         setAutoConfirm(data.booking_auto_confirm ?? false);
         setBufferMinutes(data.booking_buffer_minutes ?? 0);
@@ -268,6 +270,7 @@ function AdminSettingsContent() {
           credit_card: creditCard,
           features: selectedFeatures,
           regular_holiday: regularHoliday || null,
+          show_business_status: showBusinessStatus,
           ...(checkedHours?.ok ? { business_hours: checkedHours.value } : {}),
           booking_auto_confirm: autoConfirm,
           booking_buffer_minutes: bufferMinutes,
@@ -534,6 +537,13 @@ function AdminSettingsContent() {
         <button type="button" onClick={copyHours} className="mt-3 text-sm text-sky-700 underline">
           最初に入力した曜日の時間を、ほかの営業日にも入れる
         </button>
+        <div className="mt-4">
+          <label className="inline-flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={showBusinessStatus} onChange={event => { setShowBusinessStatus(event.target.checked); setDirty(true); }} />
+            公開ページに「営業中」などの自動表示を出す
+          </label>
+          <p className="mt-1.5 text-sm leading-6 text-gray-600">祝日・臨時休業は自動判定しません。非表示にもできます。</p>
+        </div>
         <div className="mt-4">
           <label htmlFor="fac-holiday" className="form-label">定休日（補足）</label>
           <SbInput id="fac-holiday" value={regularHoliday} onChange={(e) => setRegularHoliday(e.target.value)} placeholder="例: 第2・4月曜、年末年始" maxLength={FACILITY_INPUT_LIMITS.regularHoliday} />

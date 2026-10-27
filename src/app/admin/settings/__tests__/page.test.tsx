@@ -519,3 +519,17 @@ test('公開中の店舗には「掲載ページを見る」を出す', async ()
   await screen.findByDisplayValue('合成店舗B');
   expect(screen.getByRole('link', { name: '掲載ページを見る' }).getAttribute('href')).toBe('/facility/synthetic-shop');
 });
+
+test.each([undefined, true, false])('business-status visibility loads per facility without changing legacy defaults: %s', async value => {
+  mockProfile.show_business_status = value;
+  render(<AdminSettingsPage />); await screen.findByDisplayValue('合成店舗B');
+  expect((screen.getByLabelText('公開ページに「営業中」などの自動表示を出す') as HTMLInputElement).checked).toBe(value !== false);
+});
+test('visibility changes mark the selected facility dirty and persist an actual boolean', async () => {
+  render(<AdminSettingsPage />); await screen.findByDisplayValue('合成店舗B');
+  fireEvent.click(screen.getByLabelText('公開ページに「営業中」などの自動表示を出す'));
+  expect(screen.getByRole('button', { name: '保存して公開する' })).toBeTruthy();
+  save(); await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+  expect(mockFetch.mock.calls[0][0]).toContain('facility_id=' + second);
+  expect(JSON.parse(mockFetch.mock.calls[0][1].body).show_business_status).toBe(false);
+});
