@@ -3,7 +3,7 @@
 const mockAgent = jest.fn();
 jest.mock('undici', () => ({ Agent: mockAgent }));
 
-import { createPublicReadFetch } from '../public-read-transport';
+import { createPublicReadFetch, createServiceReadFetch } from '../public-read-transport';
 
 const originalFetch = global.fetch;
 const mockFetch = jest.fn();
@@ -63,4 +63,34 @@ it('preserves abort and network failures without retries or stale fallback data'
     'https://public.example.test/rest/v1/facilities',
   )).rejects.toBe(failure);
   expect(mockFetch).toHaveBeenCalledTimes(1);
+});
+
+it('trusted read sockets are separate, while headers remain request-local and every result is fetched', async () => {
+  const privatePool = { synthetic: 'private-pool' };
+  mockAgent.mockImplementationOnce(() => privatePool);
+  const first = createServiceReadFetch('https://public.example.test');
+  const second = createServiceReadFetch('https://public.example.test');
+  const publicRead = createPublicReadFetch('https://public.example.test');
+  const privateHeaders = { Authorization: 'Bearer synthetic-service-only' };
+  await Promise.all([
+    first('https://public.example.test/rest/v1/bookings', { headers: privateHeaders }),
+    second('https://public.example.test/rest/v1/bookings', { method: 'HEAD' }),
+    publicRead('https://public.example.test/rest/v1/facilities'),
+  ]);
+  expect(mockFetch).toHaveBeenCalledWith('https://public.example.test/rest/v1/bookings',
+    { headers: privateHeaders, dispatcher: privatePool });
+  expect(mockFetch).toHaveBeenCalledWith('https://public.example.test/rest/v1/bookings',
+    { method: 'HEAD', dispatcher: privatePool });
+  expect(mockFetch).toHaveBeenCalledWith('https://public.example.test/rest/v1/facilities', { dispatcher: pool });
+  expect(mockFetch).toHaveBeenCalledTimes(3);
+  expect(privateHeaders).toEqual({ Authorization: 'Bearer synthetic-service-only' });
+});
+
+it.each([
+  ['https://public.example.test/rest/v1/bookings', { method: 'POST' }],
+  ['https://public.example.test/auth/v1/admin/users', { method: 'GET' }],
+  ['https://other.example.test/rest/v1/bookings', { method: 'GET' }],
+])('trusted-read opt-in does not reroute writes, auth or other origins: %s', async (url, init) => {
+  await createServiceReadFetch('https://public.example.test')(url, init);
+  expect(mockFetch).toHaveBeenCalledWith(url, init);
 });

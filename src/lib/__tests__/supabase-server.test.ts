@@ -58,6 +58,19 @@ describe('createServiceRoleClient', () => {
     });
   });
 
+  it('opts a trusted read into a separate socket pool without changing the credential', () => {
+    createServiceRoleClient({ reuseReadConnections: true });
+    expect(mockCreateClient).toHaveBeenCalledWith('https://test.supabase.co', 'service-role-key', {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+      global: { fetch: expect.any(Function) },
+    });
+  });
+
+  it('an explicit false leaves existing server operations unchanged', () => {
+    createServiceRoleClient({ reuseReadConnections: false });
+    expect(mockCreateClient.mock.calls[0][2]).not.toHaveProperty('global');
+  });
+
   it('throws when SUPABASE_SERVICE_ROLE_KEY is missing', () => {
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     expect(() => createServiceRoleClient()).toThrow(
