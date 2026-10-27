@@ -283,7 +283,7 @@ export default async function FacilityPage(props: Props) {
           <div className="min-w-0 col-start-1 row-start-1">
             <FacilityHeader facility={facility} />
             <div className="px-4 sm:px-6 pb-2 flex flex-wrap items-center gap-2">
-              <BusinessStatusBadge businessHours={facility.business_hours} regularHoliday={facility.regular_holiday} />
+              {facility.show_business_status !== false && <BusinessStatusBadge businessHours={facility.business_hours} regularHoliday={facility.regular_holiday} />}
               {menus.length > 0 && (() => {
                 const prices = menus.filter(m => m.price != null && m.price > 0).map(m => m.price!);
                 if (prices.length === 0) return null;

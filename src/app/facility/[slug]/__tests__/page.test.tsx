@@ -204,3 +204,10 @@ describe('見出しまわりの並び', () => {
     expect(html.match(/data-stub="FavoriteButton"/g)).toHaveLength(1);
   });
 });
+
+test.each([undefined, true, false])('automatic business-status rendering follows only this facility preference: %s', async visible => {
+  (getFacilityBySlug as jest.Mock).mockResolvedValue({ facility: { ...facility, show_business_status: visible } });
+  const html = renderToStaticMarkup(await Page(props()));
+  expect(html.includes('data-stub="BusinessStatusBadge"')).toBe(visible !== false);
+  expect(html).toContain('data-stub="AccessInfo"');
+});

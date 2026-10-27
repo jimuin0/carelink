@@ -75,6 +75,7 @@ const settingsSchema = z.object({
   credit_card: z.boolean().optional(),
   features: z.array(z.string().max(50)).max(50).optional(),
   regular_holiday: z.string().max(FACILITY_INPUT_LIMITS.regularHoliday).optional().nullable(),
+  show_business_status: z.boolean().optional(),
   // キーは曜日（mon〜sun）の7つに限定する。z.record(z.string()) だと任意キーを無制限に
   // 受け付け、巨大な business_hours JSON で行を肥大化させられる（DoS・無意味データ混入）。
   // z.object().partial() は未知キーを既定で strip するため、7曜日以外は保存に乗らない。
