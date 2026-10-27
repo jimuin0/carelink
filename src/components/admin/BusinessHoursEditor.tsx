@@ -16,6 +16,7 @@ interface Props {
 
 export default function BusinessHoursEditor({ hours, closedDays, onDayChange, onToggleClosed }: Props) {
   const [pendingDay, setPendingDay] = useState<string | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<{ day: string; index: number } | null>(null);
   const setPeriods = (day: string, periods: BusinessPeriod[]) => {
     onDayChange(day, periods.length === 1 ? periods[0] : { ...periods[0], periods });
   };
@@ -44,7 +45,10 @@ export default function BusinessHoursEditor({ hours, closedDays, onDayChange, on
               <span aria-hidden="true">〜</span>
               <SbInput type="text" placeholder="18:00" maxLength={5} aria-label={`${label}閉店時間`} value={period.close} onChange={event => update(index, 'close', event.target.value)} onInput={event => update(index, 'close', event.currentTarget.value)} onBlur={event => update(index, 'close', event.target.value)} className="min-w-0 w-full! py-2! px-2! text-sm" />
               {period.close && period.open && period.close < period.open && <span className="col-start-3 text-xs text-gray-600">翌日</span>}
-              {periods.length > 1 && <button type="button" aria-label={`${dayLabels[day]}曜日の時間帯${index + 1}を削除`} onClick={() => setPeriods(day, periods.filter((_, at) => at !== index))} className="col-span-3 min-h-11 justify-self-end px-2 text-sm text-rose-700">削除</button>}
+              {periods.length > 1 && <button type="button" aria-label={`${dayLabels[day]}曜日の時間帯${index + 1}を削除`} onClick={() => {
+                if (period.open || period.close) setPendingRemoval({ day, index });
+                else setPeriods(day, periods.filter((_, at) => at !== index));
+              }} className="col-span-3 min-h-11 justify-self-end px-2 text-sm text-rose-700">削除</button>}
             </div>;
           })}</div>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
@@ -58,5 +62,13 @@ export default function BusinessHoursEditor({ hours, closedDays, onDayChange, on
       </fieldset>;
     })}
     <ConfirmDialog open={pendingDay !== null} title="営業時間を置き換えますか？" message={`${pendingDay ? dayLabels[pendingDay] : ''}曜日の入力済みの時間帯を24時間営業に置き換えます。保存するまで公開内容は変わりません。`} confirmLabel="置き換える" onCancel={() => setPendingDay(null)} onConfirm={() => { if (pendingDay) setPeriods(pendingDay, [{ open: '00:00', close: '24:00' }]); setPendingDay(null); }} />
+    <ConfirmDialog open={pendingRemoval !== null} title="時間帯を削除しますか？" message="入力済みの時間帯を削除します。保存するまで公開内容は変わりません。" confirmLabel="削除する" onCancel={() => setPendingRemoval(null)} onConfirm={() => {
+      if (pendingRemoval) {
+        const entry = hours[pendingRemoval.day];
+        const periods = entry?.periods ?? (entry ? [{ open: entry.open, close: entry.close }] : []);
+        if (periods.length > 1) setPeriods(pendingRemoval.day, periods.filter((_, index) => index !== pendingRemoval.index));
+      }
+      setPendingRemoval(null);
+    }} />
   </div>;
 }
