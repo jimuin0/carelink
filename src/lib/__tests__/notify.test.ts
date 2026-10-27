@@ -52,6 +52,7 @@ test('返信受理通知には受付番号のみを載せ、氏名や本文を�
   expect((await sendNotify(input)).ok).toBe(true);
   expect(postedToSlack()).toContain('返信を送信サービスが受理');
   expect(postedToSlack()).toContain(CONTACT_ID);
+  expect(postedToSlack()).toContain(`/admin/mail?contactId=${CONTACT_ID}`);
   expect(postedToSlack()).not.toContain('秘密の名前');
   expect(postedToSlack()).not.toContain('秘密の本文');
 });

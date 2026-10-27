@@ -59,8 +59,10 @@ function adminUrlFor(payload: NotifyPayload): string {
 
   switch (payload.type) {
     case 'contact':
-    case 'contact_reply_sent':
       return `${base}/admin/inquiries`;
+
+    case 'contact_reply_sent':
+      return `${base}/admin/mail?contactId=${payload.data.contact_id}`;
 
     case 'facility_inquiry':
       // 【2026年7月10日 恒久根治】/admin/inquiries は contacts テーブル（運営宛の全社横断
