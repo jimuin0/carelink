@@ -379,7 +379,7 @@ test('profile empty date is stored as NULL and a missing own profile cannot repo
   }
 });
 
-test('authenticated setup commits one selected receipt and reconciles a lost response without merging branches', async ({ page, context, browser }) => {
+test('authenticated setup recovers a lost response and separately adds a second verified branch', async ({ page, context, browser }) => {
   const { userId, email } = await loginSyntheticOwner(context);
   const headers = { origin: 'https://localhost:3000', 'x-real-ip': `198.18.${Math.floor(Math.random() * 254)}.${Math.floor(Math.random() * 254)}` };
   const request = context.request;
@@ -428,9 +428,21 @@ test('authenticated setup commits one selected receipt and reconciles a lost res
   const welcome = await service.from('webhook_retry_queue').select('payload').eq('webhook_type', 'facility_welcome').eq('target_id', facilityId);
   expect(welcome.error).toBeNull(); expect(welcome.data).toEqual([{ payload: { user_id: userId, template_version: 1 } }]);
   const separate = await request.post('/api/facility/setup', { headers, data: { intentId: otherIntent, license_warranted: true } });
-  expect(separate.status()).toBe(409); expect((await separate.json()).code).toBe('ALREADY_MEMBER');
-  const untouched = await service.from('salons').select('claimed_by_user_id,claimed_facility_id').eq('id', secondId).single();
-  expect(untouched.error).toBeNull(); expect(untouched.data).toEqual({ claimed_by_user_id: null, claimed_facility_id: null });
+  expect(separate.status()).toBe(201);
+  const branch = await separate.json();
+  expect(branch).toMatchObject({ success: true, state: 'created' });
+  expect(branch.facilityId).not.toBe(facilityId);
+  const secondClaim = await service.from('salons').select('claimed_by_user_id,claimed_facility_id').eq('id', secondId).single();
+  expect(secondClaim.error).toBeNull(); expect(secondClaim.data).toEqual({ claimed_by_user_id: userId, claimed_facility_id: branch.facilityId });
+  const both = await service.from('facility_members').select('facility_id,role').eq('user_id', userId);
+  expect(both.error).toBeNull(); expect(both.data).toEqual(expect.arrayContaining([
+    { facility_id: facilityId, role: 'owner' }, { facility_id: branch.facilityId, role: 'owner' },
+  ]));
+  expect(both.data).toHaveLength(2);
+  await page.unroute('**/api/facility/setup');
+  await page.goto('/admin');
+  await expect(page.getByText('編集する店舗を選択してください')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Synthetic second branch', exact: true })).toBeVisible();
   const stranger = await browser.newContext({ ignoreHTTPSErrors: true });
   try {
     await loginSyntheticOwner(stranger);
