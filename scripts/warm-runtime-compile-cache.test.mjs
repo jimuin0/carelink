@@ -82,6 +82,39 @@ test('fails the build on an error response and still stops the child', async () 
   });
 });
 
+test('retries a timed-out response body before declaring the image ready', async () => {
+  await fixture(`
+    let requests = 0;
+    const server = require('node:http').createServer((req, res) => {
+      requests++;
+      fs.writeFileSync('request-count.txt', String(requests));
+      res.writeHead(200); res.flushHeaders();
+      if (requests > 1) res.end('public page');
+    });
+    server.listen(Number(process.env.PORT), process.env.HOSTNAME);
+    process.on('SIGTERM', () => { server.close(); server.closeAllConnections(); });
+  `, async (cwd, port) => {
+    await warmRuntimeCompileCache({ cwd, port, timeoutMs: 5000 });
+    assert.ok(Number(await readFile(join(cwd, 'request-count.txt'), 'utf8')) >= 2);
+    await assertStopped(cwd);
+    assert.ok(!(await readdir(join(cwd, '.node-compile-cache'))).some(name => name.startsWith('.compile-cache-warmup-')));
+  });
+});
+
+test('a permanently stalled body still fails within the readiness budget', async () => {
+  await fixture(`
+    const server = require('node:http').createServer((req, res) => {
+      res.writeHead(200); res.flushHeaders();
+    });
+    server.listen(Number(process.env.PORT), process.env.HOSTNAME);
+    process.on('SIGTERM', () => { server.close(); server.closeAllConnections(); });
+  `, async (cwd, port) => {
+    await assert.rejects(warmRuntimeCompileCache({ cwd, port, timeoutMs: 1200 }), /readiness deadline/);
+    await assertStopped(cwd);
+    assert.ok(!(await readdir(join(cwd, '.node-compile-cache'))).some(name => name.startsWith('.compile-cache-warmup-')));
+  });
+});
+
 test('detects startup failure without waiting for the full timeout', async () => {
   await fixture('process.exit(7);', async (cwd, port) => {
     await assert.rejects(warmRuntimeCompileCache({ cwd, port }), /exited before readiness/);
