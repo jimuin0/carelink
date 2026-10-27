@@ -38,10 +38,8 @@ export default function ConfirmedReceipt({ id, name, type, area, signupHref, log
         <p>ネット予約の設定は別に行います。メニュー・スタッフ・写真などの予約用設定を完了するまでは、ネット予約を受け付けません。</p>
         <p>掲載料・予約手数料は無料です。申込や店舗アカウント作成で有料プランの契約は行いません。</p>
       </section>
-      {/* 以前は「別の店舗を新しいタブで申し込む」を出していたが、新規の店舗アカウントは1アカウント1店舗
-          （facility_members の部分 UNIQUE・/api/facility/setup の ALREADY_MEMBER）で、2 店舗目の申込は
-          同じアカウントでは店舗にできない。できない手順へ誘導せず、複数店舗は運営への相談へ案内する。 */}
-      <p className="text-sm mt-4 text-(--ecru-muted)">新しく作成する{T.account}で掲載できるのは1店舗です。複数店舗の掲載をご希望の場合は、<Link href="/contact" className="underline underline-offset-4">運営へお問い合わせ</Link>ください。</p>
+      <p className="text-sm mt-4 text-(--ecru-muted)">複数店舗を掲載する場合は、店舗ごとに申し込み、同じ確認済みメールアドレスのアカウントで引き継いでください。</p>
+      <a href="/register" target="_blank" rel="noopener noreferrer" className="mt-2 inline-block underline">別の店舗を申し込む（新しいタブ）</a>
     </div>
   );
 }

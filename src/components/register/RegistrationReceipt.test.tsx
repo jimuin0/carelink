@@ -25,12 +25,11 @@ test('confirmed receipt is checked server-side before display and carries only a
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ intentId });
   expect(screen.getByRole('link', { name: '店舗アカウントを作成する' })).toHaveAttribute('href', salonHandoffAuthPath('signup'));
   expect(screen.getByRole('link', { name: '既存アカウントでログインする' })).toHaveAttribute('href', salonHandoffAuthPath('login'));
-  // 新規の店舗アカウントは1アカウント1店舗。2 店舗目を同じアカウントで申し込ませる導線は出さず、
-  // 複数店舗は運営への問い合わせへ案内する。
-  expect(screen.queryByRole('link', { name: /別の店舗/ })).not.toBeInTheDocument();
-  expect(document.querySelector('a[href="/register"]')).toBeNull();
-  expect(screen.getByText(/新しく作成する店舗アカウントで掲載できるのは1店舗です/)).toBeVisible();
-  expect(screen.getByRole('link', { name: '運営へお問い合わせ' })).toHaveAttribute('href', '/contact');
+  const another = screen.getByRole('link', { name: '別の店舗を申し込む（新しいタブ）' });
+  expect(another).toHaveAttribute('href', '/register');
+  expect(another).toHaveAttribute('target', '_blank');
+  expect(another).toHaveAttribute('rel', 'noopener noreferrer');
+  expect(screen.getByText(/同じ確認済みメールアドレスのアカウントで引き継いでください/)).toBeVisible();
   expect(JSON.parse(window.sessionStorage.getItem(SALON_BROWSER_CONTEXT_KEY)!)).toEqual({ version: 1, intentId, phase: 'confirmed' });
 });
 test.each(['missing', 'broken'])('unavailable context never fabricates receipt or queries other cookies %s', async kind => {

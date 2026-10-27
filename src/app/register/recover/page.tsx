@@ -147,7 +147,7 @@ function RecoverRegistrationContent() {
     <details className="border-t border-(--ecru-line) pt-5 text-sm leading-6 text-(--ecru-muted)">
       <summary className="cursor-pointer">申込が見つからない・引き継げない場合</summary>
       <p className="mt-3">確認済みのメールアドレスに一致する申込だけを表示しています。別のメールでの申込や、他の管理者が引き継いだ申込は自動で取り込めません。</p>
-      <p className="mt-3">重複した店舗の統合・複数店舗の管理も、<Link href="/contact" className="underline">お問い合わせ</Link>から受付番号をお知らせください。</p>
+      <p className="mt-3">重複した店舗の統合は、<Link href="/contact" className="underline">お問い合わせ</Link>から受付番号をお知らせください。</p>
     </details>
   </div>;
 }

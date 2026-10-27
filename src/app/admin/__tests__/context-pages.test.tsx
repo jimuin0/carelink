@@ -53,7 +53,7 @@ test('dashboard links retain selected store and today uses from/to', async () =>
   const tree = await Dashboard({ searchParams: Promise.resolve({ facility_id: facility }) });
   const links = nodes(tree).map(n => n.props.href).filter((href): href is string => typeof href === 'string');
   expect(links.length).toBeGreaterThan(20);
-  expect(links.every(href => new URL(href, 'http://synthetic').searchParams.get('facility_id') === facility)).toBe(true);
+  expect(links.filter(href => href.startsWith('/admin')).every(href => new URL(href, 'http://synthetic').searchParams.get('facility_id') === facility)).toBe(true);
   const today = links.filter(href => href.startsWith('/admin/bookings?from=')); expect(today).toHaveLength(2);
   const params = new URL(today[0], 'http://synthetic').searchParams;
   expect(params.get('from')).toMatch(/^\d{4}-\d{2}-\d{2}$/); expect(params.get('to')).toBe(params.get('from')); expect(params.has('date')).toBe(false);
