@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Response } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 
@@ -13,6 +13,11 @@ test.beforeAll(() => {
     || process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) throw new Error('Mail fixtures require isolated CI without sending credentials');
 });
 const localDb = () => createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } });
+function isMailAction(response: Response, action: 'save' | 'send'): boolean {
+  const request = response.request();
+  if (!response.url().endsWith('/api/admin/mail') || request.method() !== 'POST') return false;
+  try { return request.postDataJSON()?.action === action; } catch { return false; }
+}
 async function identity(db: ReturnType<typeof localDb>, platform = true) {
   const email = `synthetic-mail-${randomUUID()}@example.invalid`, password = randomUUID();
   const result = await db.auth.admin.createUser({ email, password, email_confirm: true });
@@ -40,7 +45,7 @@ test('operator saves a durable draft; stale edits and unavailable transport pres
     await page.getByLabel('宛先', { exact: true }).fill('synthetic-recipient@example.invalid');
     await page.getByLabel('件名', { exact: true }).fill(subject);
     await page.getByLabel('本文', { exact: true }).fill('合成本文。実際には送信しません。');
-    const [saved] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/api/admin/mail') && r.request().method() === 'POST'), page.getByRole('button', { name: '下書き保存', exact: true }).click()]);
+    const [saved] = await Promise.all([page.waitForResponse(r => isMailAction(r, 'save')), page.getByRole('button', { name: '下書き保存', exact: true }).click()]);
     expect(saved.status()).toBe(200); expect(saved.headers()['cache-control']).toBe('no-store');
     const mail = (await saved.json()).mail;
     const stored = await db.from('platform_mail').select('recipient,subject,body,state,envelope,created_by').eq('id', mail.id).single();
@@ -56,7 +61,7 @@ test('operator saves a durable draft; stale edits and unavailable transport pres
     const stale = await db.rpc('manage_platform_mail_atomic', { p_actor_id: person.id, p_mail_id: mail.id, p_action: 'save', p_values: draft });
     expect(stale.error?.code).toBe('PT409');
     await page.getByLabel('本文', { exact: true }).fill('古い画面の入力は保持されます');
-    const [conflict] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/api/admin/mail') && r.request().method() === 'POST'), page.getByRole('button', { name: '下書き保存', exact: true }).click()]);
+    const [conflict] = await Promise.all([page.waitForResponse(r => isMailAction(r, 'save')), page.getByRole('button', { name: '下書き保存', exact: true }).click()]);
     expect(conflict.status()).toBe(409); await expect(page.getByLabel('本文', { exact: true })).toHaveValue('古い画面の入力は保持されます');
     const dialog = page.getByRole('dialog', { name: '未保存の変更があります' });
     await page.getByRole('button', { name: '下書き', exact: true }).click(); await dialog.getByRole('button', { name: '保存せずに移動' }).click();
@@ -65,7 +70,7 @@ test('operator saves a durable draft; stale edits and unavailable transport pres
     const preview = page.getByRole('dialog', { name: '送信内容の確認' });
     await expect(preview.getByText('差出人：CareLink <support@carelink-jp.com>', { exact: true })).toBeVisible();
     await info.attach('operator-mail-confirmation', { body: await page.screenshot(), contentType: 'image/png' });
-    const [unavailable] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/api/admin/mail') && r.request().method() === 'POST'), preview.getByRole('button', { name: 'この内容で送信', exact: true }).click()]);
+    const [unavailable] = await Promise.all([page.waitForResponse(r => isMailAction(r, 'send')), preview.getByRole('button', { name: 'この内容で送信', exact: true }).click()]);
     expect(unavailable.status()).toBe(503); await expect(preview.getByRole('alert')).toContainText('下書きは保持されています');
     expect((await db.from('platform_mail').select('state,envelope,reserved_at').eq('id', mail.id).single()).data).toEqual({ state: 'draft', envelope: null, reserved_at: null });
     expect((await db.from('profiles').update({ is_platform_admin: false }).eq('id', person.id)).error).toBeNull();
