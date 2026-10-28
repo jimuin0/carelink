@@ -2129,7 +2129,7 @@
 "function|delete_admin_menu_atomic(p_actor_id uuid, p_facility_id uuid, p_menu_id uuid)|returns=TABLE(id uuid, facility_id uuid, outcome text)|volatile=v|secdef=f|body_md5=62c7f8a2f3081e0d17bec1a214fe8f1c",
 "function|delete_facility_photo_atomic(p_actor_id uuid, p_facility_id uuid, p_photo_id uuid)|returns=TABLE(id uuid)|volatile=v|secdef=f|body_md5=bacf4d2d90efb07c02f964f52823de95",
 "function|delete_review_reply_atomic(p_actor_id uuid, p_facility_id uuid, p_reply_id uuid)|returns=TABLE(id uuid, review_id uuid, content text)|volatile=v|secdef=f|body_md5=c06aef1880e9f8905381ca0aaebb17fa",
-"function|delete_staff_override_atomic(p_actor_id uuid, p_facility_id uuid, p_staff_id uuid, p_override_id uuid)|returns=boolean|volatile=v|secdef=f|body_md5=2d52167bee37dbe2c8ff5e885fca7930",
+"function|delete_staff_override_atomic(p_actor_id uuid, p_facility_id uuid, p_staff_id uuid, p_override_id uuid)|returns=boolean|volatile=v|secdef=f|body_md5=c895243746eeeceefcddfb328a3a17b3",
 "function|disconnect_google_calendar(p_actor_id uuid)|returns=boolean|volatile=v|secdef=f|body_md5=8e63b49af00de3ee1d38bb11ef19b310",
 "function|edit_review_atomic(p_actor_id uuid, p_review_id uuid, p_patch jsonb)|returns=TABLE(id uuid)|volatile=v|secdef=f|body_md5=8a03ddfb4e22ec62bf10aa99e14429e1",
 "function|email_address_opted_out(p_email text)|returns=boolean|volatile=s|secdef=t|body_md5=80079d4710d0beb2fd59479e71748d4d",

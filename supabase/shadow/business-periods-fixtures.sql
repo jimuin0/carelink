@@ -158,5 +158,16 @@ DO $$ DECLARE r jsonb; BEGIN
  'fe630000-0000-4000-8000-000000000001','fe650000-0000-4000-8000-000000000002',
  '[{"day_of_week":1,"start_time":"00:00","end_time":"24:00"},{"day_of_week":2,"start_time":"00:00","end_time":"24:00"}]'::jsonb,false);
  PERFORM pg_temp.assert_min(r->>'ok'='true','24:00 staff end can be saved without stranding reservations');
+ UPDATE public.staff_schedules SET start_time='09:00',end_time='18:00' WHERE staff_id='fe630000-0000-4000-8000-000000000001' AND day_of_week=2;
+ INSERT INTO public.schedule_overrides(id,staff_id,date,is_holiday,start_time,end_time) VALUES
+ ('fe660000-0000-4000-8000-000000000001','fe630000-0000-4000-8000-000000000001','2030-01-29',false,'00:00','01:00');
+ BEGIN
+   PERFORM public.delete_staff_override_atomic('fe600000-0000-4000-8000-000000000001','fe610000-0000-4000-8000-000000000001',
+    'fe630000-0000-4000-8000-000000000001','fe660000-0000-4000-8000-000000000001');
+   RAISE EXCEPTION 'unsafe override deletion accepted';
+ EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'STAFF_OVERNIGHT_BOOKINGS_AFFECTED' THEN RAISE; END IF; END;
+ UPDATE public.staff_schedules SET start_time='00:00',end_time='24:00' WHERE staff_id='fe630000-0000-4000-8000-000000000001' AND day_of_week=2;
+ PERFORM pg_temp.assert_min(public.delete_staff_override_atomic('fe600000-0000-4000-8000-000000000001','fe610000-0000-4000-8000-000000000001',
+ 'fe630000-0000-4000-8000-000000000001','fe660000-0000-4000-8000-000000000001'),'safe override deletion succeeds');
 END $$;
 ROLLBACK;

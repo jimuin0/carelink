@@ -43,5 +43,22 @@ BEGIN
          (CASE WHEN COALESCE(b.end_date,b.booking_date)>p_date THEN time '24:00' ELSE b.end_time END)>p_end_time)));$new$;
   IF strpos(definition,old_fragment)=0 THEN RAISE EXCEPTION 'STAFF_SCHEDULE_DEFINITION_DRIFT'; END IF;
   EXECUTE replace(definition,old_fragment,new_fragment);
+  -- Removing a working override must not strand the adjacent day of an overnight booking.
+  SELECT pg_catalog.pg_get_functiondef('public.delete_staff_override_atomic(uuid,uuid,uuid,uuid)'::regprocedure) INTO definition;
+  old_fragment := $old$  DELETE FROM public.schedule_overrides WHERE id=p_override_id AND staff_id=p_staff_id;$old$;
+  new_fragment := $new$  IF EXISTS (
+    SELECT 1 FROM public.schedule_overrides o
+    JOIN public.bookings b ON b.facility_id=p_facility_id AND b.staff_id=p_staff_id
+      AND b.end_date>b.booking_date AND b.status IN ('pending','confirmed')
+      AND (b.booking_date=o.date OR (b.end_date=o.date AND b.end_time>time '00:00'))
+    WHERE o.id=p_override_id AND o.staff_id=p_staff_id
+      AND NOT EXISTS (SELECT 1 FROM public.staff_schedules s
+        WHERE s.staff_id=p_staff_id AND s.day_of_week=extract(dow FROM o.date)
+          AND s.start_time <= CASE WHEN b.booking_date=o.date THEN b.start_time ELSE time '00:00' END
+          AND s.end_time >= CASE WHEN b.end_date>o.date THEN time '24:00' ELSE b.end_time END)
+  ) THEN RAISE EXCEPTION 'STAFF_OVERNIGHT_BOOKINGS_AFFECTED'; END IF;
+  DELETE FROM public.schedule_overrides WHERE id=p_override_id AND staff_id=p_staff_id;$new$;
+  IF strpos(definition,old_fragment)=0 THEN RAISE EXCEPTION 'STAFF_OVERRIDE_DELETE_DEFINITION_DRIFT'; END IF;
+  EXECUTE replace(definition,old_fragment,new_fragment);
 END;
 $migration$;
