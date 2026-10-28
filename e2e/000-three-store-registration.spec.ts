@@ -115,10 +115,14 @@ test('one owner applies, signs up, adds and publishes three distinct stores', as
     await page.goto(`/admin/settings?facility_id=${ids[index]}`);
     await expect(page.getByRole('button', { name: '保存する', exact: true })).toBeVisible();
     await page.getByLabel('月曜日に営業する', { exact: true }).check();
+    for (const day of ['火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日']) {
+      await page.getByLabel(`${day}に営業する`, { exact: true }).uncheck();
+    }
     const monday = page.getByRole('group', { name: '月曜日', exact: true });
     await monday.getByLabel('月曜日の開店時間', { exact: true }).fill('09:00');
     await monday.getByLabel('月曜日の閉店時間', { exact: true }).fill('18:00');
     await page.getByRole('button', { name: '保存する', exact: true }).click();
+    await expect(page.getByText('施設情報を保存しました', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '公開する', exact: true })).toBeVisible();
     const published = page.waitForResponse(r => r.url().includes('/api/admin/settings') && r.url().includes('action=status') && r.request().method() === 'PATCH');
     await page.getByRole('button', { name: '公開する', exact: true }).click();
