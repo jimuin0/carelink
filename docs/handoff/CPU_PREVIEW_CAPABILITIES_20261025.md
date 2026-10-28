@@ -39,3 +39,20 @@ Production and configured isolated Preview environments retain the full
 existing DB/RPC/provider/cron health checks. Missing production private
 credentials remain failures. Keep the distinction between public Preview
 readiness, full health and actual production deployment verification.
+
+## 2026-10-28: sign-in and writes closed in the public Preview
+
+A read-only check of a live Preview (`scope: public-preview`) showed the login,
+signup and Google buttons were fully usable and its CSP `connect-src` pointed at
+the production project, so a sign-in there would have acted on real production
+accounts. Every production write policy keys on a signed-in user, so the gap
+was the session, not the anon key.
+
+`isPreviewRestricted()` now refuses, only when `VERCEL_ENV=preview` and the
+service-role key is absent: `/auth/*`, `/mypage`, `/admin`, `/liff` and
+`/api/auth/*`, plus every non-GET/HEAD/OPTIONS request. Pages are refused in
+`middleware` (fixed notice, 403, no-store, noindex, no scripts) before the
+cookie-auth client is created; API routes are refused at the top of `withRoute`
+(JSON 403 `preview_read_only`, no alert). Production and a Preview with its own
+isolated service credentials are unchanged. Successful hosted sign-in and
+writes against an isolated backend are still unmeasured.

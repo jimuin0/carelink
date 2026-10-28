@@ -38,6 +38,7 @@ import { createServerSupabaseAuthClient } from './supabase-server-auth';
 import { safeCaptureException } from './safe';
 import { alertCaughtError } from './alert';
 import { AUTH_UNAVAILABLE_BODY, verifyAuthUser } from './auth-verification';
+import { isPreviewRestricted, isPublicReadOnlyPreview, PREVIEW_READ_ONLY_MESSAGE } from './preview-capabilities';
 
 /**
  * ハンドラに渡される実行コンテキスト。
@@ -107,6 +108,13 @@ export function withRoute(handler: Handler, opts: WithRouteOptions = {}): Wrappe
 
   return async function wrapped(request: Request): Promise<NextResponse> {
     try {
+      // Middleware does not run for /api: refuse writes and auth flows here too
+      // when the public Preview holds only the production anon key.
+      if (isPublicReadOnlyPreview() && isPreviewRestricted(request.method, new URL(request.url).pathname)) {
+        return NextResponse.json({ error: PREVIEW_READ_ONLY_MESSAGE, code: 'preview_read_only' },
+          { status: 403, headers: { 'Cache-Control': 'no-store' } });
+      }
+
       if (csrf) {
         const csrfError = checkCsrf(request);
         if (csrfError) return csrfError;
