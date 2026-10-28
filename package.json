@@ -96,7 +96,7 @@
   "overrides": {
     "axios": "1.20.0",
     "postcss": "$postcss",
-    "qs": "^6.16.0",
+    "qs": "^6.17.0",
     "sharp": "^0.35.5",
     "brace-expansion@<3": "^2.1.7",
     "fast-uri": "^3.1.9",
