@@ -37,7 +37,7 @@ test('unauthenticated list requests login with recovery destination',async()=>{
 });
 test.each([403,500,503])('failed list is not shown as zero receipts (%s)',async status=>{
   mockFetch.mockResolvedValue(response({},status));render(<RecoverRegistrationPage/>);
-  await screen.findByRole('alert');expect(screen.queryByText(/一致する申込が見つかりませんでした/)).not.toBeInTheDocument();
+  await screen.findByRole('alert');expect(screen.queryByText(/引き継げる掲載申込が見つかりませんでした/)).not.toBeInTheDocument();
 });
 test('Auth 503 keeps receipt and original selector; explicit retry alone resumes preparation',async()=>{
   render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);
@@ -74,8 +74,13 @@ test.each([null,{...ready,receipts:[{...receipt,receipt_id:'bad'}]},{...ready,re
   await screen.findByRole('alert');expect(mockPush).not.toHaveBeenCalled();
 });
 test('empty confirmed list is different from retrieval failure',async()=>{
+  mockSearch=new URLSearchParams({from:'handoff'});
   mockFetch.mockResolvedValue(response({...ready,receipts:[]}));render(<RecoverRegistrationPage/>);
-  await screen.findByText(/一致する申込が見つかりませんでした/);expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  await screen.findByText(/引き継げる掲載申込が見つかりませんでした/);expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.queryByText('申込を選んでください')).not.toBeInTheDocument();
+  const link=screen.getByRole('link',{name:'掲載申込ページを開く（新しいタブ）'});
+  expect(link).toHaveAttribute('href','/register');expect(link).toHaveAttribute('target','_blank');
+  expect(screen.getByText(/すでに申し込んだ場合/)).toHaveTextContent('もう一度申し込む前に');
 });
 test('pagination sends only a keyset selector and no re-registration',async()=>{
   mockFetch.mockResolvedValue(response({...ready,next:receiptId}));render(<RecoverRegistrationPage/>);
@@ -131,7 +136,7 @@ test('list network failure shows a Japanese instruction, never the raw "Failed t
   mockFetch.mockRejectedValue(new TypeError('Failed to fetch'));render(<RecoverRegistrationPage/>);
   const alert=await screen.findByRole('alert');
   expect(alert).toHaveTextContent('通信できませんでした');expect(alert).not.toHaveTextContent(/Failed to fetch/i);
-  expect(screen.queryByText(/一致する申込が見つかりませんでした/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/引き継げる掲載申込が見つかりませんでした/)).not.toBeInTheDocument();
 });
 test('prepare network failure and broken JSON keep Japanese copy and the receipt',async()=>{
   render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);

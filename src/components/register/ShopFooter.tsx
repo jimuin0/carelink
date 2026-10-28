@@ -35,7 +35,7 @@ export default function ShopFooter() {
             </li>
           </ul>
         </nav>
-        <p className="mt-6 text-sm">運営：神原良祐（HALグループ）</p>
+        <p className="mt-6 text-sm">運営：TOKUHAL.</p>
         <p className="mt-2 text-xs">&copy; {new Date().getFullYear()} CareLink</p>
       </div>
     </footer>

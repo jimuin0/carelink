@@ -92,7 +92,7 @@ test('failed list -> explicit retry recovers the same authenticated receipt with
   // the application's failure; a navigation announcement must not satisfy it.
   const recoveryError = page.getByRole('main').getByRole('alert');
   await expect(recoveryError).toBeVisible();
-  await expect(page.getByText('一致する申込が見つかりませんでした。', { exact: false })).toBeHidden();
+  await expect(page.getByText('引き継げる掲載申込が見つかりませんでした', { exact: false })).toBeHidden();
   await page.unroute('**/api/salons/recovery');
   const restored = page.waitForResponse(r => new URL(r.url()).pathname === '/api/salons/recovery'
     && r.request().method() === 'POST' && r.request().postDataJSON().action === 'list');
