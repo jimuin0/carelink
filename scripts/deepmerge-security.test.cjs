@@ -6,6 +6,9 @@ const path = require('node:path');
 const merge = require('deepmerge');
 
 test('Jest resolves the reviewed local security patch', () => {
+  const fork = require('../tools/deepmerge/package.json');
+  assert.equal(fork.name, '@carelink/deepmerge');
+  assert.equal(fork.version, '4.3.2');
   const resolved = fs.realpathSync(require.resolve('deepmerge'));
   assert.equal(resolved, fs.realpathSync(path.join(__dirname, '../tools/deepmerge/index.cjs')));
   for (const parent of ['@jest/core/package.json', 'jest-cli/package.json']) {
