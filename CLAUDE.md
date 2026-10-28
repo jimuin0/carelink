@@ -189,7 +189,7 @@ LINE ログインは LIFF とは別チャネルで動くため、どちらか片
 
 ### 端末に残る個人情報の後始末＝`src/lib/client-storage.ts`（2026年8月18日 新設）
 
-退会（アカウント削除）後は `window.location.href = '/'` で全リロードするが、
+退会（アカウント削除）後は `window.location.assign(window.location.origin)`（絶対 URL への全ページ再読み込み）で全リロードするが、
 **リロードでは sessionStorage は消えない**。予約フローはログイン遷移の直前に下書きを保存しており、
 中身は氏名・メールアドレス・電話番号・備考＝個人情報そのもの。
 
