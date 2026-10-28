@@ -189,7 +189,7 @@ LINE ログインは LIFF とは別チャネルで動くため、どちらか片
 
 ### 端末に残る個人情報の後始末＝`src/lib/client-storage.ts`（2026年8月18日 新設）
 
-退会（アカウント削除）後は `window.location.href = '/'` で全リロードするが、
+退会（アカウント削除）後は `window.location.assign(window.location.origin)`（絶対 URL への全ページ再読み込み）で全リロードするが、
 **リロードでは sessionStorage は消えない**。予約フローはログイン遷移の直前に下書きを保存しており、
 中身は氏名・メールアドレス・電話番号・備考＝個人情報そのもの。
 
@@ -406,7 +406,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | 変数名 | 用途 |
 |--------|------|
 | NEXT_RUNTIME | Next.jsが設定する実行環境。nodejsの場合のみ、起動時にNode.jsの実行バージョンを管理者用ログへ記録する。手動設定は不要 |
-| NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY | Supabase（本番必須）。**Vercel の Preview には意図的に設定しない**（2026年10月21日）。以前は無効なキーが残り、プレビューのたびに本番 Supabase へ 401 を 20 件送っていた。プレビューは本番 DB に触れない。ビルドは `hasSupabasePublicEnv()`（`src/lib/supabase-build-env.ts`）で事前生成を省いて通り、ブラウザ用クライアントは使用時にだけ未設定を検知する |
+| NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY | Supabase（本番必須）。Vercel の Preview には 2026年10月25日から**本番の公開 URL と anon キーだけ**を入れている（公開閲覧の確認用・`docs/handoff/CPU_PREVIEW_CAPABILITIES_20261025.md`）。service-role が無い Preview は `isPublicReadOnlyPreview()` で公開閲覧専用になり、`isPreviewRestricted()`（`src/lib/preview-capabilities.ts`）が middleware と `withRoute` で**ログイン・会員/店舗画面・変更系メソッドを 403 で止める**（本番の Auth・データへ Preview から触れないため。2026年10月28日）。資格情報の無いビルドは `hasSupabasePublicEnv()`（`src/lib/supabase-build-env.ts`）で事前生成を省いて通る |
 | SUPABASE_SERVICE_ROLE_KEY | service role（cron／管理 API のサーバ側 DB 操作・RLS バイパス・**本番必須**）。**Vercel の Preview には設定しない**（上の行と同じ理由。本番の secret をプレビューへ再登録しない） |
 | NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_BASE_URL / NEXT_PUBLIC_SITE_URL | 本番ベース URL（リダイレクト・OGP・sitemap 等） |
 | ADMIN_COOKIE_SECRET | /admin membership キャッシュの HMAC 署名鍵（未設定でキャッシュ無効） |

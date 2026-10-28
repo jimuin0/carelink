@@ -2,7 +2,7 @@
  * ブラウザ側に残る個人情報の後始末の検査。
  *
  * 守っているのは「退会したのに氏名・メール・電話が端末に残る」状態を作らないこと。
- * 全リロード（window.location.href = '/'）では sessionStorage が消えないため、
+ * 全リロード（window.location.assign(window.location.origin)）では sessionStorage が消えないため、
  * 明示的な消去が必要になる。
  */
 const mockClearAll = jest.fn();

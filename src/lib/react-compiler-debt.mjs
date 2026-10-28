@@ -93,8 +93,11 @@ export const RATCHET_RULES = [
  *   2  … ReviewForm の watch() を useWatch へ移行して incompatible-library を解消し、
  *        解析可能になって見えた描画中の ref 書換えも effect へ移して 1 件減（2026年10月20日）。
  *        残る 2 件は退会後の全リロード（no-location-assign）で、意図した挙動のため数え続ける。
+ *   0  … 退会後の全リロードを window.location.assign(window.location.origin)（絶対 URL への
+ *        全ページ再読み込み）に揃えて 2 件減（2026年10月28日）。クライアント遷移には置き換えず、
+ *        メモリ上の認証情報・個人情報を破棄する挙動は変えていない。
  */
-export const BASELINE = 2;
+export const BASELINE = 0;
 
 /**
  * eslint の JSON 出力から、ラチェット対象ルールの指摘件数を数える。
