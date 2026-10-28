@@ -11,6 +11,10 @@ import { UUID_REGEX } from '@/lib/constants';
 
 type InquiryCursor = { createdAt: string | null; id: string };
 type Contact = InquiryListRow;
+type InquiryLoadError = 'unauthorized' | 'forbidden' | 'unavailable';
+class InquiryAccessError extends Error {
+  constructor(readonly reason: 'unauthorized' | 'forbidden') { super(reason); }
+}
 type ReplyStatus = {
   loading: boolean;
   failed: boolean;
@@ -43,7 +47,7 @@ export default function AdminInquiriesPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState<InquiryLoadError | null>(null);
   const [nextCursor, setNextCursor] = useState<InquiryCursor | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('open');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -77,6 +81,8 @@ export default function AdminInquiriesPage() {
     const params = new URLSearchParams({ status: filter || 'all' });
     if (cursor) params.set('cursor', JSON.stringify(cursor));
     const response = await fetch(`/api/admin/inquiries?${params.toString()}`, { cache: 'no-store', signal });
+    if (response.status === 401) throw new InquiryAccessError('unauthorized');
+    if (response.status === 403) throw new InquiryAccessError('forbidden');
     if (!response.ok) throw new Error('問い合わせの読み込みに失敗しました');
     return inquiryListResponse.parse(await response.json());
   }, []);
@@ -85,15 +91,17 @@ export default function AdminInquiriesPage() {
     const { controller, sequence } = beginListRequest();
     setLoading(true);
     setLoadingMore(false);
-    setLoadError(false);
+    setLoadError(null);
     setNextCursor(null);
     try {
       const data = await fetchPage(null, controller.signal, statusFilterRef.current);
       if (sequence !== listRequestSequence.current) return;
       setContacts(data.contacts);
       setNextCursor(data.nextCursor);
-    } catch {
-      if (sequence === listRequestSequence.current && !controller.signal.aborted) setLoadError(true);
+    } catch (error) {
+      if (sequence === listRequestSequence.current && !controller.signal.aborted) {
+        setLoadError(error instanceof InquiryAccessError ? error.reason : 'unavailable');
+      }
     } finally {
       if (sequence === listRequestSequence.current) {
         activeListRequest.current = null;
@@ -111,9 +119,15 @@ export default function AdminInquiriesPage() {
       if (sequence !== listRequestSequence.current) return;
       setContacts((current) => [...current, ...data.contacts]);
       setNextCursor(data.nextCursor);
-    } catch {
+    } catch (error) {
       if (sequence === listRequestSequence.current && !controller.signal.aborted) {
-        setToast({ type: 'error', message: '続きの読み込みに失敗しました。再試行してください' });
+        if (error instanceof InquiryAccessError) {
+          setContacts([]);
+          setNextCursor(null);
+          setLoadError(error.reason);
+        } else {
+          setToast({ type: 'error', message: '続きの読み込みに失敗しました。再試行してください' });
+        }
       }
     } finally {
       if (sequence === listRequestSequence.current) {
@@ -384,6 +398,16 @@ export default function AdminInquiriesPage() {
       {loading ? (
         <div className="py-12 text-center">
           <div className="w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" />
+        </div>
+      ) : loadError === 'forbidden' ? (
+        <div role="alert" className="bg-white rounded-xl border border-rose-200 p-8 text-center">
+          <p className="font-bold">このアカウントでは運営宛の問い合わせを閲覧できません。</p>
+          <p className="mt-2 text-sm">右上のアカウントメニューからログアウトし、運営管理者のアカウントでログインしてください。</p>
+        </div>
+      ) : loadError === 'unauthorized' ? (
+        <div role="alert" className="bg-white rounded-xl border border-rose-200 p-8 text-center">
+          <p className="font-bold">ログインが必要です。</p>
+          <Link href="/auth/login?redirect=%2Fadmin%2Finquiries" className="mt-4 inline-block underline">ログイン画面へ</Link>
         </div>
       ) : loadError ? (
         <LoadError onRetry={load} message="問い合わせの読み込みに失敗しました" />
