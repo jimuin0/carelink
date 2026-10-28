@@ -59,6 +59,13 @@ test('one owner applies, signs up, adds and publishes three distinct stores', as
   for (let index = 0; index < names.length; index++) {
     console.log(`Verifying store ${index + 1}: application`);
     const receiptId = await apply(page, names[index], `three-store-${suffix}@example.invalid`, `愛知県西尾市合成町${index + 1}`);
+    let nextPage: Page | undefined;
+    if (index < names.length - 1) {
+      const popup = page.waitForEvent('popup');
+      await page.getByRole('link', { name: '別の店舗を申し込む（新しいタブ）' }).click();
+      nextPage = await popup;
+      await nextPage.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${100 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
+    }
     console.log(`Verifying store ${index + 1}: account handoff`);
     if (index === 0) {
       await page.getByRole('link', { name: '店舗アカウントを作成する' }).click();
@@ -92,6 +99,7 @@ test('one owner applies, signs up, adds and publishes three distinct stores', as
     if (index === 0) ownerId = claimed.data?.claimed_by_user_id;
     expect(ownerId).toBeTruthy();
     expect(claimed.data?.claimed_by_user_id).toBe(ownerId);
+    if (nextPage) page = nextPage;
   }
   const membership = await db.from('facility_members').select('facility_id,role').eq('user_id', ownerId!);
   expect(membership.error).toBeNull();
