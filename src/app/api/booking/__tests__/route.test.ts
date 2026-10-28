@@ -109,6 +109,11 @@ it('unknown holiday data never reaches booking mutation',async()=>{
  const result=await POST(request());expect(result.status).toBe(503);
  expect(mockRpc).not.toHaveBeenCalledWith('create_booking_with_receipt_dated_atomic',expect.anything());
 });
+it('確認した祝日情報を予約の最終判定へ渡す',async()=>{
+ jest.mocked(loadSlotHolidayCalendar).mockResolvedValueOnce({calendar:{from:'2099-01-01',through:'2099-12-31',dates:new Set(['2099-01-01'])},error:null});
+ expect((await POST(request())).status).toBe(200);
+ expect(mockRpc).toHaveBeenCalledWith('create_booking_with_receipt_dated_atomic',expect.objectContaining({p_holiday_dates:['2099-01-01'],p_holiday_from:'2099-01-01',p_holiday_through:'2099-12-31'}));
+});
 // Regression (2026-10-22 review): a 新規/リピーター coupon used to be judged by the e-mail typed into the form, so a guest
 // could learn without the owner noticing whether any address had booked at the facility. Guests are now refused before
 // the history is ever consulted, with the same answer whatever address they type.

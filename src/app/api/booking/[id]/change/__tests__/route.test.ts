@@ -64,6 +64,20 @@ test('祝日情報が得られない場合は変更しない',async()=>{
  expect((await POST(request(),props())).status).toBe(503);
  expect(mockRpc).not.toHaveBeenCalled();
 });
+test('保存済みの終了日が不正なときは変更しない',async()=>{
+ mockFrom.mockReturnValue(chain({...booking,end_date:'2026-10-16',end_time:'09:00:00'}));
+ expect((await POST(request(),props())).status).toBe(500);
+ expect(mockRpc).not.toHaveBeenCalled();
+});
+test('確認済み祝日情報を変更の最終判定へ渡す',async()=>{
+ (loadSlotHolidayCalendar as jest.Mock).mockResolvedValue({calendar:{from:'2026-01-01',through:'2026-12-31',dates:new Set(['2026-11-03'])},error:null});
+ expect((await POST(request(),props())).status).toBe(200);
+ expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_dated_atomic',expect.objectContaining({p_holiday_dates:['2026-11-03'],p_holiday_from:'2026-01-01',p_holiday_through:'2026-12-31'}));
+});
+test.each([['HOLIDAY_CALENDAR_UNAVAILABLE',503],['BOOKING_DURATION_MISMATCH',400],['BOOKING_INVALID_INTERVAL',400]])('日時変更の最終判定 %s は失敗を明示する',async(message,status)=>{
+ mockRpc.mockResolvedValue({data:null,error:{message}});
+ expect((await POST(request(),props())).status).toBe(status);
+});
 afterEach(()=>jest.useRealTimers());
 test('change commits complete notifications with explicit owned actor and schedule gate',async()=>{
  const res=await POST(request(),props());expect(res.status).toBe(200);expect(await res.json()).toEqual({success:true});

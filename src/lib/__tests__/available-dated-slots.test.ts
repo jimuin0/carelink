@@ -21,6 +21,16 @@ test('holiday closures fail closed when official data is unavailable', async () 
   jest.mocked(fetchCabinetHolidays).mockResolvedValueOnce(null);
   expect((await loadSlotHolidayCalendar(client, 'facility')).error).toBeInstanceOf(Error);
 });
+test('設定の読取エラーと確認済み祝日を区別する', async () => {
+  const { client, q } = admin({ data: [], error: null });
+  const error = new Error('read');
+  q.maybeSingle = async () => ({ data: null, error });
+  expect((await loadSlotHolidayCalendar(client,'facility')).error).toBe(error);
+  q.maybeSingle = async () => ({ data: { close_on_public_holidays: true }, error: null });
+  const calendar = { from:'2030-01-01', through:'2030-12-31', dates:new Set(['2030-01-01']) };
+  jest.mocked(fetchCabinetHolidays).mockResolvedValueOnce(calendar);
+  expect(await loadSlotHolidayCalendar(client,'facility')).toEqual({ calendar, error:null });
+});
 
 test('the dated slot reader passes an already verified exclusion and calendar', async () => {
   const { client, rpc } = admin({ data: [{ slot_start: '23:30:00', slot_end: '00:30:00', end_date: '2030-01-08' }], error: null });

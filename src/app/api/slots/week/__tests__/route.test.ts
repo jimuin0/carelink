@@ -10,6 +10,7 @@ jest.mock('@/lib/supabase-server-auth', () => ({ createServerSupabaseAuthClient:
 jest.mock('@/lib/available-slots', () => ({ ...jest.requireActual('@/lib/available-slots'),
   loadSlotHolidayCalendar: jest.fn(async () => ({ calendar: null, error: null })) }));
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
+import { loadSlotHolidayCalendar } from '@/lib/available-slots';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
@@ -37,6 +38,12 @@ beforeEach(() => {
   server.createServerSupabaseClient.mockReturnValue({});
   server.createServiceRoleClient.mockReturnValue({ rpc: mockRpc });
   jest.mocked(checkBookingReadiness).mockResolvedValue({ readiness: { ready: true, missing: [] }, error: null });
+});
+
+test('祝日情報を読めない場合は空きなしと断定しない', async () => {
+  jest.mocked(loadSlotHolidayCalendar).mockResolvedValueOnce({calendar:null,error:new Error('unavailable')});
+  expect((await GET(req(base))).status).toBe(500);
+  expect(mockRpc).not.toHaveBeenCalled();
 });
 
 test('returns every staff × date in one response, keyed by date then staff', async () => {

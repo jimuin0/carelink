@@ -406,6 +406,12 @@ describe('searchFacilities', () => {
     expect(made.find((m) => m.calls.in)?.calls.select).toEqual([['id,special_hours']]);
     expect(result.total).toBe(1);
   });
+  test('GPS の休業設定を読めない場合は通常営業として表示しない', async () => {
+    const error = {message:'synthetic'};
+    routeFrom((_table,calls) => calls.select?.[0]?.[0] === 'id,special_hours' ? {data:null,error} : {data:[],error:null});
+    mockRpc.mockResolvedValue({data:[{id:'a',business_hours:{}}],error:null});
+    expect(await searchFacilities(geo)).toEqual({facilities:[],total:0,perPage:20,error});
+  });
 });
 
 // ─── 価格帯・保険適用・症状（2026年10月22日 是正）──────────────────────────────

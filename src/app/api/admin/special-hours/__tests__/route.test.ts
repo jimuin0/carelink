@@ -60,6 +60,15 @@ test('only the authorized facility and verified actor reach the atomic writer', 
     p_holiday_dates: ['2026-11-03'], p_holiday_from: '2026-01-01', p_holiday_through: '2027-12-31',
   });
 });
+test('祝日休業を使わない場合、祝日データ取得を行わない', async () => {
+  expect((await PUT(put({ ...body, closeOnPublicHolidays:false }))).status).toBe(200);
+  expect(fetchCabinetHolidays).not.toHaveBeenCalled();
+  expect(rpc).toHaveBeenCalledWith('save_facility_special_hours_atomic',expect.objectContaining({p_holiday_dates:null,p_holiday_from:null,p_holiday_through:null}));
+});
+test('認証されていない人は設定を読めない', async () => {
+  getUser.mockResolvedValue({ data:{user:null}, error:null });
+  expect((await GET(new NextRequest(url))).status).toBe(401);
+});
 
 test.each([
   { ...body, closedDates: ['2026-02-30'] }, { ...body, closedDates: ['2026-12-31', '2026-12-31'] },
@@ -83,6 +92,8 @@ test('the atomic writer blocks a concurrent stale edit and revoked role', async 
   rpc.mockResolvedValueOnce({ error: { message: 'FACILITY_PERMISSION_REVOKED' } });
   expect((await PUT(put(body))).status).toBe(403);
   rpc.mockResolvedValueOnce({ error: { message: 'SPECIAL_HOURS_HAS_BOOKINGS' } });
+  expect((await PUT(put(body))).status).toBe(409);
+  rpc.mockResolvedValueOnce({ error: { message: 'HOLIDAY_CALENDAR_UNAVAILABLE' } });
   expect((await PUT(put(body))).status).toBe(409);
 });
 

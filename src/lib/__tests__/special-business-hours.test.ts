@@ -78,3 +78,26 @@ test('JST status changes at the reception cutoff and at closing', () => {
   expect(specialReceptionStatus(week, settings, null, 15, NaN)).toBe('unknown');
   expect(specialReceptionStatus(week, { ...settings, closeOnPublicHolidays: true }, null, 15, Date.parse('2026-10-26T08:45:00Z'))).toBe('unknown');
 });
+
+test('前日が祝日ならその深夜営業を引き継がない', () => {
+ const calendar={from:'2026-01-01',through:'2026-12-31',dates:new Set(['2026-10-27'])};
+ expect(specialBusinessWindows(week,'2026-10-28',{...settings,closeOnPublicHolidays:true},calendar)).toEqual([]);
+});
+test('不正な日付・受付期限・区間を拒否する', () => {
+ expect(specialBusinessWindows(week,'bad',settings,null)).toBeNull();
+ for(const cutoff of [-1,1441,0.5]) expect(specialReceptionWindows(week,'2026-10-26',settings,null,cutoff)).toBeNull();
+ expect(specialReceptionWindows(week,'bad',settings,null,15)).toBeNull();
+ for(const [date,start,end] of [['bad',0,60],['2026-10-26',0.5,60],['2026-10-26',0,60.5],['2026-10-26',-1,60],['2026-10-26',1440,1500],['2026-10-26',60,60],['2026-10-26',0,1441]] as const)
+  expect(specialBusinessIntervalFits(week,date,start,end,settings,null)).toBeNull();
+ expect(specialBusinessIntervalFits(week,'2026-10-26',500,600,settings,null)).toBe(false);
+ expect(specialBusinessIntervalFits(week,'2026-10-26',600,1200,settings,null)).toBe(false);
+ expect(specialBusinessIntervalFits(week,'2026-10-26',600,660,settings,null)).toBe(true);
+ expect(specialReceptionStatus(week,settings,null,15,1e20)).toBe('unknown');
+ expect(specialReceptionStatus(week,settings,null,15,8_640_000_000_000_000)).toBe('unknown');
+});
+test('翌日の祝日情報が足りない場合は区間・受付を未確認にする', () => {
+ const calendar={from:'2026-10-26',through:'2026-10-27',dates:new Set<string>()};
+ const opted={...settings,closeOnPublicHolidays:true};
+ expect(specialBusinessIntervalFits(week,'2026-10-27',1410,1470,opted,calendar)).toBeNull();
+ expect(specialReceptionStatus(week,opted,calendar,15,Date.parse('2026-10-27T13:00:00Z'))).toBe('unknown');
+});

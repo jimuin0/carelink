@@ -38,7 +38,6 @@ export function specialBusinessWindows(
     if (settings && Object.hasOwn(settings.dates, d)) {
       const override = settings.dates[d];
       if (businessPeriods(override) === null) return null;
-      if (offset === 1 && override === null) return [];
       week[key] = override;
     } else if (settings?.closeOnPublicHolidays) {
       if (publicHolidays === null || !parsedDate(publicHolidays.from) || !parsedDate(publicHolidays.through) ||

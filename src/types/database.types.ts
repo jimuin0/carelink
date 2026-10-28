@@ -6916,6 +6916,18 @@ export type Database = {
         Returns: { id: string; replayed: boolean }[]
       }
       published_special_hours: { Args: { p_facility_id: string }; Returns: Json | null }
+      booking_intervals_conflict: { Args: { p_start: string; p_end: string; p_other_start: string; p_other_end: string; p_buffer_minutes: number }; Returns: boolean }
+      booking_staff_works_interval: { Args: { p_staff_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string }; Returns: boolean }
+      booking_staff_interval_conflict: { Args: { p_facility_id: string; p_staff_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string; p_buffer_minutes: number; p_exclude_booking_id: string }; Returns: boolean }
+      booking_needs_any_staff_interval: { Args: { p_staff_id: string; p_auto_assigned: boolean; p_facility_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string }; Returns: boolean }
+      booking_unassigned_interval_capacity_full: { Args: { p_facility_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string; p_buffer_minutes: number; p_exclude_booking_id: string }; Returns: boolean }
+      booking_pick_free_staff_interval: { Args: { p_facility_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string; p_buffer_minutes: number; p_menu_ids: string[]; p_exclude_booking_id: string; p_prefer_staff_id: string }; Returns: string }
+      facility_business_windows_for_date: { Args: { p_facility_id: string; p_date: string; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: { start_min: number; end_min: number }[] }
+      facility_reception_windows_for_date: { Args: { p_facility_id: string; p_date: string; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: { start_min: number; end_min: number }[] }
+      facility_interval_admissible: { Args: { p_facility_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: boolean }
+      get_available_slots_dated: { Args: { p_facility_id: string; p_staff_id: string; p_date: string; p_duration_minutes: number; p_exclude_booking_id: string; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: { slot_start: string; slot_end: string; end_date: string }[] }
+      create_online_booking_dated_atomic: { Args: { p_facility_id: string; p_staff_id: string; p_user_id: string; p_menu_id: string; p_coupon_id: string; p_booking_date: string; p_start_time: string; p_end_date: string; p_end_time: string; p_customer_name: string; p_email: string; p_phone: string; p_note: string; p_total_price: number; p_points_used: number; p_status: string; p_menu_ids: string[]; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: string }
+      publish_customer_booking_transition_email_dated: { Args: { p_booking_id: string; p_kind: string; p_previous_date: string; p_previous_start: string; p_previous_end: string; p_previous_end_date: string }; Returns: number }
       create_manual_booking_atomic: {
         Args: { p_actor_id: string; p_input: Json; p_operation_id: string }
         Returns: Json

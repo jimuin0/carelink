@@ -14,11 +14,17 @@ test('complete years have explicit coverage and holiday dates', () => {
 });
 
 test.each([
-  '', 'unexpected header', `${header}\n2026/02/30,invalid`, `${header}\n2026/1/1,x\n2026/1/1,y`,
+  '', 'unexpected header', header, `${header}\ninvalid`, `${header}\n2026/02/30,invalid`, `${header}\n2026/1/1,x\n2026/1/1,y`,
   [header, ...year(2026), ...year(2027).slice(0, -1)].join('\n'),
   [header, ...year(2026), ...year(2028)].join('\n'),
 ])('malformed or incomplete calendar is unknown', value => {
   expect(parseCabinetHolidays(value)).toBeNull();
+});
+
+test('正常応答でも本文がない場合は未確認とする', async () => {
+  const original = global.fetch;
+  global.fetch = jest.fn().mockResolvedValue({ok:true,body:null});
+  try { expect(await fetchCabinetHolidays()).toBeNull(); } finally { global.fetch = original; }
 });
 
 test('network errors do not invent a holiday calendar', async () => {
