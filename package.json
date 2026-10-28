@@ -54,7 +54,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-hook-form": "^7.85.0",
-    "recharts": "^3.8.1",
+    "recharts": "^3.10.1",
     "resend": "^6.9.4",
     "sharp": "^0.35.5",
     "stripe": "^22.3.0",
