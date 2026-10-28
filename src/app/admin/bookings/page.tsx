@@ -23,7 +23,7 @@ interface Props {
 
 // 埋め込み（menu/staff）の生成型と手動キャストが競合するため、bookings は非型付き select で取得し本型へキャスト。
 type BookingRow = {
-  id: string; booking_date: string; start_time: string; end_time: string;
+  id: string; booking_date: string; end_date: string | null; start_time: string; end_time: string;
   customer_name: string; email: string | null; status: string; total_price: number | null;
   menu_id: string | null; menu_ids: string[] | null;
   staff_auto_assigned?: boolean | null;
@@ -87,7 +87,7 @@ export default async function AdminBookingsPage(props: Props) {
   // 2) データ取得（メニュー名・スタッフ名を埋め込み）
   let dataQuery = supabase
     .from('bookings')
-    .select('id, booking_date, start_time, end_time, customer_name, email, status, total_price, menu_id, menu_ids, staff_auto_assigned, staff:staff_profiles(name)')
+    .select('id, booking_date, end_date, start_time, end_time, customer_name, email, status, total_price, menu_id, menu_ids, staff_auto_assigned, staff:staff_profiles(name)')
     .eq('facility_id', facilityId);
   if (from) dataQuery = dataQuery.gte('booking_date', from);
   if (to) dataQuery = dataQuery.lte('booking_date', to);
@@ -148,7 +148,7 @@ export default async function AdminBookingsPage(props: Props) {
                   <SbTd>
                     <Link href={`/admin/bookings/${b.id}?facility_id=${facilityId}`} className="hover:text-primary">
                       <p className="font-medium whitespace-nowrap">{b.booking_date}</p>
-                      <p className="text-xs text-gray-500">{b.start_time?.slice(0, 5)}〜{b.end_time?.slice(0, 5)}</p>
+                      <p className="text-xs text-gray-500">{b.start_time?.slice(0, 5)}〜{b.end_date && b.end_date !== b.booking_date ? '翌' : ''}{b.end_time?.slice(0, 5)}</p>
                     </Link>
                   </SbTd>
                   <SbTd>

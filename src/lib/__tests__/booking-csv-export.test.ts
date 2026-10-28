@@ -18,6 +18,12 @@ function row(n: number, extra: Partial<BookingCsvRow> = {}): BookingCsvRow {
   };
 }
 
+test('日付をまたぐ予約の CSV は終了日を明示する', () => {
+  const csv=buildBookingCsv([row(1,{booking_date:'2030-01-07',start_time:'23:30:00',end_date:'2030-01-08',end_time:'00:30:00'})]);
+  expect(csv).toContain('2030-01-08 00:30:00');
+  expect(buildBookingCsv([row(2,{end_date:'2026-10-01'})])).not.toContain('2026-10-01 11:00:00');
+});
+
 /**
  * 実際の PostgREST と同じく、1 回の応答は最大 1000 行（max_rows）。`total` 件の予約がある施設を模す。
  * range(offset, end) の要求に対し、max_rows を超える分は黙って返さない。
@@ -61,7 +67,7 @@ describe('readBookingCsvRows', () => {
     await readBookingCsvRows(db, FACILITY);
     expect(calls).toEqual([
       { method: 'from', args: ['bookings'] },
-      { method: 'select', args: ['id, booking_date, start_time, end_time, customer_name, email, phone, status, total_price, note, created_at'] },
+      { method: 'select', args: ['id, booking_date, end_date, start_time, end_time, customer_name, email, phone, status, total_price, note, created_at'] },
       { method: 'eq', args: ['facility_id', FACILITY] },
       { method: 'order', args: ['booking_date', { ascending: false }] },
       { method: 'order', args: ['start_time', { ascending: false }] },

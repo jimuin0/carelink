@@ -446,7 +446,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
           <div>
             <p className="text-gray-500">日時</p>
             <p className="font-medium">{formatDate(booking.booking_date)}</p>
-            <p className="text-sky-600 font-bold">{booking.start_time?.slice(0, 5)}〜{booking.end_time?.slice(0, 5)}</p>
+            <p className="text-sky-600 font-bold">{booking.start_time?.slice(0, 5)}〜{booking.end_date && booking.end_date !== booking.booking_date ? '翌' : ''}{booking.end_time?.slice(0, 5)}</p>
           </div>
           {booking.phone && (
             <div>

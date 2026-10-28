@@ -36,6 +36,12 @@ beforeEach(() => {
   fetchMock = jest.fn(); global.fetch = fetchMock as typeof fetch;
 });
 function show() { render(<Detail params={{ id: bookingId } as unknown as Promise<{ id:string }>} />); }
+test('店舗の予約詳細は翌日終了を明示する', async () => {
+  const result = mockResults.bookings[1] as {data:Record<string,unknown>};
+  Object.assign(result.data,{booking_date:'2030-01-07',end_date:'2030-01-08',start_time:'23:30',end_time:'00:30'});
+  show();
+  expect(await screen.findByText('23:30〜翌00:30')).toBeInTheDocument();
+});
 test('locates exact tenant before customer fields; ordered all menus and return navigation stay scoped', async () => {
   show(); await screen.findByText('施術B、施術A');
   expect(mockQueries[1].filters).toContainEqual(['eq','facility_id',facilityId]);

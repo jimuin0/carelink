@@ -142,4 +142,21 @@ DO $$ DECLARE receipt record; BEGIN
   RAISE EXCEPTION 'other user changed the booking';
  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'BOOKING_FORBIDDEN%' THEN RAISE; END IF; END;
 END $$;
+-- Schedule changes must protect both parts of an overnight reservation.
+DO $$ DECLARE r jsonb; BEGIN
+ r:=public.save_staff_override_atomic('fe600000-0000-4000-8000-000000000001','fe610000-0000-4000-8000-000000000001',
+ 'fe630000-0000-4000-8000-000000000001','2030-01-29',true,NULL,NULL,false);
+ PERFORM pg_temp.assert_min(r->>'code'='BOOKINGS_AFFECTED','next-day staff holiday warns for overnight reservation');
+ r:=public.save_staff_override_atomic('fe600000-0000-4000-8000-000000000001','fe610000-0000-4000-8000-000000000001',
+ 'fe630000-0000-4000-8000-000000000001','2030-01-28',true,NULL,NULL,false);
+ PERFORM pg_temp.assert_min(r->>'code'='BOOKINGS_AFFECTED','start-day staff holiday warns for overnight reservation');
+ r:=public.replace_staff_schedules_atomic('fe600000-0000-4000-8000-000000000001','fe610000-0000-4000-8000-000000000001',
+ 'fe630000-0000-4000-8000-000000000001','fe650000-0000-4000-8000-000000000001',
+ '[{"day_of_week":1,"start_time":"00:00","end_time":"23:59"},{"day_of_week":2,"start_time":"09:00","end_time":"18:00"}]'::jsonb,false);
+ PERFORM pg_temp.assert_min(r->>'code'='BOOKINGS_AFFECTED','weekly changes warn before stranding overnight reservation');
+ r:=public.replace_staff_schedules_atomic('fe600000-0000-4000-8000-000000000001','fe610000-0000-4000-8000-000000000001',
+ 'fe630000-0000-4000-8000-000000000001','fe650000-0000-4000-8000-000000000002',
+ '[{"day_of_week":1,"start_time":"00:00","end_time":"24:00"},{"day_of_week":2,"start_time":"00:00","end_time":"24:00"}]'::jsonb,false);
+ PERFORM pg_temp.assert_min(r->>'ok'='true','24:00 staff end can be saved without stranding reservations');
+END $$;
 ROLLBACK;
