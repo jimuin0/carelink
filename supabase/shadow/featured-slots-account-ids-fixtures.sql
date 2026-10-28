@@ -257,12 +257,21 @@ SELECT pg_temp.assert_ids(
     WHERE schemaname = 'public' AND tablename = 'review_helpful') = ARRAY['review_helpful_user_manage'],
   'only the own-row policy remains on helpful votes');
 SELECT pg_temp.assert_ids(
-  (SELECT prosecdef AND proconfig = ARRAY['search_path=""'] FROM pg_proc
+  (SELECT NOT prosecdef AND proconfig = ARRAY['search_path=""'] FROM pg_proc
     WHERE oid = 'public.get_review_helpful_counts(uuid[])'::regprocedure)
+  AND (SELECT prosecdef AND proconfig = ARRAY['search_path=""'] FROM pg_proc
+    WHERE oid = 'carelink_review_private.get_review_helpful_counts(uuid[])'::regprocedure)
+  AND NOT has_schema_privilege('anon', 'carelink_review_private', 'CREATE')
+  AND NOT has_schema_privilege('authenticated', 'carelink_review_private', 'CREATE')
+  AND NOT EXISTS (SELECT 1 FROM pg_proc p, LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+    WHERE p.oid = 'carelink_review_private.get_review_helpful_counts(uuid[])'::regprocedure
+      AND a.grantee = 0 AND a.privilege_type = 'EXECUTE')
+  AND has_function_privilege('anon', 'carelink_review_private.get_review_helpful_counts(uuid[])', 'EXECUTE')
+  AND has_function_privilege('authenticated', 'carelink_review_private.get_review_helpful_counts(uuid[])', 'EXECUTE')
   AND has_function_privilege('anon', 'public.get_review_helpful_counts(uuid[])', 'EXECUTE')
   AND has_function_privilege('authenticated', 'public.get_review_helpful_counts(uuid[])', 'EXECUTE')
   AND has_function_privilege('service_role', 'public.get_review_helpful_counts(uuid[])', 'EXECUTE'),
-  'count function is a definer with a fixed search_path, callable by the pages');
+  'count RPC uses an invoker wrapper and a restricted definer helper with fixed search_path');
 
 -- 01 public review of A, 02 hidden review of A, 03 flagged review of A, 04 review of the draft shop C.
 SET LOCAL ROLE service_role;
