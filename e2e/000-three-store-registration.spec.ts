@@ -13,7 +13,7 @@ test.beforeAll(() => {
     throw new Error('Three-store verification requires disposable local CI without sending credentials');
   }
 });
-test.use({ serviceWorkers: 'block', trace: 'off', screenshot: 'off', video: 'off' });
+test.use({ serviceWorkers: 'block', trace: 'off', screenshot: 'off', video: 'off', actionTimeout: 30_000, navigationTimeout: 30_000 });
 
 async function apply(page: Page, name: string, email: string, address: string) {
   await page.goto('/register');
@@ -57,7 +57,9 @@ test('one owner applies, signs up, adds and publishes three distinct stores', as
   await page.getByRole('button', { name: '必須のみ', exact: true }).click();
 
   for (let index = 0; index < names.length; index++) {
+    console.log(`Verifying store ${index + 1}: application`);
     const receiptId = await apply(page, names[index], `three-store-${suffix}@example.invalid`, `愛知県西尾市合成町${index + 1}`);
+    console.log(`Verifying store ${index + 1}: account handoff`);
     if (index === 0) {
       await page.getByRole('link', { name: '店舗アカウントを作成する' }).click();
       await page.fill('#signup-name', '合成担当');
@@ -71,7 +73,8 @@ test('one owner applies, signs up, adds and publishes three distinct stores', as
     } else {
       await page.getByRole('link', { name: '既存アカウントでログインする' }).click();
     }
-    await page.waitForURL('**/admin/onboarding?handoff=registration');
+    await page.waitForURL('**/admin/onboarding?handoff=registration', { timeout: 30_000 });
+    console.log(`Verifying store ${index + 1}: setup`);
     await expect(page.locator('#onboarding-facility-name')).toHaveValue(names[index]);
     await page.getByRole('checkbox').check();
     const setup = await observeFacilitySetup(page, () => page.getByRole('button', { name: '店舗を作成する', exact: true }).click());
@@ -81,7 +84,8 @@ test('one owner applies, signs up, adds and publishes three distinct stores', as
     expect(facilityId).not.toBeFalsy();
     expect(ids).not.toContain(facilityId);
     ids.push(facilityId);
-    await page.waitForURL(url => url.pathname === '/admin');
+    await page.waitForURL(url => url.pathname === '/admin', { timeout: 30_000 });
+    console.log(`Verifying store ${index + 1}: ownership`);
     const claimed = await db.from('salons').select('claimed_by_user_id,claimed_facility_id').eq('id', receiptId).single();
     expect(claimed.error).toBeNull();
     expect(claimed.data?.claimed_facility_id).toBe(facilityId);
@@ -99,6 +103,7 @@ test('one owner applies, signs up, adds and publishes three distinct stores', as
   for (const name of names) await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
 
   for (let index = 0; index < ids.length; index++) {
+    console.log(`Verifying store ${index + 1}: settings and publication`);
     await page.goto(`/admin/settings?facility_id=${ids[index]}`);
     await expect(page.getByRole('button', { name: '保存する', exact: true })).toBeVisible();
     await page.getByLabel('月曜日に営業する', { exact: true }).check();
