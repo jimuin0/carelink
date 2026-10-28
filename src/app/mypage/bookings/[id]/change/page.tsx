@@ -363,6 +363,9 @@ export default function BookingChangePage() {
         </div>
       )}
 
+      {selectedSlot?.end_date && selectedSlot.end_date !== selectedDate && (
+        <p className="text-sm text-gray-700">終了は翌日 {selectedSlot.slot_end.slice(0, 5)} です。</p>
+      )}
       {selectedSlot && (
         <div className="flex gap-3">
           <button type="button" onClick={() => router.back()} className="flex-1 py-3 text-sm text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">キャンセル</button>

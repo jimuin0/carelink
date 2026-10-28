@@ -74,7 +74,7 @@ function mockSupabase(t: Tables = {}) {
   });
 }
 
-type SlotLike = { slot_start: string; slot_end: string };
+type SlotLike = { slot_start: string; slot_end: string; end_date?: string };
 let fetchMock: jest.Mock;
 
 /** /api/slots/week の応答を順に返す fetch モック（足りなければ最後の応答を繰り返す）。 */
@@ -110,6 +110,16 @@ describe('指名予約', () => {
     await pickTomorrow();
     await waitFor(() => expect(fetchMock.mock.calls.some(c => String(c[0]).includes('duration=90'))).toBe(true));
   });
+  test('翌日に終了する変更候補は確定前に終了時刻を表示する', async () => {
+    mockSupabase();
+    mockFetch(slotsFor([{ slot_start: '23:30:00', slot_end: '00:30:00', end_date: '2099-06-03' }]));
+    render(<BookingChangePage />);
+    await pickTomorrow();
+    fireEvent.click(await within(slotPicker()).findByText('23:30'));
+    expect(screen.getByText('終了は翌日 00:30 です。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /23:30に変更する/ })).toBeInTheDocument();
+  });
+
   test('当該スタッフの空き枠を /api/slots/week（選んだ1日分）で取得して表示する', async () => {
     mockSupabase();
     mockFetch(slotsFor([{ slot_start: '13:00:00', slot_end: '14:00:00' }]));
