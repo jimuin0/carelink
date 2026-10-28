@@ -139,7 +139,9 @@ async function main(){
 
  // Two different customers move overnight bookings onto the same staff slot.
  // The second transaction must actually wait on the first and then reject the overlap.
- query(`UPDATE public.facility_profiles SET business_hours='{"mon":{"open":"18:00","close":"05:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}' WHERE id='${facility}';
+ // The preceding owner-revocation scenario deliberately suspends its synthetic
+ // facility. Restore its published state for this separate booking scenario.
+ query(`UPDATE public.facility_profiles SET status='published',business_hours='{"mon":{"open":"18:00","close":"05:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}' WHERE id='${facility}';
  UPDATE public.staff_schedules SET start_time='18:00',end_time='24:00' WHERE staff_id='${staff}' AND day_of_week=1;
  INSERT INTO public.staff_schedules(staff_id,day_of_week,start_time,end_time) VALUES('${staff}',2,'00:00','05:00');
  INSERT INTO public.facility_special_hours(facility_id,allow_overnight_bookings) VALUES('${facility}',true);
