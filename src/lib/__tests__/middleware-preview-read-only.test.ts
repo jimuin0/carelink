@@ -1,8 +1,9 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { createServerClient } from '@supabase/ssr';
 jest.mock('@supabase/ssr', () => ({ createServerClient: jest.fn(() => { throw new Error('auth client unavailable'); }) }));
+const setCookie = jest.fn();
 jest.mock('next/server', () => ({ NextResponse: {
-  next: () => ({ headers: new Headers(), cookies: { getAll: () => [] } }),
+  next: () => ({ headers: new Headers(), cookies: { getAll: () => [], set: setCookie } }),
   json: (body: unknown, init: ResponseInit) => ({ body, status: init.status, headers: new Headers(init.headers) }),
 } }));
 import { middleware } from '../../middleware';
@@ -10,9 +11,10 @@ import { middleware } from '../../middleware';
 const original = process.env;
 afterEach(() => { process.env = original; jest.clearAllMocks(); });
 
-function request(path: string, method = 'GET') {
+function request(path: string, method = 'GET', cookieNames: string[] = []) {
   return { nextUrl: new URL('https://preview.example.test' + path), method,
-    headers: new Headers({ 'user-agent': 'Mozilla/5.0' }), cookies: { getAll: () => [] } } as never;
+    headers: new Headers({ 'user-agent': 'Mozilla/5.0' }),
+    cookies: { getAll: () => cookieNames.map((name) => ({ name, value: 'v' })) } } as never;
 }
 
 function env(vercelEnv: string, key?: string) {
@@ -43,3 +45,26 @@ test.each([['production', undefined], ['preview', 'isolated-preview-key']])(
     await middleware(request('/auth/login'));
     expect(createServerClient).toHaveBeenCalled();
   });
+
+const SESSION = ['sb-abcdefghijklmnopqrst-auth-token.0', 'sb-abcdefghijklmnopqrst-auth-token.1', 'cookie_consent'];
+
+test('a session left on the public Preview is expired on public pages', async () => {
+  env('preview');
+  await middleware(request('/facility/example', 'GET', SESSION));
+  expect(setCookie.mock.calls).toEqual([
+    ['sb-abcdefghijklmnopqrst-auth-token.0', '', { maxAge: 0, path: '/' }],
+    ['sb-abcdefghijklmnopqrst-auth-token.1', '', { maxAge: 0, path: '/' }],
+  ]);
+});
+
+test('a session left on the public Preview is expired by the refusal too', async () => {
+  env('preview');
+  const res = await middleware(request('/mypage', 'GET', SESSION)) as Response;
+  expect(res.headers.getSetCookie()).toHaveLength(2);
+});
+
+test('production keeps session cookies on public pages', async () => {
+  env('production');
+  await middleware(request('/facility/example', 'GET', SESSION));
+  expect(setCookie).not.toHaveBeenCalled();
+});

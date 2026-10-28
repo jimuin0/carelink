@@ -22,18 +22,33 @@ export function isPreviewRestricted(method: string, pathname: string): boolean {
   return ACCOUNT_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 }
 
+// @supabase/ssr session cookies, including chunked values and the PKCE verifier.
+const SUPABASE_AUTH_COOKIE = /^sb-[a-z0-9]+-auth-token(?:-code-verifier)?(?:\.\d+)?$/;
+
+/** Session cookies a public Preview must expire. A session created there before
+ * the restriction would otherwise let browser clients write directly to production.
+ */
+export function previewStaleAuthCookies(cookieNames: string[]): string[] {
+  if (!isPublicReadOnlyPreview()) return [];
+  return cookieNames.filter((name) => SUPABASE_AUTH_COOKIE.test(name));
+}
+
 /** Fixed, cache-free refusal. Pages get a short notice, other methods JSON. */
-export function previewRestrictedResponse(method: string): Response {
-  const headers = {
+export function previewRestrictedResponse(method: string, expireCookies: string[] = []): Response {
+  const headers = new Headers({
     'Cache-Control': 'no-store',
     'X-Robots-Tag': 'noindex',
     'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
-  };
+  });
+  for (const name of expireCookies) {
+    headers.append('Set-Cookie', `${name}=; Path=/; Max-Age=0; SameSite=Lax; Secure`);
+  }
   if (method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD') {
     return Response.json({ error: PREVIEW_READ_ONLY_MESSAGE, code: 'preview_read_only' }, { status: 403, headers });
   }
+  headers.set('Content-Type', 'text/html; charset=utf-8');
   const html = '<!doctype html><html lang="ja"><head><meta charset="utf-8">'
     + '<meta name="viewport" content="width=device-width,initial-scale=1"><title>プレビュー環境</title></head>'
     + `<body><main><h1>プレビュー環境</h1><p>${PREVIEW_READ_ONLY_MESSAGE}</p><p><a href="/">トップへ戻る</a></p></main></body></html>`;
-  return new Response(html, { status: 403, headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8' } });
+  return new Response(html, { status: 403, headers });
 }

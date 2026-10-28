@@ -4,6 +4,7 @@ import {
   isPublicReadOnlyPreview,
   PREVIEW_READ_ONLY_MESSAGE,
   previewRestrictedResponse,
+  previewStaleAuthCookies,
 } from '../preview-capabilities';
 
 const original = process.env;
@@ -94,4 +95,33 @@ test('write refusal is JSON with a stable code', async () => {
   expect(res.status).toBe(403);
   expect(res.headers.get('cache-control')).toBe('no-store');
   expect(await res.json()).toEqual({ error: PREVIEW_READ_ONLY_MESSAGE, code: 'preview_read_only' });
+});
+
+describe('session cookies left on a public Preview origin', () => {
+  const names = ['sb-abcdefghijklmnopqrst-auth-token', 'sb-abcdefghijklmnopqrst-auth-token.0',
+    'sb-abcdefghijklmnopqrst-auth-token.1', 'sb-abcdefghijklmnopqrst-auth-token-code-verifier',
+    'cookie_consent', '_cm_mbr_0123456789abcdef', 'sb-abcdefghijklmnopqrst-other'];
+
+  test('only Supabase auth cookies are selected in the public Preview', () => {
+    setEnv('preview', undefined);
+    expect(previewStaleAuthCookies(names)).toEqual(names.slice(0, 4));
+  });
+
+  test.each([['production', undefined], ['preview', 'isolated-preview-key']])(
+    'nothing is expired outside the public Preview (%s)', (environment, key) => {
+      setEnv(environment, key);
+      expect(previewStaleAuthCookies(names)).toEqual([]);
+    });
+
+  test.each(['GET', 'POST'])('the %s refusal expires them', (method) => {
+    const res = previewRestrictedResponse(method, ['sb-x-auth-token', 'sb-x-auth-token.0']);
+    expect(res.headers.getSetCookie()).toEqual([
+      'sb-x-auth-token=; Path=/; Max-Age=0; SameSite=Lax; Secure',
+      'sb-x-auth-token.0=; Path=/; Max-Age=0; SameSite=Lax; Secure',
+    ]);
+  });
+
+  test('no cookie header is added when there is nothing to expire', () => {
+    expect(previewRestrictedResponse('GET').headers.getSetCookie()).toEqual([]);
+  });
 });

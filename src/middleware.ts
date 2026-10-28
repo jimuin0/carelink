@@ -9,7 +9,12 @@ import { getMembershipCacheKey } from '@/lib/admin-membership-cache-key';
 import { AUTH_UNAVAILABLE_BODY, AUTH_VERIFICATION_TIMEOUT_MS, verifyAuthUser } from '@/lib/auth-verification';
 import { GOOGLE_MAPS_EMBED_ORIGIN } from '@/lib/map-embed';
 import { shouldBlockCollectionCrawler } from '@/lib/crawler-policy';
-import { isPreviewRestricted, previewRestrictedResponse } from '@/lib/preview-capabilities';
+import {
+  isPreviewRestricted,
+  isPublicReadOnlyPreview,
+  previewRestrictedResponse,
+  previewStaleAuthCookies,
+} from '@/lib/preview-capabilities';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
 
@@ -140,9 +145,13 @@ export async function middleware(request: NextRequest) {
   }
 
   // The public Preview has only the production anon key: stop sign-in, account
-  // and store areas (and any page-level write) before they reach production Auth.
+  // and store areas (and any page-level write) before they reach production Auth,
+  // and expire any session cookie left from before, so browser clients can't
+  // reuse it for direct writes.
+  const staleAuthCookies = isPublicReadOnlyPreview()
+    ? previewStaleAuthCookies(request.cookies.getAll().map((c) => c.name)) : [];
   if (isPreviewRestricted(request.method, pathname)) {
-    return previewRestrictedResponse(request.method);
+    return previewRestrictedResponse(request.method, staleAuthCookies);
   }
 
   // 全ページ応答に per-request nonce ベース CSP を付与する。
@@ -158,6 +167,7 @@ export async function middleware(request: NextRequest) {
   requestHeaders.set('x-pathname', request.nextUrl.pathname);
   const setCsp = (res: NextResponse): NextResponse => {
     res.headers.set('Content-Security-Policy', cspHeader);
+    for (const name of staleAuthCookies) res.cookies.set(name, '', { maxAge: 0, path: '/' });
     return res;
   };
 
