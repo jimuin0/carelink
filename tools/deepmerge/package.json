@@ -1,0 +1,8 @@
+{
+  "name": "deepmerge",
+  "version": "4.3.1",
+  "description": "Local security-patched copy of deepmerge 4.3.1 for Jest",
+  "main": "index.cjs",
+  "types": "index.d.ts",
+  "license": "MIT"
+}
