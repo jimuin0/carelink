@@ -159,7 +159,7 @@ export default function Footer() {
             <h3 className="text-white font-bold text-sm mb-3">運営会社</h3>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm text-gray-400">
               <dt>運営</dt>
-              <dd>神原良祐（HALグループ）</dd>
+              <dd>TOKUHAL.</dd>
               <dt>所在地</dt>
               <dd>大阪府豊中市</dd>
               <dt>事業内容</dt>
