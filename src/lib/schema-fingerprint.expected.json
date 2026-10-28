@@ -2235,7 +2235,7 @@
 "function|publish_customer_booking_transition_email(p_booking_id uuid, p_kind text, p_previous_date date, p_previous_start time without time zone, p_previous_end time without time zone)|returns=integer|volatile=v|secdef=f|body_md5=d083c04788d4919eb8b8e3da02b47af8",
 "function|publish_customer_booking_transition_email_dated(p_booking_id uuid, p_kind text, p_previous_date date, p_previous_start time without time zone, p_previous_end time without time zone, p_previous_end_date date)|returns=integer|volatile=v|secdef=f|body_md5=2c09376b04858f82f61878836e5fa79e",
 "function|publish_newsletter_send_operation(p_actor_id uuid, p_campaign_id uuid, p_expected_revision timestamp with time zone, p_expected_emails text[], p_unsubscribe_links jsonb, p_from text)|returns=jsonb|volatile=v|secdef=t|body_md5=3329e11fadf55b3df4d091738fc06149",
-"function|published_special_hours(p_facility_id uuid)|returns=jsonb|volatile=s|secdef=t|body_md5=e1c4bfb69d0ca2ca4eb1ca420f8ee5bb",
+"function|published_special_hours(p_facility_id uuid)|returns=jsonb|volatile=s|secdef=f|body_md5=d805ee88587005f341fca8884a626795",
 "function|read_admin_menu_snapshot(p_actor_id uuid, p_facility_id uuid)|returns=jsonb|volatile=s|secdef=f|body_md5=ba6ebc359344ca195ca52381cdbd065c",
 "function|read_salon_recovery(p_user_id uuid, p_grant_id uuid, p_proof_hash text)|returns=TABLE(outcome text, receipt_id uuid, facility_name text, business_type text, address text)|volatile=v|secdef=f|body_md5=c7294cc02eb9522dc849dd83d94db5e7",
 "function|reconcile_threads_article_publish(p_post_id uuid, p_attempt_id uuid, p_creation_id text, p_provider_status text)|returns=boolean|volatile=v|secdef=t|body_md5=dae24225a0b1b8a681be6df99af7b657",
