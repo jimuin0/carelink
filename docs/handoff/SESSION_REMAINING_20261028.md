@@ -44,7 +44,9 @@
 
 - Vercel Preview の環境変数に 10/25 から `NEXT_PUBLIC_SUPABASE_URL` / `ANON_KEY`（本番の公開値）がある。service-role は無い。Deployment Protection は Vercel Authentication（Standard）。
 - 実際の Preview（`carelink-8rmez0bug-jimuin.vercel.app`、`/api/health` は `scope: public-preview`）で `/auth/login` の入力欄・Google ログインが表示され、CSP `connect-src` が本番 project を指していた（送信はしていない）。
-- 本番の anon/public 向け書き込みポリシーはすべてログイン本人・施設メンバー条件。PR #857 で公開 Preview の認証・会員/店舗画面・変更系メソッドを 403 で止めた。
+- 本番の書き込み経路（読み取り確認）: anon/public 向けの書き込みポリシーは `public`・`storage` とも `auth.uid()` 条件か `false` だけ。anon が実行できる作成者権限のアプリ関数は読み取り専用の `published_special_hours` だけ。RLS の無い anon 書き込み可能な表は `spatial_ref_sys`（PostGIS 課題・Preview に限らない）だけ。
+- PR #857: 公開 Preview では、ログイン・会員/店舗画面を 403 で止め、残ったログイン Cookie を失効させる（＝本番のセッションを Preview 上に作れない）。service-role も無いので、上の権限構成と合わせて本番へ書き込めない。`withRoute` の API は変更系メソッドも先頭で 403 にする（多層防御）。`withRoute` を使わない API は前者の条件に依存する。
+- PR #857 の Preview（`carelink-25y892q2g-jimuin.vercel.app`、version `0e64cc2`）で実測: `/auth/login`・`/auth/signup`・`/mypage`・`/admin` は 403 の案内（no-store・noindex）、`/`・`/search`・`/register` は 200（nonce 付き CSP）、`POST /api/favorites` は 403 `preview_read_only`、`/api/health` は `scope: public-preview`。送信・ログインはしていない。
 - Supabase の開発ブランチは 0 件。隔離 hosted 環境での「ログイン・書き込みの成功」は未測定。
 
 ## 5. CPU と無料枠（未達）
@@ -63,4 +65,4 @@
 
 ## Preview 配信の失敗（基盤側）
 
-PR #857 の Preview ビルドは、アプリのビルド後に `vcr.vercel.com/jimuin/carelink/dockerfile` へのイメージ push が拒否されて失敗した。同じ失敗は 10/28 の他ブランチの Preview でも繰り返し出ており（同日 10:28・10:37 UTC の配信は成功）、コード起因ではない。ダッシュボードからの再配信はメールコードによる本人再認証を求められたため実行していない。
+PR #857 の最初の 2 回の Preview ビルドは、アプリのビルド後に `vcr.vercel.com/jimuin/carelink/dockerfile` へのイメージ push が拒否されて失敗した。同じ失敗は 10/28 の他ブランチの Preview でも繰り返し出ており（同日 10:28・10:37 UTC の配信は成功）、コード起因ではない。ダッシュボードからの再配信はメールコードによる本人再認証を求められたため実行していない。3 回目（`0e64cc2`）の Git 起点の配信は成功した。
