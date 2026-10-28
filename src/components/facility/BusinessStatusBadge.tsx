@@ -2,10 +2,14 @@
 
 import { useSyncExternalStore } from 'react';
 import { businessMinute, businessPeriods, businessWindows, periodWindow, type BusinessDay } from '@/lib/business-hours';
+import { specialReceptionStatus } from '@/lib/special-business-hours';
+import { usePublicHolidayCalendar } from '@/components/facility/usePublicHolidayCalendar';
+import type { PublicSpecialHours } from '@/lib/public-special-hours';
 
 interface Props {
   businessHours: Record<string, BusinessDay | null> | null;
   regularHoliday?: string | null;
+  specialHours?: PublicSpecialHours | null;
 }
 
 /**
@@ -70,7 +74,8 @@ function getServerStatusSnapshot(): 'open' | 'closed' | 'holiday' | 'unknown' {
   return 'unknown';
 }
 
-export default function BusinessStatusBadge({ businessHours }: Props) {
+export default function BusinessStatusBadge({ businessHours, specialHours }: Props) {
+  const holidays = usePublicHolidayCalendar(specialHours?.close_on_public_holidays === true);
   // 現在時刻(new Date())は SSR ではサーバのタイムゾーン(通常UTC)、クライアントでは閲覧者の
   // ローカル時刻(日本ならJST)で評価されるため、描画中に判定するとサーバHTMLとクライアント描画で
   // 営業状態テキスト(営業中/営業時間外/定休日)が食い違い hydration mismatch を起こす。
@@ -82,7 +87,9 @@ export default function BusinessStatusBadge({ businessHours }: Props) {
   // 無限再レンダーの心配はない。
   const status = useSyncExternalStore(
     subscribeClock,
-    () => computeCalendarBusinessStatus(businessHours, Date.now()),
+    () => specialHours ? specialReceptionStatus(businessHours,
+      { dates: Object.fromEntries(specialHours.closed_dates.map(date => [date, null])), closeOnPublicHolidays: specialHours.close_on_public_holidays },
+      holidays, specialHours.reception_cutoff_minutes, Date.now()) : computeCalendarBusinessStatus(businessHours, Date.now()),
     getServerStatusSnapshot,
   );
 
@@ -92,6 +99,7 @@ export default function BusinessStatusBadge({ businessHours }: Props) {
     open: { text: '営業中', className: 'bg-emerald-100 text-emerald-700' },
     closed: { text: '営業時間外', className: 'bg-gray-100 text-gray-600' },
     holiday: { text: '定休日', className: 'bg-red-50 text-red-700' },
+    reception_closed: { text: '受付終了', className: 'bg-gray-100 text-gray-600' },
   };
 
   const { text, className } = config[status];

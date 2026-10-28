@@ -47,7 +47,7 @@ async function getBookingStatus(bookingId?: string): Promise<string | null> {
 
 interface Props {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ id?: string; date?: string; time?: string; end_time?: string; facility?: string; has_intake?: string }>;
+  searchParams: Promise<{ id?: string; date?: string; time?: string; end_time?: string; end_date?: string; facility?: string; has_intake?: string }>;
 }
 
 const TIME_RE = /^\d{2}:\d{2}$/;
@@ -63,7 +63,7 @@ function escapeIcal(str: string): string {
     .replace(/\r\n|\r|\n/g, '\\n');
 }
 
-function buildIcsContent(date?: string, time?: string, endTime?: string, facility?: string, bookingId?: string): string | null {
+function buildIcsContent(date?: string, time?: string, endTime?: string, facility?: string, bookingId?: string, endDate?: string): string | null {
   if (!date || !time || !isValidIsoDate(date) || !TIME_RE.test(time)) return null;
 
   const now = new Date();
@@ -73,7 +73,8 @@ function buildIcsContent(date?: string, time?: string, endTime?: string, facilit
 
   let dtEnd: string;
   if (endTime && TIME_RE.test(endTime)) {
-    dtEnd = toIcalLocalDateTime(date, endTime);
+    if (endDate && !isValidIsoDate(endDate)) return null;
+    dtEnd = toIcalLocalDateTime(endDate ?? date, endTime);
   } else {
     // Fallback: +1 hour with proper day rollover
     const startDate = new Date(`${date}T${time}:00`);
@@ -135,7 +136,7 @@ export default async function BookingCompletePage(props: Props) {
   // バナーを一切表示しない（テンプレ有無の DB 参照もスキップ）。再開は INTAKE_CUSTOMER_ENABLED で。
   const hasIntakeForm = INTAKE_CUSTOMER_ENABLED
     && (searchParams.has_intake === '1' || (await facilityHasActiveIntake(params.slug)));
-  const icsContent = buildIcsContent(searchParams.date, searchParams.time, searchParams.end_time, searchParams.facility, bookingId);
+  const icsContent = buildIcsContent(searchParams.date, searchParams.time, searchParams.end_time, searchParams.facility, bookingId, searchParams.end_date);
   const icsDataUri = icsContent ? `data:text/calendar;charset=utf-8,${encodeURIComponent(icsContent)}` : null;
 
   return (

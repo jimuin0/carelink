@@ -10,7 +10,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { isValidIsoDate } from '@/lib/date-utils';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
-import { clampDuration, readSlots } from '@/lib/available-slots';
+import { clampDuration, loadSlotHolidayCalendar, readDatedSlots } from '@/lib/available-slots';
 import { SLOTS_WEEK_MAX_STAFF as MAX_STAFF, SLOTS_WEEK_MAX_DATES as MAX_DATES } from '@/lib/slots-week';
 
 export const dynamic = 'force-dynamic';
@@ -76,9 +76,11 @@ export async function GET(request: Request) {
     if (!preparation.readiness.ready) return NextResponse.json({ days: {}, bookingAvailable: false });
 
     const admin = createServiceRoleClient();
+    const policy = await loadSlotHolidayCalendar(admin, facilityId);
+    if (policy.error) return serverError('slots-week:holiday-calendar', policy.error, '/api/slots/week', '営業時間を確認できません', { days: {} });
     const pairs = dates.flatMap((date) => staffIds.map((staffId) => ({ date, staffId })));
     const reads = await Promise.all(pairs.map(({ date, staffId }) =>
-      readSlots(admin, facilityId, staffId, date, duration, excludeBookingId ?? undefined)));
+      readDatedSlots(admin, facilityId, staffId, date, duration, policy.calendar, excludeBookingId ?? undefined)));
     const failed = reads.find((r) => r.error);
     if (failed) return serverError('slots-week:get_available_slots', failed.error, '/api/slots/week', 'サーバーエラーが発生しました', { days: {} });
 

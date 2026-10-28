@@ -337,7 +337,7 @@ describe('searchFacilities', () => {
     ], error: null });
     const result = await searchFacilities({ ...geo, prefecture: '東京都', price_min: 3000, price_max: 8000 });
 
-    const checks = made.filter((m) => m.calls.in);
+    const checks = made.filter((m) => m.calls.in && m.calls.select?.[0]?.[0] !== 'id,special_hours');
     expect(checks).toHaveLength(1);
     expect(checks[0].table).toBe('facility_card_view');
     expect(checks[0].calls.select).toEqual([['id, price_menu:facility_menus!inner()']]);
@@ -384,7 +384,7 @@ describe('searchFacilities', () => {
 
     const result = await searchFacilities({ ...geo, symptom: '腰痛' });
 
-    const chunks = made.filter((m) => m.calls.in).map((m) => m.calls.in[0][1] as string[]);
+    const chunks = made.filter((m) => m.calls.in && m.calls.select?.[0]?.[0] !== 'id,special_hours').map((m) => m.calls.in[0][1] as string[]);
     expect(chunks.map((c) => c.length)).toEqual([GEO_DETAIL_ID_CHUNK, GEO_DETAIL_ID_CHUNK, 50]);
     expect(chunks.flat()).toEqual(nearbyIds);
     expect(result.total).toBe(nearbyIds.filter((id) => id.endsWith('7')).length);
@@ -398,11 +398,12 @@ describe('searchFacilities', () => {
     expect(result.total).toBe(0);
   });
 
-  test('GPS + 詳細条件なしなら確かめる問い合わせをしない', async () => {
+  test('GPS + 詳細条件なしなら営業時間情報のみ一括取得する', async () => {
     const made = routeFrom(() => ({ data: [], error: null }));
     mockRpc.mockResolvedValue({ data: [{ id: 'a' }], error: null });
     const result = await searchFacilities(geo);
-    expect(made.filter((m) => m.calls.in)).toHaveLength(0);
+    expect(made.filter((m) => m.calls.in)).toHaveLength(1);
+    expect(made.find((m) => m.calls.in)?.calls.select).toEqual([['id,special_hours']]);
     expect(result.total).toBe(1);
   });
 });

@@ -338,7 +338,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 - `createBrowserSupabaseClient`（`supabase-browser.ts`）＝ブラウザ用。
 
 ## API ルート一覧（`src/app/api/`）
-- 公開・来院者系：`facilities` `facility` `salons` `availability` `slots` `booking` `waitlist` `options` `symptoms` `stations` `recommendations` `ab-test` `referral` `review` `nps` `report` `favorites` `preferred-staff`（指名スタッフの登録・解除）`profile` `account` `chat` `intake` `contact` `inquiry` `unsubscribe` `health` `og` `v1` `push` `[...notfound]`（未定義 API パスの catch-all）
+- 公開・来院者系：`public`（祝日情報）`facilities` `facility` `salons` `availability` `slots` `booking` `waitlist` `options` `symptoms` `stations` `recommendations` `ab-test` `referral` `review` `nps` `report` `favorites` `preferred-staff`（指名スタッフの登録・解除）`profile` `account` `chat` `intake` `contact` `inquiry` `unsubscribe` `health` `og` `v1` `push` `[...notfound]`（未定義 API パスの catch-all）
 - 認証・LINE：`auth` `liff` `line`
 - 決済：`payment` `stripe`
 - 管理（`api/admin/`・施設オーナー／プラットフォーム）：`bookings` `booking-status` `booking-checkout` `booking-adjust-request` `customers` `staff` `menus` `catalog` `coupons` `packages` `user-packages` `subscription-plans` `user-subscriptions` `payments-settings` `accounting-export` `settings` `facility-verify` `registrations` `jobs` `job-applications` `featured-ads` `features` `feature-flags` `blog` `platform-blog` `qa` `review-summary` `review-replies` `moderation` `newsletter` `inquiries` `report` `gbp` `hpb-menus` `ai-support` `api-keys` `backup` `chain` `white-label` `photos` `notification-reconciliation`（実ディレクトリ 41 本と一致）

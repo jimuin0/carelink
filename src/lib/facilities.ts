@@ -26,7 +26,7 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
 // Card list queries use facility_card_view (has computed min_price, max_price, menu_count, coupon_count, photo_count)
 // Note: Supabase view queries return generic types, so `as unknown as FacilityCardData[]` casts are intentional.
 const CARD_VIEW = 'facility_card_view';
-export const CARD_COLS = 'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, google_rating, google_review_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count, booking_menu_count, active_staff_count, has_address';
+export const CARD_COLS = 'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, google_rating, google_review_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, special_hours, seat_count, booking_menu_count, active_staff_count, has_address';
 
 /** キーワード検索で一度に扱う語数の上限（1語ごとに ILIKE が 6 本増えるため青天井にしない）。 */
 export const KEYWORD_MAX_TERMS = 5;
@@ -279,7 +279,19 @@ export async function searchFacilities(params: SearchParams) {
     }
     const page = Math.max(1, params.page || 1); // 負値(?page=-1 等)で range が負になり PostgREST エラー/末尾slice化するのを防ぐ
     const from = (page - 1) * PER_PAGE;
-    return { facilities: filtered.slice(from, from + PER_PAGE) as FacilityCardData[], total: filtered.length, perPage: PER_PAGE, error };
+    const visible = filtered.slice(from, from + PER_PAGE);
+    if (visible.length) {
+      // The nearby RPC has a fixed return type; read the public schedule facts
+      // for just this page without changing the RPC signature.
+      const extra = await supabase.from(CARD_VIEW).select('id,special_hours').in('id', visible.map(f => f.id));
+      if (extra.error) return { facilities: [] as FacilityCardData[], total: 0, perPage: PER_PAGE, error: extra.error };
+      const schedules = new Map((extra.data ?? []).map(row => [row.id, row.special_hours]));
+      for (const facility of visible) {
+        if (!schedules.has(facility.id)) facility.business_hours = null;
+        else facility.special_hours = schedules.get(facility.id) as FacilityCardData['special_hours'];
+      }
+    }
+    return { facilities: visible as FacilityCardData[], total: filtered.length, perPage: PER_PAGE, error };
   }
 
   if (detail) query = applyDetailFilter(query, detail);
@@ -321,7 +333,7 @@ export async function searchFacilities(params: SearchParams) {
 }
 
 export async function getPopularFacilities(limit = 6) {
-  const cacheKey = `popular_facilities:${limit}`;
+  const cacheKey = `popular_facilities:special-hours-v1:${limit}`;
   try {
     const cached = await cachedFetch<FacilityCardData[]>(
       cacheKey,

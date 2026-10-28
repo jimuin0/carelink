@@ -151,4 +151,46 @@ DO $$ BEGIN
  EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT IN ('BOOKING_CREATE_NOTIFICATION_IMMUTABLE','EVENT_EMAIL_IDENTITY_IMMUTABLE') THEN RAISE; END IF; END;
 END $$;
 RESET ROLE;
+-- Dated creation must preserve the ending date in the receipt and the email
+-- snapshot while keeping strict legacy push payloads unchanged.
+UPDATE public.facility_profiles SET business_hours='{"mon":{"open":"18:00","close":"05:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}'
+ WHERE id='bea41000-0000-4000-8000-000000000001';
+UPDATE public.staff_schedules SET start_time='18:00',end_time='24:00' WHERE staff_id='bea43000-0000-4000-8000-000000000001';
+INSERT INTO public.staff_schedules(staff_id,day_of_week,start_time,end_time)
+ VALUES ('bea43000-0000-4000-8000-000000000001',2,'00:00','05:00');
+INSERT INTO public.facility_special_hours(facility_id,allow_overnight_bookings)
+ VALUES ('bea41000-0000-4000-8000-000000000001',true);
+SET LOCAL ROLE service_role;
+SELECT * FROM public.prepare_booking_create_operation('bea44000-0000-4000-8000-000000000020',
+ 'bea40000-0000-4000-8000-000000000002',NULL,'bea41000-0000-4000-8000-000000000001',repeat('c',64));
+DO $$ DECLARE snap jsonb; plan jsonb; receipt jsonb; qid uuid; BEGIN
+ snap:=jsonb_build_object('customer_name','Synthetic','email','proxy@example.invalid','facility_name','Receipt synthetic',
+ 'menu_name','Synthetic','staff_name','Synthetic','booking_date','2030-02-04','start_time','23:45','end_time','00:15',
+ 'end_date','2030-02-05','total_price',500,'status','confirmed');
+ plan:=jsonb_build_array(jsonb_build_object('kind','email','role','customer','target','proxy@example.invalid',
+  'envelope',jsonb_build_object('from','test@example.invalid','to','proxy@example.invalid','subject','Synthetic','html','<p>Synthetic</p>'),
+  'snapshot',snap,'context',jsonb_build_object('owner_ids',jsonb_build_array('bea40000-0000-4000-8000-000000000001'),
+   'owner_push',false,'works_enabled',false,'line_enabled',false)),
+  jsonb_build_object('kind','push','role','customer','target','bea40000-0000-4000-8000-000000000002',
+   'payload',jsonb_build_object('title','Synthetic','body','Synthetic'),'snapshot',snap));
+ SELECT response_payload INTO receipt FROM public.create_booking_with_receipt_dated_atomic(
+ 'bea44000-0000-4000-8000-000000000020','bea40000-0000-4000-8000-000000000002',NULL,repeat('c',64),
+ 'bea41000-0000-4000-8000-000000000001','bea43000-0000-4000-8000-000000000001',
+ 'bea42000-0000-4000-8000-000000000001',NULL,'2030-02-04','23:45','00:15',
+ 'Synthetic','proxy@example.invalid',NULL,NULL,500,0,'confirmed',ARRAY['bea42000-0000-4000-8000-000000000001'::uuid],plan,
+ '2030-02-05',NULL,NULL,NULL);
+ PERFORM pg_temp.assert_create(receipt->>'endDate'='2030-02-05','dated receipt includes end date');
+ PERFORM pg_temp.assert_create((SELECT payload->'booking_snapshot'->>'end_date'='2030-02-05'
+  FROM public.webhook_retry_queue WHERE payload->>'booking_create_operation'='bea44000-0000-4000-8000-000000000020' AND webhook_type='email'),
+  'dated email snapshot includes end date');
+ PERFORM pg_temp.assert_create((SELECT NOT (payload->'booking_snapshot' ? 'end_date')
+  FROM public.webhook_retry_queue WHERE payload->>'booking_create_operation'='bea44000-0000-4000-8000-000000000020' AND webhook_type='booking_creation_push'),
+  'legacy push snapshot retains its original shape');
+ SELECT id INTO qid FROM public.webhook_retry_queue WHERE payload->>'booking_create_operation'='bea44000-0000-4000-8000-000000000020' AND webhook_type='email';
+ UPDATE public.bookings SET end_date=NULL WHERE id=(receipt->>'bookingId')::uuid;
+ PERFORM pg_temp.claim_receipt(qid);
+ PERFORM pg_temp.assert_create((SELECT outcome='superseded' FROM public.start_booking_create_notification(qid,'2030-01-01T00:00Z')),
+   'changed ending date prevents stale email dispatch');
+END $$;
+RESET ROLE;
 ROLLBACK;

@@ -170,6 +170,12 @@ jobs:
       - name: Online booking readiness needs working time inside business hours, 指名なし without a capable member refused accurately (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-ready-hours-overlap-fixtures.sql
 
+      - name: Facility special-hours authorization and stale-write protection (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/facility-special-hours-fixtures.sql
+
+      - name: Overnight booking interval and staff boundaries (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-overnight-primitives-fixtures.sql
+
       - name: Online booking readiness needs the shortest bookable menu inside business hours, like get_available_slots (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-ready-min-menu-overlap-fixtures.sql
 

@@ -140,6 +140,7 @@ export interface FacilityCardData {
   coupon_count: number;
   photo_count: number;
   business_hours: Record<string, BusinessDay | null> | null;
+  special_hours?: { closed_dates: string[]; close_on_public_holidays: boolean; reception_cutoff_minutes: number | null } | null;
   seat_count: number | null;
   /** Online-booking readiness inputs from facility_card_view (see isCardBookingReady). */
   booking_menu_count?: number | null;
@@ -309,6 +310,7 @@ export interface Booking {
   menu_id: string | null;
   coupon_id: string | null;
   booking_date: string;
+  end_date?: string | null;
   start_time: string;
   end_time: string;
   customer_name: string;
@@ -346,6 +348,7 @@ export interface ScheduleOverride {
 export interface AvailableSlot {
   slot_start: string;
   slot_end: string;
+  end_date?: string;
   staff_id?: string;
 }
 

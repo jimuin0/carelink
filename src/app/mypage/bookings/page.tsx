@@ -16,7 +16,7 @@ export default async function BookingsPage() {
 
   const { data } = await readPageResult(() => supabase
     .from('bookings')
-    .select('id, booking_date, start_time, end_time, status, total_price, facility_id, menu_id, staff_id, staff_auto_assigned')
+    .select('id, booking_date, end_date, start_time, end_time, status, total_price, facility_id, menu_id, staff_id, staff_auto_assigned')
     .eq('user_id', user.id)
     .order('booking_date', { ascending: false }), '/mypage/bookings');
 
@@ -68,7 +68,7 @@ export default async function BookingsPage() {
                     </span>
                   </div>
                   <p className="text-sm text-gray-600">
-                    {booking.start_time?.slice(0, 5)}〜{booking.end_time?.slice(0, 5)}
+                    {booking.start_time?.slice(0, 5)}〜{booking.end_date && booking.end_date !== booking.booking_date ? '翌' : ''}{booking.end_time?.slice(0, 5)}
                   </p>
                   {booking.total_price !== null && (
                     <p className="text-sm font-bold mt-1">¥{booking.total_price.toLocaleString()}</p>

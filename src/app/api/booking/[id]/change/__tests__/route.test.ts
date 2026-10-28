@@ -1,4 +1,5 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
+jest.mock('@/lib/available-slots', () => ({ loadSlotHolidayCalendar: jest.fn(async () => ({ calendar: null, error: null })) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({mutationRateLimit: {}, checkRateLimit: jest.fn(() => Promise.resolve(false))}));
 jest.mock('@/lib/audit-logger', () => ({writeAuditLog: jest.fn()}));
@@ -28,6 +29,7 @@ import {verifyAuthUser} from '@/lib/auth-verification';
 import {checkCsrf} from '@/lib/csrf';
 import {checkRateLimit} from '@/lib/rate-limit';
 import {writeAuditLog} from '@/lib/audit-logger';
+import {loadSlotHolidayCalendar} from '@/lib/available-slots';
 const ID='123e4567-e89b-12d3-a456-426614174000';
 const USER='123e4567-e89b-12d3-a456-426614174001';
 const FACILITY='123e4567-e89b-12d3-a456-426614174002';
@@ -48,12 +50,24 @@ beforeEach(()=>{
  jest.clearAllMocks();mockRotateCookies=false;mockSetCookie.mockReset();
  (checkCsrf as jest.Mock).mockReturnValue(null);(checkRateLimit as jest.Mock).mockResolvedValue(false);
  (verifyAuthUser as jest.Mock).mockResolvedValue({state:'verified',user:{id:USER}});
+ (loadSlotHolidayCalendar as jest.Mock).mockResolvedValue({calendar:null,error:null});
  mockFrom.mockReturnValue(chain(booking));mockAdminFrom.mockReturnValue(chain(null));mockRpc.mockResolvedValue({data:[{id:ID,replayed:false}],error:null});
+});
+test('翌日終了の変更は予約時間を保ち、終了日を原子的な処理へ渡す',async()=>{
+ mockFrom.mockReturnValue(chain({...booking,booking_date:'2026-10-15',start_time:'23:30:00',end_date:'2026-10-16',end_time:'00:30:00'}));
+ const res=await POST(request({booking_date:'2026-10-20',start_time:'23:30',end_date:'2026-10-21',end_time:'00:30'}),props());
+ expect(res.status).toBe(200);
+ expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_dated_atomic',expect.objectContaining({p_end_date:'2026-10-21',p_end_time:'00:30'}));
+});
+test('祝日情報が得られない場合は変更しない',async()=>{
+ (loadSlotHolidayCalendar as jest.Mock).mockResolvedValue({calendar:null,error:new Error('unavailable')});
+ expect((await POST(request(),props())).status).toBe(503);
+ expect(mockRpc).not.toHaveBeenCalled();
 });
 afterEach(()=>jest.useRealTimers());
 test('change commits complete notifications with explicit owned actor and schedule gate',async()=>{
  const res=await POST(request(),props());expect(res.status).toBe(200);expect(await res.json()).toEqual({success:true});
- expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_channels_atomic',{p_booking_id:ID,p_user_id:USER,p_booking_date:body.booking_date,p_start_time:body.start_time,p_end_time:body.end_time,p_enforce_schedule:true});
+ expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_dated_atomic',{p_booking_id:ID,p_user_id:USER,p_booking_date:body.booking_date,p_start_time:body.start_time,p_end_time:body.end_time,p_end_date:body.booking_date,p_holiday_dates:null,p_holiday_from:null,p_holiday_through:null});
  expect(mockFrom).toHaveBeenCalledTimes(1);expect(mockAdminFrom).toHaveBeenCalledTimes(1);expect(mockAdminFrom).toHaveBeenCalledWith('facility_cancel_policies');expectNoInlineSend();
  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({userId:USER,recordId:ID}));
 });
@@ -85,7 +99,7 @@ test('a booking that starts later today can still be changed',async()=>{
  jest.setSystemTime(new Date('2026-10-14T00:59:00Z'));
  mockFrom.mockReturnValue(chain({...booking,booking_date:'2026-10-14',start_time:'10:00:00'}));
  expect((await POST(request({...body,booking_date:'2026-10-20'}),props())).status).toBe(200);
- expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_channels_atomic',expect.objectContaining({p_booking_id:ID}));
+ expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_dated_atomic',expect.objectContaining({p_booking_id:ID}));
 });
 test('the database refusal for a started booking keeps the same 409 message',async()=>{
  mockRpc.mockResolvedValue({data:null,error:{message:'BOOKING_ALREADY_STARTED'}});
@@ -127,7 +141,7 @@ describe('the new time (2026-10-23)',()=>{
  });
  test('a later start today is accepted',async()=>{
   expect((await POST(request({booking_date:'2026-10-14',start_time:'12:30',end_time:'13:30'}),props())).status).toBe(200);
-  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_channels_atomic',expect.objectContaining({p_booking_date:'2026-10-14',p_start_time:'12:30'}));
+  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_dated_atomic',expect.objectContaining({p_booking_date:'2026-10-14',p_start_time:'12:30'}));
  });
  test.each([['shorter','12:00','12:30'],['longer','12:00','14:00']])('a %s time than the reservation is refused before the transaction',async(_label,start_time,end_time)=>{
   const res=await POST(request({...body,start_time,end_time}),props());
@@ -147,7 +161,7 @@ describe('the new time (2026-10-23)',()=>{
  test('the reservation read includes its end time',async()=>{
   const read=chain(booking);mockFrom.mockReturnValue(read);
   await POST(request(),props());
-  expect(read.select).toHaveBeenCalledWith('id, user_id, status, facility_id, staff_id, booking_date, start_time, end_time');
+  expect(read.select).toHaveBeenCalledWith('id, user_id, status, facility_id, staff_id, booking_date, end_date, start_time, end_time');
  });
 });
 
@@ -179,7 +193,7 @@ describe('the free-cancellation window (2026-10-23)',()=>{
  ])('%s: the change goes ahead',async(_label,policy)=>{
   mockAdminFrom.mockReturnValue(chain(policy));
   expect((await POST(request(),props())).status).toBe(200);
-  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_channels_atomic',expect.objectContaining({p_booking_id:ID,p_enforce_schedule:true}));
+  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_dated_atomic',expect.objectContaining({p_booking_id:ID,p_holiday_dates:null}));
  });
  test('a policy read error is not read as "no policy"',async()=>{
   mockAdminFrom.mockReturnValue(chain(null,{code:'08006'}));

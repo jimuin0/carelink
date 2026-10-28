@@ -7,6 +7,8 @@ jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/facility-publish-gate', () => ({ checkBookingReadiness: jest.fn() }));
 jest.mock('@/lib/supabase-server-auth', () => ({ createServerSupabaseAuthClient: jest.fn() }));
+jest.mock('@/lib/available-slots', () => ({ ...jest.requireActual('@/lib/available-slots'),
+  loadSlotHolidayCalendar: jest.fn(async () => ({ calendar: null, error: null })) }));
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -44,7 +46,8 @@ test('returns every staff × date in one response, keyed by date then staff', as
   expect(Object.keys(body.days)).toEqual([D1, D2]);
   expect(body.days[D2][STAFF_B][0].tag).toBe(`${STAFF_B}@${D2}`);
   expect(mockRpc).toHaveBeenCalledTimes(4);
-  expect(mockRpc).toHaveBeenCalledWith('get_available_slots', { p_facility_id: FACILITY, p_staff_id: STAFF_A, p_date: D1, p_duration_minutes: 60 });
+  expect(mockRpc).toHaveBeenCalledWith('get_available_slots_dated', { p_facility_id: FACILITY, p_staff_id: STAFF_A, p_date: D1, p_duration_minutes: 60,
+    p_exclude_booking_id: null, p_holiday_dates: null, p_holiday_from: null, p_holiday_through: null });
 });
 
 test('is rate limited before any lookup, under its own bucket', async () => {
@@ -140,8 +143,9 @@ describe('excludeBookingId', () => {
   test('the customer\'s own changeable reservation is left out of the slot RPC', async () => {
     const res = await GET(withExclusion());
     expect(res.status).toBe(200);
-    expect(mockRpc).toHaveBeenCalledWith('get_available_slots', {
+    expect(mockRpc).toHaveBeenCalledWith('get_available_slots_dated', {
       p_facility_id: FACILITY, p_staff_id: STAFF_A, p_date: D1, p_duration_minutes: 60, p_exclude_booking_id: BOOKING,
+      p_holiday_dates: null, p_holiday_from: null, p_holiday_through: null,
     });
     expect(authFrom).toHaveBeenCalledWith('bookings');
     expect(select).toHaveBeenCalledWith('user_id, facility_id, status');
@@ -156,7 +160,7 @@ describe('excludeBookingId', () => {
   test('without the parameter nothing is excluded and no sign-in is needed', async () => {
     await GET(req({ ...base, staffIds: STAFF_A, dates: D1 }));
     expect(createServerSupabaseAuthClient).not.toHaveBeenCalled();
-    expect(mockRpc.mock.calls[0][1]).not.toHaveProperty('p_exclude_booking_id');
+    expect(mockRpc.mock.calls[0][1].p_exclude_booking_id).toBeNull();
   });
 
   test('an id that is not a UUID is rejected before sign-in or any lookup', async () => {

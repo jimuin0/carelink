@@ -145,6 +145,7 @@
     "customer_name",
     "email",
     "email_canonical",
+    "end_date",
     "end_time",
     "facility_id",
     "id",
@@ -421,6 +422,7 @@
     "rating_count",
     "seat_count",
     "slug",
+    "special_hours",
     "status"
   ],
   "facility_certifications": [
@@ -667,6 +669,14 @@
     "status",
     "user_id",
     "visit_date"
+  ],
+  "facility_special_hours": [
+    "allow_overnight_bookings",
+    "close_on_public_holidays",
+    "closed_dates",
+    "facility_id",
+    "reception_cutoff_minutes",
+    "updated_at"
   ],
   "facility_symptoms": [
     "description",

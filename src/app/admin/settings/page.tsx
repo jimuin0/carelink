@@ -25,6 +25,7 @@ import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice 
 import { BOOKING_CSV_MAX_ROWS, buildBookingCsv, readBookingCsvRows } from '@/lib/booking-csv-export';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import BusinessHoursEditor from '@/components/admin/BusinessHoursEditor';
+import SpecialHoursSettings from '@/components/admin/SpecialHoursSettings';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
 const CancelPolicySettings = dynamic(() => import('@/components/admin/CancelPolicySettings'), { ssr: false });
@@ -45,8 +46,10 @@ function AdminSettingsContent() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [specialDirty, setSpecialDirty] = useState(false);
+  const [specialBusy, setSpecialBusy] = useState(false);
   const [pendingHoursCopy, setPendingHoursCopy] = useState<HoursDraft | null>(null);
-  useUnsavedGuard(dirty);
+  useUnsavedGuard(dirty || specialDirty);
   const [saving, setSaving] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
@@ -139,6 +142,8 @@ function AdminSettingsContent() {
       if (!data) { setLoadError(true); setLoading(false); return; }
       setFacilityId(selection.selectedId);
       setDirty(false);
+      setSpecialDirty(false);
+      setSpecialBusy(false);
       if (data) {
         setName(data.name || '');
         setBusinessType(data.business_type || '');
@@ -334,7 +339,8 @@ function AdminSettingsContent() {
    * 足りない項目をその場で一覧にする。未保存の入力があれば先に保存し、保存できたときだけ公開する。
    */
   const handlePublish = async () => {
-    if (!facilityId || publishToggling || saving) return;
+    if (!facilityId || publishToggling || saving || specialBusy) return;
+    if (specialDirty) { setToast({ type: 'error', message: '祝日・臨時休業と受付終了の設定を保存してください' }); return; }
     // 営業時間も無料掲載の公開条件（2026年10月23日）。保存済み、または画面で入力した営業時間を、保存時と同じ検査で確かめる。
     const visibleHours = hoursConfirmed || hoursEdited ? validateHoursForm(hours, closedDays) : null;
     const visibleMissing = listingPublishMissing({
@@ -388,7 +394,7 @@ function AdminSettingsContent() {
 
   return (
     <div onChange={() => setDirty(true)}>
-      <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/settings" dirty={dirty} busy={saving || publishToggling} />
+      <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/settings" dirty={dirty || specialDirty} busy={saving || publishToggling || specialBusy} />
       <p className="mb-4 text-sm text-gray-600">無料掲載とネット予約は別です。{LISTING_PUBLISH_REQUIREMENT}ネット予約は、さらに公開メニュー・写真・勤務時間を保存したスタッフがそろうまで利用できません。予約管理表は引き続き利用できます。</p>
       <SbPageHeader
         title="施設設定"
@@ -405,7 +411,7 @@ function AdminSettingsContent() {
                 if (facilityStatus === 'published') { setShowUnpublishConfirm(true); return; }
                 void handlePublish();
               }}
-              disabled={publishToggling || saving || !facilityId}
+              disabled={publishToggling || saving || specialBusy || !facilityId}
               className={facilityStatus === 'published' ? 'px-4 py-2 text-sm font-bold rounded-lg transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200' : 'btn-primary px-4! py-2! text-sm'}
             >
               {publishToggling ? '処理中...' : facilityStatus === 'published' ? '非公開にする' : dirty ? '保存して公開する' : '公開する'}
@@ -554,12 +560,13 @@ function AdminSettingsContent() {
             <input type="checkbox" checked={showBusinessStatus} onChange={event => { setShowBusinessStatus(event.target.checked); setDirty(true); }} />
             公開ページに「営業中」などの自動表示を出す
           </label>
-          <p className="mt-1.5 text-sm leading-6 text-gray-600">祝日・臨時休業は自動判定しません。非表示にもできます。</p>
+          <p className="mt-1.5 text-sm leading-6 text-gray-600">非表示にもできます。</p>
         </div>
         <div className="mt-4">
           <label htmlFor="fac-holiday" className="form-label">定休日（補足）</label>
           <SbInput id="fac-holiday" value={regularHoliday} onChange={(e) => setRegularHoliday(e.target.value)} placeholder="例: 第2・4月曜、年末年始" maxLength={FACILITY_INPUT_LIMITS.regularHoliday} />
         </div>
+        <SpecialHoursSettings key={facilityId} facilityId={facilityId} onDirtyChange={setSpecialDirty} onBusyChange={setSpecialBusy} />
       </section>
 
       {/* 予約設定 */}

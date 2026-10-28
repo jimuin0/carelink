@@ -15,7 +15,8 @@ import { BookingCreateClient, type BookingCreateClientResult, BOOKING_CREATE_UNK
 import type { BookingFormData } from '@/lib/validations-booking';
 import { WAITLIST_NOTICE } from '@/lib/coming-soon';
 import { HOME_VISIT_ADDRESS_REQUIRED_MESSAGE } from '@/lib/home-visit';
-import { BOOKING_DURATION_MISMATCH_MESSAGE, clampBookingDuration, needsSlotReselection, slotLengthMinutes } from '@/lib/booking-slot-rules';
+import { BOOKING_DURATION_MISMATCH_MESSAGE, clampBookingDuration, needsSlotReselection } from '@/lib/booking-slot-rules';
+import { bookingInterval } from '@/lib/booking-interval';
 // /api/slots/week が 1 リクエストで受け付けるスタッフ数の上限（サーバー側と同じ定義を使う）。
 import { SLOTS_WEEK_MAX_STAFF } from '@/lib/slots-week';
 import Button from '@/components/ui/Button';
@@ -618,6 +619,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
       setBookingAccepted(true); setBookingRecoveryError(null);
       const booked = result.receipt;
       const params = new URLSearchParams({ id: booked.bookingId, date: booked.bookingDate, time: booked.startTime, end_time: booked.endTime, facility: facility.name });
+      if (booked.endDate) params.set('end_date', booked.endDate);
       router.push(`/facility/${encodeURIComponent(facility.slug)}/booking/complete?${params}`);
     } else if (result.state === 'closed') {
       setBookingRecoveryError(null); setBookingAccepted(false);
@@ -655,6 +657,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
       acceptCreateResult(await bookingCreate.current.submit({ facility_id: facility.id, staff_id: selectedStaff?.id ?? null,
         menu_id: selectedMenus[0]?.id ?? null, menu_ids: selectedMenus.map(m => m.id), coupon_id: selectedCoupon?.id ?? null,
         booking_date: selectedDate, start_time: selectedSlot?.slot_start?.slice(0,5) ?? '', end_time: selectedSlot?.slot_end?.slice(0,5) ?? '',
+        ...(selectedSlot?.end_date && selectedSlot.end_date !== selectedDate ? { end_date: selectedSlot.end_date } : {}),
         customer_name: customerName, email, phone: phone || null, note: note || null, total_price: calculatePrice(),
         points_used: usePoints && pointsToUse > 0 ? pointsToUse : undefined } as BookingFormData));
     } finally { setSubmitting(false); }
@@ -739,7 +742,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   // （後半の時間は他のお客様に再び売られる）。メニューを変える操作は複数あるので、発火元ごとに
   // 外すのではなく「枠の長さ＝所要時間」をレンダー中に確かめる（上の2件と同じ形）。
   // 空き枠 API は所要時間を 15〜480 分に丸めて枠を返すので、比べる値も同じ丸めを通す。
-  if (selectedSlot && slotLengthMinutes(selectedSlot.slot_start, selectedSlot.slot_end) !== clampBookingDuration(totalDuration)) {
+  const selectedInterval = selectedSlot && selectedDate ? bookingInterval(selectedDate, selectedSlot.slot_start,
+    selectedSlot.end_date ?? selectedDate, selectedSlot.slot_end) : null;
+  if (selectedSlot && (!selectedInterval || selectedInterval.end - selectedInterval.start !== clampBookingDuration(totalDuration))) {
     setSelectedSlot(null);
     setSelectedDate('');
     setToast({ type: 'error', message: 'メニューの変更で所要時間が変わったため、日時の選択を解除しました。日時を選び直してください' });
@@ -1301,7 +1306,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               <span className="text-gray-500">選択中：</span>
               <span className="font-bold ml-1">
                 {(() => { const d = parseDateString(selectedDate); return `${d.month}/${d.day}（${DAY_NAMES[d.dayOfWeek]}）`; })()}
-                {' '}{selectedSlot.slot_start.slice(0, 5)}〜{selectedSlot.slot_end.slice(0, 5)}
+                {' '}{selectedSlot.slot_start.slice(0, 5)}〜{selectedSlot.end_date && selectedSlot.end_date !== selectedDate ? '翌' : ''}{selectedSlot.slot_end.slice(0, 5)}
               </span>
             </div>
           )}
@@ -1363,7 +1368,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               <span className="text-gray-500">日時</span>
               <span className="font-medium">
                 {(() => { const d = parseDateString(selectedDate); return `${d.month}/${d.day}（${DAY_NAMES[d.dayOfWeek]}）`; })()}
-                {' '}{selectedSlot?.slot_start.slice(0, 5)}〜{selectedSlot?.slot_end.slice(0, 5)}
+                {' '}{selectedSlot?.slot_start.slice(0, 5)}〜{selectedSlot?.end_date && selectedSlot.end_date !== selectedDate ? '翌' : ''}{selectedSlot?.slot_end.slice(0, 5)}
               </span>
             </div>
             {(() => {
