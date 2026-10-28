@@ -16,11 +16,12 @@ import { csvEscape } from './csv';
  */
 export const BOOKING_CSV_MAX_ROWS = 5000;
 
-const COLUMNS = 'id, booking_date, start_time, end_time, customer_name, email, phone, status, total_price, note, created_at';
+const COLUMNS = 'id, booking_date, end_date, start_time, end_time, customer_name, email, phone, status, total_price, note, created_at';
 
 export type BookingCsvRow = {
   id: string;
   booking_date: string;
+  end_date?: string | null;
   start_time: string;
   end_time: string;
   customer_name: string;
@@ -62,7 +63,7 @@ const HEADERS = ['予約ID', '予約日', '開始時間', '終了時間', '顧�
 export function buildBookingCsv(rows: readonly BookingCsvRow[]): string {
   const lines = [
     HEADERS.join(','),
-    ...rows.map((r) => [r.id, r.booking_date, r.start_time, r.end_time, r.customer_name, r.email, r.phone, r.status,
+    ...rows.map((r) => [r.id, r.booking_date, r.start_time, r.end_date && r.end_date !== r.booking_date ? `${r.end_date} ${r.end_time}` : r.end_time, r.customer_name, r.email, r.phone, r.status,
       r.total_price, r.note, r.created_at].map(csvEscape).join(',')),
   ];
   return `﻿${lines.join('\n')}`;

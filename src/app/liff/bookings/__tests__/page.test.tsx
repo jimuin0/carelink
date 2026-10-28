@@ -47,6 +47,12 @@ test('キャンセルできる予約だけに、その予約のキャンセル�
   expect(links[0]).toHaveAttribute('href', '/liff/cancel?booking_id=b-open');
 });
 
+test('日付をまたぐ予約は翌日終了と表示する', async () => {
+  mockFetch(true, {bookings:[{id:'b-night',booking_date:'2099-07-20',end_date:'2099-07-21',start_time:'23:30',end_time:'00:30',status:'confirmed',menu_name:'A',total_price:null}]});
+  render(<LiffBookingsPage />);
+  expect(await screen.findByText('23:30〜翌00:30')).toBeInTheDocument();
+});
+
 describe('未連携の案内', () => {
   const original = process.env.NEXT_PUBLIC_LINE_CHANNEL_ID;
   const originalLiff = process.env.NEXT_PUBLIC_LIFF_ID;

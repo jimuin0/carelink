@@ -55,7 +55,7 @@ const D7 = '2026-05-22'; // 7日前リマインド対象
 
 type Booking = {
   id: string; customer_name: string | null; email: string | null;
-  booking_date: string; start_time: string; end_time: string;
+  booking_date: string; end_date?: string | null; start_time: string; end_time: string;
   facility_id: string; total_price: number | null;
   user_id: string | null; menu_id: string | null;
 };
@@ -262,6 +262,12 @@ test('migration未適用でRPC不在なら送信・claimを一切開始しない
   expect(res.status).toBe(500);
   expect(mockEmailReminder).not.toHaveBeenCalled();
   expect(mockUpsert).not.toHaveBeenCalled();
+});
+
+test('日付をまたぐ予約の通知に終了日を引き継ぐ', async () => {
+  setup({ bookings: { data: [booking({ start_time:'23:30', end_time:'00:30', end_date:'2026-05-17' })] } });
+  await GET(makeRequest());
+  expect(mockEmailReminder).toHaveBeenCalledWith(expect.objectContaining({ endDate:'2026-05-17' }), expect.anything());
 });
 
 test('送信前claimの回収が失敗したrunは検索・送信へ進まない', async () => {

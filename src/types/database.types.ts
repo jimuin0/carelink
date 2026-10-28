@@ -616,6 +616,7 @@ export type Database = {
           customer_name: string
           email: string | null
           email_canonical: string | null
+          end_date: string | null
           end_time: string
           facility_id: string
           id: string
@@ -649,6 +650,7 @@ export type Database = {
           customer_name: string
           email?: string | null
           email_canonical?: string | null
+          end_date?: string | null
           end_time: string
           facility_id: string
           id?: string
@@ -682,6 +684,7 @@ export type Database = {
           customer_name?: string
           email?: string | null
           email_canonical?: string | null
+          end_date?: string | null
           end_time?: string
           facility_id?: string
           id?: string
@@ -2303,6 +2306,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      facility_special_hours: {
+        Row: {
+          facility_id: string
+          allow_overnight_bookings: boolean
+          close_on_public_holidays: boolean
+          closed_dates: string[]
+          reception_cutoff_minutes: number | null
+          updated_at: string
+        }
+        Insert: {
+          facility_id: string
+          allow_overnight_bookings?: boolean
+          close_on_public_holidays?: boolean
+          closed_dates?: string[]
+          reception_cutoff_minutes?: number | null
+          updated_at?: string
+        }
+        Update: {
+          facility_id?: string
+          allow_overnight_bookings?: boolean
+          close_on_public_holidays?: boolean
+          closed_dates?: string[]
+          reception_cutoff_minutes?: number | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       facility_profiles: {
         Row: {
@@ -6262,6 +6292,7 @@ export type Database = {
     Views: {
       facility_card_view: {
         Row: {
+          special_hours: Json | null
           access_info: string | null
           active_staff_count: number | null
           booking_menu_count: number | null
@@ -6869,6 +6900,34 @@ export type Database = {
           response_payload: Json
         }[]
       }
+      create_booking_with_receipt_dated_atomic: {
+        Args: {
+          p_id: string; p_actor_id: string | null; p_guest_hash: string | null; p_payload_hash: string;
+          p_facility_id: string; p_staff_id: string | null; p_menu_id: string; p_coupon_id: string | null;
+          p_booking_date: string; p_start_time: string; p_end_time: string; p_customer_name: string;
+          p_email: string; p_phone: string | null; p_note: string | null; p_total_price: number;
+          p_points_used: number; p_status: string; p_menu_ids: string[]; p_notifications: Json;
+          p_end_date: string; p_holiday_dates: string[] | null; p_holiday_from: string | null; p_holiday_through: string | null
+        }
+        Returns: { replayed: boolean; response_payload: Json }[]
+      }
+      change_customer_booking_dated_atomic: {
+        Args: { p_booking_id: string; p_user_id: string; p_booking_date: string; p_start_time: string; p_end_date: string; p_end_time: string; p_holiday_dates: string[] | null; p_holiday_from: string | null; p_holiday_through: string | null }
+        Returns: { id: string; replayed: boolean }[]
+      }
+      published_special_hours: { Args: { p_facility_id: string }; Returns: Json | null }
+      booking_intervals_conflict: { Args: { p_start: string; p_end: string; p_other_start: string; p_other_end: string; p_buffer_minutes: number }; Returns: boolean }
+      booking_staff_works_interval: { Args: { p_staff_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string }; Returns: boolean }
+      booking_staff_interval_conflict: { Args: { p_facility_id: string; p_staff_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string; p_buffer_minutes: number; p_exclude_booking_id: string }; Returns: boolean }
+      booking_needs_any_staff_interval: { Args: { p_staff_id: string; p_auto_assigned: boolean; p_facility_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string }; Returns: boolean }
+      booking_unassigned_interval_capacity_full: { Args: { p_facility_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string; p_buffer_minutes: number; p_exclude_booking_id: string }; Returns: boolean }
+      booking_pick_free_staff_interval: { Args: { p_facility_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string; p_buffer_minutes: number; p_menu_ids: string[]; p_exclude_booking_id: string; p_prefer_staff_id: string }; Returns: string }
+      facility_business_windows_for_date: { Args: { p_facility_id: string; p_date: string; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: { start_min: number; end_min: number }[] }
+      facility_reception_windows_for_date: { Args: { p_facility_id: string; p_date: string; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: { start_min: number; end_min: number }[] }
+      facility_interval_admissible: { Args: { p_facility_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: boolean }
+      get_available_slots_dated: { Args: { p_facility_id: string; p_staff_id: string; p_date: string; p_duration_minutes: number; p_exclude_booking_id: string; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: { slot_start: string; slot_end: string; end_date: string }[] }
+      create_online_booking_dated_atomic: { Args: { p_facility_id: string; p_staff_id: string; p_user_id: string; p_menu_id: string; p_coupon_id: string; p_booking_date: string; p_start_time: string; p_end_date: string; p_end_time: string; p_customer_name: string; p_email: string; p_phone: string; p_note: string; p_total_price: number; p_points_used: number; p_status: string; p_menu_ids: string[]; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: string }
+      publish_customer_booking_transition_email_dated: { Args: { p_booking_id: string; p_kind: string; p_previous_date: string; p_previous_start: string; p_previous_end: string; p_previous_end_date: string }; Returns: number }
       create_manual_booking_atomic: {
         Args: { p_actor_id: string; p_input: Json; p_operation_id: string }
         Returns: Json
@@ -8663,6 +8722,21 @@ export type Database = {
       get_newsletter_preference: {
         Args: { p_user_id: string }
         Returns: Json
+      }
+      save_facility_special_hours_atomic: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_allow_overnight: boolean
+          p_close_on_holidays: boolean
+          p_closed_dates: string[]
+          p_cutoff_minutes: number | null
+          p_expected_updated_at: string | null
+          p_holiday_dates: string[] | null
+          p_holiday_from: string | null
+          p_holiday_through: string | null
+        }
+        Returns: undefined
       }
       update_facility_settings_atomic: {
         Args: { p_actor_id: string; p_facility_id: string; p_patch: Json }

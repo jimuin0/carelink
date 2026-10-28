@@ -2,6 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AvailableSlot } from '@/types';
 import { todayJst } from '@/lib/admin-date';
 import { clampBookingDuration, MENU_DURATION_FALLBACK_MINUTES } from '@/lib/booking-slot-rules';
+import { fetchCabinetHolidays } from '@/lib/cabinet-holidays';
+import type { HolidayCalendar } from '@/lib/special-business-hours';
 
 /**
  * /api/slots（1スタッフ×1日）と /api/slots/week（複数スタッフ×最大7日）が共有する空き枠取得。
@@ -26,6 +28,29 @@ export function dropStartedSlotsToday(date: string, slots: AvailableSlot[], nowM
 }
 
 export type SlotRead = { slots: AvailableSlot[]; error: null } | { slots: null; error: unknown };
+
+export async function loadSlotHolidayCalendar(admin: SupabaseClient, facilityId: string): Promise<{ calendar: HolidayCalendar | null; error: unknown | null }> {
+  const result = await admin.from('facility_special_hours').select('close_on_public_holidays').eq('facility_id', facilityId).maybeSingle();
+  if (result.error) return { calendar: null, error: result.error };
+  if (!result.data?.close_on_public_holidays) return { calendar: null, error: null };
+  const calendar = await fetchCabinetHolidays();
+  return calendar ? { calendar, error: null } : { calendar: null, error: new Error('HOLIDAY_CALENDAR_UNAVAILABLE') };
+}
+
+/** Only called after the route verifies an excluded booking belongs to the user. */
+export async function readDatedSlots(
+  admin: SupabaseClient, facilityId: string, staffId: string, date: string, duration: number,
+  calendar: HolidayCalendar | null, excludeBookingId?: string,
+): Promise<SlotRead> {
+  const { data, error } = await admin.rpc('get_available_slots_dated', {
+    p_facility_id: facilityId, p_staff_id: staffId, p_date: date, p_duration_minutes: duration,
+    p_exclude_booking_id: excludeBookingId ?? null,
+    p_holiday_dates: calendar ? [...calendar.dates] : null, p_holiday_from: calendar?.from ?? null,
+    p_holiday_through: calendar?.through ?? null,
+  });
+  if (error) return { slots: null, error };
+  return { slots: dropStartedSlotsToday(date, (data ?? []) as AvailableSlot[]), error: null };
+}
 
 /**
  * get_available_slots は anon から実行できない SECURITY DEFINER。service role の呼び出し元だけが使う。

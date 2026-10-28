@@ -13,6 +13,8 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { getTodayString, getMaxDateString } from '@/lib/validations-booking';
 import { isValidIsoDate } from '@/lib/date-utils';
+import { bookingInterval } from '@/lib/booking-interval';
+import { loadSlotHolidayCalendar } from '@/lib/available-slots';
 import {
   CHANGE_WINDOW_CLOSED_MESSAGE, hasBookingStarted, hoursUntilBookingStart, isPastFreeCancelWindow, type CancelPolicy,
 } from '@/lib/cancel-fee';
@@ -47,7 +49,10 @@ const changeSchema = z.object({
     .refine((d) => d <= getMaxDateString(), '1年以上先の日付は指定できません'),
   start_time: changeTime,
   end_time: z.union([changeTime, z.literal('24:00'), z.literal('24:00:00')]),
-}).refine((v) => v.start_time < v.end_time, {
+  end_date: z.string().refine(isValidIsoDate).optional(),
+}).refine((v) => v.end_date && v.end_date !== v.booking_date
+  ? bookingInterval(v.booking_date, v.start_time, v.end_date, v.end_time) !== null
+  : v.start_time < v.end_time, {
   message: '終了時刻は開始時刻より後にしてください',
   path: ['end_time'],
 });
@@ -101,7 +106,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     // Fetch existing booking
     const { data: booking, error: bookingReadError } = await supabase
       .from('bookings')
-      .select('id, user_id, status, facility_id, staff_id, booking_date, start_time, end_time')
+      .select('id, user_id, status, facility_id, staff_id, booking_date, end_date, start_time, end_time')
       .eq('id', params.id)
       .maybeSingle();
 
@@ -124,7 +129,13 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     // 日時の変更で予約の長さは変えない。変更画面は予約の今の長さ（rescheduleDurationMinutes）で
     // 空き枠を出すので、違う長さは手作りのリクエストだけ。短くして送ると、後半の時間が他の
     // お客様に再び売られてしまう（2026年10月23日）。
-    if (slotLengthMinutes(parsed.data.start_time, parsed.data.end_time) !== rescheduleDurationMinutes(booking.start_time, booking.end_time)) {
+    const oldInterval = booking.end_date ? bookingInterval(booking.booking_date, booking.start_time, booking.end_date, booking.end_time) : null;
+    if (booking.end_date && !oldInterval) return serverError('booking-change-interval', new Error('invalid stored interval'), '/api/booking/[id]/change', '予約を確認できません。施設へお問い合わせください。');
+    const newInterval = parsed.data.end_date && parsed.data.end_date !== parsed.data.booking_date
+      ? bookingInterval(parsed.data.booking_date, parsed.data.start_time, parsed.data.end_date, parsed.data.end_time) : null;
+    const oldDuration = oldInterval ? oldInterval.end - oldInterval.start : rescheduleDurationMinutes(booking.start_time, booking.end_time);
+    const newDuration = newInterval ? newInterval.end - newInterval.start : slotLengthMinutes(parsed.data.start_time, parsed.data.end_time);
+    if (newDuration !== oldDuration) {
       return NextResponse.json({ error: RESCHEDULE_DURATION_MISMATCH_MESSAGE }, { status: 400 });
     }
 
@@ -151,16 +162,19 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     // で呼ぶと booking_id と被害者 user_id を渡すだけで他人の予約をリスケできる IDOR だった。RPC は
     // service_role で呼び、migration 側で anon/authenticated の EXECUTE を撤回して直接呼び出しを塞ぐ。
     // 所有権(booking.user_id === user.id)・状態は上の同期ブロックでサーバ側検証済み。
-    const { data: changed, error } = await serviceClient.rpc('change_customer_booking_with_channels_atomic', {
+    const holidayResult = await loadSlotHolidayCalendar(serviceClient, booking.facility_id);
+    if (holidayResult.error) return NextResponse.json({ error: '営業日を確認できません。時間をおいて再度お試しください。' }, { status: 503 });
+    const calendar = holidayResult.calendar;
+    const { data: changed, error } = await serviceClient.rpc('change_customer_booking_dated_atomic', {
       p_booking_id: params.id,
       p_user_id: user.id,
       p_booking_date: parsed.data.booking_date,
       p_start_time: parsed.data.start_time,
       p_end_time: parsed.data.end_time,
-      // 公開経路は営業時間・定休日・指名スタッフ勤務窓ゲートを RPC 側で強制する（get_available_slots
-      // が UI に出さない枠へ API 直叩きで変更できた非対称の根治・2026年7月16日）。admin の手動予約
-      // （電話受付等）は意図的にゲート対象外＝パラメータ省略（DEFAULT FALSE）。
-      p_enforce_schedule: true,
+      p_end_date: parsed.data.end_date ?? parsed.data.booking_date,
+      p_holiday_dates: calendar ? [...calendar.dates] : null,
+      p_holiday_from: calendar?.from ?? null,
+      p_holiday_through: calendar?.through ?? null,
     });
 
     if (error) {
@@ -168,6 +182,8 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
         return NextResponse.json({ error: 'この店舗のネット予約は準備中です。予約変更は店舗へお問い合わせください' }, { status: 409 });
       }
       const msg = error.message || '';
+      if (msg.includes('HOLIDAY_CALENDAR_UNAVAILABLE')) return NextResponse.json({ error: '営業日を確認できません。時間をおいて再度お試しください。' }, { status: 503 });
+      if (msg.includes('BOOKING_DURATION_MISMATCH') || msg.includes('BOOKING_INVALID_INTERVAL')) return NextResponse.json({ error: RESCHEDULE_DURATION_MISMATCH_MESSAGE }, { status: 400 });
       if (msg.includes('BOOKING_CONFLICT')) {
         return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
       }

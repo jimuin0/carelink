@@ -9,6 +9,8 @@ import { SHIMMER_BLUR, cardUrl } from '@/lib/image-utils';
 import { formatFacilityLocality } from '@/lib/facility-location';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import { useSyncExternalStore } from 'react';
+import { usePublicHolidayCalendar } from '@/components/facility/usePublicHolidayCalendar';
+import type { HolidayCalendar } from '@/lib/special-business-hours';
 
 // One shared clock for the entire result list, not one timer per card.
 const clockListeners = new Set<() => void>();
@@ -45,16 +47,24 @@ function CardStarRating({ rating, count }: { rating: number; count: number }) {
   );
 }
 
-function getTodayHours(hours: FacilityCardData['business_hours']): string | null {
+function getTodayHours(hours: FacilityCardData['business_hours'], special: FacilityCardData['special_hours'], holidays: HolidayCalendar | null): string | null {
   if (!hours) return null;
   const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
   // Keep the Japanese business day identical during SSR and hydration.
   const now = new Date(Date.now() + 9 * 3_600_000);
   const day = now.getUTCDay();
+  const date = now.toISOString().slice(0, 10);
+  const previousDate = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
+  if (special?.closed_dates.includes(date)) return '本日休業';
+  if (special?.close_on_public_holidays) {
+    if (!holidays || previousDate < holidays.from || date > holidays.through) return null;
+    if (holidays.dates.has(date)) return '祝日休業';
+  }
   const today = days[day];
   const todayHours = hours[today];
   const minute = now.getUTCHours() * 60 + now.getUTCMinutes();
-  const prior = businessPeriods(hours[days[(day + 6) % 7]]) ?? [];
+  const previousClosed = special?.closed_dates.includes(previousDate) || (special?.close_on_public_holidays && holidays?.dates.has(previousDate));
+  const prior = previousClosed ? [] : businessPeriods(hours[days[(day + 6) % 7]]) ?? [];
   const carry = prior.find(period => {
     const window = periodWindow(period)!;
     return window.end > 1440 && minute < window.end - 1440;
@@ -73,7 +83,8 @@ interface Props {
 }
 
 export default function FacilityCard({ facility, showBadges = true, monthlyBookings, isAvailable, priority = false }: Props) {
-  const todayHours = useSyncExternalStore(subscribeClock, () => getTodayHours(facility.business_hours), () => null);
+  const holidays = usePublicHolidayCalendar(facility.special_hours?.close_on_public_holidays === true);
+  const todayHours = useSyncExternalStore(subscribeClock, () => getTodayHours(facility.business_hours, facility.special_hours, holidays), () => null);
   const hasCoupons = (facility.coupon_count ?? 0) > 0;
   const bookingReady = isCardBookingReady(facility);
 

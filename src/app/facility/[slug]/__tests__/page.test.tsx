@@ -27,7 +27,8 @@ jest.mock('@/lib/coupons', () => ({ getActiveCouponsByFacility: jest.fn(async ()
 jest.mock('@/lib/catalogs', () => ({ getCatalogsByFacility: jest.fn(async () => []) }));
 jest.mock('@/lib/blog', () => ({ getBlogSummariesByFacility: jest.fn() }));
 jest.mock('@/lib/facility-qa-visibility', () => ({ hasPublicQa: jest.fn() }));
-jest.mock('@/lib/supabase-server', () => ({ createServerSupabaseClient: () => ({}), createServiceRoleClient: () => ({}) }));
+const mockPublicSpecialHours = jest.fn(async () => ({ data: null, error: null }));
+jest.mock('@/lib/supabase-server', () => ({ createServerSupabaseClient: () => ({ rpc: mockPublicSpecialHours }), createServiceRoleClient: () => ({}) }));
 jest.mock('@/lib/facility-publish-gate', () => ({ checkBookingReadiness: jest.fn(async () => ({ readiness: { ready: false }, error: null })) }));
 
 // 表示部品は中身を問わないので置き換える。タブは全タブの見出しと中身を並べて出す（どのタブがあるかを見るため）。
@@ -210,4 +211,10 @@ test.each([undefined, true, false])('automatic business-status rendering follows
   const html = renderToStaticMarkup(await Page(props()));
   expect(html.includes('data-stub="BusinessStatusBadge"')).toBe(visible !== false);
   expect(html).toContain('data-stub="AccessInfo"');
+});
+
+test('営業時間の例外設定が読めない場合は営業中を断定しない', async () => {
+  mockPublicSpecialHours.mockResolvedValueOnce({ data: null, error: { message: 'unavailable' } } as never);
+  const html = renderToStaticMarkup(await Page(props()));
+  expect(html).not.toContain('data-stub="BusinessStatusBadge"');
 });

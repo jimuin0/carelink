@@ -48,6 +48,9 @@ export const bookingSchema = z.object({
     .refine((date) => date <= getMaxDateString(), '1年以上先の日付は指定できません'),
   start_time: timeString,
   end_time: endTimeString,
+  // Absent means a legacy same-day booking; an explicit following day is
+  // checked together with both times by the atomic booking path.
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidIsoDate).optional(),
   // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
   customer_name: z.string().trim().min(1, 'お名前は必須です').max(100),
   email: z.string().email('正しいメールアドレスを入力してください').max(254),

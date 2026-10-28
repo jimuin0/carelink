@@ -6,7 +6,7 @@ import type { Database } from '@/types/database.types';
 import Link from 'next/link';
 import BoardScheduleGrid, { type BoardRow, type BoardMenu } from '@/components/admin/BoardScheduleGrid';
 import { todayJst, isValidIsoDate, addDays } from '@/lib/admin-date';
-import { computeBoardHourRange } from '@/lib/board-time';
+import { clipBookingToDay, computeBoardHourRange } from '@/lib/board-time';
 import FacilitySelector from '@/components/admin/FacilitySelector';
 import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
 
@@ -90,9 +90,9 @@ export default async function AdminSchedulePage(props: Props) {
       .order('sort_order', { ascending: true }),
     supabase
       .from('bookings')
-      .select('id, customer_name, start_time, end_time, status, staff_id, staff_auto_assigned, menu_id, menu_ids')
+      .select('id, customer_name, booking_date, end_date, start_time, end_time, status, staff_id, staff_auto_assigned, menu_id, menu_ids')
       .eq('facility_id', facilityId)
-      .eq('booking_date', date)
+      .or(`booking_date.eq.${date},and(booking_date.eq.${addDays(date,-1)},end_date.eq.${date})`)
       .neq('status', 'cancelled')
       .order('start_time', { ascending: true }),
     db
@@ -114,11 +114,14 @@ export default async function AdminSchedulePage(props: Props) {
 
   const staff = staffRows ?? [];
   type BookingChip = {
-    id: string; customer_name: string; start_time: string; end_time: string;
+    id: string; customer_name: string; booking_date: string; end_date: string | null; start_time: string; end_time: string;
     status: string; staff_id: string | null; staff_auto_assigned?: boolean | null;
     menu_id: string | null; menu_ids: string[] | null;
   };
-  const bookings = (bookingRows ?? []) as BookingChip[];
+  const bookings = ((bookingRows ?? []) as BookingChip[]).flatMap(b => {
+    const clipped = clipBookingToDay(b, date);
+    return clipped ? [clipped] : [];
+  });
   const boardMenus: BoardMenu[] = (menuRows ?? []) as BoardMenu[];
 
   // 行 = スタッフ + 「指名なし」（staff_id null か、スタッフ一覧に居ない id）
@@ -135,6 +138,7 @@ export default async function AdminSchedulePage(props: Props) {
         id: b.id, customer_name: b.customer_name, start_time: b.start_time,
         end_time: b.end_time, status: b.status, menuName: menuNameOf(b),
         autoAssigned: b.staff_auto_assigned === true,
+        continuesFromPrevious: b.continuesFromPrevious, continuesToNext: b.continuesToNext,
       }));
   const boardRows: BoardRow[] = [
     ...staff.map((s) => ({

@@ -18,6 +18,11 @@ function database(results: Record<string, { data:unknown; error:unknown }>) {
   return { from } as unknown as Parameters<typeof buildStatusEnvelope>[0];
 }
 const facility = { data:{ name:'Synthetic facility' },error:null };
+test('日付をまたぐ予約の状態通知には翌日の終了日を含める', async () => {
+  const result=await buildStatusEnvelope(database({facility_profiles:facility}),
+    {...booking,booking_date:'2030-01-07',start_time:'23:30',end_date:'2030-01-08',end_time:'00:30'},'confirmed');
+  expect(result?.html).toContain('2030年1月7日（月） 23:30〜2030年1月8日（火） 00:30');
+});
 test.each([null,''])('missing email %j reserves no provider envelope', async email => {
   const db=database({}); expect(await buildStatusEnvelope(db,{...booking,email},'confirmed')).toBeNull();
   expect(db.from).not.toHaveBeenCalled();

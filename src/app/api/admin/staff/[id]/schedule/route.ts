@@ -186,6 +186,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     p_actor_id: auth.userId, p_facility_id: auth.facilityId, p_staff_id: params.id,
     p_override_id: parsed.data.override_id,
   });
+  if (error?.message === 'STAFF_OVERNIGHT_BOOKINGS_AFFECTED') return NextResponse.json({ error: 'この特別日を削除すると、日付をまたぐ予約の勤務時間が不足します。先に週間の勤務時間を設定してください。' }, { status: 409 });
   if (error) return staffMutationError(error, 'admin-staff-schedule-delete', '/api/admin/staff/[id]/schedule');
   if (data === false) return NextResponse.json({ error: '休日設定が見つかりません' }, { status: 404 });
   if (data !== true) return serverError('admin-staff-schedule-delete-result', new Error('Invalid transaction result'), '/api/admin/staff/[id]/schedule');

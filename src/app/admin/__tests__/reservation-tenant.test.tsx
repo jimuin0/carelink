@@ -17,7 +17,7 @@ function mockFrom(table: string) {
   mockQueries.push(query);
   const result = mockResults[table]?.shift() ?? { data: [], error: null };
   const chain: Record<string, unknown> = {};
-  for (const name of ['select', 'eq', 'in', 'order', 'limit', 'neq', 'gte', 'lte', 'ilike', 'range']) {
+  for (const name of ['select', 'eq', 'in', 'order', 'limit', 'neq', 'gte', 'lte', 'ilike', 'range', 'or']) {
     chain[name] = (...args: unknown[]) => { query.filters.push([name, ...args]); return chain; };
   }
   chain.maybeSingle = () => Promise.resolve(result);
@@ -56,7 +56,7 @@ test.each([Schedule, Bookings])('未所属店舗を要求しても先頭店舗�
 test('予約表は選択店舗だけを読み、日送りと全メニューの順序を維持する', async () => {
   mockResults.facility_profiles = [{ data: null }];
   mockResults.staff_profiles = [{ data: [] }];
-  mockResults.bookings = [{ data: [{ id: 'synthetic-booking', customer_name: '合成顧客',
+  mockResults.bookings = [{ data: [{ id: 'synthetic-booking', customer_name: '合成顧客', booking_date: '2026-10-01', end_date: null,
     start_time: '10:00', end_time: '11:00', status: 'confirmed', staff_id: null,
     menu_id: menuA, menu_ids: [menuB, menuA] }] }];
   mockResults.facility_menus = [{ data: [{ id: menuA, name: '施術A', price: 100, duration_minutes: 30 },
@@ -105,9 +105,9 @@ test('予約表は指名なしで割り当てられた予約をチップで区�
   mockResults.facility_profiles = [{ data: null }];
   mockResults.staff_profiles = [{ data: [{ id: staffA, name: '担当A', position: null, nomination_fee: 500 }] }];
   mockResults.bookings = [{ data: [
-    { id: 'synthetic-auto', customer_name: '合成おまかせ', start_time: '10:00', end_time: '11:00', status: 'confirmed',
+    { id: 'synthetic-auto', customer_name: '合成おまかせ', booking_date: '2026-10-01', end_date: null, start_time: '10:00', end_time: '11:00', status: 'confirmed',
       staff_id: staffA, staff_auto_assigned: true, menu_id: null, menu_ids: null },
-    { id: 'synthetic-named', customer_name: '合成指名', start_time: '12:00', end_time: '13:00', status: 'confirmed',
+    { id: 'synthetic-named', customer_name: '合成指名', booking_date: '2026-10-01', end_date: null, start_time: '12:00', end_time: '13:00', status: 'confirmed',
       staff_id: staffA, staff_auto_assigned: false, menu_id: null, menu_ids: null },
   ] }];
   mockResults.facility_menus = [{ data: [] }];

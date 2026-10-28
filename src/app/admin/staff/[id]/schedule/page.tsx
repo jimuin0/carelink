@@ -304,7 +304,8 @@ function StaffSchedulePageForm() {
       if (res.ok) {
         setOverrides((prev) => prev.filter((o) => o.id !== id));
       } else {
-        setToast({ type: 'error', message: '削除に失敗しました' });
+        const result = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: typeof result.error === 'string' ? result.error : '削除に失敗しました' });
       }
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました。削除結果を再読み込みして確認してください' });

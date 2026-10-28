@@ -4,7 +4,7 @@ export const BOOKING_CREATE_PENDING_PREFIX = 'carelink-booking-create:';
 export const BOOKING_CREATE_UNKNOWN = '予約の受付結果を確認できません。同じ受付番号で照合してください。';
 const acceptedSchema = z.object({ success: z.literal(true), state: z.literal('accepted'), operationId: z.uuid(), bookingId: z.uuid(),
   bookingStatus: z.enum(['pending','confirmed']), bookingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), startTime: z.string().regex(/^\d{2}:\d{2}$/),
-  endTime: z.string().regex(/^\d{2}:\d{2}$/), totalPrice: z.number().int().nonnegative(), notification: z.literal('queued') });
+  endTime: z.string().regex(/^\d{2}:\d{2}$/), endDate: z.iso.date().optional(), totalPrice: z.number().int().nonnegative(), notification: z.literal('queued') });
 export type BookingAccepted = z.infer<typeof acceptedSchema>;
 export type BookingCreateClientResult = { state: 'accepted'; receipt: BookingAccepted } | { state: 'closed'; error?: string } | { state: 'pending'; error: string };
 const recordSchema = z.object({ id: z.uuid(), state: z.enum(['pending','accepted']) }).strict();

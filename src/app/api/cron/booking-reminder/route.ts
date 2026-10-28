@@ -41,7 +41,7 @@ type ReminderKind = 'email_1d' | 'email_3d' | 'email_7d' | 'line_3d' | 'line_7d'
 
 type BookingRow = {
   id: string; customer_name: string | null; email: string | null;
-  booking_date: string; start_time: string; end_time: string;
+  booking_date: string; end_date: string | null; start_time: string; end_time: string;
   facility_id: string; total_price: number | null;
   user_id: string | null; menu_id: string | null;
 };
@@ -109,7 +109,7 @@ export async function GET(request: Request) {
         const { data, error } = await retryTransientSupabaseRead(() =>
           supabase
             .rpc('pending_booking_reminders', { p_today: jstNow.toISOString().split('T')[0] })
-            .select('id, customer_name, email, booking_date, start_time, end_time, facility_id, total_price, user_id, menu_id')
+            .select('id, customer_name, email, booking_date, end_date, start_time, end_time, facility_id, total_price, user_id, menu_id')
             .order('id', { ascending: true })
             .range(offset, offset + limit - 1),
         );
@@ -334,7 +334,7 @@ export async function GET(request: Request) {
       try {
         // 一覧取得から送信までの予約取消・変更を検知し、古い宛先や予約時刻では送信しない。
         const { data: currentBooking, error: currentError } = await supabase.from('bookings')
-          .select('id, customer_name, email, booking_date, start_time, end_time, facility_id, total_price, user_id, menu_id, status')
+          .select('id, customer_name, email, booking_date, end_date, start_time, end_time, facility_id, total_price, user_id, menu_id, status')
           .eq('id', booking.id).maybeSingle();
         if (currentError) { dependencyFailures++; skipped++; await releaseClaim(); continue; }
         if (!currentBooking || currentBooking.status !== 'confirmed'
@@ -358,6 +358,7 @@ export async function GET(request: Request) {
             bookingDate: booking.booking_date,
             startTime: booking.start_time,
             endTime: booking.end_time,
+            endDate: booking.end_date ?? undefined,
             totalPrice: booking.total_price ?? undefined,
             bookingId: booking.id,
             // ゲスト予約（user_id なし）はマイページに出ないので、メールは店舗の連絡先へ案内する。
@@ -421,6 +422,7 @@ export async function GET(request: Request) {
                 bookingDate: booking.booking_date,
                 startTime: booking.start_time,
                 endTime: booking.end_time,
+                endDate: booking.end_date ?? undefined,
                 totalPrice: booking.total_price ?? undefined,
                 bookingId: booking.id,
                 hasAccount: booking.user_id !== null,

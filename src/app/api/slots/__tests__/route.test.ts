@@ -16,7 +16,10 @@ jest.mock('@/lib/rate-limit', () => ({
 }));
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/facility-publish-gate', () => ({ checkBookingReadiness: jest.fn() }));
+jest.mock('@/lib/available-slots', () => ({ ...jest.requireActual('@/lib/available-slots'),
+  loadSlotHolidayCalendar: jest.fn(async () => ({ calendar: null, error: null })) }));
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
+import { loadSlotHolidayCalendar } from '@/lib/available-slots';
 
 import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
@@ -64,6 +67,11 @@ function makeRequest(facilityId: string = VALID_UUID, staffId: string = VALID_UU
 }
 
 describe('GET /api/slots', () => {
+  test('祝日情報を読めない場合は空きなしと断定しない', async () => {
+    jest.mocked(loadSlotHolidayCalendar).mockResolvedValueOnce({calendar:null,error:new Error('unavailable')});
+    expect((await GET(makeRequest())).status).toBe(500);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
   test('掲載のみの施設はRPCを呼ばず予約準備中を返す', async () => {
     jest.mocked(checkBookingReadiness).mockResolvedValue({ readiness: { ready: false, missing: ['営業時間'] }, error: null });
     const res = await GET(makeRequest() as any);
@@ -204,12 +212,13 @@ describe('GET /api/slots', () => {
     await GET(makeRequest(VALID_UUID, VALID_UUID, VALID_DATE, '75') as any);
 
     const call = mockRpc.mock.calls[0];
-    expect(call[0]).toBe('get_available_slots');
+    expect(call[0]).toBe('get_available_slots_dated');
     expect(call[1]).toEqual({
       p_facility_id: VALID_UUID,
       p_staff_id: VALID_UUID,
       p_date: VALID_DATE,
       p_duration_minutes: 75,
+      p_exclude_booking_id: null, p_holiday_dates: null, p_holiday_from: null, p_holiday_through: null,
     });
   });
 

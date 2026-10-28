@@ -15,6 +15,10 @@ jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush }), use
 jest.mock('next/dynamic', () => ({ __esModule: true, default: () => () => null }));
 jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: () => mockDb() }));
 jest.mock('@/components/Toast', () => ({ __esModule: true, default: ({ message }: { message: string }) => <p role="status">{message}</p> }));
+// The separate editor exercises its own network and authorization contract.
+jest.mock('@/components/admin/SpecialHoursSettings', () => ({ __esModule: true,
+  default: ({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) =>
+    <button type="button" onClick={() => onDirtyChange(true)}>特別時間の仮編集</button> }));
 
 beforeEach(() => {
   jest.clearAllMocks(); mockRequested = second; mockReads = [];
@@ -65,6 +69,15 @@ test('時間の一括コピーをキャンセルすると入力済みの他曜�
   fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
   expect((screen.getByLabelText('火曜日の開店時間') as HTMLInputElement).value).toBe('08:00');
   expect(mockFetch).not.toHaveBeenCalled();
+});
+
+test('未保存の特別営業時間がある店舗切替は確認する', async () => {
+  render(<AdminSettingsPage />);
+  await screen.findByDisplayValue('合成店舗B');
+  fireEvent.click(screen.getByRole('button', { name: '特別時間の仮編集' }));
+  fireEvent.click(screen.getByRole('link', { name: '合成店舗A' }));
+  expect(screen.getByText('未保存の変更があります')).toBeTruthy();
+  expect(mockPush).not.toHaveBeenCalled();
 });
 
 test.each(['error', 'throw', 'malformed', 'user-with-error'])('Auth %s shows retry rather than empty settings, preserving the requested tenant', async mode => {

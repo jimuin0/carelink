@@ -65,6 +65,7 @@ export interface BookingEmailData {
   customerEmail: string;
   facilityName: string;
   bookingDate: string;
+  endDate?: string;
   startTime: string;
   endTime: string;
   menuName?: string;
@@ -118,7 +119,7 @@ function bookingDetailHtml(data: BookingEmailData): string {
   const pointsUsed = data.pointsUsed ?? 0;
   return `
     <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-      <tr><td style="${th}">日時</td><td style="${td}">${formatDate(data.bookingDate)} ${formatTime(data.startTime)}〜${formatTime(data.endTime)}</td></tr>
+      <tr><td style="${th}">日時</td><td style="${td}">${formatDate(data.bookingDate)} ${formatTime(data.startTime)}〜${data.endDate && data.endDate !== data.bookingDate ? `${formatDate(data.endDate)} ` : ''}${formatTime(data.endTime)}</td></tr>
       ${data.menuName ? `<tr><td style="${th}">メニュー</td><td style="${td}">${esc(data.menuName)}</td></tr>` : ''}
       ${data.staffName ? `<tr><td style="${th}">担当</td><td style="${td}">${esc(data.staffName)}</td></tr>` : ''}
       ${data.totalPrice != null ? `<tr><td style="${th}">料金</td><td style="${td}">&yen;${data.totalPrice.toLocaleString()}${pointsUsed > 0 ? '（ポイント利用後）' : ''}</td></tr>` : ''}
@@ -805,11 +806,11 @@ export function buildBookingCancellationToFacilityEnvelope(data: BookingEmailDat
  * 送信は webhook-retry の worker だけが行う（変更と同じトランザクションで積まれた snapshot から組み立てる）。
  */
 export function buildBookingRescheduleToFacilityEnvelope(
-  data: BookingEmailData & { facilityEmail: string; previous: { bookingDate: string; startTime: string; endTime: string } },
+  data: BookingEmailData & { facilityEmail: string; previous: { bookingDate: string; endDate?: string; startTime: string; endTime: string } },
 ) {
   const name = esc(data.customerName);
   const email = esc(data.customerEmail);
-  const before = `${formatDate(data.previous.bookingDate)} ${formatTime(data.previous.startTime)}〜${formatTime(data.previous.endTime)}`;
+  const before = `${formatDate(data.previous.bookingDate)} ${formatTime(data.previous.startTime)}〜${data.previous.endDate && data.previous.endDate !== data.previous.bookingDate ? `${formatDate(data.previous.endDate)} ` : ''}${formatTime(data.previous.endTime)}`;
   return {
     from: FROM,
     to: data.facilityEmail,

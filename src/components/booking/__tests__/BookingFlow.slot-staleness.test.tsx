@@ -108,6 +108,36 @@ async function pickTomorrowTen(
   return tomorrow;
 }
 
+test('日付をまたぐ枠は翌日終了と表示し、終了日を付けて送る', async () => {
+  rejectCreateWith(409, 'この時間帯は既に予約が入っています');
+  const fallback = global.fetch;
+  global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.startsWith('/api/slots/week')) {
+      const body = slotsWeekBody(url, (_staffId, date) => [{ slot_start: '23:30:00', slot_end: '00:30:00',
+        end_date: new Date(Date.parse(`${date}T00:00:00Z`) + DAY).toISOString().slice(0, 10) }]);
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) } as Response);
+    }
+    return fallback(input, init);
+  }) as typeof fetch;
+  render(<BookingFlow facility={FACILITY} staff={STAFF} menus={[CUT]} coupons={[]} />);
+  fireEvent.click(await screen.findByText('カット'));
+  fireEvent.click(screen.getByText('次へ（日時を選ぶ）'));
+  const tomorrow = new Date(Date.now() + 9 * 3_600_000 + DAY);
+  fireEvent.click(await screen.findByRole('button', { name: `${tomorrow.getUTCMonth() + 1}/${tomorrow.getUTCDate()} 23:30 予約可` }));
+  expect(screen.getByText(/23:30〜翌00:30/)).toBeInTheDocument();
+  fireEvent.click(screen.getByText('次へ（確認・予約）'));
+  expect(await screen.findByText('予約内容の確認・お客様情報')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText(/お名前/), { target: { value: '合成 太郎' } });
+  fireEvent.change(screen.getByLabelText(/メールアドレス/), { target: { value: 'synthetic@example.invalid' } });
+  fireEvent.click(screen.getByText('この内容で予約する'));
+  await screen.findByText('この時間帯は既に予約が入っています');
+  expect(createRequests()).toHaveLength(1);
+  const payload = JSON.parse(createRequests()[0][1].body as string);
+  const expectedEnd = new Date(tomorrow.getTime() + DAY).toISOString().slice(0, 10);
+  expect(payload.end_date).toBe(expectedEnd);
+});
+
 test('枠を選んでから「戻る」でメニューを足すと、旧い枠は外れて選び直しになる（回帰）', async () => {
   await pickTomorrowTen();
   fireEvent.click(screen.getByText('戻る'));

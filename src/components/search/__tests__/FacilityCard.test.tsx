@@ -14,6 +14,16 @@ const card: FacilityCardData = {
   booking_menu_count: 2, active_staff_count: 1, has_address: true,
 };
 
+test('臨時休業日は通常の営業時間より優先する', () => {
+  jest.useFakeTimers();
+  try {
+    jest.setSystemTime(new Date('2026-10-26T03:00:00Z'));
+    render(<FacilityCard facility={{ ...card, special_hours: { closed_dates: ['2026-10-26'], close_on_public_holidays: false, reception_cutoff_minutes: null } }} />);
+    expect(screen.getByText('本日休業')).toBeInTheDocument();
+    expect(screen.queryByText('09:00 〜 18:00')).not.toBeInTheDocument();
+  } finally { jest.useRealTimers(); }
+});
+
 test('shows the previous opening during the early-morning carryover', () => {
   jest.useFakeTimers();
   try {
