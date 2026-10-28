@@ -2118,7 +2118,7 @@
 "function|get_newsletter_preference(p_user_id uuid)|returns=jsonb|volatile=s|secdef=t|body_md5=c3a014333dac7ea60958fc7fa490168b",
 "function|get_public_columns()|returns=jsonb|volatile=s|secdef=t|body_md5=5f040075ca5e4f7f77d2a8b86fbc5bb0",
 "function|get_public_constraints()|returns=jsonb|volatile=s|secdef=t|body_md5=352c9a7581afc36e64b872762090d7c8",
-"function|get_review_helpful_counts(p_review_ids uuid[])|returns=TABLE(review_id uuid, helpful_count integer)|volatile=s|secdef=t|body_md5=f02a0d2cb58f8cddc2c00e91abcff10a",
+"function|get_review_helpful_counts(p_review_ids uuid[])|returns=TABLE(review_id uuid, helpful_count integer)|volatile=s|secdef=f|body_md5=57de5bbe563c88fb687f43462f26a38d",
 "function|get_schema_fingerprint()|returns=jsonb|volatile=s|secdef=t|body_md5=089328ab26fd723f5a7459878db5ae0d",
 "function|get_staff_mutation_operation(p_actor_id uuid, p_facility_id uuid, p_operation_id uuid, p_kind text, p_staff_id uuid)|returns=jsonb|volatile=v|secdef=f|body_md5=152221e75a9d40291f24794dbcff680b",
 "function|get_unique_customers(p_facility_id uuid)|returns=TABLE(email text, name text, visit_count bigint, last_visit date)|volatile=s|secdef=f|body_md5=9671ec6087981405d4a194547624b482",
