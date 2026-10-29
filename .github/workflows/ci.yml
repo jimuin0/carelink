@@ -17,9 +17,8 @@ jobs:
     # 🔴 上限を明示する。GitHub の既定は 6 時間で、外部ダウンロードが停滞すると
     #   1 件のジョブがランナーを 6 時間占有する（2026年8月19日に E2E の
     #   "Install Playwright Browsers" が 5 時間 58 分ハングして実際に起きた）。
-    #   取得先の制限で代替先に切り替えるまで約10分かかる場合もあるため、
-    #   全画面テストの実行時間を確保しつつ上限を維持する。
-    timeout-minutes: 60
+    #   上限があれば早く赤くなり、再実行が数分で済む。
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -107,8 +106,9 @@ jobs:
     # 🔴 上限を明示する。GitHub の既定は 6 時間で、外部ダウンロードが停滞すると
     #   1 件のジョブがランナーを 6 時間占有する（2026年8月19日に E2E の
     #   "Install Playwright Browsers" が 5 時間 58 分ハングして実際に起きた）。
-    #   上限があれば早く赤くなり、再実行が数分で済む。
-    timeout-minutes: 30
+    #   取得先の制限で代替先に切り替えるまで約10分かかる場合もあるため、
+    #   全画面テストの実行時間を確保しつつ上限を維持する。
+    timeout-minutes: 60
     # Unit/Contract failures must still block merging, but cannot prevent this
     # independent fresh-apply/Storage gate from producing its evidence. In
     # particular, a new migration awaiting production introspection may fail
