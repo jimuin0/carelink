@@ -1,6 +1,7 @@
 // Synthetic PG17 transactions only. No provider calls, real recipients or business cleanup.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 const shadowDocker = process.argv[2] === '--local-docker-shadow';
 const local = shadowDocker || process.argv[2] === '--local-docker';
 const actualProviderRole = local && !shadowDocker;
@@ -127,13 +128,15 @@ async function main() {
     assert.equal(query("SELECT has_function_privilege('supabase_auth_admin','public.cleanup_deleting_account_personal_data()','EXECUTE')"),'f');
   }
   query(`BEGIN; INSERT INTO auth.users(id,email,email_confirmed_at) VALUES('${owner}','retirement-race-owner@example.invalid',now()),('${coowner}','retirement-race-coowner@example.invalid',now()),('${failingOwner}','retirement-race-failure@example.invalid',now());
-    INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES('${facility}','Synthetic retirement race','synthetic-retirement-race','その他','検証県','検証市','検証住所','published'),('${failingFacility}','Synthetic Auth failure','synthetic-auth-failure-race','その他','検証県','検証市','検証住所','published');
+    INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES('${facility}','Synthetic retirement race','synthetic-retirement-race','その他','検証県','検証市','検証住所','draft'),('${failingFacility}','Synthetic Auth failure','synthetic-auth-failure-race','その他','検証県','検証市','検証住所','draft');
     INSERT INTO public.facility_members(user_id,facility_id,role) VALUES('${owner}','${facility}','owner'),('${failingOwner}','${failingFacility}','owner');
     UPDATE public.profiles SET line_user_id='${line}' WHERE id='${failingOwner}';
     INSERT INTO public.line_user_links(line_user_id,user_id,display_name) VALUES('${line}','${failingOwner}','Synthetic retained follower');
     INSERT INTO public.favorites(user_id,facility_id) VALUES('${failingOwner}','${failingFacility}');
     INSERT INTO public.user_points(user_id,points,reason) VALUES('${failingOwner}',123,'Synthetic failed-retirement balance'); COMMIT;`);
   fixtureCreated=true;
+  query(`${readFileSync('supabase/shadow/listing-verification-setup.sql','utf8')}\nSELECT pg_temp.approve_synthetic_listing('${facility}','${owner}'); SELECT pg_temp.approve_synthetic_listing('${failingFacility}','${failingOwner}');`);
+  query(`UPDATE public.facility_profiles SET status='published' WHERE id IN ('${facility}','${failingFacility}');`);
   await ownerJoinWhileDeleting(); await lastOwnerVsPublication();
   // Force a failure AFTER all 17 cleanup operations executed, without adding
   // any global fixture trigger/permission. A transaction rollback must restore
@@ -151,7 +154,11 @@ try { await main(); }
 finally {
   if(children.size) {query(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=current_database() AND application_name LIKE '${prefix}-%' AND pid<>pg_backend_pid();`);for(const child of children)child.kill('SIGTERM');}
   if(fixtureCreated) {
-    query(`BEGIN; DELETE FROM public.facility_profiles WHERE id IN ('${facility}','${failingFacility}'); DELETE FROM auth.users WHERE id IN ('${owner}','${coowner}','${failingOwner}'); COMMIT;`);
+    query(`BEGIN; DELETE FROM public.listing_verification_approval_documents WHERE facility_id IN ('${facility}','${failingFacility}');
+      DELETE FROM public.listing_verification_approvals WHERE facility_id IN ('${facility}','${failingFacility}');
+      DELETE FROM storage.objects WHERE bucket_id='listing-verification' AND name IN (SELECT object_path FROM public.listing_verification_documents WHERE facility_id IN ('${facility}','${failingFacility}'));
+      DELETE FROM public.listing_verification_documents WHERE facility_id IN ('${facility}','${failingFacility}');
+      DELETE FROM public.facility_profiles WHERE id IN ('${facility}','${failingFacility}'); DELETE FROM auth.users WHERE id IN ('${owner}','${coowner}','${failingOwner}'); COMMIT;`);
     assert.equal(query(`SELECT count(*) FROM auth.users WHERE id IN ('${owner}','${coowner}','${failingOwner}')`),'0');
     assert.equal(query(`SELECT count(*) FROM public.facility_profiles WHERE id IN ('${facility}','${failingFacility}')`),'0');
     assert.equal(query(`SELECT count(*) FROM public.line_user_links WHERE line_user_id='${line}'`),'0');
