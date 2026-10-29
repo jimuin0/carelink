@@ -128,7 +128,9 @@ BEGIN
     WHEN 5 THEN UPDATE public.bookings SET end_time='11:35' WHERE id=bid;
     WHEN 6 THEN UPDATE public.bookings SET staff_id=NULL WHERE id=bid;
     WHEN 7 THEN UPDATE public.bookings SET total_price=450 WHERE id=bid;
-    WHEN 8 THEN UPDATE public.facility_profiles SET name='Changed' WHERE id='bea41000-0000-4000-8000-000000000001';
+    -- Verified listings must be unpublished before changing their identity.
+    -- The notification snapshot reads the name independently of status.
+    WHEN 8 THEN UPDATE public.facility_profiles SET status='draft',name='Changed' WHERE id='bea41000-0000-4000-8000-000000000001';
     WHEN 9 THEN UPDATE public.facility_menus SET name='Changed' WHERE id='bea42000-0000-4000-8000-000000000001';
     WHEN 10 THEN UPDATE public.staff_profiles SET name='Changed' WHERE id='bea43000-0000-4000-8000-000000000001';
     WHEN 11 THEN UPDATE public.bookings SET status='cancelled' WHERE id=bid;
