@@ -29,11 +29,17 @@ import { readLocalSalonDraft } from '@/lib/salon-local-draft';
 import { normalizePostalCodeInput, normalizeWebsiteInput } from '@/lib/register-input-normalize';
 import { LISTING_PUBLISH_ITEMS, REGISTER_PHOTO_FIELD_NOTE } from '@/lib/register-photo-policy';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import { medicalBusinessTypes } from '@/lib/medical-business-types';
 import { LICENSE_WARRANTY_TEXT } from '@/lib/registration-consent';
 import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
+const registrationBusinessTypes = [
+  ...businessTypes.filter(type => !medicalBusinessTypes.includes(type) && type !== 'その他'),
+  ...businessTypes.filter(type => medicalBusinessTypes.includes(type)),
+  ...businessTypes.filter(type => type === 'その他'),
+];
 
 // 「駐車場あり」は専用のチェックボックス（has_parking）があるので、こだわりチップからは外す
 // （同じ意味の入力が 2 つ並んでいた）。検索の絞り込みは features 配列を見るため、
@@ -837,7 +843,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                 <div className="relative">
                   <select {...register('business_type')} id="reg-business-type" className="form-input appearance-none pr-10" aria-required="true" {...describe('business_type', 'reg-business-type')}>
                     <option value="">選択してください</option>
-                    {businessTypes.map(t => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
+                    {registrationBusinessTypes.map(t => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
                   </select>
                   {chevron}
                 </div>
