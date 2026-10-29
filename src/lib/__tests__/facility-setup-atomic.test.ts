@@ -106,3 +106,12 @@ test('lost RPC response is unknown and never auto-retries or rolls back manually
   expect(await setupFacilityAtomically(db, user, body, { mode: 'none' })).toEqual({ state: 'unknown' });
   expect(rpc).toHaveBeenCalledTimes(1);
 });
+
+test.each([
+  [{ ...body, intentId: intent }, { mode: 'intent', intentId: intent, proof }],
+  [{ ...body, recoveryId: intent }, { mode: 'recovered', recoveryId: intent, proof }],
+  [body, { mode: 'legacy', receiptId: receipt, issuedAt: '2026-09-26T00:00:00Z' }],
+])('receipt setup uses the atomic publication-aware boundary', async (value, claim) => {
+  await setupFacilityAtomically(db, user, value, claim as FacilitySetupClaim);
+  expect(rpc.mock.calls[0][0]).toBe('setup_facility_with_registration_publication');
+});

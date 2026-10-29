@@ -184,3 +184,25 @@ test('secondary actions are drawn as the shared secondary Button (visibly pressa
   expect(recheck).toHaveClass(...buttonClassName({variant:'secondary'}).split(' '));
   expect(screen.getByRole('button',{name:'この申込で続ける'})).toHaveClass(...buttonClassName({variant:'primary'}).split(' '));
 });
+
+describe('verified single-receipt automatic recovery',()=>{
+ beforeEach(()=>{process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH='true';mockSearch=new URLSearchParams({from:'handoff'});});
+ afterEach(()=>{delete process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH;});
+ test('only the sole marked receipt advances without manual selection',async()=>{
+  mockFetch.mockResolvedValueOnce(response({...ready,autoReceiptId:receiptId})).mockResolvedValueOnce(response({state:'prepared',recoveryId,expiresAt:new Date(Date.now()+60000).toISOString()}));
+  render(<RecoverRegistrationPage/>);
+  await waitFor(()=>expect(mockPush).toHaveBeenCalledWith(SALON_RECOVERY_ONBOARDING_PATH));
+  expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({action:'prepare',receiptId});
+ });
+ test('an ambiguous list remains manual even if it contains a marker',async()=>{
+  mockFetch.mockResolvedValueOnce(response({...ready,next:receiptId,autoReceiptId:receiptId}));
+  render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);
+  expect(mockFetch).toHaveBeenCalledTimes(1);expect(mockPush).not.toHaveBeenCalled();
+ });
+ test('an uncertain prior grant is not automatically repeated',async()=>{
+  window.sessionStorage.setItem(`carelink-registration-recovery-attempt:${receiptId}`,'attempted');
+  mockFetch.mockResolvedValueOnce(response({...ready,autoReceiptId:receiptId}));
+  render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);
+  expect(mockFetch).toHaveBeenCalledTimes(1);expect(mockPush).not.toHaveBeenCalled();
+ });
+});

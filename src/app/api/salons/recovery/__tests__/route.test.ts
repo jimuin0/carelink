@@ -7,6 +7,8 @@ const getUser = jest.fn();
 jest.mock('@/lib/supabase-server-auth', () => ({ createServerSupabaseAuthClient: jest.fn(async () => ({ auth: { getUser } })) }));
 jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
 jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
+jest.mock('@/lib/registration-publication-availability', () => ({ registrationPublicationAvailable: jest.fn() }));
+import { registrationPublicationAvailable } from '@/lib/registration-publication-availability';
 import { NextResponse } from 'next/server';
 import { POST } from '../route';
 import { checkCsrf } from '@/lib/csrf';
@@ -88,4 +90,46 @@ test('summary returns only the selected receipt, while denied proof has no field
   rpc.mockResolvedValue({ data: [{ outcome: 'unverified', receipt_id: null, facility_name: null, business_type: null, address: null }], error: null });
   response = await POST(request({ action: 'summary', recoveryId }, cookie));
   expect(response.status).toBe(403); expect(await response.json()).toEqual({ state: 'unverified' });
+});
+
+describe('instant publication recovery marker',()=>{
+ beforeEach(()=>{process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH='true';});
+ afterEach(()=>{delete process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH;});
+ test.each([true,false])('returns the selected receipt marker %s',async available=>{
+  jest.mocked(registrationPublicationAvailable).mockResolvedValue(available);
+  rpc.mockResolvedValue({data:[{outcome:'confirmed',receipt_id:receiptId,facility_name:'Synthetic',business_type:businessTypes[0],address:null}],error:null});
+  const cookie=`${salonRecoveryCookieName(recoveryId)}=${'ab'.repeat(32)}`;
+  const response=await POST(request({action:'summary',recoveryId},cookie));
+  expect(response.status).toBe(200);expect(await response.json()).toMatchObject({state:'confirmed',autoPublication:available});
+  expect(registrationPublicationAvailable).toHaveBeenCalledWith(expect.anything(),receiptId);
+ });
+ test('does not query marker for an unverified recovery',async()=>{
+  rpc.mockResolvedValue({data:[{outcome:'unverified',receipt_id:null,facility_name:null,business_type:null,address:null}],error:null});
+  const cookie=`${salonRecoveryCookieName(recoveryId)}=${'ab'.repeat(32)}`;
+  const response=await POST(request({action:'summary',recoveryId},cookie));
+  expect(response.status).toBe(403);expect(registrationPublicationAvailable).not.toHaveBeenCalled();
+ });
+});
+
+describe('safe automatic selection hint',()=>{
+ beforeEach(()=>{process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH='true';});
+ afterEach(()=>{delete process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH;});
+ const row={receipt_id:receiptId,facility_name:'Synthetic',business_type:businessTypes[0],created_at:new Date().toISOString()};
+ test('one verified receipt with a publication marker is eligible',async()=>{
+  rpc.mockResolvedValue({data:[row],error:null});jest.mocked(registrationPublicationAvailable).mockResolvedValue(true);
+  const response=await POST(request({action:'list'}));expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({state:'ready',autoReceiptId:receiptId});
+ });
+ test('historical receipts and multiple choices are never auto-selected',async()=>{
+  rpc.mockResolvedValue({data:[row],error:null});jest.mocked(registrationPublicationAvailable).mockResolvedValue(false);
+  let response=await POST(request({action:'list'}));expect(await response.json()).not.toHaveProperty('autoReceiptId');
+  rpc.mockResolvedValue({data:[row,{...row,receipt_id:recoveryId}],error:null});jest.mocked(registrationPublicationAvailable).mockClear();
+  response=await POST(request({action:'list'}));expect(await response.json()).not.toHaveProperty('autoReceiptId');
+  expect(registrationPublicationAvailable).not.toHaveBeenCalled();
+ });
+ test('a later list page never starts automatic selection',async()=>{
+  rpc.mockResolvedValue({data:[row],error:null});
+  const response=await POST(request({action:'list',after:recoveryId}));expect(await response.json()).not.toHaveProperty('autoReceiptId');
+  expect(registrationPublicationAvailable).not.toHaveBeenCalled();
+ });
 });

@@ -176,3 +176,44 @@ test('acceptable PR text in a new application is committed', async () => {
   expect(await commitSalonSubmission(f.db, { ...input, photoIds: [], registration: { ...registration, pr_text: '駅から徒歩3分です' } }, proof))
     .toEqual({ state: 'committed', receiptId });
 });
+
+const publicationHours = { sun: null, mon: { open: '09:00', close: '17:00' }, tue: null, wed: null, thu: null, fri: null, sat: null };
+test('new registration binds an explicit valid week separately without changing the legacy receipt hash', async () => {
+  process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH = 'true';
+  const f = fixture();
+  const located = { ...registration, prefecture: '大阪府', city: '大阪市北区', address: '大阪府大阪市北区梅田1-1' };
+  expect(await commitSalonSubmission(f.db, { ...input, registration: located, publicationHours }, proof)).toEqual({ state: 'committed', receiptId });
+  const canonical = canonicalSalonSubmission({ ...located, photo_urls: [url] })!;
+  expect(f.rpc).toHaveBeenCalledWith('commit_salon_submission_with_publication', expect.objectContaining({
+    p_payload_hmac: salonPayloadHmac(proof, canonical.serialized), p_business_hours: publicationHours,
+    p_hours_hmac: salonPayloadHmac(proof, `registration-hours-v1:${JSON.stringify(publicationHours)}`),
+    p_terms_sha256: REGISTRATION_TERMS_SHA256,
+  }));
+});
+test('invalid publication hours cannot read or write a registration', async () => {
+  const f = fixture();
+  expect(await commitSalonSubmission(f.db, { ...input, publicationHours: { mon: null } }, proof)).toEqual({ state: 'invalid', fieldErrors: { publication_hours: '曜日別の営業時間を確認してください' } });
+  expect(readSalonIntentStatus).not.toHaveBeenCalled(); expect(f.rpc).not.toHaveBeenCalled();
+});
+test('a committed registration with hours can be reconciled without inventing fresh consent', async () => {
+  const f = fixture(); (readSalonIntentStatus as jest.Mock).mockResolvedValue({ state: 'committed', receiptId });
+  f.rpc.mockResolvedValue({ data: [{ outcome: 'replay', receipt_id: receiptId }], error: null });
+  const { consent, ...withoutConsent } = input; void consent;
+  const located = { ...registration, prefecture: '大阪府', city: '大阪市北区', address: '大阪府大阪市北区梅田1-1' };
+  expect(await commitSalonSubmission(f.db, { ...withoutConsent, registration: located, publicationHours }, proof)).toEqual({ state: 'replay', receiptId });
+  expect(f.rpc.mock.calls[0][0]).toBe('commit_salon_submission_with_publication');
+});
+
+test('instant publication refuses missing location before the commit RPC', async () => {
+  process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH = 'true';
+  const f = fixture();
+  expect(await commitSalonSubmission(f.db, { ...input, photoIds: [], publicationHours }, proof)).toEqual({ state: 'invalid', fieldErrors: { address: '住所を入力してください（500文字以内）' } });
+  expect(f.rpc).not.toHaveBeenCalled();
+});
+test('disabled rollout refuses new publication commitments before writing', async () => {
+  delete process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH;
+  const f = fixture();
+  expect(await commitSalonSubmission(f.db, { ...input, publicationHours }, proof)).toEqual({ state: 'unavailable' });
+  expect(f.from).not.toHaveBeenCalled(); expect(f.rpc).not.toHaveBeenCalled();
+});
+afterEach(() => { delete process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH; });

@@ -54,7 +54,8 @@ export async function setupFacilityAtomically(
     || !Number.isFinite(Date.parse(claim.issuedAt)))) return { state: 'unverified' };
   const { intentId: _intentId, recoveryId: _recoveryId, license_warranted, ...profile } = parsed.data;
   try {
-    const { data, error } = await db.rpc('setup_facility_from_registration', {
+    const rpcName = claim.mode === 'none' ? 'setup_facility_from_registration' : 'setup_facility_with_registration_publication';
+    const { data, error } = await db.rpc(rpcName, {
       p_user_id: userId, p_claim_mode: claim.mode,
       p_receipt_id: claim.mode === 'legacy' ? claim.receiptId : null,
       p_legacy_issued_at: claim.mode === 'legacy' ? claim.issuedAt : null,

@@ -57,6 +57,7 @@
   ],
   "birthday_notifications": [
     "channel",
+    "delivery_state",
     "notified_at",
     "user_id",
     "year"
@@ -279,6 +280,7 @@
     "status"
   ],
   "cron_report_sends": [
+    "delivery_state",
     "facility_id",
     "id",
     "job",
@@ -594,6 +596,7 @@
     "menu_remarks",
     "name",
     "nearest_station",
+    "onboarding_email_delivery_state",
     "onboarding_email_sent_at",
     "owner_message",
     "owner_name",
@@ -1193,6 +1196,20 @@
     "receipt_id",
     "user_id"
   ],
+  "salon_registration_classifications": [
+    "classification",
+    "revision",
+    "salon_id",
+    "updated_at",
+    "updated_by"
+  ],
+  "salon_registration_publication": [
+    "business_hours",
+    "created_at",
+    "hours_hmac",
+    "original_pr_text",
+    "receipt_id"
+  ],
   "salon_submission_intents": [
     "canonical_version",
     "committed_at",
@@ -1241,6 +1258,7 @@
     "postal_code",
     "pr_text",
     "prefecture",
+    "registration_followup_delivery_state",
     "registration_followup_sent_at",
     "registration_license_warranted",
     "registration_terms_accepted_at",

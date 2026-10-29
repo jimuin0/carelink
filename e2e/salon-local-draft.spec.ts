@@ -34,6 +34,8 @@ async function raw(page: Page) {
 }
 /** 下書き・バックアップの操作欄は既定で畳んである（申込の入力を先に見せるため）。操作前に開く。 */
 async function openTools(page: Page) {
+  // React hydration can reset the SSR details state after a reload.
+  await expect(page.getByRole('button', { name: '次へ', exact: true })).toBeEnabled();
   const tools = page.locator('#register-draft-tools');
   await tools.waitFor({ state: 'attached' });
   if (!(await tools.evaluate(element => (element as HTMLDetailsElement).open))) await tools.locator('summary').click();
@@ -62,6 +64,13 @@ async function step3(page: Page) {
   await page.fill('#reg-rep-name', '合成代表');
   await page.fill('#reg-email', 'draft-browser@example.invalid'); await page.fill('#reg-phone', '09012345678');
   await page.getByRole('button', { name: '次へ' }).click(); await expect(page.locator('#reg-postal-code')).toBeVisible();
+  if (await page.getByRole('heading', { name: '曜日別の営業時間（必須）' }).isVisible()) {
+    await page.locator('#reg-address').fill('東京都新宿区西新宿1-1-1');
+    for (const day of ['月', '火', '水', '木', '金', '土', '日']) {
+      await page.getByLabel(`${day}曜日の開店時間`).fill('09:00');
+      await page.getByLabel(`${day}曜日の閉店時間`).fill('18:00');
+    }
+  }
   await page.getByRole('button', { name: '次へ' }).click(); await expect(page.locator('#reg-desired-start-date')).toBeVisible();
 }
 async function submit(page: Page) {

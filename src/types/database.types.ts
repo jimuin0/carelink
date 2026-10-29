@@ -223,18 +223,21 @@ export type Database = {
       birthday_notifications: {
         Row: {
           channel: string
+          delivery_state: string
           notified_at: string
           user_id: string
           year: number
         }
         Insert: {
           channel: string
+          delivery_state?: string
           notified_at?: string
           user_id: string
           year: number
         }
         Update: {
           channel?: string
+          delivery_state?: string
           notified_at?: string
           user_id?: string
           year?: number
@@ -1171,6 +1174,7 @@ export type Database = {
           facility_id: string
           id: string
           job: string
+          delivery_state: string
           period_key: string
           sent_at: string
         }
@@ -1178,6 +1182,7 @@ export type Database = {
           facility_id: string
           id?: string
           job: string
+          delivery_state?: string
           period_key: string
           sent_at?: string
         }
@@ -1185,6 +1190,7 @@ export type Database = {
           facility_id?: string
           id?: string
           job?: string
+          delivery_state?: string
           period_key?: string
           sent_at?: string
         }
@@ -2379,6 +2385,7 @@ export type Database = {
           name: string
           nearest_station: string | null
           onboarding_email_sent_at: string | null
+          onboarding_email_delivery_state: string
           owner_message: string | null
           owner_name: string | null
           owner_photo_url: string | null
@@ -2451,6 +2458,7 @@ export type Database = {
           name: string
           nearest_station?: string | null
           onboarding_email_sent_at?: string | null
+          onboarding_email_delivery_state?: string
           owner_message?: string | null
           owner_name?: string | null
           owner_photo_url?: string | null
@@ -2523,6 +2531,7 @@ export type Database = {
           name?: string
           nearest_station?: string | null
           onboarding_email_sent_at?: string | null
+          onboarding_email_delivery_state?: string
           owner_message?: string | null
           owner_name?: string | null
           owner_photo_url?: string | null
@@ -4720,6 +4729,38 @@ export type Database = {
           },
         ]
       }
+      salon_registration_publication: {
+        Row: {
+          business_hours: Json
+          created_at: string
+          hours_hmac: string
+          original_pr_text: string | null
+          receipt_id: string
+        }
+        Insert: {
+          business_hours: Json
+          created_at?: string
+          hours_hmac: string
+          original_pr_text?: string | null
+          receipt_id: string
+        }
+        Update: {
+          business_hours?: Json
+          created_at?: string
+          hours_hmac?: string
+          original_pr_text?: string | null
+          receipt_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "salon_registration_publication_receipt_id_fkey"
+            columns: ["receipt_id"]
+            isOneToOne: true
+            referencedRelation: "salons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       salon_submission_intents: {
         Row: {
           canonical_version: number
@@ -4805,6 +4846,38 @@ export type Database = {
           },
         ]
       }
+      salon_registration_classifications: {
+        Row: {
+          classification: string
+          revision: number
+          salon_id: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          classification: string
+          revision?: number
+          salon_id: string
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          classification?: string
+          revision?: number
+          salon_id?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "salon_registration_classifications_salon_id_fkey"
+            columns: ["salon_id"]
+            isOneToOne: true
+            referencedRelation: "salons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       salons: {
         Row: {
           address: string | null
@@ -4834,6 +4907,7 @@ export type Database = {
           pr_text: string | null
           prefecture: string | null
           registration_followup_sent_at: string | null
+          registration_followup_delivery_state: string
           registration_license_warranted: boolean | null
           registration_terms_accepted_at: string | null
           registration_terms_sha256: string | null
@@ -4874,6 +4948,7 @@ export type Database = {
           pr_text?: string | null
           prefecture?: string | null
           registration_followup_sent_at?: string | null
+          registration_followup_delivery_state?: string
           registration_license_warranted?: boolean | null
           registration_terms_accepted_at?: string | null
           registration_terms_sha256?: string | null
@@ -4914,6 +4989,7 @@ export type Database = {
           pr_text?: string | null
           prefecture?: string | null
           registration_followup_sent_at?: string | null
+          registration_followup_delivery_state?: string
           registration_license_warranted?: boolean | null
           registration_terms_accepted_at?: string | null
           registration_terms_sha256?: string | null
@@ -6405,6 +6481,10 @@ export type Database = {
       }
     }
     Functions: {
+      set_salon_registration_classification: {
+        Args: { p_actor: string; p_salon: string; p_value: string; p_expected_revision: number }
+        Returns: Json
+      }
       _postgis_deprecate: {
         Args: { newname: string; oldname: string; version: string }
         Returns: undefined
@@ -6789,6 +6869,23 @@ export type Database = {
         Args: {
           p_canonical_version: number
           p_hmac_scheme: string
+          p_intent_id: string
+          p_payload_hmac: string
+          p_proof_hash: string
+          p_registration: Json
+          p_terms_sha256: string
+        }
+        Returns: {
+          outcome: string
+          receipt_id: string
+        }[]
+      }
+      commit_salon_submission_with_publication: {
+        Args: {
+          p_business_hours: Json
+          p_canonical_version: number
+          p_hmac_scheme: string
+          p_hours_hmac: string
           p_intent_id: string
           p_payload_hmac: string
           p_proof_hash: string
@@ -8028,6 +8125,23 @@ export type Database = {
         }[]
       }
       setup_facility_from_registration: {
+        Args: {
+          p_claim_mode: string
+          p_intent_id: string
+          p_legacy_issued_at: string
+          p_license_warranted: boolean
+          p_profile: Json
+          p_proof_hash: string
+          p_receipt_id: string
+          p_user_id: string
+        }
+        Returns: {
+          facility_id: string
+          facility_slug: string
+          outcome: string
+        }[]
+      }
+      setup_facility_with_registration_publication: {
         Args: {
           p_claim_mode: string
           p_intent_id: string

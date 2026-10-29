@@ -48,7 +48,11 @@ export const POST = withRoute(async (request, ctx) => {
   // prevents a different user from consuming it. Clearing it here would make
   // the exact result unresolvable after a disconnect.
   const response = NextResponse.json({ success: true, state: result.state, facilityId: result.facilityId,
-    slug: result.slug, message: result.state === 'created' ? '店舗アカウントを作成しました。公開には管理画面の設定が必要です。' : '登録済みの店舗アカウントを確認しました。',
+    slug: result.slug, message: result.state === 'created'
+      ? process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH === 'true'
+        ? '店舗アカウントを作成しました。掲載状況は管理画面で確認してください。'
+        : '店舗アカウントを作成しました。公開には管理画面の設定が必要です。'
+      : '登録済みの店舗アカウントを確認しました。',
   }, { status: result.state === 'created' ? 201 : 200, headers });
   // A signed negative cache may have been prefetched before membership existed.
   // Invalidate only this authenticated user's hint; never issue a positive grant.

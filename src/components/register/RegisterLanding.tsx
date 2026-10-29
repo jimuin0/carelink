@@ -90,10 +90,11 @@ const ICON_PATHS: Record<'calendar' | 'card' | 'people' | 'list', string> = {
 
 /** 番号は算用数字にする。ローマ数字（Ⅰ Ⅱ Ⅲ）も試したが、小サイズだと細い棒が並んで
  *  見え、何番か判読できなかった（実機のスクリーンショットで確認）。 */
+const instantPublication = process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH === 'true';
 const STEPS = [
   { n: '01', title: '基本情報を入力', body: '店舗名・業種・連絡先などを入力' },
   { n: '02', title: 'アカウントを作成', body: '登録内容を確認して管理画面へ進む' },
-  { n: '03', title: '掲載を準備', body: `${LISTING_PUBLISH_ITEMS}を設定して無料掲載を公開。ネット予約の設定は別に行います` },
+  { n: '03', title: instantPublication ? '掲載を開始' : '掲載を準備', body: instantPublication ? '申込時のメール確認とログイン後に無料掲載。ネット予約の設定は別に行います' : `${LISTING_PUBLISH_ITEMS}を設定して無料掲載を公開。ネット予約の設定は別に行います` },
 ];
 
 /**
@@ -294,11 +295,11 @@ export default function RegisterLanding({ listingAreas = [] }: { listingAreas?: 
               </div>
               <div className="py-5">
                 <dt className="font-medium">受付が完了したら、すぐに公開されますか？</dt>
-                <dd className="mt-2 leading-relaxed">受付完了と一般公開は別の手続きです。アカウントを作成し、管理画面で設定して掲載公開してください。{LISTING_PUBLISH_REQUIREMENT}無料掲載にメニュー・スタッフの登録は必須ではありません。{REGISTER_PHOTO_REQUIREMENT}ネット予約はメニュー・スタッフ等の設定完了まで利用できません。</dd>
+                <dd className="mt-2 leading-relaxed">{instantPublication ? '申込に使ったメールアドレスを確認してログインすると掲載されます。申込時に所在地と曜日別営業時間を入力してください。' : <>受付完了と一般公開は別の手続きです。アカウントを作成し、管理画面で設定して掲載公開してください。{LISTING_PUBLISH_REQUIREMENT}</>}無料掲載にメニュー・スタッフの登録は必須ではありません。{REGISTER_PHOTO_REQUIREMENT}ネット予約はメニュー・スタッフ等の設定完了まで利用できません。</dd>
               </div>
               <div className="py-5">
                 <dt className="font-medium">複数店舗はどのように登録しますか？</dt>
-                <dd className="mt-2 leading-relaxed">店舗ごとに掲載申込が必要です。同じ確認済みメールアドレスのアカウントで各申込を引き継ぎ、管理画面で店舗を選択できます。既存掲載の統合については登録前に運営へお問い合わせください。</dd>
+                <dd className="mt-2 leading-relaxed">店舗ごとに掲載申込が必要です。既に管理中の店舗があるアカウントで別の店舗を掲載する場合や、既存掲載の統合については登録前に運営へお問い合わせください。</dd>
               </div>
               <div className="py-5">
                 <dt className="font-medium">送信後にエラーが出た場合、再送してよいですか？</dt>

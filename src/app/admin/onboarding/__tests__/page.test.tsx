@@ -569,3 +569,104 @@ describe('/admin/onboarding', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });
+
+describe('verified registration automatic publication', () => {
+ const intentId='74000000-0000-4000-8000-000000000011';
+ const receiptId='74000000-0000-4000-8000-000000000012';
+ const facilityId='74000000-0000-4000-8000-000000000013';
+ const summary={state:'confirmed',receiptId,name:'合成店舗',type:'ヘアサロン',area:'合成住所',autoPublication:true};
+ beforeEach(()=>{
+  process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH='true';
+  mockSearchParams=new URLSearchParams({handoff:'registration'});
+  window.sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY,JSON.stringify({version:1,intentId,phase:'confirmed'}));
+  mockGetUser.mockResolvedValue({data:{user:{id:'u1',email_confirmed_at:'2026-10-29T00:00:00Z'}}});
+ });
+ afterEach(()=>{delete process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH;});
+ test('only the confirmed selected receipt is set up and published',async()=>{
+  mockFetch.mockResolvedValueOnce({ok:true,json:async()=>summary})
+   .mockResolvedValueOnce({ok:true,json:async()=>({success:true,facilityId})});
+  render(<OnboardingPage/>);
+  await waitFor(()=>expect(navigateAfterFacilitySetup).toHaveBeenCalledWith(facilityId));
+  expect(mockFetch.mock.calls.map(call=>call[0])).toEqual(['/api/salons/summary','/api/facility/setup']);
+  expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({facility_name:summary.name,business_type:summary.type,license_warranted:true,intentId});
+  expect(window.sessionStorage.getItem(`carelink-registration-auto-attempt:${intentId}`)).toBeNull();
+ });
+ test('a lost response is never automatically resent after a reload',async()=>{
+  window.sessionStorage.setItem(`carelink-registration-auto-attempt:${intentId}`,'attempted');
+  mockFetch.mockResolvedValueOnce({ok:true,json:async()=>summary});
+  render(<OnboardingPage/>);
+  await screen.findByRole('button',{name:'作成状況を再確認'});
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+  expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
+ });
+ test('email not confirmed cannot start publication',async()=>{
+  mockGetUser.mockResolvedValue({data:{user:{id:'u1',email_confirmed_at:null}}});
+  mockFetch.mockResolvedValueOnce({ok:true,json:async()=>summary});
+  render(<OnboardingPage/>);
+  await screen.findByText('申込に使用したメールアドレスの確認を完了してください。');
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+ });
+ test('a historical receipt without a marker still needs explicit setup',async()=>{
+  mockFetch.mockResolvedValueOnce({ok:true,json:async()=>({...summary,autoPublication:false})});
+  render(<OnboardingPage/>);
+  await screen.findByLabelText(/店舗名/);
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+ });
+});
+
+describe('automatic publication recovery and failure fences', () => {
+ const intentId='74000000-0000-4000-8000-000000000021';
+ const recoveryId='74000000-0000-4000-8000-000000000022';
+ const receiptId='74000000-0000-4000-8000-000000000023';
+ const facilityId='74000000-0000-4000-8000-000000000024';
+ const summary={state:'confirmed',receiptId,name:'合成店舗',type:'ヘアサロン',area:'住所',address:'住所',autoPublication:true};
+ beforeEach(()=>{process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH='true';mockGetUser.mockResolvedValue({data:{user:{id:'u1',email_confirmed_at:'2026-10-29T00:00:00Z'}}});});
+ afterEach(()=>{delete process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH;jest.restoreAllMocks();});
+ function intent() {
+  mockSearchParams=new URLSearchParams({handoff:'registration'});
+  window.sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY,JSON.stringify({version:1,intentId,phase:'confirmed'}));
+ }
+ test('verified recovery also publishes its selected receipt',async()=>{
+  mockSearchParams=new URLSearchParams({handoff:'recovered'});
+  window.sessionStorage.setItem(SALON_RECOVERY_CONTEXT_KEY,JSON.stringify({version:1,recoveryId}));
+  mockFetch.mockResolvedValueOnce({ok:true,json:async()=>summary}).mockResolvedValueOnce({ok:true,json:async()=>({success:true,facilityId})});
+  render(<OnboardingPage/>);await waitFor(()=>expect(navigateAfterFacilitySetup).toHaveBeenCalledWith(facilityId));
+  expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({facility_name:summary.name,business_type:summary.type,license_warranted:true,recoveryId});
+ });
+ test('a rejected setup clears the attempt fence and does not navigate',async()=>{
+  intent();mockFetch.mockResolvedValueOnce({ok:true,json:async()=>summary}).mockResolvedValueOnce({ok:false,status:403,json:async()=>({error:'申込を確認できません'})});
+  render(<OnboardingPage/>);await screen.findByText('申込を確認できません');
+  expect(window.sessionStorage.getItem(`carelink-registration-auto-attempt:${intentId}`)).toBeNull();
+  expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
+ });
+ test('a lost setup reply keeps the fence until the user explicitly retries',async()=>{
+  intent();mockFetch.mockResolvedValueOnce({ok:true,json:async()=>summary}).mockRejectedValueOnce(new Error('lost'))
+   .mockResolvedValueOnce({ok:true,json:async()=>({success:true,facilityId})});
+  render(<OnboardingPage/>);const retry=await screen.findByRole('button',{name:'作成状況を再確認'});
+  expect(window.sessionStorage.getItem(`carelink-registration-auto-attempt:${intentId}`)).toBe('attempted');
+  expect(mockFetch).toHaveBeenCalledTimes(2);fireEvent.click(retry);
+  await waitFor(()=>expect(navigateAfterFacilitySetup).toHaveBeenCalledWith(facilityId));
+  expect(mockFetch).toHaveBeenCalledTimes(3);
+ });
+ test('cannot start the mutation if the local attempt fence cannot be saved',async()=>{
+  intent();mockFetch.mockResolvedValueOnce({ok:true,json:async()=>summary});
+  const original=Storage.prototype.setItem;
+  jest.spyOn(Storage.prototype,'setItem').mockImplementation(function(key,value){if(key.startsWith('carelink-registration-auto-attempt:'))throw new Error('storage');return original.call(this,key,value);});
+  render(<OnboardingPage/>);await screen.findByText('掲載の準備を確認できません。入力と申込を保持して、もう一度お試しください。');
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+ });
+ test('a changed selected receipt cannot be published',async()=>{
+  intent();let finish!: (value: unknown)=>void;
+  mockFetch.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+  render(<OnboardingPage/>);await waitFor(()=>expect(mockFetch).toHaveBeenCalledTimes(1));
+  window.sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY,JSON.stringify({version:1,intentId:receiptId,phase:'confirmed'}));
+  finish({ok:true,json:async()=>summary});
+  await screen.findByText('店舗情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+ });
+ test('query-only onboarding is never auto-submitted even when feature is enabled',async()=>{
+  mockSearchParams=new URLSearchParams({facility_name:'Untrusted',business_type:'ヘアサロン'});
+  render(<OnboardingPage/>);await screen.findByLabelText(/店舗名/);
+  expect(mockFetch).not.toHaveBeenCalled();
+ });
+});

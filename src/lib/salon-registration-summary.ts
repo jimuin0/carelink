@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { createServiceRoleClient } from './supabase-server';
 import { readSalonIntentStatus } from './salon-submission-intent';
+import { registrationPublicationAvailable } from './registration-publication-availability';
 
 const summary = z.object({
   facility_name: z.string().min(1).max(200), business_type: z.string().min(1).max(100),
@@ -8,7 +9,7 @@ const summary = z.object({
 }).strict();
 export type SalonRegistrationSummary =
   | { state: 'unverified' | 'unavailable' | 'uncommitted' | 'expired' }
-  | { state: 'confirmed'; receiptId: string; name: string; type: string; area: string };
+  | { state: 'confirmed'; receiptId: string; name: string; type: string; area: string; autoPublication?: boolean };
 
 /** A selector is not permission. Prove the selected intent, its server lifetime
  * and committed receipt before reading just the three handoff display fields.
@@ -23,8 +24,11 @@ export async function readSalonRegistrationSummary(
       .eq('id', status.receiptId).maybeSingle();
     const parsed = summary.safeParse(result.data);
     if (result.error !== null || !parsed.success) return { state: 'unavailable' };
+    const autoPublication = process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH === 'true'
+      ? await registrationPublicationAvailable(db, status.receiptId) : undefined;
     return { state: 'confirmed', receiptId: status.receiptId, name: parsed.data.facility_name,
-      type: parsed.data.business_type, area: parsed.data.address ?? '' };
+      type: parsed.data.business_type, area: parsed.data.address ?? '',
+      ...(autoPublication === undefined ? {} : { autoPublication }) };
   } catch {
     return { state: 'unavailable' };
   }

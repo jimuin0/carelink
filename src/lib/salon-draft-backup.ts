@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { SalonFormValues } from './validations';
 import { FACILITY_INPUT_LIMITS as limits } from './facility-input-limits';
 import { DESIRED_START_DATES } from './constants';
+import { registrationHoursDraftSchema } from './registration-publication-hours';
 
 export const SALON_DRAFT_MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 export const SALON_DRAFT_MAX_BYTES = Math.ceil(7 * SALON_DRAFT_MAX_PHOTO_BYTES / 3) * 4 + 65536;
@@ -17,7 +18,7 @@ const valuesSchema = z.object({
   contact_name: text(100), email: text(254), phone: text(30).nullable(), contact_phone: text(30).nullable(),
   website: text(limits.website), postal_code: text(8), address: text(limits.address),
   prefecture: text(10).nullable(), city: text(limits.city).nullable(), building_name: text(limits.building),
-  nearest_station: text(limits.nearestStation), business_hours: text(200), regular_holiday: text(limits.regularHoliday),
+  nearest_station: text(limits.nearestStation), business_hours: text(200), publication_hours: registrationHoursDraftSchema.optional(), regular_holiday: text(limits.regularHoliday),
   seat_count: number, staff_count: number, has_parking: z.boolean().optional(),
   features: z.array(z.string().max(50)).max(20).optional(), pr_text: text(1000),
   desired_start_date: z.enum(DESIRED_START_DATES).or(z.literal('')).optional(),

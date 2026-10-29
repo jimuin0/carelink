@@ -55,3 +55,8 @@ Supabase による移設後、以下を読み取りで照合する。どれか�
 5. 本番データの試験変更・実予約・顧客通知は行わない。配信済みコードの版と本番動作を別々に記録する。
 
 公式根拠: [Supabase Knowledge Base: Security Advisor flags spatial_ref_sys](https://supabase.com/kb/troubleshooting/security-advisor-flags-spatial_ref_sys-and-other-postgis-objects-in-the-public-schema)。本番 SQL 読み取りと Advisor、Supabase チケットの実測に基づく。過去の全ログ、実際の第三者操作、移設後の動作は未確認。
+
+
+### 2026-10-29 追加の読み取り確認
+
+既存サポートスレッドに、10月26日の質問後の新しい回答は見つからなかった。Supabase の Scheduled backups には7件の物理バックアップが表示され、最新は **2026-10-28 20:28:04 UTC**。Point in time 画面は add-on の有効化を案内しており、PITR は未有効だった。画面は Storage API のファイル本体が DB バックアップに含まれないことも明記している。バックアップ一覧の表示は、変更直前のバックアップ取得や復元成功の証明ではない。復元、add-on 有効化、問い合わせ送信、本番移設は行っていない。
