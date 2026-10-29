@@ -1,4 +1,4 @@
-import { NON_SEARCH_CRAWLERS, shouldBlockCollectionCrawler } from '../crawler-policy';
+import { NON_SEARCH_CRAWLERS, shouldBlockCollectionCrawler, shouldRefuseFilteredSearchCrawl } from '../crawler-policy';
 import robots from '@/app/robots';
 
 test.each([
@@ -48,4 +48,26 @@ test('robots excludes filtered search results but keeps search landing pages cra
   expect(blocked('/search/area/tokyo')).toBe(false);
   expect(blocked('/facility/sample-slug')).toBe(false);
   expect(blocked('/tokyo')).toBe(false);
+});
+
+const AMZN = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Amzn-SearchBot/0.1) Chrome/119.0.6045.214 Safari/537.36';
+
+test.each([AMZN, 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)', 'Mozilla/5.0 (compatible; bingbot/2.0)'])(
+  'search-index crawler is refused on robots-disallowed filtered search: %s', (agent) => {
+    expect(shouldRefuseFilteredSearchCrawl('/search', '?type=hair&page=2', 'GET', agent)).toBe(true);
+    expect(shouldRefuseFilteredSearchCrawl('/search', '?area=tokyo', 'HEAD', agent)).toBe(true);
+  },
+);
+
+test('crawlable search pages, visitors, link previews and writes are untouched', () => {
+  expect(shouldRefuseFilteredSearchCrawl('/search', '', 'GET', AMZN)).toBe(false);
+  expect(shouldRefuseFilteredSearchCrawl('/search', '?', 'GET', AMZN)).toBe(false);
+  expect(shouldRefuseFilteredSearchCrawl('/search/area/tokyo', '?page=2', 'GET', AMZN)).toBe(false);
+  expect(shouldRefuseFilteredSearchCrawl('/tokyo', '?type=hair', 'GET', AMZN)).toBe(false);
+  expect(shouldRefuseFilteredSearchCrawl('/search', '?type=hair', 'POST', AMZN)).toBe(false);
+  for (const agent of ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36',
+    'Twitterbot/1.0', 'Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)',
+    'facebookexternalhit/1.1', 'Mozilla/5.0 (compatible; NotAmzn-SearchBotX/1.0)']) {
+    expect(shouldRefuseFilteredSearchCrawl('/search', '?type=hair', 'GET', agent)).toBe(false);
+  }
 });

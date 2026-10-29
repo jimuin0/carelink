@@ -1,12 +1,25 @@
 // Observed collection crawlers, separate from Googlebot/Bingbot search indexing.
 // This is a resource policy, never an authentication or authorization signal.
 export const NON_SEARCH_CRAWLERS = ['GoogleOther', 'Amazonbot', 'Reflectionbot'];
-const matchers = NON_SEARCH_CRAWLERS.map((token) =>
-  new RegExp(`(?:^|[\\s(;])${token}(?:[\\s/;)-]|$)`, 'i'),
-);
+const tokenMatcher = (token: string) => new RegExp(`(?:^|[\\s(;])${token}(?:[\\s/;)-]|$)`, 'i');
+const matchers = NON_SEARCH_CRAWLERS.map(tokenMatcher);
+
+// Search-index crawlers that are expected to honor robots.txt. Link-preview bots
+// (Twitterbot, Slackbot, facebookexternalhit, LINE) are deliberately absent so a
+// shared search link still unfurls.
+export const SEARCH_INDEX_CRAWLERS = ['Amzn-SearchBot', 'Googlebot', 'bingbot', 'Applebot', 'DuckDuckBot',
+  'YandexBot', 'Baiduspider', 'PetalBot', 'OAI-SearchBot', 'PerplexityBot'];
+const searchIndexMatchers = SEARCH_INDEX_CRAWLERS.map(tokenMatcher);
 
 export function shouldBlockCollectionCrawler(path: string, method: string, userAgent: string): boolean {
   // Crawlers must be able to fetch the policy. Never intercept write methods.
   if (path === '/robots.txt' || (method !== 'GET' && method !== 'HEAD')) return false;
   return matchers.some((matcher) => matcher.test(userAgent));
+}
+
+// robots.txt disallows /search? (filtered results are noindex). A crawler that has
+// not re-read robots.txt yet is refused here instead of paying for a DB-backed render.
+export function shouldRefuseFilteredSearchCrawl(path: string, search: string, method: string, userAgent: string): boolean {
+  if (path !== '/search' || search.length <= 1 || (method !== 'GET' && method !== 'HEAD')) return false;
+  return searchIndexMatchers.some((matcher) => matcher.test(userAgent));
 }
