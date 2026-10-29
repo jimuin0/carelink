@@ -32,6 +32,7 @@ test('confirmed receipt is checked server-side before display and carries only a
   expect(screen.getByText(/申込と同じメールアドレスでアカウントを作成するか、ログインしてください/)).toBeVisible();
   expect(screen.getByText(/店舗ごとに申し込み、同じアカウントで引き継げます/)).toBeVisible();
   expect(screen.getByText(/ネット予約を利用せず、無料掲載だけでも利用できます/)).toBeVisible();
+
   expect(JSON.parse(window.sessionStorage.getItem(SALON_BROWSER_CONTEXT_KEY)!)).toEqual({ version: 1, intentId, phase: 'confirmed' });
 });
 test.each(['missing', 'broken'])('unavailable context never fabricates receipt or queries other cookies %s', async kind => {

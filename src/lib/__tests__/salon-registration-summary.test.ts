@@ -2,6 +2,8 @@
 import { readSalonRegistrationSummary } from '../salon-registration-summary';
 import { readSalonIntentStatus } from '../salon-submission-intent';
 jest.mock('../salon-submission-intent', () => ({ readSalonIntentStatus: jest.fn() }));
+jest.mock('../registration-publication-availability', () => ({ registrationPublicationAvailable: jest.fn() }));
+import { registrationPublicationAvailable } from '../registration-publication-availability';
 const receiptId = '74000000-0000-4000-8000-000000000002';
 const intentId = '74000000-0000-4000-8000-000000000001';
 const row = { facility_name: 'Synthetic', business_type: 'ヘアサロン', address: '合成住所' };
@@ -37,4 +39,19 @@ test('error with data and thrown transport failure remain unconfirmed without ex
   expect(await readSalonRegistrationSummary(db, intentId, 'synthetic')).toEqual({ state: 'unavailable' });
   maybeSingle.mockRejectedValue(new Error('PRIVATE'));
   expect(await readSalonRegistrationSummary(db, intentId, 'synthetic')).toEqual({ state: 'unavailable' });
+});
+
+describe('instant publication marker', () => {
+ beforeEach(() => { process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH = 'true'; });
+ afterEach(() => { delete process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH; });
+ test.each([true,false])('reports exact receipt marker %s', async available => {
+  jest.mocked(registrationPublicationAvailable).mockResolvedValue(available);
+  const result=await readSalonRegistrationSummary(db,intentId,'synthetic-proof');
+  expect(result).toMatchObject({state:'confirmed',receiptId,autoPublication:available});
+  expect(registrationPublicationAvailable).toHaveBeenCalledWith(db,receiptId);
+ });
+ test('marker lookup failure cannot become confirmation',async()=>{
+  jest.mocked(registrationPublicationAvailable).mockRejectedValue(new Error('PRIVATE'));
+  expect(await readSalonRegistrationSummary(db,intentId,'synthetic-proof')).toEqual({state:'unavailable'});
+ });
 });

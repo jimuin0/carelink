@@ -4,6 +4,7 @@ import { isValidIsoDate } from './date-utils';
 import { businessTypes, DESIRED_START_DATES } from './constants';
 import { FACILITY_INPUT_LIMITS } from './facility-input-limits';
 import { validateFacilityPrText } from './medical-ad-guard';
+import { registrationHoursDraftSchema } from './registration-publication-hours';
 
 // 顧客マスターの入力スキーマ。name のみ必須、他は任意。
 // email / birthday は「空文字」も許容し、保存時に null へ正規化する（フォーム未入力の素通し）。
@@ -50,6 +51,7 @@ export const salonStep2Schema = z.object({
   building_name: z.string().max(FACILITY_INPUT_LIMITS.building).optional(),
   nearest_station: z.string().max(FACILITY_INPUT_LIMITS.nearestStation).optional(),
   business_hours: z.string().max(200).optional(),
+  publication_hours: registrationHoursDraftSchema.optional(),
   regular_holiday: z.string().max(FACILITY_INPUT_LIMITS.regularHoliday).optional(),
   seat_count: z.union([z.number().int().min(0).max(9999), z.nan()]).optional().nullable(),
   staff_count: z.union([z.number().int().min(0).max(9999), z.nan()]).optional().nullable(),
@@ -77,7 +79,7 @@ export type SalonFormValues = z.infer<typeof salonFullSchema>;
 
 // Both entry points use the same constraints. JSON optional fields may be null;
 // only the browser form accepts NaN from an empty number input.
-export const salonInsertSchema = salonFullSchema.extend({
+export const salonInsertSchema = salonFullSchema.omit({ publication_hours: true }).extend({
   website: salonStep1Schema.shape.website.nullable(),
   postal_code: salonStep2Schema.shape.postal_code.nullable(),
   address: salonStep2Schema.shape.address.nullable(),

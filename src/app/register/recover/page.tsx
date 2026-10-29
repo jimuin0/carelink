@@ -14,7 +14,7 @@ const resultSchema = z.object({ state: z.literal('ready'), receipts: z.array(z.o
   receipt_id: z.uuid(), facility_name: z.string().min(1).max(200),
   business_type: z.string().refine(value => businessTypes.includes(value)),
   created_at: z.string().datetime({ offset: true }).nullable(),
-}).strict()).max(50), next: z.uuid().nullable() }).strict();
+}).strict()).max(50), next: z.uuid().nullable(), autoReceiptId: z.uuid().optional() }).strict();
 const preparedSchema = z.object({ state: z.literal('prepared'), recoveryId: z.uuid(),
   expiresAt: z.string().datetime({ offset: true }) }).strict();
 type Receipt = z.infer<typeof resultSchema>['receipts'][number];
@@ -100,6 +100,26 @@ function RecoverRegistrationContent() {
         if (cancelled) return;
         if (result === null) { router.replace(salonRecoveryAuthPath('login')); return; }
         setReceipts(result.receipts); setNext(result.next); setLoaded(true);
+        if (fromHandoff && process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH === 'true'
+          && result.next === null && result.receipts.length === 1
+          && result.autoReceiptId === result.receipts[0].receipt_id) {
+          const key = `carelink-registration-recovery-attempt:${result.autoReceiptId}`;
+          let canStart = false;
+          try {
+            if (window.sessionStorage.getItem(key) !== 'attempted') {
+              window.sessionStorage.setItem(key, 'attempted'); canStart = true;
+            }
+          } catch { /* Keep the explicit selection path available. */ }
+          if (canStart) {
+            const prepared = await requestPreparation(result.autoReceiptId, controller.signal);
+            if (cancelled) return;
+            if (!saveSalonRecoveryContext(window.sessionStorage, prepared.recoveryId)) {
+              throw new RecoveryNotice('ブラウザーで引き継ぎ情報を保存できません。施設は作成していません。保存を許可して選び直してください。');
+            }
+            try { window.sessionStorage.removeItem(key); } catch { /* Preserve conservative attempt fence. */ }
+            router.push(SALON_RECOVERY_ONBOARDING_PATH); return;
+          }
+        }
       } catch (failure) {
         if (!cancelled) setError(noticeOf(failure, '受付状況を確認できません。再申込せず、時間をおいて確認してください。'));
       } finally {
@@ -108,7 +128,7 @@ function RecoverRegistrationContent() {
       }
     })();
     return () => { cancelled = true; controller.abort(); clearTimeout(timer); live.current = false; inFlight.current = false; };
-  }, [router]);
+  }, [router, fromHandoff]);
 
   const handleSelect = async (receiptId: string) => {
     if (inFlight.current) return;
@@ -132,7 +152,7 @@ function RecoverRegistrationContent() {
       <p className="mt-2">申込情報を引き継ぐため、下から選び直してください。再申込は不要です。</p>
     </div>}
     {(!loaded || receipts.length > 0) && <><p className="mb-2 text-base leading-7">続ける申込を選んでください。内容を確認してから、掲載設定に進みます。</p>
-    <p className="mb-6 text-sm text-(--ecru-muted)">選んだだけでは公開されません。</p></>}
+    <p className="mb-6 text-sm text-(--ecru-muted)">{process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH === 'true' ? '申込を選ぶと、確認済みの申込は掲載手続きへ進みます。' : '選んだだけでは公開されません。'}</p></>}
     {busy && <p role="status">受付情報を確認しています…</p>}
     {error && <p role="alert" className="text-red-600 mb-4">{error}</p>}
     {loaded && !error && receipts.length === 0 && <div className="mb-6 space-y-4 leading-7">

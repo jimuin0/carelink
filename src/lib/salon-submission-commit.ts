@@ -7,13 +7,16 @@ import { isSalonIntentProof, salonIntentProofHash, salonPayloadHmac, SALON_HMAC_
 import { readSalonIntentStatus } from './salon-submission-intent';
 import { isMissingSalonPhoto, matchesSalonPhoto, salonPhotoInput, salonPhotoPath, SALON_PHOTO_BUCKET } from './salon-photo-contract';
 import { validateFacilityPrText } from './medical-ad-guard';
-import { SALON_PR_TEXT_PROHIBITED_MESSAGE } from './salon-field-errors';
+import { canonicalRegistrationHours } from './registration-publication-hours';
+import { SALON_PR_TEXT_PROHIBITED_MESSAGE, SALON_FIELD_MESSAGES, type SalonFieldErrors } from './salon-field-errors';
+import { listingLocationMissing } from './facility-publish-gate';
 
 export const salonCommitInput = z.object({
   intentId: z.uuid(),
   registration: salonInsertSchema.omit({ photo_url: true, photo_urls: true, recaptcha_token: true }).strict(),
   photoIds: z.array(z.uuid()).max(7).refine(ids => new Set(ids.map(id => id.toLowerCase())).size === ids.length),
   consent: registrationConsentSchema.optional(),
+  publicationHours: z.unknown().optional(),
 }).strict();
 const manifest = z.object({
   id: z.uuid(), intent_id: z.uuid(), slot: salonPhotoInput.shape.slot,
@@ -26,7 +29,7 @@ const receipt = z.discriminatedUnion('outcome', [
   z.object({ outcome: rejection, receipt_id: z.null() }).strict(),
 ]);
 export type SalonCommitResult =
-  | { state: 'invalid'; fieldErrors?: { pr_text: string } }
+  | { state: 'invalid'; fieldErrors?: SalonFieldErrors }
   | { state: 'unverified' | 'expired' | 'conflict' | 'unavailable' | 'photo_unverified' | 'unknown' | 'consent_required' }
   | { state: 'committed' | 'replay'; receiptId: string };
 type Database = ReturnType<typeof createServiceRoleClient>;
@@ -40,12 +43,17 @@ export async function commitSalonSubmission(db: Database, value: unknown, proof:
   if (!parsed.success) return { state: 'invalid' };
   if (!isSalonIntentProof(proof)) return { state: 'unverified' };
   const input = parsed.data;
+  const hours = input.publicationHours === undefined ? null : canonicalRegistrationHours(input.publicationHours);
+  if (input.publicationHours !== undefined && hours === null) return { state: 'invalid', fieldErrors: { publication_hours: SALON_FIELD_MESSAGES.publication_hours } };
   let attemptedCommit = false;
   try {
     // Verify capability before reading any selected manifest, including an
     // empty photo selection. The RPC independently rechecks it under lock.
     const status = await readSalonIntentStatus(db, input.intentId, proof);
     if (status.state !== 'uncommitted' && status.state !== 'committed') return { state: status.state };
+    // The rollout switch prevents new publication commitments while allowing
+    // an already committed request to be reconciled after a rollback.
+    if (status.state === 'uncommitted' && hours !== null && process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH !== 'true') return { state: 'unavailable' };
     // A historical committed receipt can still be replayed exactly. New
     // registrations always require the current explicit declaration.
     if (status.state === 'uncommitted' && input.consent === undefined) return { state: 'consent_required' };
@@ -89,6 +97,9 @@ export async function commitSalonSubmission(db: Database, value: unknown, proof:
     }
     const canonical = canonicalSalonSubmission({ ...input.registration, photo_urls: urls });
     if (!canonical) return { state: 'invalid' };
+    if (hours !== null && listingLocationMissing({ name: canonical.row.facility_name, prefecture: canonical.row.prefecture, city: canonical.row.city, address: canonical.row.address }).length) {
+      return { state: 'invalid', fieldErrors: { address: SALON_FIELD_MESSAGES.address } };
+    }
     attemptedCommit = true;
     const args = {
       p_intent_id: input.intentId, p_proof_hash: salonIntentProofHash(proof),
@@ -97,9 +108,12 @@ export async function commitSalonSubmission(db: Database, value: unknown, proof:
     };
     // Missing declarations are allowed only for exact historical receipt replay.
     // A fresh transaction always calls the declaration-recording wrapper.
-    const result = input.consent === undefined
-      ? await db.rpc('commit_salon_submission', args)
-      : await db.rpc('commit_salon_submission_with_consent', { ...args, p_terms_sha256: REGISTRATION_TERMS_SHA256 });
+    const result = hours !== null
+      ? await db.rpc('commit_salon_submission_with_publication', { ...args, p_terms_sha256: REGISTRATION_TERMS_SHA256,
+          p_business_hours: hours, p_hours_hmac: salonPayloadHmac(proof, `registration-hours-v1:${JSON.stringify(hours)}`) })
+      : input.consent === undefined
+        ? await db.rpc('commit_salon_submission', args)
+        : await db.rpc('commit_salon_submission_with_consent', { ...args, p_terms_sha256: REGISTRATION_TERMS_SHA256 });
     if (result.error !== null) return { state: 'unknown' };
     const response = z.array(receipt).length(1).safeParse(result.data);
     if (!response.success) return { state: 'unknown' };

@@ -4,6 +4,7 @@ import { withRoute } from '@/lib/with-route';
 import { mutationRateLimit } from '@/lib/rate-limit';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { isSalonIntentProof } from '@/lib/salon-submission-proof';
+import { registrationPublicationAvailable } from '@/lib/registration-publication-availability';
 import { listSalonRecovery, prepareSalonRecovery, readSalonRecovery,
   salonRecoveryCookieName, salonRecoveryInput, SALON_RECOVERY_TTL } from '@/lib/salon-recovery';
 
@@ -19,7 +20,14 @@ export const POST = withRoute(async (request, ctx) => {
   const db = createServiceRoleClient();
   if (input.action === 'list') {
     const result = await listSalonRecovery(db, user.id, input.after);
-    return NextResponse.json(result, { status: result.state === 'unverified' ? 403 : 200, headers });
+    // A single confirmed-email match may be selected automatically only for a
+    // new publication-enabled receipt. Multiple or paginated receipts stay manual.
+    const autoReceiptId = process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH === 'true'
+      && result.state === 'ready' && !input.after && result.receipts.length === 1 && result.next === null
+      && await registrationPublicationAvailable(db, result.receipts[0].receipt_id)
+      ? result.receipts[0].receipt_id : undefined;
+    return NextResponse.json(autoReceiptId ? { ...result, autoReceiptId } : result,
+      { status: result.state === 'unverified' ? 403 : 200, headers });
   }
   if (input.action === 'prepare') {
     const recoveryId = randomUUID();
@@ -35,6 +43,8 @@ export const POST = withRoute(async (request, ctx) => {
   const proof = new NextRequest(request.url, { headers: request.headers }).cookies.get(salonRecoveryCookieName(input.recoveryId))?.value;
   if (!isSalonIntentProof(proof)) return NextResponse.json({ state: 'unverified' }, { status: 403, headers });
   const result = await readSalonRecovery(db, user.id, input.recoveryId, proof);
-  return NextResponse.json(result, { status: result.state === 'unverified' ? 403 : 200, headers });
+  const autoPublication = result.state === 'confirmed' && process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH === 'true'
+    ? await registrationPublicationAvailable(db, result.receiptId) : undefined;
+  return NextResponse.json(autoPublication === undefined ? result : { ...result, autoPublication }, { status: result.state === 'unverified' ? 403 : 200, headers });
 }, { csrf: true, requireAuth: true,
   rateLimit: { limiter: mutationRateLimit, limit: 20, windowMs: 60_000, prefix: 'salon-recovery' }, sentryTag: 'salon-recovery' });

@@ -9,7 +9,7 @@ import { readSalonBrowserContext, saveSalonBrowserContext,
   salonHandoffAuthPath } from '@/lib/salon-browser-context';
 
 const receiptSchema = z.object({ state: z.literal('confirmed'), receiptId: z.uuid(),
-  name: z.string().min(1).max(200), type: z.string().min(1).max(100), area: z.string().max(500) });
+  name: z.string().min(1).max(200), type: z.string().min(1).max(100), area: z.string().max(500), autoPublication: z.boolean().optional() });
 
 /** /register と同じくすみ配色。色の値は globals.css の .theme-ecru だけが持つ。 */
 const SHELL = 'theme-ecru min-h-[60vh] bg-(--ecru-bg) text-(--ecru-text)';
@@ -56,6 +56,6 @@ export default function RegistrationReceipt() {
   if (!receipt) return <div className={SHELL}><p className="section-container py-12" role="status">受付状況を確認しています。</p></div>;
   return <div className={SHELL}>
     <ConfirmedReceipt id={receipt.receiptId} name={receipt.name} type={receipt.type} area={receipt.area}
-      signupHref={salonHandoffAuthPath('signup')} loginHref={salonHandoffAuthPath('login')} />
+      signupHref={salonHandoffAuthPath('signup')} loginHref={salonHandoffAuthPath('login')} autoPublication={receipt.autoPublication} />
   </div>;
 }

@@ -58,6 +58,7 @@ function OnboardingContent() {
   // 既に店舗の管理者なら admin レイアウトのヘッダーが出ているので、最小ヘッダーは出さない。
   const [hasMembership, setHasMembership] = useState(false);
   const lastRequest = useRef<SetupRequest | null>(null);
+  const autoAttemptKey = useRef<string | null>(null);
   const [error, setError] = useState('');
   const [facilityNameInput, setFacilityNameInput] = useState('');
   const [businessTypeInput, setBusinessTypeInput] = useState('');
@@ -69,6 +70,54 @@ function OnboardingContent() {
   const submitting = useRef(false);
   const mounted = useRef(false);
   const pendingSubmission = useRef<{ controller: AbortController; timer: ReturnType<typeof setTimeout> } | null>(null);
+
+  const sendSetup = async (request: SetupRequest) => {
+    if (submitting.current) return;
+    submitting.current = true;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    pendingSubmission.current = { controller, timer };
+    const unknown = (message?: string) => {
+      setUnknownMessage(message || SETUP_UNKNOWN_MESSAGE);
+      setStatus('unknown');
+    };
+
+    try {
+      const res = await fetch('/api/facility/setup', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+
+      if (!mounted.current) return;
+      // 入力中にログインの有効期限が切れた。施設は作られていない（401 は認証より先で止まる）。
+      if (res.status === 401) { setStatus('expired'); return; }
+      const data = await res.json();
+      if (!mounted.current) return;
+      if (res.ok && data?.success === true && typeof data.facilityId === 'string' && UUID_REGEX.test(data.facilityId)) {
+        if (autoAttemptKey.current) { try { window.sessionStorage.removeItem(autoAttemptKey.current); } catch { /* Keep the conservative unknown fence. */ } }
+        navigateAfterFacilitySetup(data.facilityId);
+      } else if (!res.ok && res.status >= 400 && res.status < 500 && typeof data?.error === 'string'
+        && data?.success !== true) {
+        // 入力・引き継ぎの拒否（4xx）は作成されていないことが確定している。
+        if (autoAttemptKey.current) { try { window.sessionStorage.removeItem(autoAttemptKey.current); } catch { /* Keep the conservative unknown fence. */ } }
+        setError(data.error);
+        setStatus('error');
+      } else {
+        // 202（結果不明）・5xx・形の合わない応答は、作成済みの可能性がある。自動で再送はしない。
+        unknown(res.status === 202 && typeof data?.error === 'string' ? data.error : undefined);
+      }
+    } catch {
+      if (!mounted.current) return;
+      unknown();
+    } finally {
+      clearTimeout(timer);
+      pendingSubmission.current = null;
+      submitting.current = false;
+    }
+  };
+
 
   useEffect(() => {
     mounted.current = true;
@@ -123,6 +172,8 @@ function OnboardingContent() {
         return;
       }
 
+      let autoPublication = false;
+      let automaticClaim: Pick<SetupRequest, 'intentId' | 'recoveryId'> = {};
       let facilityName = searchParams.get('facility_name') || '';
       let businessType = searchParams.get('business_type') || '';
       if (recoveredHandoff) {
@@ -142,6 +193,8 @@ function OnboardingContent() {
           || (summary.address !== null && typeof summary.address !== 'string')) throw new Error('Selected recovery not confirmed');
         facilityName = summary.name; businessType = summary.type;
         setReceiptAddress(summary.address ?? ''); setSelectedRecovery(recoveryId);
+        autoPublication = summary.autoPublication === true;
+        automaticClaim = { recoveryId };
       }
       if (registrationHandoff) {
         const selected = readSalonBrowserContext(window.sessionStorage);
@@ -167,6 +220,34 @@ function OnboardingContent() {
         facilityName = summary.name;
         businessType = summary.type;
         setSelectedIntent(selected.context.intentId);
+        autoPublication = summary.autoPublication === true;
+        automaticClaim = { intentId: selected.context.intentId };
+      }
+
+      if (process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH === 'true' && autoPublication) {
+        // Only an already-committed, capability-protected receipt can reach this
+        // branch. The RPC also verifies the account, receipt email and stored consent.
+        if (!user.email_confirmed_at) { setError('申込に使用したメールアドレスの確認を完了してください。'); setStatus('error'); return; }
+        const selector = automaticClaim.intentId ?? automaticClaim.recoveryId;
+        if (!selector || !UUID_REGEX.test(selector)) throw new Error('Registration selector unavailable');
+        if (automaticClaim.intentId) {
+          const latest = readSalonBrowserContext(window.sessionStorage);
+          if (latest.state !== 'ready' || latest.context.intentId !== selector) throw new Error('Registration selection changed');
+        } else if (readSalonRecoveryContext(window.sessionStorage) !== selector) throw new Error('Recovery selection changed');
+        const request: SetupRequest = { facility_name: facilityName, business_type: businessType,
+          license_warranted: true, ...automaticClaim };
+        lastRequest.current = request;
+        const key = `carelink-registration-auto-attempt:${selector}`;
+        autoAttemptKey.current = key;
+        // A lost response is resolved only by the user's existing retry control;
+        // a refresh must not silently replay an uncertain mutation.
+        try {
+          if (window.sessionStorage.getItem(key) === 'attempted') { setUnknownMessage(SETUP_UNKNOWN_MESSAGE); setStatus('unknown'); return; }
+          window.sessionStorage.setItem(key, 'attempted');
+        } catch { setError('掲載の準備を確認できません。入力と申込を保持して、もう一度お試しください。'); setStatus('error'); return; }
+        setStatus('creating');
+        await sendSetup(request);
+        return;
       }
 
       // 【2026年8月20日・恒久根治】クエリだけで無確認に POST /api/facility/setup を
@@ -255,50 +336,6 @@ function OnboardingContent() {
     if (mounted.current) setRechecking(false);
   };
 
-  const sendSetup = async (request: SetupRequest) => {
-    if (submitting.current) return;
-    submitting.current = true;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30000);
-    pendingSubmission.current = { controller, timer };
-    const unknown = (message?: string) => {
-      setUnknownMessage(message || SETUP_UNKNOWN_MESSAGE);
-      setStatus('unknown');
-    };
-
-    try {
-      const res = await fetch('/api/facility/setup', {
-        method: 'POST',
-        signal: controller.signal,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request),
-      });
-
-      if (!mounted.current) return;
-      // 入力中にログインの有効期限が切れた。施設は作られていない（401 は認証より先で止まる）。
-      if (res.status === 401) { setStatus('expired'); return; }
-      const data = await res.json();
-      if (!mounted.current) return;
-      if (res.ok && data?.success === true && typeof data.facilityId === 'string' && UUID_REGEX.test(data.facilityId)) {
-        navigateAfterFacilitySetup(data.facilityId);
-      } else if (!res.ok && res.status >= 400 && res.status < 500 && typeof data?.error === 'string'
-        && data?.success !== true) {
-        // 入力・引き継ぎの拒否（4xx）は作成されていないことが確定している。
-        setError(data.error);
-        setStatus('error');
-      } else {
-        // 202（結果不明）・5xx・形の合わない応答は、作成済みの可能性がある。自動で再送はしない。
-        unknown(res.status === 202 && typeof data?.error === 'string' ? data.error : undefined);
-      }
-    } catch {
-      if (!mounted.current) return;
-      unknown();
-    } finally {
-      clearTimeout(timer);
-      pendingSubmission.current = null;
-      submitting.current = false;
-    }
-  };
 
   const content = renderContent();
   return (

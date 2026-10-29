@@ -5,7 +5,7 @@ import Page from '../page';
 const id = '74000000-0000-4000-8000-000000000001';
 const time = '2026-09-26T12:30:40.123456+00:00';
 const row = { id, name: '合成施設', email: 'synthetic@example.invalid', phone: null,
-  status: 'pending', created_at: time, claimed_at: null, claimed_facility_id: null, review_revision: 0 };
+  status: 'pending', created_at: time, claimed_at: null, claimed_facility_id: null, review_revision: 0, classification: null, classification_revision: 0 };
 const cursor = { id, createdAt: time };
 const mockFetch = jest.fn();
 function response(body: unknown = { salons: [row], nextCursor: null }, ok = true) {
@@ -19,6 +19,16 @@ function deferred() {
 }
 beforeEach(() => { jest.clearAllMocks(); global.fetch = mockFetch; mockFetch.mockResolvedValue(response()); });
 afterEach(() => { jest.useRealTimers(); });
+test('automatically accepted registrations are identified without review actions', async () => {
+  process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH = 'true';
+  try {
+    mockFetch.mockResolvedValue(response({ salons: [{ ...row, status: 'auto_accepted' }], nextCursor: null }));
+    render(<Page />);
+    expect(await screen.findByText('自動受付', { selector: 'span' })).toBeVisible();
+    expect(screen.getByText(/メール確認後に自動で受付・掲載/)).toBeVisible();
+    expect(screen.queryByRole('button', { name: '承認', exact: true })).not.toBeInTheDocument();
+  } finally { delete process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH; }
+});
 test('receipt and creation status are distinct from approval/publication; search never enters URL', async () => {
   render(<Page />);
   expect(await screen.findByText('合成施設')).toBeVisible();
@@ -155,4 +165,43 @@ test('unmount aborts list request; deadline abort is surfaced, not left loading'
   const signal = mockFetch.mock.calls[1][1].signal;
   await act(async () => { view.unmount(); });
   expect(signal.aborted).toBe(true);
+});
+
+test('unconfirmed registrations can be classified only with a confirmed update and reload', async () => {
+  render(<Page />); expect(await screen.findByText('申込区分：未確認')).toBeVisible();
+  expect(screen.getByText(/掲載や通知は自動停止しません/)).toBeVisible();
+  mockFetch.mockResolvedValueOnce(response({ success: true, classification: 'test', revision: 1 }));
+  mockFetch.mockResolvedValueOnce(response({ salons: [{ ...row, classification: 'test', classification_revision: 1 }], nextCursor: null }));
+  fireEvent.click(screen.getByRole('button', { name: '試験と記録' }));
+  expect(await screen.findByText('申込区分：試験')).toBeVisible();
+  expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ classification: 'test', expected_revision: 0 });
+});
+test('unknown classification update blocks changes until successful reload', async () => {
+  render(<Page />); await screen.findByText('申込区分：未確認');
+  mockFetch.mockResolvedValueOnce(response({}, false));
+  fireEvent.click(screen.getByRole('button', { name: '試験と記録' }));
+  expect(await screen.findByText('区分の更新結果を確認できません。一覧を再読み込みしてください。')).toBeVisible();
+  expect(screen.getByRole('button', { name: '試験と記録' })).toBeDisabled();
+});
+
+test.each([['real', '実申込と記録', '実申込として記録しました'], ['unknown', '未確認に戻す', '未確認として記録しました']] as const)('confirmed %s classification is reported and reloaded', async (value, button, message) => {
+  mockFetch.mockResolvedValueOnce(response({ salons: [{ ...row, classification: 'test', classification_revision: 1 }], nextCursor: null }));
+  render(<Page />); await screen.findByText('申込区分：試験');
+  mockFetch.mockResolvedValueOnce(response({ success: true, classification: value, revision: 2 }));
+  mockFetch.mockResolvedValueOnce(response({ salons: [{ ...row, classification: value, classification_revision: 2 }], nextCursor: null }));
+  fireEvent.click(screen.getByRole('button', { name: button }));
+  expect(await screen.findByText(message)).toBeVisible();
+  expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ classification: value, expected_revision: 1 });
+});
+test.each(['success', 'failure'])('superseded classification %s cannot update an unmounted screen', async mode => {
+  const { unmount } = render(<Page />); await screen.findByText('申込区分：未確認');
+  const pending = deferred(); mockFetch.mockReturnValueOnce(pending.promise);
+  const button = screen.getByRole('button', { name: '試験と記録' });
+  act(() => { button.click(); button.click(); });
+  expect(mockFetch).toHaveBeenCalledTimes(2);
+  // Abort and generation change are observed even if an underlying fetch settles late.
+  const mounted = screen.getByText('合成施設');
+  expect(mounted).toBeVisible();
+  unmount();
+  await act(async () => { if (mode === 'success') pending.resolve(response({ success: true, classification: 'test', revision: 1 })); else pending.reject(new Error('offline')); });
 });

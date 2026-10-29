@@ -7,11 +7,11 @@ import ReceiptNumber from './ReceiptNumber';
 
 type Props = {
   id: string; name: string; type: string; area: string;
-  signupHref: string; loginHref: string;
+  signupHref: string; loginHref: string; autoPublication?: boolean;
 };
 
 /** Shared by both verified receipt protocols; verification stays in each caller. */
-export default function ConfirmedReceipt({ id, name, type, area, signupHref, loginHref }: Props) {
+export default function ConfirmedReceipt({ id, name, type, area, signupHref, loginHref, autoPublication = false }: Props) {
   return (
     <div className="section-container max-w-xl py-10 sm:py-12">
       <h1 className="mb-3 font-(family-name:--font-serif-jp) text-2xl">掲載申込を受け付けました</h1>
@@ -30,8 +30,10 @@ export default function ConfirmedReceipt({ id, name, type, area, signupHref, log
         <Button href={signupHref} prefetch="auto">店舗アカウントを作成する</Button>
         <Link href={loginHref} className="underline underline-offset-4">既存アカウントでログインして引き継ぐ</Link>
       </div>
-      <p className="mt-6 text-sm leading-relaxed">引き継ぎ後、管理画面で情報を確認して公開してください。</p>
-      <p className="mt-1 text-sm leading-relaxed">{LISTING_PUBLISH_REQUIREMENT}</p>
+      {autoPublication ? <p className="mt-6 text-sm leading-relaxed">申込に使ったメールアドレスを確認し、同じアカウントでログインすると掲載されます。ネット予約の設定は別に行います。</p> : <>
+        <p className="mt-6 text-sm leading-relaxed">引き継ぎ後、管理画面で情報を確認して公開してください。</p>
+        <p className="mt-1 text-sm leading-relaxed">{LISTING_PUBLISH_REQUIREMENT}</p>
+      </>}
       <p className="mt-3 text-sm leading-relaxed">ネット予約を利用せず、無料掲載だけでも利用できます。</p>
       <p className="text-sm mt-4 text-(--ecru-muted)">複数店舗は、店舗ごとに申し込み、同じアカウントで引き継げます。</p>
       <a href="/register" target="_blank" rel="noopener noreferrer" className="mt-2 inline-block underline">別の店舗を申し込む（新しいタブ）</a>

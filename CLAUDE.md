@@ -405,6 +405,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 ## 環境変数（コード内 `process.env` 参照から抽出）
 | 変数名 | 用途 |
 |--------|------|
+| NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH | `true` のとき店舗本人の確認済みメールでのログインと曜日別営業時間の入力を経て自動掲載する。未設定時は無効。利用前に対応するマイグレーションと分離環境での検証が必要 |
 | NEXT_RUNTIME | Next.jsが設定する実行環境。nodejsの場合のみ、起動時にNode.jsの実行バージョンを管理者用ログへ記録する。手動設定は不要 |
 | NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY | Supabase（本番必須）。Vercel の Preview には 2026年10月25日から**本番の公開 URL と anon キーだけ**を入れている（公開閲覧の確認用・`docs/handoff/CPU_PREVIEW_CAPABILITIES_20261025.md`）。service-role が無い Preview は `isPublicReadOnlyPreview()` で公開閲覧専用になり、`isPreviewRestricted()`（`src/lib/preview-capabilities.ts`）が middleware と `withRoute` で**ログイン・会員/店舗画面・変更系メソッドを 403 で止める**（本番の Auth・データへ Preview から触れないため。2026年10月28日）。資格情報の無いビルドは `hasSupabasePublicEnv()`（`src/lib/supabase-build-env.ts`）で事前生成を省いて通る |
 | SUPABASE_SERVICE_ROLE_KEY | service role（cron／管理 API のサーバ側 DB 操作・RLS バイパス・**本番必須**）。**Vercel の Preview には設定しない**（上の行と同じ理由。本番の secret をプレビューへ再登録しない） |

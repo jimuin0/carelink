@@ -88,6 +88,17 @@ test('direct onboarding is explicit and uses authenticated user only', async () 
     value: '', path: '/admin', httpOnly: true, sameSite: 'lax', maxAge: 0,
   });
 });
+test('enabled instant listing reports a neutral creation result', async () => {
+  const previous = process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH;
+  process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH = 'true';
+  try {
+    const response = await POST(request());
+    expect(await response.json()).toMatchObject({ message: '店舗アカウントを作成しました。掲載状況は管理画面で確認してください。' });
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH;
+    else process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH = previous;
+  }
+});
 test.each(['test', 'production'])('membership hint invalidation respects %s cookie transport', async environment => {
   const previous = process.env.NODE_ENV;
   Object.defineProperty(process.env, 'NODE_ENV', { value: environment, configurable: true });

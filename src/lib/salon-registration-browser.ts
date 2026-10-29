@@ -20,7 +20,7 @@ type Dependencies = {
 type Result = { state: 'ready' } | { state: 'confirmed'; receiptId: string }
   | { state: 'blocked' | 'unknown'; message: string }
   | { state: 'retryable'; message: string; fieldErrors?: SalonFieldErrors };
-type CommitInput = { intentId: string; registration: object; photoIds: string[]; consent: RegistrationConsent };
+type CommitInput = { intentId: string; registration: object; photoIds: string[]; consent: RegistrationConsent; publicationHours: SalonFormValues['publication_hours'] };
 const uuid = z.uuid();
 const uncertain: Result = { state: 'unknown', message: '送信結果を確認できませんでした。同じ申込の受付状況を確認してください。新たな申込として送信しないでください。' };
 const blocked: Result = { state: 'blocked', message: 'この申込の確認情報を利用できません。申込時のブラウザーの同じタブで確認するか、お問い合わせください。' };
@@ -234,7 +234,7 @@ export class SalonRegistrationBrowser {
     const photoIds: string[] = [];
     for (const result of results) if (result.status === 'fulfilled' && result.value) photoIds.push(result.value);
     const { photo_url: _photoUrl, photo_urls: _photoUrls, ...registration } = canonical.row;
-    this.pending = { intentId, registration, photoIds, consent: agreement.data };
+    this.pending = { intentId, registration, photoIds, consent: agreement.data, publicationHours: data.publication_hours };
     return this.commit(this.pending);
   }
 }

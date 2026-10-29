@@ -6,7 +6,7 @@ export const registrationCursor = z.object({ createdAt: timestamp.nullable(), id
 export const registrationListInput = z.object({
   field: z.enum(['receipt', 'facility', 'email']).default('facility'),
   query: z.string().trim().max(254).default(''),
-  status: z.enum(['all', 'pending', 'approved', 'rejected', 'unknown']).default('all'),
+  status: z.enum(['all', 'pending', 'approved', 'auto_accepted', 'rejected', 'unknown']).default('all'),
   cursor: registrationCursor.nullable().default(null),
 }).strict().superRefine((input, context) => {
   if (input.field === 'receipt' && input.query && !z.uuid().safeParse(input.query).success) {
@@ -22,6 +22,7 @@ export const registrationListRow = z.object({
   status: z.string().nullable(), created_at: timestamp.nullable(),
   claimed_at: timestamp.nullable(), claimed_facility_id: z.uuid().nullable(),
   review_revision: z.number().int().min(0).max(2147483647),
+  classification: z.enum(['test', 'real', 'unknown']).nullable(), classification_revision: z.number().int().min(0),
 }).strict();
 export const registrationListResponse = z.object({
   salons: z.array(registrationListRow).max(50), nextCursor: registrationCursor.nullable(),

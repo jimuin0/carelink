@@ -32,6 +32,10 @@ import { businessTypeLabel } from '@/lib/business-type-label';
 import { medicalBusinessTypes } from '@/lib/medical-business-types';
 import { LICENSE_WARRANTY_TEXT } from '@/lib/registration-consent';
 import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
+import BusinessHoursEditor from '@/components/admin/BusinessHoursEditor';
+import { initialHoursForm } from '@/lib/business-hours-form';
+import { canonicalRegistrationHours } from '@/lib/registration-publication-hours';
+import { listingLocationMissing } from '@/lib/facility-publish-gate';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
@@ -188,6 +192,13 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     defaultValues: hydrationSafeDefaults,
   });
 
+  const instantPublication = process.env.NEXT_PUBLIC_REGISTRATION_AUTO_PUBLISH === 'true';
+  const publicationHours = useWatch({ control, name: 'publication_hours' }) ?? {};
+  const publicationHoursForm = initialHoursForm(publicationHours);
+  const setPublicationDay = (day: string, value: (typeof publicationHours)[keyof typeof publicationHours]) => {
+    setValue('publication_hours', { ...publicationHours, [day]: value }, { shouldDirty: true, shouldValidate: true });
+    setIsDirty(true);
+  };
   const prText = useWatch({ control, name: 'pr_text' }) || '';
   const postalCode = useWatch({ control, name: 'postal_code' }) || '';
   const selectedFeatures = useWatch({ control, name: 'features' }) || [];
@@ -441,6 +452,20 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   const nextStep = async () => {
     const schema = stepSchemas[step - 1];
     const fields = Object.keys(schema.shape) as (keyof SalonFormValues)[];
+    if (step === 2 && instantPublication && !canonicalRegistrationHours(getValues('publication_hours'))) {
+      setError('publication_hours', { type: 'validation', message: SALON_FIELD_MESSAGES.publication_hours });
+      revealErrors({ publication_hours: { type: 'validation', message: SALON_FIELD_MESSAGES.publication_hours } });
+      return;
+    }
+    if (step === 2 && instantPublication) {
+      const values = getValues();
+      if (listingLocationMissing({ name: values.facility_name, prefecture: values.prefecture || extractPrefecture(values.address || ''),
+        city: values.city || extractCity(values.address || ''), address: values.address }).length) {
+        setError('address', { type: 'validation', message: SALON_FIELD_MESSAGES.address });
+        revealErrors({ address: { type: 'validation', message: SALON_FIELD_MESSAGES.address } });
+        return;
+      }
+    }
     if (await trigger(fields)) { setFailedStep(null); goToStep(step + 1); }
     else {
       const invalid: FieldErrors<SalonFormValues> = {};
@@ -454,6 +479,11 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
 
   const onSubmit = async (data: SalonFormValues) => {
     if (submissionUnknownRef.current || submissionConfirmedRef.current || draftLockRef.current || !agreed || !licenseWarranted || (restoredNeedsReview && !restoredUnsentAcknowledged)) return;
+    if (instantPublication && !canonicalRegistrationHours(data.publication_hours)) {
+      setError('publication_hours', { type: 'validation', message: SALON_FIELD_MESSAGES.publication_hours });
+      revealErrors({ publication_hours: { type: 'validation', message: SALON_FIELD_MESSAGES.publication_hours } });
+      return;
+    }
     if (!useV2 && readDraftContext().state !== 'empty') {
       submissionUnknownRef.current = true; setSubmissionUnknown(true); return;
     }
@@ -467,7 +497,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     if (useV2) {
       try {
         if (!v2.current) throw new Error('Registration context unavailable');
-        await acceptV2Result(await v2.current.submit(data, photoFiles, { terms_agreed: agreed, license_warranted: licenseWarranted }));
+        await acceptV2Result(await v2.current.submit(instantPublication ? data : { ...data, publication_hours: undefined }, photoFiles, { terms_agreed: agreed, license_warranted: licenseWarranted }));
       } catch {
         submissionUnknownRef.current = true; setSubmissionUnknown(true);
         setV2Message(SALON_SUBMISSION_UNKNOWN);
@@ -663,7 +693,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       const values = { ...emptySalonValues, ...draft.values };
       for (const field of Object.keys(salonFullSchema.shape) as (keyof SalonFormValues)[]) {
         if (values[field] === undefined || values[field] === null) {
-          if (!['prefecture', 'city', 'seat_count', 'staff_count'].includes(field)) {
+          if (!['prefecture', 'city', 'seat_count', 'staff_count', 'publication_hours'].includes(field)) {
             Object.assign(values, { [field]: field === 'features' ? [] : field === 'has_parking' ? false : '' });
           }
         }
@@ -700,7 +730,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
         if (!v2.current) v2.current = createRegistrationBrowser();
         if (!(await localDraft.current?.beforeSubmit(data, photoFiles))) return;
         setUseV2(true); setLegacyStorageBlocked(false);
-        await acceptV2Result(await v2.current.submit(data, photoFiles, { terms_agreed: agreed, license_warranted: licenseWarranted }));
+        await acceptV2Result(await v2.current.submit(instantPublication ? data : { ...data, publication_hours: undefined }, photoFiles, { terms_agreed: agreed, license_warranted: licenseWarranted }));
       } catch {
         submissionUnknownRef.current = true; setSubmissionUnknown(true); setV2Message(SALON_SUBMISSION_UNKNOWN);
       }
@@ -948,6 +978,14 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                   </div>
                 </div>
               </details>
+              {instantPublication && <div data-field="publication_hours" tabIndex={-1}>
+                <h3 className="form-label">曜日別の営業時間（必須）</h3>
+                <p className="mb-3 text-sm text-gray-600">掲載する営業時間を入力してください。営業しない曜日はチェックを外してください。</p>
+                <BusinessHoursEditor hours={publicationHoursForm.hours} closedDays={publicationHoursForm.closedDays}
+                  onDayChange={(day, value) => setPublicationDay(day, value)}
+                  onToggleClosed={day => setPublicationDay(day, publicationHoursForm.closedDays.includes(day) ? { open: '', close: '' } : null)} />
+                {errors.publication_hours && <p role="alert" className="mt-2 text-sm text-red-700">曜日別の営業時間を確認してください。</p>}
+              </div>}
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label htmlFor="reg-business-hours" className="form-label">営業時間</label>
@@ -1101,7 +1139,9 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
         title="登録内容を送信しますか？"
         // 受付と一般公開は別の手続き（/register の FAQ・受付メールと同じ事実を書く）。以前は
         // 「すぐに掲載を開始できます」と書いており、送信すれば公開されると誤解させていた。
-        message={`送信後、続けて店舗アカウントを作成すると、入力内容（営業時間・写真・特徴・PRなど）が管理画面に引き継がれます。一般公開は、管理画面で${LISTING_PUBLISH_ITEMS}を設定して公開の操作をした後に始まります（送信しただけでは公開されません）。`}
+        message={instantPublication
+          ? '送信後、申請時のメールアドレスを確認してログインすると、入力した店舗情報と営業時間を掲載します。ネット予約は別途設定が必要です。'
+          : `送信後、続けて店舗アカウントを作成すると、入力内容（営業時間・写真・特徴・PRなど）が管理画面に引き継がれます。一般公開は、管理画面で${LISTING_PUBLISH_ITEMS}を設定して公開の操作をした後に始まります（送信しただけでは公開されません）。`}
         confirmLabel="送信する"
         cancelLabel="戻る"
         confirmDisabled={submitting || submissionUnknown || submissionConfirmed || draftBusy || (restoredNeedsReview && !restoredUnsentAcknowledged)}
