@@ -1,6 +1,8 @@
 // Observed collection crawlers, separate from Googlebot/Bingbot search indexing.
 // This is a resource policy, never an authentication or authorization signal.
-export const NON_SEARCH_CRAWLERS = ['GoogleOther', 'Amazonbot', 'Reflectionbot'];
+// meta-externalagent (AI training/indexing) walked /search at 2 requests/s on 2026-10-29.
+// Meta's link previews (facebookexternalhit) and user-initiated meta-externalfetcher stay allowed.
+export const NON_SEARCH_CRAWLERS = ['GoogleOther', 'Amazonbot', 'Reflectionbot', 'meta-externalagent'];
 const tokenMatcher = (token: string) => new RegExp(`(?:^|[\\s(;])${token}(?:[\\s/;)-]|$)`, 'i');
 const matchers = NON_SEARCH_CRAWLERS.map(tokenMatcher);
 

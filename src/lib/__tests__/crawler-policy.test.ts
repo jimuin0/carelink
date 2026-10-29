@@ -9,13 +9,16 @@ test.each([
   'Mozilla/5.0 (compatible; Amazonbot/0.1; +https://developer.amazon.com/support/amazonbot)',
   'Reflectionbot/1.0',
   'amazonbot/0.1',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 (compatible; meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler))',
 ])('collection crawler is rejected before a dynamic read: %s', (agent) => {
   expect(shouldBlockCollectionCrawler('/search', 'GET', agent)).toBe(true);
   expect(shouldBlockCollectionCrawler('/privacy', 'HEAD', agent)).toBe(true);
 });
 
 test.each(['', 'Mozilla/5.0 Mobile Safari/537.36', 'Googlebot/2.1', 'Google-InspectionTool/1.0',
-  'bingbot/2.0', 'Applebot/0.1', 'NotGoogleOther', 'Not-Amazonbot', 'Reflectionbotanical'])(
+  'bingbot/2.0', 'Applebot/0.1', 'NotGoogleOther', 'Not-Amazonbot', 'Reflectionbotanical',
+  'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+  'Mozilla/5.0 (compatible; meta-externalfetcher/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler))'])(
   'visitors and search indexing keep their existing access: %s', (agent) => {
     expect(shouldBlockCollectionCrawler('/search', 'GET', agent)).toBe(false);
   },
