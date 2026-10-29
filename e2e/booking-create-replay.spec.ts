@@ -2,6 +2,8 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { BOOKING_CREATE_PENDING_PREFIX } from '../src/lib/booking-create-client';
+import { createClient } from '@supabase/supabase-js';
+import { approveSyntheticListing } from './listing-verification-fixture';
 
 // Real local UI -> local API -> real PG17. External providers must be disabled
 // in this local dev runtime; this test never seeds an actual customer/account.
@@ -25,9 +27,13 @@ test.beforeAll(async({request})=>{
     INSERT INTO public.staff_profiles(id,facility_id,name,slug,is_active) VALUES('${staffId}','${facilityId}','合成担当','${slug}-staff',true);
     INSERT INTO public.staff_schedules(staff_id,day_of_week,start_time,end_time) SELECT '${staffId}',d,'09:00','20:00' FROM generate_series(0,6)d;
     INSERT INTO public.facility_photos(facility_id,photo_url,photo_type) VALUES('${facilityId}','${base.origin}/icons/icon-192.png','other');
-    UPDATE public.facility_profiles SET status='published' WHERE id='${facilityId}';COMMIT;`);seeded=true;
+    COMMIT;`);seeded=true;
+  const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});
+  await approveSyntheticListing(db,facilityId);
 });
-test.afterAll(()=>{if(!seeded)return;sql(`BEGIN;DELETE FROM public.webhook_retry_queue WHERE facility_id='${facilityId}';DELETE FROM public.booking_create_operations WHERE facility_id='${facilityId}';DELETE FROM public.facility_profiles WHERE id='${facilityId}' AND slug='${slug}' AND name='合成受付検証店';COMMIT;`);});
+test.afterAll(()=>{if(!seeded)return;sql(`BEGIN;DELETE FROM public.webhook_retry_queue WHERE facility_id='${facilityId}';DELETE FROM public.booking_create_operations WHERE facility_id='${facilityId}';
+ DELETE FROM public.listing_verification_approval_documents WHERE facility_id='${facilityId}'; DELETE FROM public.listing_verification_approvals WHERE facility_id='${facilityId}'; DELETE FROM storage.objects WHERE bucket_id='listing-verification' AND name IN (SELECT object_path FROM public.listing_verification_documents WHERE facility_id='${facilityId}'); DELETE FROM public.listing_verification_documents WHERE facility_id='${facilityId}';
+ DELETE FROM public.facility_profiles WHERE id='${facilityId}' AND slug='${slug}' AND name='合成受付検証店';COMMIT;`);});
 async function isolated(context:BrowserContext){await context.route('**/*',route=>{const url=new URL(route.request().url());return ['localhost','127.0.0.1','[::1]'].includes(url.hostname)?route.continue():route.abort();});}
 async function confirm(page:Page){await page.goto(`/facility/${slug}/booking`);await page.getByRole('button',{name:/合成受付カット/}).click();await page.getByRole('button',{name:'次へ（日時を選ぶ）'}).click();await page.locator('table button:not([disabled])').first().click();await page.getByRole('button',{name:'次へ（確認・予約）'}).click();await page.fill('#booking-name','合成受付氏名');await page.fill('#booking-email','synthetic-receipt@example.invalid');}
 function operationCount(operation:string){return sql(`SELECT (SELECT count(*) FROM public.bookings b JOIN public.booking_create_operations o ON o.booking_id=b.id WHERE o.id='${operation}'),(SELECT count(*) FROM public.webhook_retry_queue WHERE payload->>'booking_create_operation'='${operation}');`);}

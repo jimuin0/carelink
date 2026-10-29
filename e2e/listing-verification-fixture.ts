@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createHash,randomUUID } from 'node:crypto';
 
 /** Seed only isolated CI data through the same DB gates used for real listings. */
-export async function approveSyntheticListing(db:SupabaseClient,facilityId:string,ownerId?:string) {
+export async function approveSyntheticListing(db:SupabaseClient,facilityId:string,ownerId?:string,publish=true) {
   const url=process.env.NEXT_PUBLIC_SUPABASE_URL;
   const app=process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000';
   const ciLocal=process.env.CI === 'true' && process.env.GITHUB_ACTIONS === 'true'
@@ -34,6 +34,8 @@ export async function approveSyntheticListing(db:SupabaseClient,facilityId:strin
   const approved=await db.rpc('approve_listing_verification',{ p_actor_id:actor,p_facility_id:facilityId,p_document_ids:[docId],
     p_expected_identity:facility.data,p_document_verified:true,p_authority_verified:true });
   if (approved.error || approved.data !== true) throw new Error('Synthetic review failed');
-  const published=await db.from('facility_profiles').update({ status:'published' }).eq('id',facilityId).select('id').single();
-  if (published.error || !published.data) throw new Error('Synthetic publication failed');
+  if (publish) {
+    const published=await db.from('facility_profiles').update({ status:'published' }).eq('id',facilityId).select('id').single();
+    if (published.error || !published.data) throw new Error('Synthetic publication failed');
+  }
 }

@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { CLIENT_CLEANUP_GENERATION_KEY, CLIENT_BOOKING_DRAFT_META_PREFIX } from '../src/lib/client-cleanup-marker';
 import { bookingDraftKey } from '../src/lib/client-storage';
+import { createClient } from '@supabase/supabase-js';
+import { approveSyntheticListing } from './listing-verification-fixture';
 
 // Actual local app + its isolated PG17 catalog. Browser auth/booking/storage
 // API requests and every external URL are intercepted; no booking, login,
@@ -44,13 +46,16 @@ test.beforeAll(async ({ request }) => {
       SELECT '${staffId}',d,'09:00','20:00' FROM generate_series(0,6) AS d;
     INSERT INTO public.facility_photos(facility_id,photo_url,photo_type)
       VALUES('${facilityId}','${base.origin}/icons/icon-192.png','other');
-    UPDATE public.facility_profiles SET status='published',business_hours='{"mon":{"open":"09:00","close":"20:00"},"tue":{"open":"09:00","close":"20:00"},"wed":{"open":"09:00","close":"20:00"},"thu":{"open":"09:00","close":"20:00"},"fri":{"open":"09:00","close":"20:00"},"sat":{"open":"09:00","close":"20:00"},"sun":{"open":"09:00","close":"20:00"}}' WHERE id='${facilityId}';
+    UPDATE public.facility_profiles SET business_hours='{"mon":{"open":"09:00","close":"20:00"},"tue":{"open":"09:00","close":"20:00"},"wed":{"open":"09:00","close":"20:00"},"thu":{"open":"09:00","close":"20:00"},"fri":{"open":"09:00","close":"20:00"},"sat":{"open":"09:00","close":"20:00"},"sun":{"open":"09:00","close":"20:00"}}' WHERE id='${facilityId}';
     COMMIT;`);
   seeded = true;
+  const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});
+  await approveSyntheticListing(db,facilityId);
 });
 test.afterAll(() => {
   if (!seeded) return;
   sql(`BEGIN; DO $$ BEGIN IF EXISTS(SELECT 1 FROM public.bookings WHERE facility_id='${facilityId}') THEN RAISE EXCEPTION 'synthetic fixture unexpectedly booked'; END IF; END $$;
+    DELETE FROM public.listing_verification_approval_documents WHERE facility_id='${facilityId}'; DELETE FROM public.listing_verification_approvals WHERE facility_id='${facilityId}'; DELETE FROM storage.objects WHERE bucket_id='listing-verification' AND name IN (SELECT object_path FROM public.listing_verification_documents WHERE facility_id='${facilityId}'); DELETE FROM public.listing_verification_documents WHERE facility_id='${facilityId}';
     DELETE FROM public.facility_profiles WHERE id='${facilityId}' AND slug='${slug}' AND name='合成予約下書き検証店'; COMMIT;`);
 });
 async function isolated(context: BrowserContext) {

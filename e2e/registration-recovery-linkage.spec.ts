@@ -150,6 +150,9 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   // salon-legacy-resume); every assertion and wait condition is unchanged.
   test.setTimeout(90000);
   await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${160 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
+  // APIRequestContext does not inherit page-level headers. Give these isolated
+  // API checks their own test IP, so other tests cannot consume their quota.
+  const apiHeaders = { Origin:'https://localhost:3000', 'x-real-ip':'2001:db8:' + randomUUID().replace(/-/g,'').match(/.{1,4}/g)!.slice(0,6).join(':') };
   const db = localDb(); const owner = await identity(db);
   const name = `復旧掲載 ${randomUUID()}`; const id = await receipt(db, owner.email, name);
   const expired = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
@@ -196,16 +199,16 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   expect(photos.error).toBeNull(); expect(photos.data).toEqual([]);
   // Real authorized status API. Free listing needs saved business hours (2026-10-23), but no menu/staff/photo.
   const statusUrl = `/api/admin/settings?facility_id=${created.facilityId}&action=status`;
-  const withoutHours = await page.request.patch(statusUrl, { headers: { Origin: 'https://localhost:3000' }, data: { status: 'published' } });
+  const withoutHours = await page.request.patch(statusUrl, { headers: apiHeaders, data: { status: 'published' } });
   expect(withoutHours.status()).toBe(400);
   expect((await withoutHours.json()).missing).toEqual(['全曜日の営業時間・定休日を確認して保存してください']);
   const day = { open: '10:00', close: '19:00' };
   const savedHours = await page.request.patch(`/api/admin/settings?facility_id=${created.facilityId}`, {
-    headers: { Origin: 'https://localhost:3000' },
+    headers: apiHeaders,
     data: { name, business_hours: { mon: day, tue: day, wed: null, thu: day, fri: day, sat: day, sun: null } },
   });
   expect(savedHours.status()).toBe(200);
-  const unverified = await page.request.patch(statusUrl, { headers:{ Origin:'https://localhost:3000' },data:{ status:'published' } });
+  const unverified = await page.request.patch(statusUrl, { headers:apiHeaders,data:{ status:'published' } });
   expect(unverified.status()).toBe(409);
   await page.goto(`/admin/settings?facility_id=${created.facilityId}`);
   await page.getByLabel('書類の種類').selectOption('lease');
@@ -231,7 +234,7 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
     await card.getByRole('button',{ name:'確認を記録する' }).click();
     await expect(card.getByText(/確認を記録しました/)).toBeVisible();
   } finally { await operatorContext.close(); }
-  const published = await page.request.patch(statusUrl, { headers: { Origin: 'https://localhost:3000' }, data: { status: 'published' } });
+  const published = await page.request.patch(statusUrl, { headers: apiHeaders, data: { status: 'published' } });
   expect(published.status()).toBe(200);
   await page.goto(`/search?area=${encodeURIComponent('愛知県')}&keyword=${encodeURIComponent(name)}`);
   await expect(page.locator(`a[href="/facility/${created.slug}"]`).first()).toBeVisible();
