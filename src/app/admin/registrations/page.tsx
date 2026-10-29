@@ -6,6 +6,8 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import RegistrationDuplicateLink from '@/components/admin/RegistrationDuplicateLink';
+import ListingVerificationReview from '@/components/admin/ListingVerificationReview';
+import ListingVerificationSearch from '@/components/admin/ListingVerificationSearch';
 import { registrationListInput, registrationListResponse, type RegistrationListInput,
   type RegistrationCursor, type RegistrationListRow as Salon } from '@/lib/registration-list-contract';
 
@@ -151,6 +153,7 @@ export default function AdminRegistrationsPage() {
       <SbPageHeader title="施設登録管理" />
       <p className="text-sm mb-4">審査の承認は一般公開の完了ではありません。店舗作成後に公開条件を確認してください。</p>
       <RegistrationDuplicateLink />
+      <ListingVerificationSearch />
       {mutationUncertain && <p role="alert">直前の更新結果が不明です。一覧の再取得に成功するまで、承認・却下はできません。</p>}
       <form onSubmit={applySearch} className="mb-5 space-y-3">
         <fieldset disabled={!interactive || processingId !== null} className="flex flex-wrap items-end gap-3">
@@ -209,6 +212,7 @@ export default function AdminRegistrationsPage() {
                     </div>
                   )}
                 </div>
+                {salon.claimed_facility_id && <ListingVerificationReview key={salon.claimed_facility_id} facilityId={salon.claimed_facility_id} />}
               </div>
             );
           })}

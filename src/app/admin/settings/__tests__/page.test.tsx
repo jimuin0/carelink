@@ -71,6 +71,19 @@ test('時間の一括コピーをキャンセルすると入力済みの他曜�
   expect(mockFetch).not.toHaveBeenCalled();
 });
 
+test('施設設定で複数診療科を表示し、変更内容を保存する',async()=>{
+  mockProfile={ ...mockProfile,business_type:'内科',medical_specialties:['内科','耳鼻咽喉科'] };
+  render(<AdminSettingsPage />);
+  await screen.findByDisplayValue('合成店舗B');
+  expect((screen.getByLabelText('内科') as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByLabelText('耳鼻咽喉科') as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByLabelText('耳鼻咽喉科'));
+  fireEvent.click(screen.getByRole('button',{ name:'保存する' }));
+  await waitFor(()=>expect(mockFetch).toHaveBeenCalled());
+  const call=mockFetch.mock.calls.find(([url])=>String(url).includes('/api/admin/settings?facility_id='));
+  expect(JSON.parse(call![1].body).medical_specialties).toEqual(['内科']);
+});
+
 test('未保存の特別営業時間がある店舗切替は確認する', async () => {
   render(<AdminSettingsPage />);
   await screen.findByDisplayValue('合成店舗B');

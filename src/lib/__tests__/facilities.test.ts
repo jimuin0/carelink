@@ -197,6 +197,12 @@ describe('searchFacilities', () => {
     await searchFacilities({ type: 'ヘアサロン' });
     expect(chain.eq).toHaveBeenCalledWith('business_type', 'ヘアサロン');
   });
+  test('診療科の通常検索は主業種または追加診療科に一致させる', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ type: '耳鼻咽喉科' });
+    expect(chain.or).toHaveBeenCalledWith('business_type.eq."耳鼻咽喉科",medical_specialties.cs.{"耳鼻咽喉科"}');
+  });
 
   test('都道府県フィルタ', async () => {
     const chain = fluent({ data: [], count: 0, error: null });

@@ -14,6 +14,8 @@ export function canonicalSalonSubmission(input: unknown) {
   const row = {
     facility_name: d.facility_name,
     business_type: d.business_type,
+    // Omit the empty field so historical version-1 receipts keep their exact HMAC.
+    ...(d.medical_specialties?.length ? { medical_specialties:d.medical_specialties } : {}),
     representative_name: d.representative_name,
     contact_name: d.contact_name,
     email: d.email.toLowerCase(),

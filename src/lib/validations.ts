@@ -4,6 +4,7 @@ import { isValidIsoDate } from './date-utils';
 import { businessTypes, DESIRED_START_DATES } from './constants';
 import { FACILITY_INPUT_LIMITS } from './facility-input-limits';
 import { validateFacilityPrText } from './medical-ad-guard';
+import { medicalSpecialtiesSchema } from './medical-specialties';
 
 // 顧客マスターの入力スキーマ。name のみ必須、他は任意。
 // email / birthday は「空文字」も許容し、保存時に null へ正規化する（フォーム未入力の素通し）。
@@ -31,6 +32,7 @@ export const salonStep1Schema = z.object({
   // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
   facility_name: z.string().trim().min(1, '店舗名を入力してください').max(FACILITY_INPUT_LIMITS.name, '200文字以内で入力してください'),
   business_type: z.enum(businessTypes as [string, ...string[]], { error: '業種を選択してください' }),
+  medical_specialties: medicalSpecialtiesSchema.optional(),
   representative_name: z.string().trim().min(1, '代表者名を入力してください').max(100, '100文字以内で入力してください'),
   contact_name: z.string().trim().min(1, '担当者名を入力してください').max(100, '100文字以内で入力してください'),
   email: z.string().email('正しいメールアドレスを入力してください').max(254),

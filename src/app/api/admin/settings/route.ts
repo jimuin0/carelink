@@ -8,7 +8,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { checkPublishReadiness, isPublishedHoursConflict, isPublishedLocationConflict, LISTING_HOURS_MESSAGE } from '@/lib/facility-publish-gate';
+import { checkPublishReadiness, isListingVerificationConflict, isPublishedHoursConflict, isPublishedLocationConflict, LISTING_HOURS_MESSAGE } from '@/lib/facility-publish-gate';
 import { validateFacilityPrText } from '@/lib/medical-ad-guard';
 import { hoursSaveStaffWarning } from '@/lib/staff-hours-warning';
 import type { Database } from '@/types/database.types';
@@ -19,6 +19,9 @@ import { toJsonValue } from '@/lib/json-value';
 import { normalizeFacilityLocation } from '@/lib/facility-location';
 import { isHttpUrl, normalizeWebsiteUrl, settingsErrorSummary, settingsFieldErrors, SETTINGS_FIELD_LABELS } from '@/lib/facility-settings-input';
 import { businessPeriods, confirmedBusinessWeek, MAX_BUSINESS_PERIODS, WEEK_DAYS } from '@/lib/business-hours';
+import { medicalSpecialtiesSchema } from '@/lib/medical-specialties';
+import { medicalBusinessTypes } from '@/lib/medical-business-types';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 // facility_profiles の update() に渡すオブジェクトの型。
 // 以前は Record<string, unknown> にしていたが、Database 型配線後は
@@ -44,6 +47,7 @@ const settingsSchema = z.object({
   // トップのカテゴリタイル・/type/* から到達できなくなる（本番で実際に発生した無音の断線）。
   // 保存の入口で選択肢を強制し、ズレる経路そのものを塞ぐ。
   business_type: z.enum(businessTypes as [string, ...string[]]).optional(),
+  medical_specialties: medicalSpecialtiesSchema.optional(),
   catch_copy: z.string().max(200).optional().nullable(),
   description: z.string().max(2000).optional().nullable(),
   postal_code: z.string().max(8).optional().nullable(),
@@ -190,6 +194,7 @@ async function patchSettings(request: NextRequest) {
     if (error?.message.includes('FACILITY_PERMISSION_REVOKED')) return NextResponse.json({ error:'店舗の管理権限がありません' },{ status:403 });
     if (error?.message.includes('FACILITY_OWNER_REQUIRED')) return NextResponse.json({ error:'店舗所有者の確認が必要です。公開変更は保存されていません' },{ status:409 });
 
+    if (isListingVerificationConflict(error)) return NextResponse.json({ error: '掲載前に、店舗を確認できる書類と管理権限の確認が必要です。運営の確認が完了するまでお待ちください。' }, { status: 409 });
     if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '所在地が変更されています。都道府県・市区町村・住所を確認して、再度公開してください。' }, { status: 409 });
     // 公開ゲートを通った後に営業時間が変わった（別タブでの保存など）。DB が同じ規則で最終確認している。
     if (isPublishedHoursConflict(error)) return NextResponse.json({ error: '営業時間が変更されています。営業時間を確認して保存してから、再度公開してください。', missing: [LISTING_HOURS_MESSAGE] }, { status: 409 });
@@ -252,8 +257,12 @@ async function patchSettings(request: NextRequest) {
   // spread の後ろに明示キーを置くと website_url を含まない保存でも常に null で上書きされる。
   // 同じ書き方が menus/[id]（並び替えで写真が消える）と features/[id]（トグルで画像が消える）で
   // 実害を出していた。ここは管理画面が常に送っているため未発症だが、形が同じなので揃えて塞ぐ。
+  const { medical_specialties: specialties, ...settings } = parsed.data;
+  if (specialties !== undefined && (!settings.business_type || (specialties.length > 0 && !medicalBusinessTypes.includes(settings.business_type)))) {
+    return NextResponse.json({ error:'業種と診療科の選択を確認してください' }, { status:400 });
+  }
   const updatePayload: FacilityProfileUpdate = {
-    ...parsed.data,
+    ...settings,
     updated_at: new Date().toISOString(),
   };
   if (parsed.data.website_url !== undefined) {
@@ -275,11 +284,13 @@ async function patchSettings(request: NextRequest) {
   }
 
   const admin = createServiceRoleClient();
-  const { data: updated, error } = await admin.rpc('update_facility_settings_atomic', {
-    p_actor_id:auth.userId,p_facility_id:auth.facilityId,p_patch:toJsonValue(updatePayload),
-  });
+  const args = { p_actor_id:auth.userId,p_facility_id:auth.facilityId,p_patch:toJsonValue(updatePayload) };
+  const { data: updated, error } = specialties === undefined
+    ? await admin.rpc('update_facility_settings_atomic', args)
+    : await (admin as SupabaseClient).rpc('update_facility_settings_with_specialties', { ...args,p_specialties:specialties });
   if (error?.message.includes('FACILITY_PERMISSION_REVOKED')) return NextResponse.json({ error:'店舗の管理権限がありません' },{ status:403 });
 
+  if (isListingVerificationConflict(error)) return NextResponse.json({ error:'店舗名や住所を変更するには、先に非公開にして変更を保存し、確認書類を提出してください。運営の確認後に再公開できます。' }, { status:409 });
   if (isPublishedLocationConflict(error)) {
     // 店舗は住所を消していない。「非公開へ」と案内すると、営業時間など無関係な保存のたびに
     // 公開をやめるよう求めることになるため、直し方（番地の入力）を示す。
