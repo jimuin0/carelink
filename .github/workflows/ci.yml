@@ -164,6 +164,10 @@ jobs:
         run: |
           for registry in ghcr.io public.ecr.aws docker.io; do
             for attempt in 1 2; do
+              # supabase stop may remove .temp after a failed pull. Reapply the
+              # same required pin before every fresh attempt, including mirrors.
+              mkdir -p supabase/.temp
+              printf '%s' 'v14.15' > supabase/.temp/rest-version
               if SUPABASE_INTERNAL_IMAGE_REGISTRY="$registry" supabase start; then
                 echo "SUPABASE_INTERNAL_IMAGE_REGISTRY=$registry" >> "$GITHUB_ENV"
                 exit 0
