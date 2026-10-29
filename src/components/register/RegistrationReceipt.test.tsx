@@ -24,12 +24,14 @@ test('confirmed receipt is checked server-side before display and carries only a
   expect(fetchMock.mock.calls[0][0]).toBe('/api/salons/summary');
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ intentId });
   expect(screen.getByRole('link', { name: '店舗アカウントを作成する' })).toHaveAttribute('href', salonHandoffAuthPath('signup'));
-  expect(screen.getByRole('link', { name: '既存アカウントでログインする' })).toHaveAttribute('href', salonHandoffAuthPath('login'));
+  expect(screen.getByRole('link', { name: '既存アカウントでログインして引き継ぐ' })).toHaveAttribute('href', salonHandoffAuthPath('login'));
   const another = screen.getByRole('link', { name: '別の店舗を申し込む（新しいタブ）' });
   expect(another).toHaveAttribute('href', '/register');
   expect(another).toHaveAttribute('target', '_blank');
   expect(another).toHaveAttribute('rel', 'noopener noreferrer');
-  expect(screen.getByText(/同じ確認済みメールアドレスのアカウントで引き継いでください/)).toBeVisible();
+  expect(screen.getByText(/申込と同じメールアドレスでアカウントを作成するか、ログインしてください/)).toBeVisible();
+  expect(screen.getByText(/店舗ごとに申し込み、同じアカウントで引き継げます/)).toBeVisible();
+  expect(screen.getByText(/ネット予約を利用せず、無料掲載だけでも利用できます/)).toBeVisible();
   expect(JSON.parse(window.sessionStorage.getItem(SALON_BROWSER_CONTEXT_KEY)!)).toEqual({ version: 1, intentId, phase: 'confirmed' });
 });
 test.each(['missing', 'broken'])('unavailable context never fabricates receipt or queries other cookies %s', async kind => {
