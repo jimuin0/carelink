@@ -249,6 +249,7 @@ RESET ROLE;
 
 -- Medical categories must survive direct creation and registration receipt adoption.
 -- This probes the real RPC, member binding, public view and search type column.
+\ir listing-verification-setup.sql
 DO $medical$
 DECLARE
   category text; mode text; actor uuid; receipt_id uuid; result record;
@@ -273,8 +274,10 @@ BEGIN
       PERFORM pg_temp.assert_setup((SELECT count(*)=1 FROM public.facility_members WHERE facility_id=result.facility_id AND user_id=actor AND role='owner'),
         'medical owner bound: '||category);
       -- Public read is checked with synthetic rows inside this rollback-only transaction.
-      UPDATE public.facility_profiles SET status='published',prefecture='福岡県',city='福岡市',address='合成町1'
+      UPDATE public.facility_profiles SET prefecture='福岡県',city='福岡市',address='合成町1'
         WHERE id=result.facility_id;
+      PERFORM pg_temp.approve_synthetic_listing(result.facility_id,actor);
+      UPDATE public.facility_profiles SET status='published' WHERE id=result.facility_id;
       PERFORM pg_temp.assert_setup((SELECT count(*)=1 FROM public.facility_card_view WHERE id=result.facility_id AND business_type=category),
         'medical category public/searchable: '||category);
     END LOOP;
