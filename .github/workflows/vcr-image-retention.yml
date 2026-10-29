@@ -1,0 +1,53 @@
+name: VCR image retention
+
+# Vercel の配信イメージ（Container Registry の dockerfile リポジトリ）を上限内に保つ。
+#
+# 背景（2026年10月28日 実測）: Hobby は 1 リポジトリ 50 イメージが上限で、配信ごとに
+#   1 個積まれる（1日 約10個）。上限に達すると push が拒否され、本番へ何も出せなくなった。
+#   main への push（＝本番ビルド）のたびと毎日 1 回、直近 20 個・24時間未満・稼働中の本番・
+#   直近 10 回分の本番配信を残して古いものを消す（判定は scripts/prune-vcr-images.mjs）。
+#
+# 長期の鍵は置かない。GitHub の OIDC を Vercel の短命トークンに交換し、終了時に失効させる。
+# 前提（一度だけ・本人）: Vercel の team 設定に、このリポジトリのこの workflow を許可する
+#   VCR 用の OIDC ポリシーがあること。repo variable VERCEL_TEAM_ID に team ID があること。
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '15 18 * * *' # 毎日 03:15 JST
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '削除せず、対象の一覧だけを出す'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  deployments: read
+  id-token: write
+
+concurrency:
+  group: vcr-image-retention
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Prune old deployment images
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prune
+        env:
+          VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+          VERCEL_PROJECT: carelink
+          VCR_REPOSITORY: dockerfile
+          PRODUCTION_URL: https://carelink-jp.com
+          GITHUB_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: node scripts/prune-vcr-images.mjs

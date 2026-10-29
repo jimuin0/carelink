@@ -42,7 +42,7 @@ src/
 ├── lib/                     # 共通ロジック（withRoute・各種 supabase クライアント・csrf 等）
 └── types/                   # 型定義
 supabase/migrations/         # DB マイグレーション（本数は `ls supabase/migrations/*.sql | wc -l` で取る）
-.github/workflows/           # CI（ci.yml 他・全13ファイル）。有効／無効は GitHub 側の状態＝「テスト・CI」節を見る
+.github/workflows/           # CI（ci.yml 他・全14ファイル）。有効／無効は GitHub 側の状態＝「テスト・CI」節を見る
 render.yaml                  # Render Cron Jobs（本番スケジューラの実体）
 scripts/                     # 運用スクリプト・診断 SQL（diagnose-*.sql）・スキーマ fingerprint 生成
 load-tests/                  # k6 負荷テスト
@@ -442,8 +442,8 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 - E2E（Playwright）：`supabase start` → `npm run build` → `npm run test:e2e`（chromium / webkit）
 - Security Audit：`npm audit --audit-level=high`
 - Contract Tests（staging drift gate）：`npm run test:contract`（`jest.config.contract.js`）
-- 他ワークフロー（`.github/workflows/` は全 13 ファイル＋Dependabot の動的ワークフロー 1 本）。**有効／無効は GitHub 側の状態なのでファイルの有無で判断しないこと**：
-  - **有効**：`schema-fingerprint.yml`（push/PR で migration からスキーマ期待値を再生成し陳腐化を検査）・`migration-apply-reminder.yml`（PR に新規 migration があれば本番適用を促す）・`mutation-l4.yml`（Stryker・週次 日曜 JST 03:00）・`dependency-update.yml`（依存更新・週次 月曜 JST 09:00）・`vercel-preview-build.yml`（PR で `vercel build` ドライ実行・repo variable `ENABLE_VERCEL_PR_BUILD == 'true'` のときだけ動く）・`cron-constraints.yml` / `anon-write-policy-lint.yml` / `secdef-search-path-lint.yml` / `actionlint.yml`（いずれも `paths:` 絞り込み付きの静的ガード）
+- 他ワークフロー（`.github/workflows/` は全 14 ファイル＋Dependabot の動的ワークフロー 1 本）。**有効／無効は GitHub 側の状態なのでファイルの有無で判断しないこと**：
+  - **有効**：`schema-fingerprint.yml`（push/PR で migration からスキーマ期待値を再生成し陳腐化を検査）・`migration-apply-reminder.yml`（PR に新規 migration があれば本番適用を促す）・`mutation-l4.yml`（Stryker・週次 日曜 JST 03:00）・`dependency-update.yml`（依存更新・週次 月曜 JST 09:00）・`vercel-preview-build.yml`（PR で `vercel build` ドライ実行・repo variable `ENABLE_VERCEL_PR_BUILD == 'true'` のときだけ動く）・`vcr-image-retention.yml`（main への push と毎日 JST 03:15 に、Vercel の配信イメージを上限内へ整理。下記「既知の罠」参照）・`cron-constraints.yml` / `anon-write-policy-lint.yml` / `secdef-search-path-lint.yml` / `actionlint.yml`（いずれも `paths:` 絞り込み付きの静的ガード）
   - **無効（`disabled_manually`）**：`cron.yml` / `health-monitor.yml` / `deploy-watch.yml`（上記「cron の現状」参照）
 - ニュースレターの自動月次配信ワークフロー（`newsletter-digest.yml`・`monthly-batch-watcher.yml`）は廃止・削除済み（配信は管理画面から手動のみ）
 
@@ -462,6 +462,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
   - ⚠️ `next.config.mjs` の `partialPrefetching: true` でも同種の効果が得られるが、**`cacheComponents: true`（PPR/`use cache` への全面移行）が前提**なので採らなかった。
   - 機械強制＝`e2e/home-prefetch-fanout.spec.ts`。個々のリンクに `prefetch={false}` が書いてあるかは**見ない**（列挙は次に足される一覧を守らない）。**トップ全体で何本のページ先読みが出たか**という外形だけを見るので、新しい一覧を足して先読みが復活すれば何であっても赤くなる。空振り防止として「計測機構が要求を観測したか」と「一覧リンクが実際に描画されたか」を併設してある。
   - ⚠️ **ローカル計測の偽陰性に 2 回踏んだ。** `.next` を消して再ビルドしても**古い `next start` が生き残っている**と、消えたチャンクを配って 500 になり、`ssr:false` の `HomeBelowFold` が描画されないまま「先読み 0 本」に見える。`pkill -f "next start"` は**自分のシェルにもマッチして落ちる**ので使わない。`/proc` の cmdline で `next-server` を特定して落とし、`お役立ちコラム` 等が描画されていることを確認してから数えること。
+- 【🔴 Vercel Hobby の配信イメージ上限（1 リポジトリ 50 個）に達すると、ビルドは通るのに本番へ出せなくなる】2026年10月28日、`dockerfile` リポジトリ（Container Runtime の配信ごとに 1 個積まれる・1日 約10個）がちょうど 50 個に達し、push が `repository has reached the maximum allowed number of images` で拒否されて本番配信が失敗した（課金ではなく上限。日次ビルド枠とは別物）。同日に本人承認のうえ古い 25 個を削除して復旧。再発防止は `.github/workflows/vcr-image-retention.yml` → `scripts/prune-vcr-images.mjs` で、直近 20 個・作成から 24 時間未満・稼働中の本番（`/api/health` の version）・直近 10 回分の本番配信を残して古いものを消す。本番の版が確認できなければ何も消さずに失敗する。長期の鍵は置かず、GitHub の OIDC を Vercel の短命トークンへ交換して終了時に失効させる（前提＝Vercel の team 設定に VCR 用 OIDC ポリシー、repo variable `VERCEL_TEAM_ID`）。配信失敗のログに上記の文言が出たら、まずこの workflow の直近の実行を見る。
 - 【🔴 Vercel Hobby の日次ビルド枠を実際に使い切ると24時間デプロイ不能になる】2026年7月29日、1日に9マージ＋7PR起票を行った結果 `Deployment rate limited — retry in 24 hours` が発生した。本番は既存デプロイで動き続けるが、この間は【緊急修正を出せない】。神原さんの判断で【Hobby を継続】（同日）。恒久対策として `vercel.json` の `ignoreCommand` に `scripts/vercel-should-build.sh` を配線し、配信物に影響しない変更（`supabase/migrations/` ・`.github/` ・`docs/` ・`e2e/` ・`scripts/` ・ルート直下の `.md` ・テストファイル）はプレビュービルドをスキップする。【production は VERCEL_ENV で判定して無条件にビルドする】（main に入った修正が本番へ出ない事故を防ぐ最重要の安全弁）。判定が緩む改変・production ガードの除去は `src/__tests__/vercel-build-skip.test.ts` が CI で止める。作業時は【1日のマージ数を意識し、複数の修正はできるだけ1本のPRにまとめる】。
 - 【`src/app/**/route.ts` は HTTP メソッド（GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS）と一部 config 以外を export できない】。共有ヘルパー関数を route.ts に足すと `tsc --noEmit`・`jest`・lint は通るのに `next build`（＝Vercel デプロイ・E2E も内部で依存）だけ `"xxx" is not a valid Route export field` で Failed to compile する。Unit/Lint/Contract/Security 全 pass なのに Vercel/E2E だけ fail する場合は、まず `npx next build` をローカル実行してこれを疑う。共有関数は `src/lib/*.ts` に置き route.ts はメソッドのみ import して使う。
 - Supabase の embed 名（例 `menu:facility_menus(name)`）を変更したら、対応する jest テストの mock も同じキー名に合わせること。ずれると route 側の分岐（`Array.isArray` 三項等）の片側が実行されず、テスト自体は pass するのに `coverageThreshold.global.branches=100` が崩れて CI が fail する。
