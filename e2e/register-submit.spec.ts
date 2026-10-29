@@ -282,7 +282,9 @@ test.describe('/register 送信', () => {
       await expect(page.getByText('申込の送信だけでは公開されません。')).toBeVisible();
       await expect(page.getByRole('heading', { name: '次にすること' })).toBeVisible();
       await expect(page.getByText('無料掲載の公開には、店舗名・所在地・曜日別の営業時間（定休日を含む）の設定が必要です。')).toBeVisible();
-      await expect(page.getByRole('heading', { name: '予約を受け付けず、無料掲載だけでも利用できます' })).toBeVisible();
+      await expect(page.getByText('ネット予約を利用せず、無料掲載だけでも利用できます。')).toBeVisible();
+      await expect(page.getByRole('link', { name: '既存アカウントでログインして引き継ぐ' })).toHaveAttribute('href',
+        '/auth/login?redirect=%2Fadmin%2Fonboarding%3Fhandoff%3Dregistration');
       await expect(page.getByRole('link', { name: '店舗アカウントを作成する' })).toHaveAttribute('href',
         '/auth/signup?redirect=%2Fadmin%2Fonboarding%3Fhandoff%3Dregistration');
       const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
@@ -307,7 +309,7 @@ test.describe('/register 送信', () => {
         const password = randomUUID();
         const created = await db.auth.admin.createUser({ email, password, email_confirm: true });
         if (created.error || !created.data.user) throw new Error('Synthetic owner creation failed');
-        await page.getByRole('link', { name: '既存アカウントでログインする' }).click();
+        await page.getByRole('link', { name: '既存アカウントでログインして引き継ぐ' }).click();
         await page.fill('#login-email', email);
         await page.fill('#login-password', password);
         await page.getByRole('button', { name: 'ログイン', exact: true }).click();

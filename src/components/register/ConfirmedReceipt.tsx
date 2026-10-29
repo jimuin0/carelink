@@ -24,21 +24,16 @@ export default function ConfirmedReceipt({ id, name, type, area, signupHref, log
       </dl>
       <section aria-labelledby="receipt-next-steps" className="space-y-4">
         <h2 id="receipt-next-steps" className="text-lg font-bold">次にすること</h2>
-        <ol className="list-decimal space-y-4 pl-5 text-base leading-relaxed marker:font-bold">
-          <li><p className="font-bold">店舗アカウントを作成する</p><p>申込に使ったメールアドレスで作成してください。申込内容を管理画面へ引き継げます。</p></li>
-          <li><p className="font-bold">管理画面で情報を確認して公開する</p><p>{LISTING_PUBLISH_REQUIREMENT}</p></li>
-        </ol>
+        <p className="text-base leading-relaxed">申込と同じメールアドレスでアカウントを作成するか、ログインしてください。</p>
       </section>
-      <div className="flex flex-col gap-4 mt-6">
+      <div className="flex flex-col gap-4 mt-4">
         <Button href={signupHref} prefetch="auto">店舗アカウントを作成する</Button>
-        <Link href={loginHref} className="underline underline-offset-4">既存アカウントでログインする</Link>
+        <Link href={loginHref} className="underline underline-offset-4">既存アカウントでログインして引き継ぐ</Link>
       </div>
-      <section aria-labelledby="receipt-listing-only" className="mt-6 space-y-2 border-t border-(--ecru-line) pt-6 text-sm leading-relaxed">
-        <h2 id="receipt-listing-only" className="font-bold">予約を受け付けず、無料掲載だけでも利用できます</h2>
-        <p>ネット予約の設定は別に行います。メニュー・スタッフ・写真などの予約用設定を完了するまでは、ネット予約を受け付けません。</p>
-        <p>掲載料・予約手数料は無料です。申込や店舗アカウント作成で有料プランの契約は行いません。</p>
-      </section>
-      <p className="text-sm mt-4 text-(--ecru-muted)">複数店舗を掲載する場合は、店舗ごとに申し込み、同じ確認済みメールアドレスのアカウントで引き継いでください。</p>
+      <p className="mt-6 text-sm leading-relaxed">引き継ぎ後、管理画面で情報を確認して公開してください。</p>
+      <p className="mt-1 text-sm leading-relaxed">{LISTING_PUBLISH_REQUIREMENT}</p>
+      <p className="mt-3 text-sm leading-relaxed">ネット予約を利用せず、無料掲載だけでも利用できます。</p>
+      <p className="text-sm mt-4 text-(--ecru-muted)">複数店舗は、店舗ごとに申し込み、同じアカウントで引き継げます。</p>
       <a href="/register" target="_blank" rel="noopener noreferrer" className="mt-2 inline-block underline">別の店舗を申し込む（新しいタブ）</a>
     </div>
   );
