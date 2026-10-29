@@ -18,9 +18,18 @@ export async function readRegistrationList(db: ReturnType<typeof createServiceRo
     else if (input.status !== 'all') query = query.eq('status', input.status);
     if (input.cursor) query = query.or(registrationCursorFilter(input.cursor));
     const result = await query.limit(51);
-    const rows = z.array(registrationListRow).max(51).safeParse(result.data);
+    const baseRow = registrationListRow.omit({ classification: true, classification_revision: true });
+    const rows = z.array(baseRow).max(51).safeParse(result.data);
     if (result.error !== null || !rows.success) return { state: 'unavailable' as const };
-    const salons = rows.data.slice(0, 50);
+    const page = rows.data.slice(0, 50);
+    const labels = page.length === 0 ? { data: [], error: null } : await db.from('salon_registration_classifications')
+      .select('salon_id,classification,revision').in('salon_id', page.map(row => row.id));
+    const parsedLabels = z.array(z.object({ salon_id: z.uuid(), classification: z.enum(['test', 'real', 'unknown']), revision: z.number().int().positive() }).strict()).max(50).safeParse(labels.data);
+    if (labels.error !== null || !parsedLabels.success) return { state: 'unavailable' as const };
+    const index = new Map(parsedLabels.data.map(label => [label.salon_id, label]));
+    if (index.size !== parsedLabels.data.length) return { state: 'unavailable' as const };
+    const salons = page.map(row => ({ ...row, classification: index.get(row.id)?.classification ?? null,
+      classification_revision: index.get(row.id)?.revision ?? 0 }));
     let nextCursor: RegistrationCursor | null = null;
     if (rows.data.length > 50) {
       const last = salons[salons.length - 1];

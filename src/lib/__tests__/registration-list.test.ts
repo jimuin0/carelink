@@ -6,12 +6,15 @@ const time = '2026-09-26T12:30:40.123456+00:00';
 const row = { id, name: 'Synthetic', email: 'Synthetic@example.invalid', phone: null,
   status: null, created_at: time, claimed_at: null, claimed_facility_id: null, review_revision: 0 };
 const chain = { select: jest.fn(), order: jest.fn(), eq: jest.fn(), is: jest.fn(), or: jest.fn(), limit: jest.fn() };
-const from = jest.fn(() => chain);
+const labels = { select: jest.fn(), in: jest.fn() };
+const from = jest.fn((table: string) => table === 'salon_registration_classifications' ? labels : chain);
+const classified = (value: typeof row) => ({ ...value, classification: null, classification_revision: 0 });
 const db = { from } as unknown as Parameters<typeof readRegistrationList>[0];
 beforeEach(() => {
   jest.clearAllMocks();
   for (const method of ['select', 'order', 'eq', 'is', 'or'] as const) chain[method].mockReturnValue(chain);
   chain.limit.mockResolvedValue({ data: [row], error: null });
+  labels.select.mockReturnValue(labels); labels.in.mockResolvedValue({ data: [], error: null });
 });
 test.each([null, { extra: true }, { field: 'receipt', query: 'not-uuid' },
   { field: 'facility', query: 'a'.repeat(201) }, { query: 'a\0b' },
@@ -21,7 +24,7 @@ test.each([null, { extra: true }, { field: 'receipt', query: 'not-uuid' },
   expect(from).not.toHaveBeenCalled();
 });
 test('defaults, explicit projection and deterministic null-last ordering', async () => {
-  expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: [row], nextCursor: null });
+  expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: [classified(row)], nextCursor: null });
   expect(from).toHaveBeenCalledWith('salons');
   expect(chain.select).toHaveBeenCalledWith('id,name:facility_name,email,phone,status,created_at,claimed_at,claimed_facility_id,review_revision');
   expect(chain.order.mock.calls).toEqual([['created_at', { ascending: false, nullsFirst: false }], ['id', { ascending: false }]]);
@@ -55,13 +58,13 @@ test.each([time, null])('51-row lookahead uses last visible row, including NULL 
   const rows = Array.from({ length: 51 }, (_, index) => ({ ...row,
     id: `74000000-0000-4000-8000-${String(100 - index).padStart(12, '0')}`, created_at: createdAt }));
   chain.limit.mockResolvedValue({ data: rows, error: null });
-  expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: rows.slice(0, 50),
+  expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: rows.slice(0, 50).map(classified),
     nextCursor: { id: rows[49].id, createdAt } });
 });
 test('exactly 50 and zero rows have no next page', async () => {
   for (const count of [0, 50]) {
     chain.limit.mockResolvedValue({ data: Array(count).fill(row), error: null });
-    expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: Array(count).fill(row), nextCursor: null });
+    expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: Array(count).fill(classified(row)), nextCursor: null });
   }
 });
 test.each([null, {}, [{}], [{ ...row, email: null }], [{ ...row, created_at: 'broken' }],
@@ -79,4 +82,13 @@ test('provider failure with data, missing error field and thrown private values 
 });
 test('blank receipt search is deliberately all receipts, not malformed UUID', () => {
   expect(registrationListInput.parse({ field: 'receipt', query: ' ' }).query).toBe('');
+});
+
+test('classification labels are read for the current page and missing labels remain unconfirmed', async () => {
+  labels.in.mockResolvedValue({ data: [{ salon_id: id, classification: 'test', revision: 2 }], error: null });
+  expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: [{ ...row, classification: 'test', classification_revision: 2 }], nextCursor: null });
+  expect(labels.in).toHaveBeenCalledWith('salon_id', [id]);
+});
+test.each([{ data: null, error: null }, { data: [], error: { message: 'private' } }, { data: [{ salon_id: id, classification: 'unsupported', revision: 1 }], error: null }, { data: [{ salon_id: id, classification: 'test', revision: 1 }, { salon_id: id, classification: 'real', revision: 2 }], error: null }])('classification lookup failures fail closed %#', async result => {
+  labels.in.mockResolvedValue(result); expect(await readRegistrationList(db, {})).toEqual({ state: 'unavailable' });
 });
