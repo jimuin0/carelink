@@ -39,6 +39,8 @@ test('platform operator records and corrects a synthetic registration classifica
   const before = await db.from('salons').select('id,status,claimed_facility_id').eq('id', receipt.receiptId).single();
   if (before.error) throw new Error('Synthetic receipt read failed');
   await page.goto('/auth/login?redirect=/admin/registrations');
+  // The mobile cookie banner can cover management controls until a choice is made.
+  await page.getByRole('button', { name: '必須のみ', exact: true }).click();
   await page.fill('#login-email', email); await page.fill('#login-password', password);
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();
   await page.waitForURL(url => !url.pathname.startsWith('/auth/login'), { timeout: 20000 });

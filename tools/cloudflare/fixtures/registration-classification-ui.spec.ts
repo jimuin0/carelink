@@ -23,7 +23,7 @@ test('synthetic admin records and corrects a classification without changing a r
  const user = await db.auth.admin.createUser({ email, password, email_confirm: true }); if (user.error || !user.data.user) throw new Error('Admin failed');
  const update = await db.from('profiles').update({ is_platform_admin: true }).eq('id', user.data.user.id); if (update.error) throw new Error('Role failed');
  const before = await db.from('salons').select('id,status,claimed_facility_id').eq('id', result.receiptId).single(); if (before.error) throw new Error('Read failed');
- await page.goto('/auth/login?redirect=/admin/registrations'); await page.fill('#login-email', email); await page.fill('#login-password', password); await page.getByRole('button', { name: 'ログイン', exact: true }).click();
+ await page.goto('/auth/login?redirect=/admin/registrations'); await page.getByRole('button', { name: '必須のみ', exact: true }).click(); await page.fill('#login-email', email); await page.fill('#login-password', password); await page.getByRole('button', { name: 'ログイン', exact: true }).click();
  await page.waitForURL(url => !url.pathname.startsWith('/auth/login'), { timeout: 30000 }); await page.goto('/admin/registrations');
  await page.getByLabel('検索項目').selectOption('receipt'); await page.getByLabel('検索値').fill(result.receiptId); await page.getByRole('button', { name: '検索する' }).click();
  await expect(page.getByText('申込区分：未確認')).toBeVisible(); await page.getByRole('button', { name: '試験と記録' }).click(); await expect(page.getByText('申込区分：試験')).toBeVisible();
