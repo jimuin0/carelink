@@ -27,7 +27,7 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: Runtime compile-cache build contract
-        run: node --test scripts/warm-runtime-compile-cache.test.mjs scripts/runtime-cpu-sampler.test.cjs scripts/static-asset-cdn-cache.test.cjs scripts/deepmerge-security.test.cjs
+        run: node --test scripts/warm-runtime-compile-cache.test.mjs scripts/prune-vcr-images.test.mjs scripts/runtime-cpu-sampler.test.cjs scripts/static-asset-cdn-cache.test.cjs scripts/deepmerge-security.test.cjs
       - name: Verify admin schedule export against cron registry
         run: |
           node --test scripts/export-admin-schedules.test.mjs
