@@ -550,7 +550,7 @@ export async function getAvailableAreasAndTypes(): Promise<{ areas: string[]; ty
     const supabase = createServerSupabaseClient();
     const query = supabase
       .from(CARD_VIEW)
-      .select('prefecture, business_type')
+      .select('prefecture, business_type, medical_specialties')
       .eq('status', 'published');
 
     const timeout = new Promise<never>((_, reject) => {
@@ -573,6 +573,7 @@ export async function getAvailableAreasAndTypes(): Promise<{ areas: string[]; ty
     const rows = (data || []) as {
       prefecture: string | null;
       business_type: string | null;
+      medical_specialties?: string[] | null;
     }[];
 
     // null / 空文字を候補に出すとリンク先が壊れるため除外する。
@@ -587,7 +588,7 @@ export async function getAvailableAreasAndTypes(): Promise<{ areas: string[]; ty
     const types = [
       ...new Set(
         rows
-          .map((r) => r.business_type)
+          .flatMap((r) => [r.business_type, ...(r.medical_specialties ?? [])])
           .filter((v): v is string => !!v),
       ),
     ];

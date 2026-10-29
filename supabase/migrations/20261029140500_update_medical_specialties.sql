@@ -1,5 +1,22 @@
 -- Keep settings and specialties in a single authorized transaction.
 BEGIN;
+-- Legacy settings clients know only the primary category. When they change it,
+-- discard the old category's specialty filter rather than advertising stale
+-- specialties. The new atomic wrapper immediately replaces them as requested.
+CREATE FUNCTION public.clear_stale_medical_specialties() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$
+BEGIN
+  IF NEW.business_type IS DISTINCT FROM OLD.business_type
+    AND NEW.medical_specialties IS NOT DISTINCT FROM OLD.medical_specialties THEN
+    NEW.medical_specialties := '{}'::text[];
+  END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION public.clear_stale_medical_specialties() FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.clear_stale_medical_specialties() TO service_role;
+CREATE TRIGGER clear_stale_medical_specialties BEFORE UPDATE OF business_type ON public.facility_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.clear_stale_medical_specialties();
+
 CREATE FUNCTION public.update_facility_settings_with_specialties(
   p_actor_id uuid,p_facility_id uuid,p_patch jsonb,p_specialties text[]
 ) RETURNS TABLE(id uuid) LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$

@@ -5,7 +5,8 @@ import { z } from 'zod';
 import { listingEvidenceOptions } from '@/lib/listing-verification-evidence';
 
 const identity = z.object({ name:z.string().nullable(),prefecture:z.string().nullable(),city:z.string().nullable(),address:z.string().nullable() }).strict();
-const responseSchema = z.object({ identity,documents:z.array(z.object({ id:z.uuid(),document_type:z.string(),created_at:z.string() }).strict()).max(20),currentApproval:z.boolean() }).strict();
+const responseSchema = z.object({ identity,documents:z.array(z.object({ id:z.uuid(),document_type:z.string(),created_at:z.string(),
+  applicantName:z.string().nullable(),applicantEmail:z.string().nullable() }).strict()).max(20),currentApproval:z.boolean() }).strict();
 type Review = z.infer<typeof responseSchema>;
 
 export default function ListingVerificationReview({ facilityId }: { facilityId:string }) {
@@ -54,8 +55,10 @@ export default function ListingVerificationReview({ facilityId }: { facilityId:s
             {listingEvidenceOptions.find(option => option.value === document.document_type)?.label ?? '書類'}
           </label>{' '}
           <a className="underline" href={`/api/admin/listing-verification/document?facility_id=${encodeURIComponent(facilityId)}&document_id=${encodeURIComponent(document.id)}`}>書類を開く</a>
+          <p className="ml-5 text-gray-600">提出者：{document.applicantName || '確認できません'}{document.applicantEmail ? `（${document.applicantEmail}）` : ''}</p>
         </div>)}
       </fieldset>}
+      <p>提出者の氏名・連絡先は自己申告のため、書類や独立した連絡先などを使って管理権限を確認してください。</p>
       <label className="block"><input type="checkbox" checked={documentVerified} disabled={busy} onChange={event => setDocumentVerified(event.target.checked)} /> 書類と店舗情報を照合しました</label>
       <label className="block"><input type="checkbox" checked={authorityVerified} disabled={busy} onChange={event => setAuthorityVerified(event.target.checked)} /> 申請者の管理権限を確認しました</label>
       <button type="button" className="btn-primary" disabled={busy || !selected.length || selected.length > 5 || !documentVerified || !authorityVerified} onClick={() => void approve()}>確認を記録する</button>

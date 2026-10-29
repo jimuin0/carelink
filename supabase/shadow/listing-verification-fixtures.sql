@@ -14,7 +14,7 @@ INSERT INTO public.facility_members(facility_id,user_id,role)
 VALUES('fb510000-0000-4000-8000-000000000004','fb510000-0000-4000-8000-000000000001','owner');
 DO $$ DECLARE p record; fid uuid := 'fb510000-0000-4000-8000-000000000004';
 owner_id uuid := 'fb510000-0000-4000-8000-000000000001'; operator_id uuid := 'fb510000-0000-4000-8000-000000000002';
-doc_id uuid := 'fb510000-0000-4000-8000-000000000005'; object_name text;
+doc_id uuid := 'fb510000-0000-4000-8000-000000000005'; doc2_id uuid := 'fb510000-0000-4000-8000-000000000006'; object_name text;
 identity jsonb := '{"name":"Synthetic","prefecture":"検証県","city":"検証市","address":"検証住所"}'::jsonb;
 BEGIN
   BEGIN
@@ -31,6 +31,9 @@ BEGIN
   SELECT * INTO p FROM public.prepare_listing_verification_document(owner_id,fid,doc_id,'lease','application/pdf',5,repeat('b',64));
   IF p.outcome <> 'conflict' THEN RAISE EXCEPTION 'changed retry accepted'; END IF;
   INSERT INTO storage.objects(bucket_id,name) VALUES('listing-verification',object_name);
+  SELECT * INTO p FROM public.prepare_listing_verification_document(owner_id,fid,doc2_id,'utility_bill','application/pdf',5,repeat('b',64));
+  IF p.outcome <> 'prepared' THEN RAISE EXCEPTION 'supplement preparation failed'; END IF;
+  INSERT INTO storage.objects(bucket_id,name) VALUES('listing-verification',p.object_path);
   BEGIN
     PERFORM public.approve_listing_verification(operator_id,fid,ARRAY[doc_id],identity,true,false);
     RAISE EXCEPTION 'missing authority confirmation accepted';
@@ -44,6 +47,8 @@ BEGIN
     RAISE EXCEPTION 'stale identity accepted';
   EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'LISTING_VERIFICATION_IDENTITY_CHANGED%' THEN RAISE; END IF; END;
   IF NOT public.approve_listing_verification(operator_id,fid,ARRAY[doc_id],identity,true,true) THEN RAISE EXCEPTION 'approval failed'; END IF;
+  IF NOT public.approve_listing_verification(operator_id,fid,ARRAY[doc_id,doc2_id],identity,true,true) THEN RAISE EXCEPTION 'supplement review failed'; END IF;
+  IF (SELECT cardinality(document_ids) FROM public.listing_verification_approvals WHERE facility_id=fid) <> 2 THEN RAISE EXCEPTION 'supplement not recorded'; END IF;
   UPDATE public.facility_profiles SET status='published' WHERE id=fid;
   IF NOT EXISTS (SELECT 1 FROM public.facility_card_view WHERE id=fid AND medical_specialties @> ARRAY['耳鼻咽喉科']) THEN
     RAISE EXCEPTION 'secondary specialty missing from card'; END IF;
@@ -53,5 +58,8 @@ BEGIN
     UPDATE public.facility_profiles SET address='別住所' WHERE id=fid;
     RAISE EXCEPTION 'identity change accepted';
   EXCEPTION WHEN check_violation THEN IF SQLERRM NOT LIKE '%published_listing_verification_required%' THEN RAISE; END IF; END;
+  UPDATE public.facility_profiles SET business_type='ヘアサロン' WHERE id=fid;
+  IF EXISTS (SELECT 1 FROM public.facility_profiles WHERE id=fid AND cardinality(medical_specialties)>0) THEN
+    RAISE EXCEPTION 'legacy category change retained stale specialties'; END IF;
 END $$;
 ROLLBACK;

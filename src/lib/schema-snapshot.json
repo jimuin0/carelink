@@ -412,6 +412,7 @@
     "longitude",
     "main_photo_url",
     "max_price",
+    "medical_specialties",
     "menu_count",
     "min_price",
     "name",
@@ -591,6 +592,7 @@
     "logo_url",
     "longitude",
     "main_photo_url",
+    "medical_specialties",
     "menu_remarks",
     "name",
     "nearest_station",
@@ -920,6 +922,28 @@
     "user_id",
     "verified_at"
   ],
+  "listing_verification_approval_documents": [
+    "document_id",
+    "facility_id"
+  ],
+  "listing_verification_approvals": [
+    "document_ids",
+    "facility_id",
+    "facility_identity",
+    "reviewed_at",
+    "reviewed_by"
+  ],
+  "listing_verification_documents": [
+    "byte_size",
+    "created_at",
+    "document_type",
+    "facility_id",
+    "id",
+    "mime_type",
+    "object_path",
+    "sha256",
+    "submitted_by"
+  ],
   "manual_booking_operations": [
     "actor_id",
     "booking_id",
@@ -1234,6 +1258,7 @@
     "has_parking",
     "id",
     "is_public",
+    "medical_specialties",
     "nearest_station",
     "phone",
     "photo_url",

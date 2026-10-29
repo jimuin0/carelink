@@ -948,6 +948,11 @@ describe('getAvailableAreasAndTypes', () => {
     );
   });
 
+  test('主診療科と追加診療科を検索候補に含め、重複を除く',async()=>{
+    mockFrom.mockReturnValue(eqTerminal({ data:[{ prefecture:'大阪府',business_type:'内科',medical_specialties:['内科','耳鼻咽喉科'] }],error:null }));
+    expect((await getAvailableAreasAndTypes()).types).toEqual(['内科','耳鼻咽喉科']);
+  });
+
   test('null・空文字はリンク先が壊れるため候補から除外する', async () => {
     const chain = eqTerminal({
       data: [
