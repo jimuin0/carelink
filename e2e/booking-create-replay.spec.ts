@@ -28,7 +28,10 @@ test.beforeAll(async({request})=>{
     INSERT INTO public.facility_photos(facility_id,photo_url,photo_type) VALUES('${facilityId}','${base.origin}/icons/icon-192.png','other');
     COMMIT;`);
   const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});
-  await approveSyntheticListing(db,facilityId);
+  const owner=await approveSyntheticListing(db,facilityId);
+  // This fixture tests the single customer notification; suppress independent
+  // synthetic-owner channels just as the database receipt fixture does.
+  sql(`UPDATE public.profiles SET email=NULL WHERE id='${owner}'; INSERT INTO public.facility_notification_settings(facility_id,push_on_new_booking) VALUES('${facilityId}',false);`);
 });
 // The entire isolated database and its private test objects are discarded by
 // the CI lifecycle. Do not bypass Storage's object-deletion protections here.

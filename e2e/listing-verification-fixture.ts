@@ -38,4 +38,5 @@ export async function approveSyntheticListing(db:SupabaseClient,facilityId:strin
     const published=await db.from('facility_profiles').update({ status:'published' }).eq('id',facilityId).select('id').single();
     if (published.error || !published.data) throw new Error('Synthetic publication failed');
   }
+  return ownerId;
 }
