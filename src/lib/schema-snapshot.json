@@ -1217,6 +1217,13 @@
     "receipt_id",
     "user_id"
   ],
+  "salon_registration_classifications": [
+    "classification",
+    "revision",
+    "salon_id",
+    "updated_at",
+    "updated_by"
+  ],
   "salon_submission_intents": [
     "canonical_version",
     "committed_at",

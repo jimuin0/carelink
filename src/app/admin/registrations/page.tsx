@@ -124,6 +124,33 @@ export default function AdminRegistrationsPage() {
     }
   };
 
+  const updateClassification = async (salon: Salon, classification: 'test' | 'real' | 'unknown') => {
+    if (mutationLock.current) return;
+    mutationLock.current = true; setProcessingId(salon.id);
+    const ownGeneration = generation.current;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await fetch(`/api/admin/registrations/${salon.id}/classification`, {
+        method: 'PATCH', signal: controller.signal, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ classification, expected_revision: salon.classification_revision }),
+      });
+      const result = await response.json();
+      if (generation.current !== ownGeneration) return;
+      if (!response.ok || result?.success !== true || result.classification !== classification || result.revision !== salon.classification_revision + 1) throw new Error('Unconfirmed update');
+      setToast({ type: 'success', message: classification === 'test' ? '試験申込として記録しました' : classification === 'real' ? '実申込として記録しました' : '未確認として記録しました' });
+      setReloadKey(key => key + 1);
+    } catch {
+      if (generation.current === ownGeneration) {
+        uncertainRef.current = true; setMutationUncertain(true);
+        setToast({ type: 'error', message: '区分の更新結果を確認できません。一覧を再読み込みしてください。' });
+      }
+    } finally {
+      clearTimeout(timer); mutationLock.current = false;
+      if (generation.current === ownGeneration) setProcessingId(null);
+    }
+  };
+
   const handleApprove = (salon: Salon) => updateStatus(salon, 'approved');
 
   const handleReject = (salon: Salon) => {
@@ -152,6 +179,7 @@ export default function AdminRegistrationsPage() {
     <div>
       <SbPageHeader title="施設登録管理" />
       <p className="text-sm mb-4">審査の承認は一般公開の完了ではありません。店舗作成後に公開条件を確認してください。</p>
+      <p className="text-sm mb-4">申込区分は管理用の記録です。試験と記録しても、掲載や通知は自動停止しません。未確認の申込は推測で区分しないでください。</p>
       <RegistrationDuplicateLink />
       <ListingVerificationSearch />
       {mutationUncertain && <p role="alert">直前の更新結果が不明です。一覧の再取得に成功するまで、承認・却下はできません。</p>}
@@ -201,6 +229,12 @@ export default function AdminRegistrationsPage() {
                       </span>
                     </div>
                     <p className="font-bold">{salon.name}</p>
+                    <p className="text-xs">申込区分：{salon.classification === 'test' ? '試験' : salon.classification === 'real' ? '実申込' : '未確認'}</p>
+                    <div className="flex gap-2" aria-label={`${salon.name}の申込区分`}>
+                      <button type="button" disabled={processingId !== null || mutationUncertain || salon.classification === 'test'} onClick={() => void updateClassification(salon, 'test')}>試験と記録</button>
+                      <button type="button" disabled={processingId !== null || mutationUncertain || salon.classification === 'real'} onClick={() => void updateClassification(salon, 'real')}>実申込と記録</button>
+                      <button type="button" disabled={processingId !== null || mutationUncertain || salon.classification === null || salon.classification === 'unknown'} onClick={() => void updateClassification(salon, 'unknown')}>未確認に戻す</button>
+                    </div>
                     <p className="text-xs break-all">受付番号：{salon.id}</p>
                     <p className="text-xs">{salon.claimed_facility_id ? '店舗作成済み（公開状態は別途確認）' : salon.claimed_at ? '旧形式の取り込み記録あり・要照合' : '店舗作成前'}</p>
                     <p className="text-xs text-gray-500">{salon.email}{salon.phone ? ` / ${salon.phone}` : ''}</p>

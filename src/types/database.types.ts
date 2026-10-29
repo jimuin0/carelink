@@ -4928,6 +4928,38 @@ export type Database = {
           },
         ]
       }
+      salon_registration_classifications: {
+        Row: {
+          classification: string
+          revision: number
+          salon_id: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          classification: string
+          revision?: number
+          salon_id: string
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          classification?: string
+          revision?: number
+          salon_id?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "salon_registration_classifications_salon_id_fkey"
+            columns: ["salon_id"]
+            isOneToOne: true
+            referencedRelation: "salons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       salons: {
         Row: {
           address: string | null
@@ -6587,6 +6619,10 @@ export type Database = {
           p_facility_id: string
         }
         Returns: boolean
+      }
+      set_salon_registration_classification: {
+        Args: { p_actor: string; p_salon: string; p_value: string; p_expected_revision: number }
+        Returns: Json
       }
       _postgis_deprecate: {
         Args: { newname: string; oldname: string; version: string }
