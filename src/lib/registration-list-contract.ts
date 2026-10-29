@@ -22,6 +22,7 @@ export const registrationListRow = z.object({
   status: z.string().nullable(), created_at: timestamp.nullable(),
   claimed_at: timestamp.nullable(), claimed_facility_id: z.uuid().nullable(),
   review_revision: z.number().int().min(0).max(2147483647),
+  classification: z.enum(['test', 'real', 'unknown']).nullable(), classification_revision: z.number().int().min(0),
 }).strict();
 export const registrationListResponse = z.object({
   salons: z.array(registrationListRow).max(50), nextCursor: registrationCursor.nullable(),
