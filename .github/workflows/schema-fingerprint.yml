@@ -133,7 +133,6 @@ jobs:
         env:
           SHADOW_DB: carelink_shadow_c_locale
           SHADOW_LOCALE: C
-          CARELINK_LISTING_LEGACY_FIXTURE: '1'
         run: bash scripts/gen-schema-fingerprint.sh --check
 
       - name: Reminder RPC candidates, roles and claim exclusion (disposable DB)
