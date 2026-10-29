@@ -107,7 +107,7 @@ async function main(){
  assert.equal(query(`SELECT count(*) FROM auth.users WHERE id IN ('${owner}','${actor}','${other}','${fourth}')`),'0');
  const fixture=readFileSync(new URL('../supabase/shadow/booking-create-receipt-fixtures.sql',import.meta.url),'utf8');
  let seed=fixture.slice(fixture.indexOf('INSERT INTO auth.users'),fixture.indexOf('CREATE FUNCTION pg_temp.receipt_create')).replaceAll('bea4','bcb4').replaceAll('receipt-synthetic','receipt-concurrency-synthetic').replaceAll('receipt-staff','receipt-concurrency-staff');
- seed=seed.replace('\\ir listing-verification-setup.sql',readFileSync(new URL('../supabase/shadow/listing-verification-setup.sql',import.meta.url),'utf8'));
+ seed=seed.replace('\\ir listing-verification-setup.sql',() => readFileSync(new URL('../supabase/shadow/listing-verification-setup.sql',import.meta.url),'utf8'));
  seed=seed.replace("('bcb40000-0000-4000-8000-000000000003','receipt-other@example.invalid',now());",`('${other}','receipt-other@example.invalid',now()),('${fourth}','receipt-fourth@example.invalid',now());`);
  query(`BEGIN;${seed}COMMIT;`);fixtureOwned=true;
  prepare(1);let results=await ordered('same-key-one-booking',booking(1),booking(1));assert.equal(results[0],results[1].value);assert.match(results[0],/^[a-f0-9-]{36}$/);
