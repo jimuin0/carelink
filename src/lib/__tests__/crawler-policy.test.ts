@@ -32,9 +32,20 @@ test('policy is readable and write methods still reach their existing security c
 test('robots announces the same collection policy and preserves general search indexing', () => {
   expect(robots()).toEqual({
     rules: [
-      { userAgent: '*', allow: '/', disallow: ['/admin/', '/mypage/', '/auth/', '/api/'] },
+      { userAgent: '*', allow: '/', disallow: ['/admin/', '/mypage/', '/auth/', '/api/', '/search?'] },
       { userAgent: NON_SEARCH_CRAWLERS, disallow: '/' },
     ],
     sitemap: 'https://carelink-jp.com/sitemap.xml',
   });
+});
+
+// robots.txt rules are path prefixes: only filtered search results are excluded.
+test('robots excludes filtered search results but keeps search landing pages crawlable', () => {
+  const [general] = robots().rules as Array<{ disallow: string[] }>;
+  const blocked = (path: string) => general.disallow.some((prefix) => path.startsWith(prefix));
+  expect(blocked('/search?type=%E9%8D%BC%E7%81%B8%E9%99%A2&page=2')).toBe(true);
+  expect(blocked('/search')).toBe(false);
+  expect(blocked('/search/area/tokyo')).toBe(false);
+  expect(blocked('/facility/sample-slug')).toBe(false);
+  expect(blocked('/tokyo')).toBe(false);
 });

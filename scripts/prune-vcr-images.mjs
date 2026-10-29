@@ -75,7 +75,7 @@ async function listImages(fetchImpl, token, scope) {
     url.search = new URLSearchParams({ projectId: scope.project, teamId: scope.team, limit: '100', ...(cursor ? { cursor } : {}) });
     const page = await (await request(fetchImpl, url, { headers: { Authorization: `Bearer ${token}` } }, 'イメージ一覧の取得')).json();
     images.push(...page.images.map((image) => ({ id: image.id, tags: image.tags, createdAt: image.createdAt })));
-    cursor = page.pagination?.next;
+    cursor = page.nextCursor;
   } while (cursor);
   return images;
 }

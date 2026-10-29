@@ -50,7 +50,7 @@ function fakeApi({ failDeleteOf } = {}) {
     assert.equal(init.headers.Authorization, 'Bearer vercel-short-token');
     if (init.method === 'DELETE') return json({}, u.pathname.endsWith(`/${failDeleteOf}`) ? 500 : 202);
     const cursor = u.searchParams.get('cursor');
-    return json(cursor ? { images: images.slice(30), pagination: { next: null } } : { images: images.slice(0, 30), pagination: { next: 'p2' } });
+    return json(cursor ? { images: images.slice(30) } : { images: images.slice(0, 30), nextCursor: 'p2' });
   };
   return { calls, fetchImpl };
 }

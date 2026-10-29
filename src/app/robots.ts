@@ -6,7 +6,11 @@ export default function robots(): MetadataRoute.Robots {
     rules: [{
       userAgent: '*',
       allow: '/',
-      disallow: ['/admin/', '/mypage/', '/auth/', '/api/'],
+      // Parameterized /search pages are noindex already (search/page.tsx), and each
+      // fetch is a full DB-backed render. A search crawler walked filter
+      // combinations at 6 requests/min on 2026-10-29. /search itself, area
+      // pages and facility pages stay crawlable and listed in the sitemap.
+      disallow: ['/admin/', '/mypage/', '/auth/', '/api/', '/search?'],
     }, {
       userAgent: NON_SEARCH_CRAWLERS,
       disallow: '/',
