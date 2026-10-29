@@ -18,6 +18,8 @@ INSERT INTO public.facility_menus(id,facility_id,category,name,price,duration_mi
 INSERT INTO public.staff_profiles(id,facility_id,name,slug,is_active) VALUES('bea43000-0000-4000-8000-000000000001','bea41000-0000-4000-8000-000000000001','Synthetic','receipt-staff',true);
 INSERT INTO public.staff_schedules(staff_id,day_of_week,start_time,end_time) VALUES('bea43000-0000-4000-8000-000000000001',1,'09:00','17:00');
 INSERT INTO public.facility_photos(facility_id,photo_url,photo_type) VALUES('bea41000-0000-4000-8000-000000000001','https://example.invalid/receipt.jpg','other');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('bea41000-0000-4000-8000-000000000001','bea40000-0000-4000-8000-000000000001');
 UPDATE public.facility_profiles SET status='published' WHERE id='bea41000-0000-4000-8000-000000000001';
 INSERT INTO public.user_points(user_id,points,reason) VALUES('bea40000-0000-4000-8000-000000000002',500,'Synthetic seed');
 UPDATE public.profiles SET email=NULL WHERE id='bea40000-0000-4000-8000-000000000001';

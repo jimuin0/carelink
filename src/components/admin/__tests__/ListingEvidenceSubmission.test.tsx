@@ -27,4 +27,7 @@ test('受付不明時は同じ書類とIDで再確認し、確認できるまで
   await waitFor(() => expect(screen.getByText(/書類を受け付けました/)).toBeInTheDocument());
   expect(upload).toHaveBeenCalledTimes(2);
   expect(upload.mock.calls[0][1]).toEqual(upload.mock.calls[1][1]);
+  expect(screen.getByLabelText('書類の種類')).toHaveValue('');
+  expect(screen.getByLabelText(/書類のファイル/)).toHaveValue('');
+  expect(screen.getByRole('button', { name: '書類を提出する' })).toBeDisabled();
 });

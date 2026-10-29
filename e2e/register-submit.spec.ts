@@ -60,7 +60,11 @@ const CASES = [
 async function fillStep1(page: Page, email: string, detailed = false) {
   await expect(page.locator('#reg-facility-name')).toBeEnabled();
   await page.fill('#reg-facility-name', `E2E登録テスト施設 ${Date.now()}`);
-  await page.selectOption('#reg-business-type', { label: 'ヘアサロン' });
+  if (detailed) {
+    await page.selectOption('#reg-business-type', { value:'その他の医療機関' });
+    await page.getByLabel('内科', { exact:true }).check();
+    await page.getByLabel('耳鼻咽喉科', { exact:true }).check();
+  } else await page.selectOption('#reg-business-type', { label: 'ヘアサロン' });
   await page.fill('#reg-rep-name', '代表 太郎');
   // 既定は「担当者も代表者と同じ」。別の担当者を入れる経路をここで通す。
   await page.getByRole('checkbox', { name: '担当者も代表者と同じ' }).uncheck();
@@ -291,7 +295,7 @@ test.describe('/register 送信', () => {
         auth: { persistSession: false, autoRefreshToken: false },
       });
       const { data: saved, error } = await db.from('salons')
-        .select('desired_start_date, phone, contact_phone, website, postal_code, address, prefecture, city, building_name, nearest_station, business_hours, regular_holiday, seat_count, staff_count, has_parking, features, pr_text, source, is_public')
+        .select('desired_start_date, phone, contact_phone, website, postal_code, address, prefecture, city, building_name, nearest_station, business_hours, regular_holiday, seat_count, staff_count, has_parking, features, pr_text, source, is_public, medical_specialties')
         .eq('id', receipt.receiptId).single();
       expect(error).toBeNull();
       expect(saved).toMatchObject({ desired_start_date: value, source: 'register', is_public: false });
@@ -301,7 +305,7 @@ test.describe('/register 送信', () => {
         building_name: '合成ビル101', nearest_station: '合成駅 徒歩5分', business_hours: '10:00〜18:00',
         regular_holiday: '月曜日', seat_count: 0, staff_count: 9999, has_parking: true,
         // 駐車場はチェックボックスで選び、検索用に features へも反映する（チップは出さない）。
-        features: ['駐車場あり', 'WiFi完備'], pr_text: '隔離E2Eの合成紹介文',
+        features: ['駐車場あり', 'WiFi完備'], pr_text: '隔離E2Eの合成紹介文', medical_specialties:['内科','耳鼻咽喉科'],
       });
       if (detailed) {
         // Real UI -> signed Storage -> receipt -> password login -> selected
@@ -314,7 +318,7 @@ test.describe('/register 送信', () => {
         await page.fill('#login-password', password);
         await page.getByRole('button', { name: 'ログイン', exact: true }).click();
         await page.waitForURL('**/admin/onboarding?handoff=registration');
-        await expect(page.locator('#onboarding-business-type')).toHaveValue('ヘアサロン');
+        await expect(page.locator('#onboarding-business-type')).toHaveValue('内科');
         await expect(page.locator('#onboarding-facility-name')).toHaveValue(/^E2E登録テスト施設 /);
         await page.getByRole('checkbox').check();
         const setup = await observeFacilitySetup(page,
@@ -333,12 +337,12 @@ test.describe('/register 送信', () => {
         expect(photos![0]).toMatchObject({ photo_type: 'menu', sort_order: 0 });
         expect(photos![0].photo_url).toContain('/salon-intents/');
         const { data: profile, error: profileError } = await db.from('facility_profiles')
-          .select('status,address,prefecture,city').eq('id', setupBody.facilityId).single();
+          .select('status,address,prefecture,city,medical_specialties').eq('id', setupBody.facilityId).single();
         expect(profileError).toBeNull();
         // The receipt keeps the full address (asserted above); the facility keeps only the
         // street part, because the public page prints prefecture + city + address and
         // previously showed 「愛知県西尾市愛知県西尾市合成町」.
-        expect(profile).toMatchObject({ status: 'draft', address: '合成町', prefecture: '愛知県', city: '西尾市' });
+        expect(profile).toMatchObject({ status: 'draft', address: '合成町', prefecture: '愛知県', city: '西尾市', medical_specialties:['内科','耳鼻咽喉科'] });
       }
     });
   }

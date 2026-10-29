@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { approveSyntheticListing } from './listing-verification-fixture';
 
 // Synthetic data only, inside the disposable CI DB. Production has no public review
 // yet, so this is where the helpful count is seen end to end: DB -> RPC -> page.
@@ -27,7 +28,8 @@ test('an anonymous visitor sees the helpful count of a public review, without vo
       expect(voter.error).toBeNull(); voters.push(voter.data.user!.id);
     }
     expect((await db.from('facility_profiles').insert({ id, name: '合成口コミ件数検証', slug, business_type: 'その他',
-      prefecture: '東京都', city: '検証市', address: '合成町1', status: 'published' })).error).toBeNull();
+      prefecture: '東京都', city: '検証市', address: '合成町1', status: 'draft' })).error).toBeNull();
+    await approveSyntheticListing(db, id);
     expect((await db.from('facility_reviews').insert([
       { id: shown, facility_id: id, reviewer_name: '合成投稿者', reviewer_ip: '127.0.0.21', rating: 5,
         comment: '合成の公開口コミです', status: 'published', is_flagged: false },
@@ -51,7 +53,8 @@ test('an anonymous visitor sees the helpful count of a public review, without vo
     await expect(page.getByRole('button', { name: '役に立った (2)', exact: true })).toBeVisible();
     await expect(page.getByText('合成の非公開口コミです', { exact: true })).toHaveCount(0);
   } finally {
-    expect((await db.from('facility_profiles').delete().eq('id', id)).error).toBeNull();
+    // Review records intentionally retain their facility; the isolated CI database
+    // is discarded after the run, so do not bypass evidence retention to delete it.
     for (const voter of voters) expect((await db.auth.admin.deleteUser(voter)).error).toBeNull();
   }
 });

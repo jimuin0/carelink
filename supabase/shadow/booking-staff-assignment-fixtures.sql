@@ -39,6 +39,8 @@ INSERT INTO public.menu_staff(menu_id, staff_id)
  VALUES ('ba520000-0000-4000-8000-000000000002', 'ba530000-0000-4000-8000-000000000002');
 INSERT INTO public.facility_photos(facility_id, photo_url, photo_type)
  VALUES ('ba510000-0000-4000-8000-000000000001', 'https://example.invalid/assignment.jpg', 'other');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('ba510000-0000-4000-8000-000000000001','ba500000-0000-4000-8000-000000000002');
 UPDATE public.facility_profiles SET status = 'published',
  business_hours = '{"mon":{"open":"09:00","close":"17:00"},"tue":{"open":"09:00","close":"17:00"},"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}'
  WHERE id = 'ba510000-0000-4000-8000-000000000001';

@@ -52,6 +52,10 @@ fi
 
 applied=0
 for f in "$ROOT"/supabase/migrations/*.sql; do
+  if [[ "${CARELINK_LISTING_LEGACY_FIXTURE:-}" == 1 && "$DB" == carelink_shadow*
+    && "$f" == *"_publish_requires_confirmed_hours.sql" ]]; then
+    "${PSQL[@]}" -d "$DB" -f "$ROOT/supabase/shadow/listing-legacy-before.sql" >/dev/null
+  fi
   # Optional disposable old-schema upgrade probe. The fixture refuses any
   # database other than carelink_shadow and is not production business DML.
   if [[ "${CARELINK_POINTS_UPGRADE_FIXTURE:-}" == 1 && "$DB" == carelink_shadow

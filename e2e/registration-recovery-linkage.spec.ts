@@ -142,7 +142,7 @@ test('Auth unavailable 503 -> no logout -> explicit retry reads original receipt
   expect(members.error).toBeNull(); expect(members.data).toEqual([]);
 });
 
-test('expired handoff -> verified recovery -> one draft -> listing without online booking', async ({ page }, info) => {
+test('expired handoff -> verified recovery -> one draft -> listing without online booking', async ({ page, browser }, info) => {
   // This verifies Auth, three navigations, creation, publication and booking readiness.
   // Two full store setups each wait for the real /admin dashboard document; on the single CI
   // worker one attempt spent its whole 60s budget with /admin already committed and still
@@ -205,6 +205,32 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
     data: { name, business_hours: { mon: day, tue: day, wed: null, thu: day, fri: day, sat: day, sun: null } },
   });
   expect(savedHours.status()).toBe(200);
+  const unverified = await page.request.patch(statusUrl, { headers:{ Origin:'https://localhost:3000' },data:{ status:'published' } });
+  expect(unverified.status()).toBe(409);
+  await page.goto(`/admin/settings?facility_id=${created.facilityId}`);
+  await page.getByLabel('書類の種類').selectOption('lease');
+  await page.getByLabel(/書類のファイル/).setInputFiles({ name:'synthetic.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-synthetic') });
+  await page.getByRole('button',{ name:'書類を提出する' }).click();
+  await expect(page.getByText(/書類を受け付けました/)).toBeVisible();
+  const operator=await identity(db,true);
+  const operatorContext=await browser.newContext({ baseURL:'https://localhost:3000',ignoreHTTPSErrors:true });
+  try {
+    const operatorPage=await operatorContext.newPage();
+    await login(operatorPage,operator,'/admin/registrations');
+    const card=operatorPage.locator('div.bg-white.rounded-xl').filter({ hasText:name }).first();
+    await expect(card).toBeVisible();
+    await card.getByRole('button',{ name:'店舗確認書類を読み込む' }).click();
+    const download=card.getByRole('link',{ name:'書類を開く' });
+    await expect(download).toBeVisible();
+    const evidence=await operatorPage.request.get((await download.getAttribute('href'))!);
+    expect(evidence.status()).toBe(200);
+    expect((await evidence.body()).toString()).toBe('%PDF-synthetic');
+    await card.getByLabel('店舗の賃貸借契約書・使用契約書').check();
+    await card.getByLabel('書類と店舗情報を照合しました').check();
+    await card.getByLabel('申請者の管理権限を確認しました').check();
+    await card.getByRole('button',{ name:'確認を記録する' }).click();
+    await expect(card.getByText(/確認を記録しました/)).toBeVisible();
+  } finally { await operatorContext.close(); }
   const published = await page.request.patch(statusUrl, { headers: { Origin: 'https://localhost:3000' }, data: { status: 'published' } });
   expect(published.status()).toBe(200);
   await page.goto(`/search?area=${encodeURIComponent('愛知県')}&keyword=${encodeURIComponent(name)}`);

@@ -1,3 +1,4 @@
+import { approveSyntheticListing } from './listing-verification-fixture';
 // オーナーの顧客台帳編集 E2E のセットアップ。
 // 1) CI の隔離 Supabase に service role でオーナー＋施設＋owner権限＋顧客レコードを seed。
 // 2) 実 UI（/auth/login）でオーナーとしてログインし、認証済み storageState を保存する。
@@ -26,7 +27,7 @@ setup('provision owner and a customer record', async ({ page }) => {
   // 公開施設
   const { data: fac, error: fe } = await sb.from('facility_profiles').insert({
     name: `E2E顧客台帳店舗_${ts}`, slug: `e2e-cust-${ts}`, business_type: 'ヘアサロン',
-    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'published',
+    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'draft',
   }).select('id').single();
   if (fe) throw new Error('seed facility: ' + fe.message);
   const facilityId = fac.id as string;
@@ -41,6 +42,7 @@ setup('provision owner and a customer record', async ({ page }) => {
   // オーナー権限（middleware の /admin 認可・customers API の membership 検証に必須）
   const { error: me } = await sb.from('facility_members').insert({ user_id: userId, facility_id: facilityId, role: 'owner' });
   if (me) throw new Error('seed member: ' + me.message);
+  await approveSyntheticListing(sb, facilityId, userId);
 
   // 顧客レコード（customers の NOT NULL 必須列＝facility_id / name）。email は施設内一意のため付けない。
   const { error: cse } = await sb.from('customers').insert({
