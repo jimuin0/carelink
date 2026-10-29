@@ -66,3 +66,11 @@
 ## Preview 配信の失敗（基盤側）
 
 PR #857 の最初の 2 回の Preview ビルドは、アプリのビルド後に `vcr.vercel.com/jimuin/carelink/dockerfile` へのイメージ push が拒否されて失敗した。同じ失敗は 10/28 の他ブランチの Preview でも繰り返し出ており（同日 10:28・10:37 UTC の配信は成功）、コード起因ではない。ダッシュボードからの再配信はメールコードによる本人再認証を求められたため実行していない。3 回目（`0e64cc2`）の Git 起点の配信は成功した。
+
+## 追記（10/29）：配信失敗の原因と復旧
+
+- 上の「Preview 配信の失敗」と、10/28 15:09 UTC の本番配信（`bad9c2d`）の失敗は、同じ原因だった。ログの文言は `denied: repository has reached the maximum allowed number of images`。Vercel Hobby の Container Registry は 1 リポジトリ 50 イメージが上限で、`dockerfile` リポジトリがちょうど 50 個に達していた（課金ではなく上限）。10/28 の成功と失敗が混在したのは、上限の直前で枠が埋まりきるまでの差だった。
+- 本人承認のうえ、10/29 02:36〜02:37 UTC に、3 日以上前のイメージ 25 個を CLI で削除した（稼働中の本番 `7192b90` と直近 10 回分の本番配信は、機械的に除外したことを確認済み）。削除後も本番は healthy。
+- 同日 02:37 UTC に CLI で `bad9c2d` を本番へ再配信した（メールコードの再認証は不要）。結果は Ready、`/api/health` の version は `bad9c2d`。本番では `/`・`/auth/login`・`/search`・`/register`・施設ページが 200、`/mypage`・`/admin` はログインへ 307、`POST /api/contact` は入力検証まで到達し、Preview 用の遮断はかかっていない。
+- 休業日関数の非公開化（DB は 10/28 に適用済み）によるスキーマ差分は、10/28 17:40 UTC の schema-drift-check が報告していた（criticalCount 1 は旧定義の欠落、warningCount 1 は新定義の追加。他の差分は 0）。配信されたアプリの期待値は新定義と一致するので、次回（10/29 17:40 UTC）は 0 件になる見込み。この結果は未確認。
+- 再発防止：`vcr-image-retention.yml` → `scripts/prune-vcr-images.mjs`。前提として、Vercel の team 設定で VCR 用の OIDC ポリシーを本人が作成する必要がある。
