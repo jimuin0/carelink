@@ -8,7 +8,7 @@ import { isPlatformSupportPath } from '@/lib/platform-support-path';
 import { getMembershipCacheKey } from '@/lib/admin-membership-cache-key';
 import { AUTH_UNAVAILABLE_BODY, AUTH_VERIFICATION_TIMEOUT_MS, verifyAuthUser } from '@/lib/auth-verification';
 import { GOOGLE_MAPS_EMBED_ORIGIN } from '@/lib/map-embed';
-import { shouldBlockCollectionCrawler } from '@/lib/crawler-policy';
+import { shouldBlockCollectionCrawler, shouldRefuseFilteredSearchCrawl } from '@/lib/crawler-policy';
 import {
   isPreviewRestricted,
   isPublicReadOnlyPreview,
@@ -133,8 +133,14 @@ export async function middleware(request: NextRequest) {
 
   // Reject collection crawls before nonce generation, auth, DB access and SSR.
   // Googlebot/Bingbot and ordinary visitors still follow the existing flow.
-  if (shouldBlockCollectionCrawler(pathname, request.method, request.headers.get('user-agent') ?? '')) {
-    return NextResponse.json({ error: 'Collection crawling is disabled.' }, {
+  const userAgent = request.headers.get('user-agent') ?? '';
+  const refusal = shouldBlockCollectionCrawler(pathname, request.method, userAgent)
+    ? 'Collection crawling is disabled.'
+    : shouldRefuseFilteredSearchCrawl(pathname, request.nextUrl.search, request.method, userAgent)
+      ? 'Filtered search results are disallowed by robots.txt.'
+      : null;
+  if (refusal) {
+    return NextResponse.json({ error: refusal }, {
       status: 403,
       headers: {
         'Cache-Control': 'no-store',
