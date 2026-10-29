@@ -42,12 +42,17 @@ INSERT INTO auth.users(id, email, email_confirmed_at) VALUES
 UPDATE public.profiles SET is_platform_admin = true WHERE id = 'fb9c0000-0000-4000-8000-000000000003';
 -- A and B are published (anyone can publish their own shop after onboarding); C is a draft.
 INSERT INTO public.facility_profiles(id, name, slug, business_type, prefecture, city, address, status) VALUES
-  ('fb9c0001-0000-4000-8000-000000000001', 'Synthetic featured A', 'synthetic-featured-a', 'その他', '検証県', '検証市', '検証住所', 'published'),
-  ('fb9c0001-0000-4000-8000-000000000002', 'Synthetic featured B', 'synthetic-featured-b', 'その他', '検証県', '検証市', '検証住所', 'published'),
+  ('fb9c0001-0000-4000-8000-000000000001', 'Synthetic featured A', 'synthetic-featured-a', 'その他', '検証県', '検証市', '検証住所', 'draft'),
+  ('fb9c0001-0000-4000-8000-000000000002', 'Synthetic featured B', 'synthetic-featured-b', 'その他', '検証県', '検証市', '検証住所', 'draft'),
   ('fb9c0001-0000-4000-8000-000000000003', 'Synthetic featured C', 'synthetic-featured-c', 'その他', '検証県', '検証市', '検証住所', 'draft');
 INSERT INTO public.facility_members(user_id, facility_id, role) VALUES
   ('fb9c0000-0000-4000-8000-000000000001', 'fb9c0001-0000-4000-8000-000000000001', 'owner'),
   ('fb9c0000-0000-4000-8000-000000000002', 'fb9c0001-0000-4000-8000-000000000002', 'owner');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('fb9c0001-0000-4000-8000-000000000001' , 'fb9c0000-0000-4000-8000-000000000001');
+SELECT pg_temp.approve_synthetic_listing('fb9c0001-0000-4000-8000-000000000002' , 'fb9c0000-0000-4000-8000-000000000002');
+UPDATE public.facility_profiles SET status='published' WHERE id IN ('fb9c0001-0000-4000-8000-000000000001','fb9c0001-0000-4000-8000-000000000002');
+
 
 -- ---------------------------------------------------------------------------
 -- featured_slots

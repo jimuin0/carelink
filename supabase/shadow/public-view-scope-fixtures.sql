@@ -16,11 +16,15 @@ INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
  ('fa690000-0000-4000-8000-000000000001','public-owner@example.invalid',now()),
  ('fa690000-0000-4000-8000-000000000002','public-other@example.invalid',now());
 INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES
- ('fa690001-0000-4000-8000-000000000001','Public scope','synthetic-public-scope','その他','検証県','検証市','検証住所','published'),
+ ('fa690001-0000-4000-8000-000000000001','Public scope','synthetic-public-scope','その他','検証県','検証市','検証住所','draft'),
  ('fa690001-0000-4000-8000-000000000002','Private scope','synthetic-private-scope','その他','検証県','検証市','検証住所','draft');
 INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
  ('fa690000-0000-4000-8000-000000000001','fa690001-0000-4000-8000-000000000001','owner'),
  ('fa690000-0000-4000-8000-000000000001','fa690001-0000-4000-8000-000000000002','admin');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('fa690001-0000-4000-8000-000000000001' , 'fa690000-0000-4000-8000-000000000001');
+UPDATE public.facility_profiles SET status='published' WHERE id IN ('fa690001-0000-4000-8000-000000000001');
+
 INSERT INTO public.facility_menus(id,facility_id,category,name,price,is_published) VALUES
  ('fa690002-0000-4000-8000-000000000001','fa690001-0000-4000-8000-000000000001','その他','Public',500,true),
  ('fa690002-0000-4000-8000-000000000002','fa690001-0000-4000-8000-000000000001','その他','Draft',1,false),

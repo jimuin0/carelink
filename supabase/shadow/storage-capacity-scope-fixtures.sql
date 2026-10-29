@@ -26,7 +26,11 @@ SELECT pg_temp.assert_storage_scope((SELECT file_size_limit<=10485760 AND file_s
 SELECT pg_temp.assert_storage_scope(NOT EXISTS(SELECT 1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='review_photos_auth_insert'),'no permissive legacy review bypass');
 INSERT INTO auth.users(id,email,email_confirmed_at) VALUES('f8700000-0000-4000-8000-000000000001','storage-policy@example.invalid',now());
 INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status)
- VALUES('f8710000-0000-4000-8000-000000000001','Synthetic storage policy','storage-policy-fixture','その他','検証県','検証市','検証住所','published');
+ VALUES('f8710000-0000-4000-8000-000000000001','Synthetic storage policy','storage-policy-fixture','その他','検証県','検証市','検証住所','draft');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('f8710000-0000-4000-8000-000000000001');
+UPDATE public.facility_profiles SET status='published' WHERE id IN ('f8710000-0000-4000-8000-000000000001');
+
 INSERT INTO storage.buckets(id,name,public) VALUES('avatars','avatars',true),('review-photos','review-photos',true) ON CONFLICT(id) DO NOTHING;
 SELECT set_config('request.jwt.claim.sub','f8700000-0000-4000-8000-000000000001',true);
 SET LOCAL ROLE authenticated;
