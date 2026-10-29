@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { seedSyntheticSalonHistory } from './synthetic-salon-history';
 import { observeFacilitySetup } from './facility-setup-observer';
 
@@ -225,9 +226,10 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
     await card.getByRole('button',{ name:'店舗確認書類を読み込む' }).click();
     const download=card.getByRole('link',{ name:'書類を開く' });
     await expect(download).toBeVisible();
-    const evidence=await operatorPage.request.get((await download.getAttribute('href'))!);
-    expect(evidence.status()).toBe(200);
-    expect((await evidence.body()).toString()).toBe('%PDF-synthetic');
+    const [evidence]=await Promise.all([operatorPage.waitForEvent('download'),download.click()]);
+    const evidencePath=await evidence.path();
+    expect(evidencePath).not.toBeNull();
+    expect((await readFile(evidencePath!)).toString()).toBe('%PDF-synthetic');
     await card.getByLabel('店舗の賃貸借契約書・使用契約書').check();
     await card.getByLabel('書類と店舗情報を照合しました').check();
     await card.getByLabel('申請者の管理権限を確認しました').check();

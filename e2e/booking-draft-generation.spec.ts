@@ -54,9 +54,9 @@ test.beforeAll(async ({ request }) => {
 });
 test.afterAll(() => {
   if (!seeded) return;
-  sql(`BEGIN; DO $$ BEGIN IF EXISTS(SELECT 1 FROM public.bookings WHERE facility_id='${facilityId}') THEN RAISE EXCEPTION 'synthetic fixture unexpectedly booked'; END IF; END $$;
-    DELETE FROM public.listing_verification_approval_documents WHERE facility_id='${facilityId}'; DELETE FROM public.listing_verification_approvals WHERE facility_id='${facilityId}'; DELETE FROM storage.objects WHERE bucket_id='listing-verification' AND name IN (SELECT object_path FROM public.listing_verification_documents WHERE facility_id='${facilityId}'); DELETE FROM public.listing_verification_documents WHERE facility_id='${facilityId}';
-    DELETE FROM public.facility_profiles WHERE id='${facilityId}' AND slug='${slug}' AND name='合成予約下書き検証店'; COMMIT;`);
+  // CI discards the complete database and test objects. Preserve the no-booking
+  // assertion without bypassing Storage's object-deletion protection.
+  sql(`DO $$ BEGIN IF EXISTS(SELECT 1 FROM public.bookings WHERE facility_id='${facilityId}') THEN RAISE EXCEPTION 'synthetic fixture unexpectedly booked'; END IF; END $$;`);
 });
 async function isolated(context: BrowserContext) {
   await context.route('**/*', async route => {
