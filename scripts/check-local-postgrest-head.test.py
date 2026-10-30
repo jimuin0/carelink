@@ -71,17 +71,18 @@ class LocalTargetScope(unittest.TestCase):
         return mock.patch.object(wire.subprocess, 'check_output', return_value=json.dumps(info).encode())
 
     def test_all_official_fallbacks_preserve_the_observed_image(self):
-        self.assertTrue({'public.ecr.aws/supabase/postgrest:v14.15',
-                         'ghcr.io/supabase/postgrest:v14.15',
-                         'docker.io/supabase/postgrest:v14.15',
-                         'supabase/postgrest:v14.15'} <= wire.FIXED_IMAGES)
+        # Names Supabase CLI 2.104.0 builds for ghcr.io, public.ecr.aws and docker.io.
+        self.assertEqual({'public.ecr.aws/supabase/postgrest:v14.15',
+                          'ghcr.io/supabase/postgrest:v14.15',
+                          'postgrest/postgrest:v14.15'}, wire.FIXED_IMAGES)
         for image in sorted(wire.FIXED_IMAGES):
             with self.subTest(image=image), self.inspect(self.info(image)) as inspect:
                 self.assertEqual(wire.local_target(), ('172.18.0.2', image))
                 inspect.assert_called_once_with(['docker', 'inspect', '--type=container', '--format', wire.INSPECT_FORMAT, 'supabase_rest_carelink'])
 
     def test_wrong_versions_and_untrusted_registries_fail_closed(self):
-        for image in ['ghcr.io/supabase/postgrest:v14.12', 'other.invalid/supabase/postgrest:v14.15', 'ghcr.io/other/postgrest:v14.15']:
+        for image in ['ghcr.io/supabase/postgrest:v14.12', 'other.invalid/supabase/postgrest:v14.15', 'ghcr.io/other/postgrest:v14.15',
+                      'postgrest/postgrest:v14.12', 'other/postgrest:v14.15']:
             with self.subTest(image=image), self.inspect(self.info(image)):
                 with self.assertRaises(wire.VerificationError):
                     wire.local_target()
