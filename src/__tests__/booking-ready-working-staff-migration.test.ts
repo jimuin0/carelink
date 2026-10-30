@@ -99,7 +99,7 @@ describe('最後に適用される定義が「勤務時間のある在籍スタ�
 
   test('検索カードの active_staff_count も同じ判定関数で数え、列の並びは変えていない', () => {
     const { file, body } = cardView();
-    expect(file).toBe('20261029135000_search_medical_specialties.sql');
+    expect(file).toBe('20261030014653_search_medical_specialties.sql');
     expect(body).toMatch(/SELECT count\(\*\)::integer AS active_staff_count FROM public\.staff_profiles s\s+WHERE s\.facility_id=fp\.id AND s\.is_active AND public\.staff_has_working_time\(s\.id\)/);
     expect(body).toContain('WITH (security_invoker=true,security_barrier=true)');
     const previous = withoutComments(readFileSync(join(MIGRATIONS, PREVIOUS_VIEW), 'utf8'));

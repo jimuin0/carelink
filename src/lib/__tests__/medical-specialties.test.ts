@@ -15,7 +15,7 @@ test('施設区分・不明な値・重複は診療科として受け付けな�
 });
 
 test('申込画面とDB制約で受け付ける診療科の一覧は一致する', () => {
-  const sql = readFileSync(resolve(process.cwd(), 'supabase/migrations/20261029123954_medical_specialties.sql'), 'utf8');
+  const sql = readFileSync(resolve(process.cwd(), 'supabase/migrations/20261030014627_medical_specialties.sql'), 'utf8');
   const allowed = sql.match(/p_values <@ ARRAY\[([\s\S]*?)\]::text\[\]/)?.[1];
   expect(allowed).toBeDefined();
   const databaseSpecialties = Array.from(allowed!.matchAll(/'([^']+)'/g), match => match[1]);
