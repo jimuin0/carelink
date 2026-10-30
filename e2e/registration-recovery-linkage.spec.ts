@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, devices, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -217,7 +217,12 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   await page.getByRole('button',{ name:'書類を提出する' }).click();
   await expect(page.getByText(/書類を受け付けました/)).toBeVisible();
   const operator=await identity(db,true);
-  const operatorContext=await browser.newContext({ baseURL:'https://localhost:3000',ignoreHTTPSErrors:true });
+  // A separate browser context does not inherit the Playwright project's device.
+  // Preserve iPhone emulation for the mobile operator's document download.
+  const operatorContext=await browser.newContext({
+    ...(info.project.name === 'Mobile Safari' ? devices['iPhone 13'] : {}),
+    baseURL:'https://localhost:3000', ignoreHTTPSErrors:true, serviceWorkers:'block',
+  });
   try {
     const operatorPage=await operatorContext.newPage();
     await login(operatorPage,operator,'/admin/registrations');
