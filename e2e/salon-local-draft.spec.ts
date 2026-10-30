@@ -246,7 +246,8 @@ test('an explicit synthetic SIGNED_OUT broadcast wipes personal drafts; normal g
     const channel = new BroadcastChannel(name); channel.postMessage({ event: 'SIGNED_OUT', session: null }); channel.close();
   });
   await expect.poll(async () => (await raw(page))?.hasBackup).toBe(false);
-  expect(await page.evaluate(() => sessionStorage.getItem('booking-draft:synthetic'))).toBeNull();
+  // The IndexedDB wipe precedes the separate sessionStorage wipe; verify both.
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('booking-draft:synthetic'))).toBeNull();
   await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeDisabled();
   await expect(optIn(page)).toBeEnabled();
   expect(await page.evaluate(() => document.cookie.includes('carelink_client_cleanup=1'))).toBe(false);
