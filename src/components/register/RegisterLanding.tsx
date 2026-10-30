@@ -103,7 +103,7 @@ const STEPS = [
 const CTA_CLASS =
   'inline-flex h-[52px] w-full items-center justify-center bg-(--ecru-accent) px-6 text-base font-bold tracking-[0.12em] text-white transition-colors hover:bg-(--primary-dark) sm:w-[320px]';
 
-export default function RegisterLanding({ listingAreas = [] }: { listingAreas?: string[] }) {
+export default function RegisterLanding() {
   return (
     <div className="theme-ecru bg-(--ecru-bg) text-(--ecru-text)" style={serifStyle}>
       <div className="jp-wrap">
@@ -141,13 +141,6 @@ export default function RegisterLanding({ listingAreas = [] }: { listingAreas?: 
                 <p className="mt-4 text-sm font-medium tracking-widest text-white sm:text-base">
                   掲載料・予約手数料 0円
                 </p>
-                {/* 掲載エリアは DB の実在値（公開中の施設の都道府県）。トップページの
-                    「現在のご紹介エリア」と同じ取り方で、ハードコードしない（実態と必ずズレるため）。 */}
-                {listingAreas.length > 0 && (
-                  <p className="mt-1.5 text-sm text-white">
-                    現在の主な掲載エリア：{listingAreas.join('・')}（順次拡大中）
-                  </p>
-                )}
                 <a href="#register-form" className={`mt-6 ${CTA_CLASS}`}>
                   {REGISTER_CTA_LABEL}
                 </a>
