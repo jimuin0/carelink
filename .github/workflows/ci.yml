@@ -289,7 +289,7 @@ jobs:
           done
           exit 1
       - name: Cloudflare local TLS and guard tests
-        run: node --test tools/cloudflare/ci-local-ca.test.mjs
+        run: node --test tools/cloudflare/ci-local-ca.test.mjs tools/cloudflare/worker-entry.test.mjs tools/cloudflare/safe-image-optimizer.test.mjs tools/cloudflare/normalize-webp-assets.test.mjs tools/cloudflare/build-local.test.mjs
       - name: Fresh isolated database for Worker E2E
         # Reset only this GitHub runner's disposable local stack; never a hosted DB.
         run: supabase db reset --local

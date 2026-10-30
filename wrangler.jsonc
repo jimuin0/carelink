@@ -5,7 +5,7 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "main": "vinext/server/fetch-handler",
+  "main": "tools/cloudflare/worker-entry.ts",
   "assets": {
     "directory": "dist/client",
     "html_handling": "none",
@@ -31,5 +31,8 @@
       "CRON_SECRET",
       "ADMIN_COOKIE_SECRET"
     ]
+  },
+  "images": {
+    "binding": "IMAGES"
   }
 }

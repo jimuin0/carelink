@@ -30,6 +30,7 @@ test('restores Next route types after both successful and failed Worker builds',
       mkdirSync(join(dir, path), { recursive: true });
     }
     writeFileSync(join(dir, 'tools/cloudflare/prepare-og-assets.mjs'), 'process.exit(Number(process.env.TEST_PREP_EXIT || 0))');
+    writeFileSync(join(dir, 'tools/cloudflare/normalize-webp-assets.mjs'), 'process.exit(Number(process.env.TEST_NORMALIZE_EXIT || 0))');
     writeFileSync(join(dir, 'node_modules/vite/bin/vite.js'), "require('node:fs').writeFileSync('phase', 'worker'); process.exit(Number(process.env.TEST_BUILD_EXIT || 0));");
     writeFileSync(join(dir, 'node_modules/next/dist/bin/next'), "require('node:fs').appendFileSync('phase', '-restored'); process.exit(Number(process.env.TEST_RESTORE_EXIT || 0));");
     for (const code of [0, 7]) {
@@ -37,6 +38,9 @@ test('restores Next route types after both successful and failed Worker builds',
       assert.equal(result.status, code);
       assert.equal(readFileSync(join(dir, 'phase'), 'utf8'), 'worker-restored');
     }
+    const normalizeFailed = spawnSync(process.execPath, [script], { cwd: dir, env: { ...process.env, TEST_NORMALIZE_EXIT: '8' }, encoding: 'utf8' });
+    assert.equal(normalizeFailed.status, 8);
+    assert.equal(readFileSync(join(dir, 'phase'), 'utf8'), 'worker-restored');
     const restoreFailed = spawnSync(process.execPath, [script], { cwd: dir, env: { ...process.env, TEST_RESTORE_EXIT: '9' }, encoding: 'utf8' });
     assert.equal(restoreFailed.status, 9);
     const prepFailed = spawnSync(process.execPath, [script], { cwd: dir, env: { ...process.env, TEST_PREP_EXIT: '5' }, encoding: 'utf8' });

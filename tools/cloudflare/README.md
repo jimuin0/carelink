@@ -14,7 +14,7 @@ After the Worker build it runs `next typegen --webpack` to restore Next.js route
 types that vinext otherwise replaces; a failed build still attempts restoration.
 The Worker build aliases the OG asset loader, response-after handler, and Vercel-only speed
 insight component; the normal Next build keeps its original server-side behavior. The
-configuration deliberately disables image transformation and does not configure shared ISR/data cache.
+configuration uses the Cloudflare Images binding for local-asset transformations and does not configure shared ISR/data cache.
 Vinext may still use its default per-instance in-memory cache; this is not a shared or
 durable cache and its behavior is not evidence of production-wide consistency.
 The associated performance, security, and operational implications are not yet
@@ -83,7 +83,7 @@ Secrets are local-only `.dev.vars` values and must never be committed. The local
 Worker config declares `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`, and `ADMIN_COOKIE_SECRET` as
 required secret bindings; the cron secret used locally must be synthetic. A real
 Cloudflare deployment would require separately reviewed secret bindings, environment
-isolation, image optimization, cache behavior, auth callbacks, monitoring, cron
+isolation, image quota and hosted optimization behavior, cache behavior, auth callbacks, monitoring, cron
 ownership, notification behavior, full regression testing and an approved rollout
 and rollback. A Workers build or these fixtures do not establish those properties.
 

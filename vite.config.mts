@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import vinext from "vinext";
+import { imagesOptimizer } from "@vinext/cloudflare/images/images-optimizer";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,7 +8,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [
-    vinext(),
+    vinext({ images: { optimizer: { ...imagesOptimizer(), adapter: path.resolve(root, "tools/cloudflare/safe-image-optimizer.ts") } } }),
     cloudflare({
       viteEnvironment: {
         name: "rsc",

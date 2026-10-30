@@ -3,6 +3,7 @@
 // CI の隔離 Supabase 上でのみ動作（本番不可侵）。admin-batch.setup の storageState（owner 認証）を共有して使う。
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
+import { captureCreateResponse } from './capture-create-response';
 
 test('オーナーがメニューを作成→編集→削除できる（書き込み→一覧反映/消滅）', async ({ page, baseURL }) => {
   // CI の retries で同一 storageState（同一施設）を再利用するため、毎回ユニーク名で衝突を避ける。
@@ -44,12 +45,9 @@ test('オーナーがメニューを作成→編集→削除できる（書き�
 
       // POST /api/admin/menus の成功を、4秒で自動消滅し CI では消滅後にポーリングして flake する
       // 成功トーストではなく API 応答そのもので判定する（唯一の副作用ゼロな決定的判定）。
-      const [created] = await Promise.all([
-        page.waitForResponse((r) => new URL(r.url()).pathname === '/api/admin/menus' && r.request().method() === 'POST'),
-        addSave.press('Enter'),
-      ]);
-      expect(created.status(), 'メニュー作成の実応答').toBe(201);
-      const { menu } = await created.json();
+      const created = await captureCreateResponse(page, '/api/admin/menus', () => addSave.press('Enter'));
+      expect(created.status, 'メニュー作成の実応答').toBe(201);
+      const { menu } = created.body as { menu: { id: string } };
       expect(menu.id).toEqual(expect.any(String));
       createdIds.push(menu.id);
       // 一覧反映（書き込み永続化＝永続 DOM 証拠）。
