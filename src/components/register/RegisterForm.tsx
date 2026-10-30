@@ -774,16 +774,16 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
             <span aria-hidden="true" className="text-base leading-none text-(--ecru-muted) transition-transform group-open:rotate-45">+</span>
             入力途中の内容を保存する（任意）
           </summary>
-          <div className="space-y-6 border-t border-(--ecru-line) px-4 py-4">
+          <div className="space-y-5 border-t border-(--ecru-line) px-4 py-4">
             <SalonLocalDraftControls ref={localDraft} getValues={getValues} watch={watch} photos={photoFiles}
               canSave={() => !backupDisabled && (() => { const context = readDraftContext(); return context.state === 'empty' || (context.state === 'ready' && context.context.phase === 'prepared'); })()}
               canRestore={() => !restoreDisabled && readDraftContext().state === 'empty'}
               onAttention={() => setDraftPanelOpen(true)}
               onRestore={async blob => { if (!(await restoreDraft(new File([blob], 'carelink-local-draft.json', { type: 'application/json' }), true))) throw new Error('Local draft restoration not confirmed'); }} />
-            <section aria-label="入力の手動バックアップ" className="text-sm">
-              <h3 className="font-medium">ファイルに保存する</h3>
-              <p className="mt-1 text-(--ecru-muted)">未送信の入力と元の写真を、ファイルへ手動で保存・復元できます。端末への自動保存は、上の「この端末で下書きを自動保存する」を選んだ場合だけ行います。</p>
-              <p className="mt-1 text-(--ecru-muted)">ファイルには氏名・連絡先・写真が含まれます。安全な保存先で管理し、共有端末では保存しないでください。不要になったら削除してください。</p>
+            <section aria-label="入力の手動バックアップ" className="border-t border-(--ecru-line) pt-5 text-sm">
+              <h3 className="font-medium">ファイルに保存</h3>
+              <p className="mt-1 text-(--ecru-muted)">別の端末で続きを入力するときに使えます。</p>
+              <p className="mt-1 text-(--ecru-muted)">ファイルには氏名・連絡先・写真が含まれます。共有端末では保存せず、不要になったら削除してください。</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" onClick={() => void downloadDraft()} disabled={backupDisabled} className={DRAFT_BUTTON}>入力と元の写真をバックアップ</button>
                 {/* ファイル選択欄は sr-only（「Choose File」等のブラウザー既定の英語表示を出さない）。

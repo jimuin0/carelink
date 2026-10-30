@@ -193,7 +193,7 @@ test('frozen V1 configuration reaches real denied legacy upload, preserves input
 async function openTools(page: Page) {
   const tools = page.locator('#register-draft-tools');
   await tools.waitFor({ state: 'attached' });
-  if (!(await tools.evaluate(element => (element as HTMLDetailsElement).open))) await tools.locator('summary').click();
+  if (!(await tools.evaluate(element => (element as HTMLDetailsElement).open))) await tools.locator(':scope > summary').click();
   await expect(tools.getByRole('region', { name: 'この端末の下書き' })).toBeVisible();
 }
 
