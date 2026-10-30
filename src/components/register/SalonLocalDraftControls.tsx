@@ -258,12 +258,12 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
   }
 
   return <section aria-label="この端末の下書き" className="text-sm">
-    <h3 className="font-medium">この端末に自動保存する</h3>
-    <p className="mt-1 text-(--ecru-muted)">希望する場合だけ、このブラウザーに入力と元の写真を保存できます。自動保存を止めても保存内容は残り、送信前に最新内容を保存して復元をロックします。最後の保存から7日後、次にこの画面を開いた際に削除します。ブラウザーのデータ削除でも失われます。</p>
-    <p className="mt-1 text-(--ecru-muted)">氏名・連絡先・写真が端末に残ります。共有端末では利用しないでください。別端末へ移す場合は手動バックアップを使い、不要なファイルも削除してください。</p>
+    <h3 className="font-medium">この端末に自動保存</h3>
+    <p className="mt-1 text-(--ecru-muted)">入力と写真を、このブラウザーに7日間保存します。</p>
+    <p className="mt-1 text-(--ecru-muted)">氏名や連絡先も残るため、共有端末では使わないでください。</p>
     <div className="mt-3 flex flex-wrap gap-2">
       {enabled ? <button type="button" onClick={stop} disabled={busy} className={DRAFT_BUTTON}>自動保存を止める</button>
-        : <button type="button" onClick={enable} disabled={!ready || busy || saved?.state === 'locked' || (saved?.state === 'saved' && !ownsSaved) || !props.canSave()} className={DRAFT_BUTTON}>この端末で下書きを自動保存する（7日間）</button>}
+        : <button type="button" onClick={enable} disabled={!ready || busy || saved?.state === 'locked' || (saved?.state === 'saved' && !ownsSaved) || !props.canSave()} className={DRAFT_BUTTON}>自動保存を始める</button>}
       <button type="button" onClick={restore} disabled={!ready || busy || saved?.state !== 'saved' || !props.canRestore()} className={DRAFT_BUTTON}>端末の下書きを復元</button>
       {/* 削除は取り消せないので、他の操作と見た目を分ける。 */}
       <button type="button" onClick={clear} disabled={!ready || busy || !saved?.backup} className={DRAFT_DANGER_BUTTON}>端末の下書きを削除</button>
@@ -271,5 +271,10 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
     <p aria-live="polite" className="mt-2">{busy ? '端末の下書きを確認しています。' : message}</p>
     {saved?.backup && <p className="mt-2">保存内容の期限: {new Date(saved.expiresAt).toLocaleString('ja-JP')}</p>}
     {saved?.state === 'locked' && <p className="mt-2">送信に使用した下書きは、別のタブやブラウザー再起動後も復元できません。受付状況をご確認ください。</p>}
+    <details className="mt-3 text-(--ecru-muted)">
+      <summary className="cursor-pointer underline">保存について詳しく</summary>
+      <p className="mt-2">自動保存を止めても保存内容は残ります。送信前に最新内容を保存し、重複申込を避けるため復元をロックします。</p>
+      <p className="mt-1">最後の保存から7日後、次にこの画面を開いたときに削除します。ブラウザーのデータ削除でも失われます。別の端末に移すにはファイルに保存してください。</p>
+    </details>
   </section>;
 });

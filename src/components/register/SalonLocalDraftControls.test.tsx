@@ -39,8 +39,8 @@ function mount(over: Record<string, unknown> = {}) {
   const view = render(<SalonLocalDraftControls ref={ref} {...props} />);
   return { ref, onRestore, unsubscribe, props, ...view };
 }
-const enable = async () => { await waitFor(() => expect(screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' })).toBeEnabled());
-  fireEvent.click(screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' }));
+const enable = async () => { await waitFor(() => expect(screen.getByRole('button', { name: '自動保存を始める' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '自動保存を始める' }));
   await waitFor(() => expect(screen.getByText('入力と元の写真を保存し、読み戻して確認しました。')).toBeInTheDocument()); };
 async function before(ref: React.RefObject<SalonLocalDraftHandle | null>) {
   let result: boolean | undefined;
@@ -64,8 +64,8 @@ test('opt-in autosaves, then saves latest input and commits the fence before all
 });
 test('failed autosave cannot silently become an opted-off unfenced submission', async () => {
   const view = mount(); api.saveLocalSalonDraft.mockRejectedValue(new SalonLocalDraftError('storage'));
-  await waitFor(() => expect(screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' })).toBeEnabled());
-  fireEvent.click(screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: '自動保存を始める' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '自動保存を始める' }));
   await waitFor(() => expect(screen.getByText(/端末の下書きを保存・確認できませんでした/)).toBeInTheDocument());
   expect(await before(view.ref)).toBe(false); expect(api.lockLocalSalonDraft).not.toHaveBeenCalled();
 });
@@ -92,7 +92,7 @@ test('saved inputs require an explicit restore and submission-context permission
 test('autosave cannot overwrite a saved original until it is explicitly restored', async () => {
   current = sample(6); const view = mount();
   await waitFor(() => expect(screen.getByRole('button', { name: '端末の下書きを復元' })).toBeEnabled());
-  const button = screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' });
+  const button = screen.getByRole('button', { name: '自動保存を始める' });
   expect(button).toBeDisabled(); fireEvent.click(button);
   expect(api.saveLocalSalonDraft).not.toHaveBeenCalled();
   expect(current?.revision).toBe(6);
@@ -113,7 +113,7 @@ test('a locked draft after reopening cannot restore, opt in or be unlocked by de
   current = sample(6, 'locked'); const view = mount();
   await waitFor(() => expect(screen.getByText(/送信に使用した下書きです/)).toBeInTheDocument());
   expect(screen.getByRole('button', { name: '端末の下書きを復元' })).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: '自動保存を始める' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: '端末の下書きを削除' }));
   await waitFor(() => expect(api.clearLocalSalonDraft).toHaveBeenCalledWith(6));
   expect(await before(view.ref)).toBe(false); expect(view.onRestore).not.toHaveBeenCalled();
@@ -142,7 +142,7 @@ test('a known pretransport retry accepts only the same fenced original input', a
 test('an unavailable database leaves opt-in disabled and initial opted-off submission usable', async () => {
   api.readLocalSalonDraft.mockRejectedValue(new SalonLocalDraftError('unavailable')); const view = mount();
   await waitFor(() => expect(screen.getByText(/端末の下書きを保存・確認できませんでした/)).toBeInTheDocument());
-  expect(screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: '自動保存を始める' })).toBeDisabled();
   expect(await before(view.ref)).toBe(true);
 });
 test('an explicit never-committed rejection permits a corrected own payload while preserving the lock', async () => {
@@ -206,8 +206,8 @@ test('no saved draft does not open the folded controls', async () => {
 });
 test('a save failure asks the caller to reveal the controls', async () => {
   const onAttention = jest.fn(); mount({ onAttention }); api.saveLocalSalonDraft.mockRejectedValue(new SalonLocalDraftError('storage'));
-  await waitFor(() => expect(screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' })).toBeEnabled());
-  fireEvent.click(screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: '自動保存を始める' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '自動保存を始める' }));
   await waitFor(() => expect(onAttention).toHaveBeenCalledTimes(1));
 });
 test('buttons are full-size controls and the destructive one is styled apart', async () => {
