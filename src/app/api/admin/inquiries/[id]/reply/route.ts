@@ -9,6 +9,8 @@ import { writeAuditLog } from '@/lib/audit-logger';
 import { buildInquiryReplyEnvelope, deliverInquiryReply, reconcileInquiryReply } from '@/lib/email';
 import { inquiryReplyEnvelopeSchema, type InquiryReplyEnvelope } from '@/lib/inquiry-reply-delivery';
 import { authUnavailable, serverError, withRoute } from '@/lib/with-route';
+import { runAfterResponse } from '@/lib/after-response';
+import { sendNotify } from '@/lib/notify';
 
 const IDEMPOTENCY_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
 // The provider keeps an idempotency key for 24 hours. Closing an unknown
@@ -322,6 +324,14 @@ async function recordAcceptance(service: ReturnType<typeof createServiceRoleClie
   }
 
   const ticketUpdated = await updateTicketAfterReply(service, reply.contact_id);
+  runAfterResponse(async () => {
+    try {
+      const result = await sendNotify({ type: 'contact_reply_sent', data: { contact_id: reply.contact_id } });
+      if (!result.ok) console.error('[inquiry-reply] Slack notification failed');
+    } catch {
+      console.error('[inquiry-reply] Slack notification failed');
+    }
+  });
   void writeAuditLog({
     userId: adminId,
     action: 'create',
