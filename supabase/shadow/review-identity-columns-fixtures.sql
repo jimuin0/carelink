@@ -38,9 +38,13 @@ INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
  ('fa920000-0000-4000-8000-000000000001','review-identity-owner@example.invalid',now()),
  ('fa920000-0000-4000-8000-000000000002','review-identity-author@example.invalid',now());
 INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES
- ('fa920001-0000-4000-8000-000000000001','Synthetic identity','synthetic-review-identity','その他','検証県','検証市','検証住所','published');
+ ('fa920001-0000-4000-8000-000000000001','Synthetic identity','synthetic-review-identity','その他','検証県','検証市','検証住所','draft');
 INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
  ('fa920000-0000-4000-8000-000000000001','fa920001-0000-4000-8000-000000000001','owner');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('fa920001-0000-4000-8000-000000000001' , 'fa920000-0000-4000-8000-000000000001');
+UPDATE public.facility_profiles SET status='published' WHERE id IN ('fa920001-0000-4000-8000-000000000001');
+
 SET LOCAL ROLE service_role;
 -- flag_reason is written directly (not through the cron) only to have a value
 -- to probe; the assertion is about the column privilege, not about flagging.

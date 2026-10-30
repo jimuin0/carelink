@@ -93,6 +93,21 @@ describe('下書き・バックアップ欄', () => {
 });
 
 describe('ステップの切り替え', () => {
+  test('医療機関を選ぶと複数の診療科を選べ、次の画面から戻っても保持する', async () => {
+    await mount(); fillStep1();
+    const select = screen.getByLabelText(/^業種/) as HTMLSelectElement;
+    expect(screen.queryByLabelText('耳鼻咽喉科')).not.toBeInTheDocument();
+    fireEvent.change(select, { target: { value: 'その他の医療機関' } });
+    fireEvent.click(screen.getByLabelText('耳鼻咽喉科'));
+    fireEvent.click(screen.getByLabelText('内科'));
+    fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+    await screen.findByLabelText(/^郵便番号/);
+    fireEvent.click(screen.getByRole('button', { name: '戻る' }));
+    expect(await screen.findByLabelText(/^業種/)).toHaveValue('内科');
+    expect(screen.getByLabelText('耳鼻咽喉科')).toBeChecked();
+    expect(screen.getByLabelText('内科')).toBeChecked();
+  });
+
   test('「次へ」「戻る」で現在のステップ表示へスクロールし、フォーカスを移す', async () => {
     await mount(); fillStep1();
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));

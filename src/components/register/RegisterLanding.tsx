@@ -93,7 +93,7 @@ const ICON_PATHS: Record<'calendar' | 'card' | 'people' | 'list', string> = {
 const STEPS = [
   { n: '01', title: '基本情報を入力', body: '店舗名・業種・連絡先などを入力' },
   { n: '02', title: 'アカウントを作成', body: '登録内容を確認して管理画面へ進む' },
-  { n: '03', title: '掲載を準備', body: `${LISTING_PUBLISH_ITEMS}を設定して無料掲載を公開。ネット予約の設定は別に行います` },
+  { n: '03', title: '掲載を準備', body: `管理画面で確認書類を提出し、${LISTING_PUBLISH_ITEMS}を設定。運営の確認後に無料掲載を公開できます` },
 ];
 
 /**
@@ -294,7 +294,7 @@ export default function RegisterLanding({ listingAreas = [] }: { listingAreas?: 
               </div>
               <div className="py-5">
                 <dt className="font-medium">受付が完了したら、すぐに公開されますか？</dt>
-                <dd className="mt-2 leading-relaxed">受付完了と一般公開は別の手続きです。アカウントを作成し、管理画面で設定して掲載公開してください。{LISTING_PUBLISH_REQUIREMENT}無料掲載にメニュー・スタッフの登録は必須ではありません。{REGISTER_PHOTO_REQUIREMENT}ネット予約はメニュー・スタッフ等の設定完了まで利用できません。</dd>
+                <dd className="mt-2 leading-relaxed">受付完了と一般公開は別の手続きです。アカウント作成後、管理画面の施設設定から店舗確認書類を提出してください。運営が店舗情報と申請者の管理権限を確認した後、店舗情報を設定して掲載を公開できます。{LISTING_PUBLISH_REQUIREMENT}無料掲載にメニュー・スタッフの登録は必須ではありません。{REGISTER_PHOTO_REQUIREMENT}ネット予約はメニュー・スタッフ等の設定完了まで利用できません。</dd>
               </div>
               <div className="py-5">
                 <dt className="font-medium">複数店舗はどのように登録しますか？</dt>

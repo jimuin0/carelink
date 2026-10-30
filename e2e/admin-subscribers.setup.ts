@@ -1,3 +1,4 @@
+import { approveSyntheticListing } from './listing-verification-fixture';
 // オーナーのサブスク契約者ステータス変更 E2E のセットアップ。
 // 1) CI の隔離 Supabase に service role でオーナー＋施設＋owner権限＋プラン＋契約者
 //    （customer user + その店舗での予約 + アクティブな user_subscription）を seed。
@@ -31,7 +32,7 @@ setup('provision owner with an active subscriber', async ({ page }) => {
   // 公開施設
   const { data: fac, error: fe } = await sb.from('facility_profiles').insert({
     name: `E2E契約者店舗_${ts}`, slug: `e2e-subs-${ts}`, business_type: 'ヘアサロン',
-    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'published',
+    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'draft',
   }).select('id').single();
   if (fe) throw new Error('seed facility: ' + fe.message);
   const facilityId = fac.id as string;
@@ -43,6 +44,7 @@ setup('provision owner with an active subscriber', async ({ page }) => {
   if (oe) throw new Error('seed owner: ' + oe.message);
   const { error: me } = await sb.from('facility_members').insert({ user_id: ow.user.id, facility_id: facilityId, role: 'owner' });
   if (me) throw new Error('seed member: ' + me.message);
+  await approveSyntheticListing(sb, facilityId, ow.user.id);
 
   // 契約者になる来院者ユーザー
   const subscriberEmail = `e2e-subscriber-${ts}@example.invalid`;

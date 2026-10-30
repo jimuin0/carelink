@@ -1,5 +1,6 @@
 """Real PG17 favorite toggle races in a disposable database only."""
 import json, os, queue, subprocess, sys, threading, time
+from pathlib import Path
 
 LOCAL = sys.argv[1:] == ['--local-shadow']
 if LOCAL:
@@ -78,7 +79,8 @@ def reset():
     sql(f"DELETE FROM public.favorites WHERE facility_id='{FACILITY}'; INSERT INTO auth.users(id,email) VALUES('{ACTOR}','favorite-race@example.invalid'),('{OTHER}','favorite-other@example.invalid') ON CONFLICT(id) DO NOTHING; UPDATE public.facility_profiles SET status='published' WHERE id='{FACILITY}';")
 def count(): return sql(f"SELECT count(*) FROM public.favorites WHERE facility_id='{FACILITY}'")
 try:
-    sql(f"INSERT INTO auth.users(id,email) VALUES('{ACTOR}','favorite-race@example.invalid'),('{OTHER}','favorite-other@example.invalid'); INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES('{FACILITY}','Synthetic favorite race','favorite-race-disposable','ヘアサロン','東京都','テスト市','テスト1','published');")
+    sql(f"INSERT INTO auth.users(id,email) VALUES('{ACTOR}','favorite-race@example.invalid'),('{OTHER}','favorite-other@example.invalid'); INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES('{FACILITY}','Synthetic favorite race','favorite-race-disposable','ヘアサロン','東京都','テスト市','テスト1','draft');")
+    sql(Path('supabase/shadow/listing-verification-setup.sql').read_text() + f"\nSELECT pg_temp.approve_synthetic_listing('{FACILITY}'); UPDATE public.facility_profiles SET status='published' WHERE id='{FACILITY}';")
     # Reproduce the old two-read/two-insert algorithm without modifying a live API.
     a=Session();b=Session()
     try:
@@ -120,4 +122,4 @@ try:
     assert sql("SELECT has_table_privilege('authenticated','public.favorites','SELECT')")=='t'
     print(json.dumps({'cases':RESULTS,'actual_lock_waiters':sum(x.get('actual_lock_waiters',0) for x in RESULTS)},indent=2))
 finally:
-    sql(f"DELETE FROM public.facility_profiles WHERE id='{FACILITY}'; DELETE FROM auth.users WHERE id IN ('{ACTOR}','{OTHER}');")
+    sql(f"DELETE FROM public.listing_verification_approval_documents WHERE facility_id='{FACILITY}'; DELETE FROM public.listing_verification_approvals WHERE facility_id='{FACILITY}'; DELETE FROM storage.objects WHERE bucket_id='listing-verification' AND name IN (SELECT object_path FROM public.listing_verification_documents WHERE facility_id='{FACILITY}'); DELETE FROM public.listing_verification_documents WHERE facility_id='{FACILITY}'; DELETE FROM public.facility_profiles WHERE id='{FACILITY}'; DELETE FROM auth.users WHERE id IN ('{ACTOR}','{OTHER}');")

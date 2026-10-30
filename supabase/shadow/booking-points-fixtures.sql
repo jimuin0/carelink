@@ -58,6 +58,8 @@ INSERT INTO public.staff_schedules(staff_id,day_of_week,start_time,end_time) VAL
  ('fc160000-0000-4000-8000-000000000001',1,'09:00','17:00');
 INSERT INTO public.facility_photos(facility_id,photo_url,photo_type)
  VALUES('fc120000-0000-4000-8000-000000000001','https://example.invalid/points.jpg','other');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('fc120000-0000-4000-8000-000000000001','fc110000-0000-4000-8000-000000000001');
 UPDATE public.facility_profiles SET status='published',business_hours='{"mon":{"open":"09:00","close":"17:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}'
  WHERE id='fc120000-0000-4000-8000-000000000001';
 CREATE FUNCTION pg_temp.fail_full_menu() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN

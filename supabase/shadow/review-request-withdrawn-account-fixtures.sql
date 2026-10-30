@@ -40,7 +40,11 @@ UPDATE public.profiles SET email_unsubscribed=true WHERE id IN ('cf210000-0000-4
 -- authenticated は profiles の全列を本人行について書き換えられる（PostgREST の PATCH と同じ結果を直接作る）。
 UPDATE public.profiles SET email='victim-guest@example.invalid',email_unsubscribed=true WHERE id='cf210000-0000-4000-8000-00000000000c';
 INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES
- ('cf220000-0000-4000-8000-000000000001','Withdrawn review clinic','withdrawn-review-clinic','その他','検証県','検証市','検証住所','published');
+ ('cf220000-0000-4000-8000-000000000001','Withdrawn review clinic','withdrawn-review-clinic','その他','検証県','検証市','検証住所','draft');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('cf220000-0000-4000-8000-000000000001');
+UPDATE public.facility_profiles SET status='published' WHERE id IN ('cf220000-0000-4000-8000-000000000001');
+
 INSERT INTO public.newsletter_subscriptions(email,subscription_type,is_active,unsubscribed_at,source) VALUES
  ('opted-out-guest@example.invalid','all',false,now(),'unsubscribe');
 INSERT INTO public.newsletter_subscriptions(email,subscription_type,is_active) VALUES

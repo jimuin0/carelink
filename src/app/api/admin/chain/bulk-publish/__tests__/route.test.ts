@@ -204,6 +204,14 @@ test('POST: suspended retirement state cannot be reopened by a stale batch', asy
   expect(response.status).toBe(409);
   expect(writeAuditLog).not.toHaveBeenCalled();
 });
+test('POST: 未審査の店舗があれば一括公開の失敗を確認待ちとして返す', async () => {
+  setupSuccess();
+  mockAdminRpc.mockResolvedValue({ data:null,error:{ code:'23514',message:'"published_listing_verification_required"' } });
+  const response = await POST(makeRequest(validBody()));
+  expect(response.status).toBe(409);
+  expect((await response.json()).error).toContain('確認が完了していない');
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
 test.each([null, [], 'invalid', { facility_ids:[FACILITY_A,FACILITY_A],is_published:true }])('POST: malformed/duplicate input %j does not write', async body => {
   expect((await POST(makeRequest(body as never))).status).toBe(400);
   expect(mockAdminFrom).not.toHaveBeenCalled();

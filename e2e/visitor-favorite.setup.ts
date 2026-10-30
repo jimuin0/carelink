@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
 import { VISITOR_FAVORITE_AUTH_FILE, VISITOR_FAVORITE_FACILITY_FILE } from './visitor-favorite.fixtures';
+import { approveSyntheticListing } from './listing-verification-fixture';
 
 // supabase-js v2 は Node 20 で createClient 時に WebSocket を要求し throw する。realtime 非接続のためダミー。
 if (!globalThis.WebSocket) {
@@ -24,11 +25,12 @@ setup('provision visitor and a published facility', async ({ page }) => {
   const slug = `e2e-fav-${ts}`;
 
   // 公開施設（お気に入り対象。/api/favorites は status='published' のみ受理）
-  const { error: fe } = await sb.from('facility_profiles').insert({
+  const { data: fac, error: fe } = await sb.from('facility_profiles').insert({
     name: `E2Eお気に入り店舗_${ts}`, slug, business_type: 'ヘアサロン',
-    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'published',
-  });
-  if (fe) throw new Error('seed facility: ' + fe.message);
+    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'draft',
+  }).select('id').single();
+  if (fe || !fac) throw new Error('seed facility: ' + fe?.message);
+  await approveSyntheticListing(sb, fac.id);
 
   // 来院者ユーザー
   const { error: ce } = await sb.auth.admin.createUser({

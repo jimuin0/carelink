@@ -197,6 +197,12 @@ describe('searchFacilities', () => {
     await searchFacilities({ type: 'ヘアサロン' });
     expect(chain.eq).toHaveBeenCalledWith('business_type', 'ヘアサロン');
   });
+  test('診療科の通常検索は主業種または追加診療科に一致させる', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ type: '耳鼻咽喉科' });
+    expect(chain.or).toHaveBeenCalledWith('business_type.eq."耳鼻咽喉科",medical_specialties.cs.{"耳鼻咽喉科"}');
+  });
 
   test('都道府県フィルタ', async () => {
     const chain = fluent({ data: [], count: 0, error: null });
@@ -940,6 +946,11 @@ describe('getAvailableAreasAndTypes', () => {
       'status',
       'published',
     );
+  });
+
+  test('主診療科と追加診療科を検索候補に含め、重複を除く',async()=>{
+    mockFrom.mockReturnValue(eqTerminal({ data:[{ prefecture:'大阪府',business_type:'内科',medical_specialties:['内科','耳鼻咽喉科'] }],error:null }));
+    expect((await getAvailableAreasAndTypes()).types).toEqual(['内科','耳鼻咽喉科']);
   });
 
   test('null・空文字はリンク先が壊れるため候補から除外する', async () => {

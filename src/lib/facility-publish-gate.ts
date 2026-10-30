@@ -22,6 +22,11 @@ export function isPublishedLocationConflict(error: unknown): boolean {
   return isPublishedInvariantConflict(error, 'published_facility_location_present');
 }
 
+/** Final DB check covers individual and bulk publication under the row lock. */
+export function isListingVerificationConflict(error: unknown): boolean {
+  return isPublishedInvariantConflict(error, 'published_listing_verification_required');
+}
+
 /**
  * 公開（下書き・休止から公開へ）か、公開中の営業時間の変更で、曜日別の営業時間が確認済みでないと
  * DB（update_facility_settings_atomic / set_facilities_publication_atomic・migration 20261023170000）が

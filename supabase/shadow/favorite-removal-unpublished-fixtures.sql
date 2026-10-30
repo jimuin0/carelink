@@ -53,9 +53,15 @@ END $$;
 INSERT INTO auth.users(id, email) VALUES
   ('fa7f0000-0000-4000-8000-000000000001', 'favorite-removal@example.invalid');
 INSERT INTO public.facility_profiles(id, name, slug, business_type, prefecture, city, address, status) VALUES
-  ('fa7f0001-0000-4000-8000-000000000001', 'Synthetic favorite published', 'synthetic-favorite-published', 'その他', '検証県', '検証市', '検証住所', 'published'),
-  ('fa7f0001-0000-4000-8000-000000000002', 'Synthetic favorite draft', 'synthetic-favorite-draft', 'その他', '検証県', '検証市', '検証住所', 'published'),
-  ('fa7f0001-0000-4000-8000-000000000003', 'Synthetic favorite suspended', 'synthetic-favorite-suspended', 'その他', '検証県', '検証市', '検証住所', 'published');
+  ('fa7f0001-0000-4000-8000-000000000001', 'Synthetic favorite published', 'synthetic-favorite-published', 'その他', '検証県', '検証市', '検証住所', 'draft'),
+  ('fa7f0001-0000-4000-8000-000000000002', 'Synthetic favorite draft', 'synthetic-favorite-draft', 'その他', '検証県', '検証市', '検証住所', 'draft'),
+  ('fa7f0001-0000-4000-8000-000000000003', 'Synthetic favorite suspended', 'synthetic-favorite-suspended', 'その他', '検証県', '検証市', '検証住所', 'draft');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('fa7f0001-0000-4000-8000-000000000001');
+SELECT pg_temp.approve_synthetic_listing('fa7f0001-0000-4000-8000-000000000002');
+SELECT pg_temp.approve_synthetic_listing('fa7f0001-0000-4000-8000-000000000003');
+UPDATE public.facility_profiles SET status='published' WHERE id IN ('fa7f0001-0000-4000-8000-000000000001','fa7f0001-0000-4000-8000-000000000002','fa7f0001-0000-4000-8000-000000000003');
+
 
 SET LOCAL ROLE service_role;
 -- The customer favorites all three while they are published.

@@ -30,16 +30,13 @@ import { normalizePostalCodeInput, normalizeWebsiteInput } from '@/lib/register-
 import { LISTING_PUBLISH_ITEMS, REGISTER_PHOTO_FIELD_NOTE } from '@/lib/register-photo-policy';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import { medicalBusinessTypes } from '@/lib/medical-business-types';
+import MedicalSpecialtyPicker from '@/components/register/MedicalSpecialtyPicker';
 import { LICENSE_WARRANTY_TEXT } from '@/lib/registration-consent';
 import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
-const registrationBusinessTypes = [
-  ...businessTypes.filter(type => !medicalBusinessTypes.includes(type) && type !== 'その他'),
-  ...businessTypes.filter(type => medicalBusinessTypes.includes(type)),
-  ...businessTypes.filter(type => type === 'その他'),
-];
+const nonMedicalBusinessTypes = businessTypes.filter(type => !medicalBusinessTypes.includes(type) && type !== 'その他');
 
 // 「駐車場あり」は専用のチェックボックス（has_parking）があるので、こだわりチップからは外す
 // （同じ意味の入力が 2 つ並んでいた）。検索の絞り込みは features 配列を見るため、
@@ -79,7 +76,7 @@ const emptySalonValues: SalonFormValues = {
   email: '', phone: '', contact_phone: '', website: '',
   postal_code: '', address: '', prefecture: null, city: null, building_name: '', nearest_station: '',
   business_hours: '', regular_holiday: '', seat_count: null, staff_count: null,
-  has_parking: false, features: [],
+  has_parking: false, features: [], medical_specialties: [],
   pr_text: '', desired_start_date: '',
 };
 
@@ -189,6 +186,8 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   });
 
   const prText = useWatch({ control, name: 'pr_text' }) || '';
+  const selectedBusinessType = useWatch({ control, name: 'business_type' }) || '';
+  const selectedSpecialties = useWatch({ control, name: 'medical_specialties' }) || [];
   const postalCode = useWatch({ control, name: 'postal_code' }) || '';
   const selectedFeatures = useWatch({ control, name: 'features' }) || [];
   const representativeName = useWatch({ control, name: 'representative_name' }) || '';
@@ -664,7 +663,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       for (const field of Object.keys(salonFullSchema.shape) as (keyof SalonFormValues)[]) {
         if (values[field] === undefined || values[field] === null) {
           if (!['prefecture', 'city', 'seat_count', 'staff_count'].includes(field)) {
-            Object.assign(values, { [field]: field === 'features' ? [] : field === 'has_parking' ? false : '' });
+            Object.assign(values, { [field]: field === 'features' || field === 'medical_specialties' ? [] : field === 'has_parking' ? false : '' });
           }
         }
       }
@@ -841,14 +840,27 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               <div>
                 <label htmlFor="reg-business-type" className="form-label">業種 <span className="text-red-600">*</span></label>
                 <div className="relative">
-                  <select {...register('business_type')} id="reg-business-type" className="form-input appearance-none pr-10" aria-required="true" {...describe('business_type', 'reg-business-type')}>
+                  <select {...register('business_type')} id="reg-business-type" className="form-input appearance-none pr-10" aria-required="true" {...describe('business_type', 'reg-business-type')}
+                    onChange={event => {
+                      void register('business_type').onChange(event);
+                      if (!medicalBusinessTypes.includes(event.target.value)) setValue('medical_specialties', [], { shouldDirty:true });
+                    }}>
                     <option value="">選択してください</option>
-                    {registrationBusinessTypes.map(t => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
+                    {nonMedicalBusinessTypes.map(t => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
+                    <option value="その他の医療機関">医療機関</option>
+                    {medicalBusinessTypes.filter(type => type !== 'その他の医療機関').map(type =>
+                      <option key={type} value={type} hidden>医療機関</option>)}
+                    <option value="その他">その他</option>
                   </select>
                   {chevron}
                 </div>
                 {fieldError('business_type', 'reg-business-type')}
-                <p className="mt-1 text-xs text-gray-500">医療機関は主な診療科（耳鼻咽喉科・内科など）を選択してください。複数の診療科がある場合は病院・診療所の区分を選び、紹介文に診療科を記載できます。</p>
+                {medicalBusinessTypes.includes(selectedBusinessType) && <div className="mt-3">
+                  <MedicalSpecialtyPicker value={selectedSpecialties} onChange={values => {
+                    setValue('medical_specialties', values, { shouldDirty:true,shouldValidate:true });
+                    setValue('business_type', values[0] || 'その他の医療機関', { shouldDirty:true,shouldValidate:true });
+                  }} />
+                </div>}
               </div>
               {/* PC・iPad では対になる項目を横に並べる。縦一列のままだと画面が広いほど
                   間延びして、入力の終わりが見えない（実機の 1440px / 834px で確認）。 */}
@@ -1101,7 +1113,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
         title="登録内容を送信しますか？"
         // 受付と一般公開は別の手続き（/register の FAQ・受付メールと同じ事実を書く）。以前は
         // 「すぐに掲載を開始できます」と書いており、送信すれば公開されると誤解させていた。
-        message={`送信後、続けて店舗アカウントを作成すると、入力内容（営業時間・写真・特徴・PRなど）が管理画面に引き継がれます。一般公開は、管理画面で${LISTING_PUBLISH_ITEMS}を設定して公開の操作をした後に始まります（送信しただけでは公開されません）。`}
+        message={`送信後、店舗アカウントを作成すると入力内容が管理画面に引き継がれます。公開には、施設設定からの確認書類の提出と運営の確認、および${LISTING_PUBLISH_ITEMS}の設定が必要です。申込を送信しただけでは公開されません。`}
         confirmLabel="送信する"
         cancelLabel="戻る"
         confirmDisabled={submitting || submissionUnknown || submissionConfirmed || draftBusy || (restoredNeedsReview && !restoredUnsentAcknowledged)}

@@ -15,6 +15,8 @@ INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,
 ('e2000000-0000-4000-8000-000000000002','Other synthetic','event-other','その他','検証県','検証市','検証住所','draft',NULL);
 INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
 ('e1000000-0000-4000-8000-000000000001','e2000000-0000-4000-8000-000000000001','owner');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('e2000000-0000-4000-8000-000000000001','e1000000-0000-4000-8000-000000000001');
 INSERT INTO public.bookings(id,facility_id,booking_date,start_time,end_time,customer_name,email,status,updated_at) VALUES
 ('e4000000-0000-4000-8000-000000000001','e2000000-0000-4000-8000-000000000001','2030-01-07','10:00','11:00','Synthetic','event@example.invalid','pending','2026-10-01T00:00:00Z'),
 ('e4000000-0000-4000-8000-000000000002','e2000000-0000-4000-8000-000000000001','2030-01-07','11:00','12:00','Synthetic',NULL,'confirmed','2026-10-01T00:00:00Z');
@@ -119,6 +121,7 @@ RESET ROLE;
 INSERT INTO auth.users(id,email,email_confirmed_at) VALUES('e1000000-0000-4000-8000-000000000002','retiring@example.invalid',now());
 INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
  ('e1000000-0000-4000-8000-000000000002','e2000000-0000-4000-8000-000000000002','owner');
+SELECT pg_temp.approve_synthetic_listing('e2000000-0000-4000-8000-000000000002','e1000000-0000-4000-8000-000000000002');
 UPDATE public.facility_profiles SET status='published' WHERE id='e2000000-0000-4000-8000-000000000002';
 DELETE FROM auth.users WHERE id='e1000000-0000-4000-8000-000000000002';
 SELECT pg_temp.assert_event((SELECT status='suspended' FROM public.facility_profiles

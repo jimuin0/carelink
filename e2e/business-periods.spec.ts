@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { approveSyntheticListing } from './listing-verification-fixture';
 
 // This acceptance test creates synthetic data only inside the disposable CI DB.
 test.beforeAll(() => {
@@ -25,6 +26,7 @@ test('owner saves, reloads and publishes split, night, early and all-day hours i
   expect((await db.from('facility_profiles').insert({ id, name: '合成営業時間検証', slug, business_type: 'その他',
     prefecture: '愛知県', city: '西尾市', address: '合成町1', status: 'draft', business_hours: closed })).error).toBeNull();
   expect((await db.from('facility_members').insert({ facility_id: id, user_id: identity.data.user!.id, role: 'owner' })).error).toBeNull();
+  await approveSyntheticListing(db,id,identity.data.user!.id,false);
   await page.goto(`/auth/login?redirect=${encodeURIComponent(`/admin/settings?facility_id=${id}`)}`);
   await page.getByRole('button', { name: '必須のみ', exact: true }).click();
   await page.fill('#login-email', email); await page.fill('#login-password', password);

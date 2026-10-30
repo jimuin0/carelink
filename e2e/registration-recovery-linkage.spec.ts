@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { seedSyntheticSalonHistory } from './synthetic-salon-history';
 import { observeFacilitySetup } from './facility-setup-observer';
 
@@ -142,7 +143,7 @@ test('Auth unavailable 503 -> no logout -> explicit retry reads original receipt
   expect(members.error).toBeNull(); expect(members.data).toEqual([]);
 });
 
-test('expired handoff -> verified recovery -> one draft -> listing without online booking', async ({ page }, info) => {
+test('expired handoff -> verified recovery -> one draft -> listing without online booking', async ({ page, browser }, info) => {
   // This verifies Auth, three navigations, creation, publication and booking readiness.
   // Two full store setups each wait for the real /admin dashboard document; on the single CI
   // worker one attempt spent its whole 60s budget with /admin already committed and still
@@ -150,6 +151,9 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   // salon-legacy-resume); every assertion and wait condition is unchanged.
   test.setTimeout(90000);
   await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${160 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
+  // APIRequestContext does not inherit page-level headers. Give these isolated
+  // API checks their own test IP, so other tests cannot consume their quota.
+  const apiHeaders = { Origin:'https://localhost:3000', 'x-real-ip':'2001:db8:' + randomUUID().replace(/-/g,'').match(/.{1,4}/g)!.slice(0,6).join(':') };
   const db = localDb(); const owner = await identity(db);
   const name = `復旧掲載 ${randomUUID()}`; const id = await receipt(db, owner.email, name);
   const expired = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
@@ -196,16 +200,43 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   expect(photos.error).toBeNull(); expect(photos.data).toEqual([]);
   // Real authorized status API. Free listing needs saved business hours (2026-10-23), but no menu/staff/photo.
   const statusUrl = `/api/admin/settings?facility_id=${created.facilityId}&action=status`;
-  const withoutHours = await page.request.patch(statusUrl, { headers: { Origin: 'https://localhost:3000' }, data: { status: 'published' } });
+  const withoutHours = await page.request.patch(statusUrl, { headers: apiHeaders, data: { status: 'published' } });
   expect(withoutHours.status()).toBe(400);
   expect((await withoutHours.json()).missing).toEqual(['全曜日の営業時間・定休日を確認して保存してください']);
   const day = { open: '10:00', close: '19:00' };
   const savedHours = await page.request.patch(`/api/admin/settings?facility_id=${created.facilityId}`, {
-    headers: { Origin: 'https://localhost:3000' },
+    headers: apiHeaders,
     data: { name, business_hours: { mon: day, tue: day, wed: null, thu: day, fri: day, sat: day, sun: null } },
   });
   expect(savedHours.status()).toBe(200);
-  const published = await page.request.patch(statusUrl, { headers: { Origin: 'https://localhost:3000' }, data: { status: 'published' } });
+  const unverified = await page.request.patch(statusUrl, { headers:apiHeaders,data:{ status:'published' } });
+  expect(unverified.status()).toBe(409);
+  await page.goto(`/admin/settings?facility_id=${created.facilityId}`);
+  await page.getByLabel('書類の種類').selectOption('lease');
+  await page.getByLabel(/書類のファイル/).setInputFiles({ name:'synthetic.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-synthetic') });
+  await page.getByRole('button',{ name:'書類を提出する' }).click();
+  await expect(page.getByText(/書類を受け付けました/)).toBeVisible();
+  const operator=await identity(db,true);
+  const operatorContext=await browser.newContext({ baseURL:'https://localhost:3000',ignoreHTTPSErrors:true });
+  try {
+    const operatorPage=await operatorContext.newPage();
+    await login(operatorPage,operator,'/admin/registrations');
+    const card=operatorPage.locator('div.bg-white.rounded-xl').filter({ hasText:name }).first();
+    await expect(card).toBeVisible();
+    await card.getByRole('button',{ name:'店舗確認書類を読み込む' }).click();
+    const download=card.getByRole('link',{ name:'書類を開く' });
+    await expect(download).toBeVisible();
+    const [evidence]=await Promise.all([operatorPage.waitForEvent('download'),download.click()]);
+    const evidencePath=await evidence.path();
+    expect(evidencePath).not.toBeNull();
+    expect((await readFile(evidencePath!)).toString()).toBe('%PDF-synthetic');
+    await card.getByLabel('店舗の賃貸借契約書・使用契約書').check();
+    await card.getByLabel('書類と店舗情報を照合しました').check();
+    await card.getByLabel('申請者の管理権限を確認しました').check();
+    await card.getByRole('button',{ name:'確認を記録する' }).click();
+    await expect(card.getByText(/確認を記録しました/)).toBeVisible();
+  } finally { await operatorContext.close(); }
+  const published = await page.request.patch(statusUrl, { headers: apiHeaders, data: { status: 'published' } });
   expect(published.status()).toBe(200);
   await page.goto(`/search?area=${encodeURIComponent('愛知県')}&keyword=${encodeURIComponent(name)}`);
   await expect(page.locator(`a[href="/facility/${created.slug}"]`).first()).toBeVisible();

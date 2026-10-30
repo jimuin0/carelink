@@ -33,11 +33,14 @@ INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
 UPDATE public.profiles SET role='admin' WHERE id='f8500000-0000-4000-8000-000000000002';
 UPDATE public.profiles SET is_platform_admin=true WHERE id='f8500000-0000-4000-8000-000000000003';
 INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status,business_hours) VALUES
- ('f8510000-0000-4000-8000-000000000001','Synthetic photo A','modphoto-a','その他','検証県','検証市','検証住所','published','{"mon":{"open":"09:00","close":"18:00"},"tue":{"open":"09:00","close":"18:00"},"wed":{"open":"09:00","close":"18:00"},"thu":{"open":"09:00","close":"18:00"},"fri":{"open":"09:00","close":"18:00"},"sat":null,"sun":null}'),
+ ('f8510000-0000-4000-8000-000000000001','Synthetic photo A','modphoto-a','その他','検証県','検証市','検証住所','draft','{"mon":{"open":"09:00","close":"18:00"},"tue":{"open":"09:00","close":"18:00"},"wed":{"open":"09:00","close":"18:00"},"thu":{"open":"09:00","close":"18:00"},"fri":{"open":"09:00","close":"18:00"},"sat":null,"sun":null}'),
  ('f8510000-0000-4000-8000-000000000002','Synthetic photo B','modphoto-b','その他','検証県','検証市','検証住所','draft',NULL),
  ('f8510000-0000-4000-8000-000000000003','Synthetic cascade','modphoto-c','その他','検証県','検証市','検証住所','draft',NULL);
 INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
  ('f8500000-0000-4000-8000-000000000001','f8510000-0000-4000-8000-000000000001','owner');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('f8510000-0000-4000-8000-000000000001','f8500000-0000-4000-8000-000000000001');
+UPDATE public.facility_profiles SET status='published' WHERE id='f8510000-0000-4000-8000-000000000001';
 INSERT INTO public.facility_photos(id,facility_id,photo_url,photo_type) VALUES
  ('f8520000-0000-4000-8000-000000000001','f8510000-0000-4000-8000-000000000001','https://example.invalid/a1.png','main'),
  ('f8520000-0000-4000-8000-000000000002','f8510000-0000-4000-8000-000000000001','https://example.invalid/a2.png','interior'),

@@ -269,6 +269,14 @@ test('settings cannot publish an ownerless facility', async () => {
   expect((await PATCH(makePatchRequest({ status:'published' },{ facility_id:FACILITY_UUID,action:'status' }))).status).toBe(409);
   expect(writeAuditLog).not.toHaveBeenCalled();
 });
+test('未審査の施設は公開できず、確認待ちと表示する', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id:FACILITY_UUID }));
+  publishMocks(); mockAdminRpc.mockResolvedValue({ data:null,error:{ code:'23514',message:'"published_listing_verification_required"' } });
+  const response = await PATCH(makePatchRequest({ status:'published' },{ facility_id:FACILITY_UUID,action:'status' }));
+  expect(response.status).toBe(409);
+  expect((await response.json()).error).toContain('管理権限の確認');
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
 test('auth error alongside a user is not usable authorization', async () => {
   mockGetUser.mockResolvedValue({ data:{ user:{ id:USER_ID } },error:{ message:'08006' } });
   expect((await PATCH(makePatchRequest())).status).toBe(503); expect(mockAdminRpc).not.toHaveBeenCalled();
@@ -458,6 +466,24 @@ test('PATCH: 正常更新 → 200 ok:true', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
+});
+
+test('PATCH: 複数診療科を施設設定と同一の権限付き処理で保存する', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const response=await PATCH(makePatchRequest({ name:'合成施設',business_type:'内科',medical_specialties:['内科','耳鼻咽喉科'] }));
+  expect(response.status).toBe(200);
+  expect(mockAdminRpc).toHaveBeenCalledWith('update_facility_settings_with_specialties',expect.objectContaining({ p_specialties:['内科','耳鼻咽喉科'] }));
+  expect((await PATCH(makePatchRequest({ name:'合成施設',business_type:'ヘアサロン',medical_specialties:['内科'] }))).status).toBe(400);
+  expect((await PATCH(makePatchRequest({ name:'合成施設',medical_specialties:['内科'] }))).status).toBe(400);
+});
+
+test('PATCH: 公開中に確認対象の施設情報が変わる場合は非公開からの再確認を案内する', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id:FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain({ code:'23514',message:'"published_listing_verification_required"' }));
+  const response=await PATCH(makePatchRequest({ name:'変更後' }));
+  expect(response.status).toBe(409);
+  expect((await response.json()).error).toContain('先に非公開');
 });
 
 test('PATCH: DB更新失敗 → 500', async () => {

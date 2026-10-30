@@ -106,8 +106,9 @@ jobs:
     # 🔴 上限を明示する。GitHub の既定は 6 時間で、外部ダウンロードが停滞すると
     #   1 件のジョブがランナーを 6 時間占有する（2026年8月19日に E2E の
     #   "Install Playwright Browsers" が 5 時間 58 分ハングして実際に起きた）。
-    #   上限があれば早く赤くなり、再実行が数分で済む。
-    timeout-minutes: 30
+    #   取得先の制限で代替先に切り替えるまで約10分かかる場合もあるため、
+    #   全画面テストの実行時間を確保しつつ上限を維持する。
+    timeout-minutes: 60
     # Unit/Contract failures must still block merging, but cannot prevent this
     # independent fresh-apply/Storage gate from producing its evidence. In
     # particular, a new migration awaiting production introspection may fail
@@ -164,6 +165,10 @@ jobs:
         run: |
           for registry in ghcr.io public.ecr.aws docker.io; do
             for attempt in 1 2; do
+              # supabase stop may remove .temp after a failed pull. Reapply the
+              # same required pin before every fresh attempt, including mirrors.
+              mkdir -p supabase/.temp
+              printf '%s' 'v14.15' > supabase/.temp/rest-version
               if SUPABASE_INTERNAL_IMAGE_REGISTRY="$registry" supabase start; then
                 echo "SUPABASE_INTERNAL_IMAGE_REGISTRY=$registry" >> "$GITHUB_ENV"
                 exit 0

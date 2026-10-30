@@ -7,8 +7,15 @@
 import {
   checkBookingReadiness as checkPublishReadiness, checkPublishReadiness as checkListingReadiness, isPublishedLocationConflict,
   isPublishedHoursConflict, readWorkingStaff, summarizeWorkingStaff, workingStaffQuery, workingTimeMeetsBusinessHours,
-  bookableMenusQuery, shortestBookingMinutes,
+  bookableMenusQuery, shortestBookingMinutes, isListingVerificationConflict,
 } from '../facility-publish-gate';
+
+test('未審査の公開拒否だけを確認待ちとして区別する', () => {
+  expect(isListingVerificationConflict({ code: '23514', message: '"published_listing_verification_required"' })).toBe(true);
+  expect(isListingVerificationConflict({ code: '23514', message: 'other' })).toBe(false);
+  expect(isListingVerificationConflict({ code: '23505', message: '"published_listing_verification_required"' })).toBe(false);
+  expect(isListingVerificationConflict(null)).toBe(false);
+});
 
 test.each([null, undefined, false, '23514', {}, { code: '23514' },
   { code: '23514', message: null }, { code: '23514', message: 'another_constraint' },

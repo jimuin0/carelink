@@ -1,6 +1,7 @@
 // Synthetic PG17 transactions only. No provider calls, real recipients or business cleanup.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 const local = process.argv[2] === '--local-docker';
 const database = local ? (process.env.CARELINK_MENU_TEST_DB || 'carelink_shadow') : 'carelink_shadow';
 assert.match(database,/^carelink_shadow[a-z0-9_]*$/);
@@ -71,9 +72,10 @@ try {
  assert.equal(query("SELECT current_setting('server_version_num')::int/10000"),'17');
  assert.equal(query(`SELECT count(*) FROM auth.users WHERE id='${actor}'`),'0');
  query(`BEGIN; INSERT INTO auth.users(id,email,email_confirmed_at) VALUES('${actor}','menu-race@example.invalid',now());
- INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status,business_hours) VALUES('${facility}','Synthetic menu race','synthetic-menu-race','その他','検証県','検証市','検証住所','published',(SELECT jsonb_object_agg(n,jsonb_build_object('open','09:00','close','20:00')) FROM unnest(ARRAY['sun','mon','tue','wed','thu','fri','sat']) n));
+ INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status,business_hours) VALUES('${facility}','Synthetic menu race','synthetic-menu-race','その他','検証県','検証市','検証住所','draft',(SELECT jsonb_object_agg(n,jsonb_build_object('open','09:00','close','20:00')) FROM unnest(ARRAY['sun','mon','tue','wed','thu','fri','sat']) n));
  INSERT INTO public.facility_members(user_id,facility_id,role) VALUES('${actor}','${facility}','owner');
  INSERT INTO public.facility_menus(id,facility_id,category,name,sort_order) VALUES('${a}','${facility}','その他','A',0),('${b}','${facility}','その他','B',1); COMMIT;`); seeded=true;
+ query(`${readFileSync('supabase/shadow/listing-verification-setup.sql','utf8')}\nSELECT pg_temp.approve_synthetic_listing('${facility}','${actor}'); UPDATE public.facility_profiles SET status='published' WHERE id='${facility}';`);
  const deleted=await contend('two-deletes',`SELECT id FROM public.facility_profiles WHERE id='${facility}' FOR UPDATE`,[drop(a),drop(b)]);
  assert.ok(deleted.every(x=>x.status==='fulfilled'));
  assert.deepEqual(deleted.map(x=>x.value).sort(),['deleted','last_menu']);
@@ -101,5 +103,5 @@ try {
  console.log('menu concurrency: five actual lock overlaps; duplicate name and whitespace-equivalent name rejected by unique index; prior deletion/reorder/role checks retained');
 } finally {
  for(const child of children)child.kill('SIGTERM');
- if(seeded) query(`BEGIN; DELETE FROM public.facility_profiles WHERE id='${facility}'; DELETE FROM auth.users WHERE id='${actor}'; COMMIT;`);
+ if(seeded) query(`BEGIN; DELETE FROM public.listing_verification_approval_documents WHERE facility_id='${facility}'; DELETE FROM public.listing_verification_approvals WHERE facility_id='${facility}'; DELETE FROM storage.objects WHERE bucket_id='listing-verification' AND name IN (SELECT object_path FROM public.listing_verification_documents WHERE facility_id='${facility}'); DELETE FROM public.listing_verification_documents WHERE facility_id='${facility}'; DELETE FROM public.facility_profiles WHERE id='${facility}'; DELETE FROM auth.users WHERE id='${actor}'; COMMIT;`);
 }

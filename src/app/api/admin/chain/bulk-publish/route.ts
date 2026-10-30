@@ -11,7 +11,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { checkPublishReadiness, isPublishedHoursConflict, isPublishedLocationConflict } from '@/lib/facility-publish-gate';
+import { checkPublishReadiness, isListingVerificationConflict, isPublishedHoursConflict, isPublishedLocationConflict } from '@/lib/facility-publish-gate';
 import { serverError, authUnavailable } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
@@ -95,6 +95,7 @@ export async function POST(req: NextRequest) {
 
     if (error?.message.includes('FACILITY_PERMISSION_REVOKED')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     if (error?.message.includes('FACILITY_OWNER_REQUIRED')) return NextResponse.json({ error: '店舗所有者の確認が必要です。今回の変更は保存されていません。' }, { status: 409 });
+    if (isListingVerificationConflict(error)) return NextResponse.json({ error: '店舗の確認が完了していない施設があります。今回の一括更新は保存されていません。' }, { status: 409 });
     if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '所在地が変更された施設があります。今回の一括更新は保存されていません。所在地を確認してください。' }, { status: 409 });
     if (isPublishedHoursConflict(error)) return NextResponse.json({ error: '営業時間が変更された施設があります。今回の一括更新は保存されていません。営業時間を確認してください。' }, { status: 409 });
     if (error) return serverError('admin-chain-bulk-publish-update', error, '/api/admin/chain/bulk-publish');

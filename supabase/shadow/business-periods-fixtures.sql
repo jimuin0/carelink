@@ -15,6 +15,8 @@ INSERT INTO public.facility_profiles(id, name, slug, business_type, prefecture, 
  VALUES ('fe610000-0000-4000-8000-000000000001', 'Min overlap clinic', 'min-overlap-synthetic', 'その他', '検証県', '検証市', '検証住所', 'draft');
 INSERT INTO public.facility_members(user_id, facility_id, role)
  VALUES ('fe600000-0000-4000-8000-000000000001', 'fe610000-0000-4000-8000-000000000001', 'owner');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('fe610000-0000-4000-8000-000000000001','fe600000-0000-4000-8000-000000000001');
 -- Bookable: 60 minutes and unset (= 60, as the booking page reads it). A 15-minute draft does not count.
 INSERT INTO public.facility_menus(id, facility_id, category, name, price, duration_minutes, is_published) VALUES
  ('fe620000-0000-4000-8000-000000000001', 'fe610000-0000-4000-8000-000000000001', 'synthetic', 'Sixty', 3000, 60, true),

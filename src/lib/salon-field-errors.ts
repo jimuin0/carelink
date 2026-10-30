@@ -7,6 +7,7 @@ import { REGISTRATION_TERMS as T } from './registration-glossary';
 export const SALON_FIELD_MESSAGES = {
   facility_name: `${T.shopName}を1〜200文字で入力してください`,
   business_type: '一覧から業種を選択してください',
+  medical_specialties: '診療科の選択を確認してください',
   representative_name: '代表者名を1〜100文字で入力してください',
   contact_name: '担当者名を1〜100文字で入力してください',
   email: 'メールアドレスを確認してください（254文字以内）',

@@ -102,6 +102,7 @@ jobs:
         env:
           CARELINK_POINTS_UPGRADE_FIXTURE: '1'
           CARELINK_COUPON_UPGRADE_FIXTURE: '1'
+          CARELINK_LISTING_LEGACY_FIXTURE: '1'
         run: bash scripts/gen-schema-fingerprint.sh --check
 
       - name: Fingerprint literal changes and service-only ACL (disposable DB)
@@ -145,6 +146,9 @@ jobs:
 
       - name: Listing versus online booking, roles and midnight boundaries (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/listing-booking-fixtures.sql
+
+      - name: Private listing evidence and operator verification (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/listing-verification-fixtures.sql
 
       - name: Staff assignment for unnamed reservations and legacy unassigned capacity (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-staff-assignment-fixtures.sql
