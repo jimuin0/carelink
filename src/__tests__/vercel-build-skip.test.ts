@@ -47,11 +47,25 @@ describe('Vercel の配信スキップ判定', () => {
     return result.status;
   }
 
-  function previewDecision(version = initialSha.slice(0, 7), previousSha = ''): number | null {
+  function previewRun(version = initialSha.slice(0, 7), previousSha = '', compare?: unknown) {
+    rmSync(join(cwd, 'bin'), { recursive: true, force: true });
     mkdirSync(join(cwd, 'bin'));
     const curl = join(cwd, 'bin', 'curl');
-    writeFileSync(curl, '#!/bin/sh\nprintf \'{"version":"%s"}\\n\' "$MOCK_LIVE_VERSION"\n');
+    // The GitHub comparison answers only when a test provides one; otherwise it fails like a network error.
+    writeFileSync(curl, [
+      '#!/bin/sh',
+      'case "$*" in',
+      '  *api.github.com/repos/jimuin0/carelink/compare/*)',
+      '    printf \'%s\\n\' "$*" >> "$MOCK_CURL_LOG"',
+      '    [ -n "${MOCK_COMPARE_FILE:-}" ] || exit 22',
+      '    cat "$MOCK_COMPARE_FILE" ;;',
+      '  *) printf \'{"version":"%s"}\\n\' "$MOCK_LIVE_VERSION" ;;',
+      'esac',
+      '',
+    ].join('\n'));
     chmodSync(curl, 0o755);
+    const compareFile = join(cwd, 'bin', 'compare.json');
+    if (compare !== undefined) writeFileSync(compareFile, JSON.stringify(compare));
     const result = spawnSync('bash', ['scripts/vercel-should-build.sh'], {
       cwd,
       encoding: 'utf8',
@@ -59,12 +73,41 @@ describe('Vercel の配信スキップ判定', () => {
         ...process.env,
         PATH: `${join(cwd, 'bin')}:${process.env.PATH}`,
         MOCK_LIVE_VERSION: version,
+        MOCK_CURL_LOG: join(cwd, 'bin', 'curl.log'),
+        MOCK_COMPARE_FILE: compare === undefined ? '' : compareFile,
+        // Without an origin remote the history fetch must fail fast, never reach github.com.
+        GIT_ALLOW_PROTOCOL: 'file',
         VERCEL_ENV: 'preview',
         VERCEL_GIT_PREVIOUS_SHA: previousSha,
       },
     });
     if (result.error) throw result.error;
-    return result.status;
+    return result;
+  }
+
+  function previewDecision(version = initialSha.slice(0, 7), previousSha = '', compare?: unknown): number | null {
+    return previewRun(version, previousSha, compare).status;
+  }
+
+  // A docs-only branch on Vercel: the checkout has no fetchable history (measured 2026-10-29).
+  function unfetchablePreview(): string {
+    git(cwd, 'branch', '-M', 'main');
+    git(cwd, 'switch', '-q', '-c', 'preview');
+    mkdirSync(join(cwd, 'docs'));
+    writeFileSync(join(cwd, 'docs', 'handoff.md'), 'handoff\n');
+    return commit(cwd, 'docs only');
+  }
+
+  function comparison(head: string, files: unknown[], overrides: Record<string, unknown> = {}) {
+    return {
+      status: 'ahead',
+      base_commit: { sha: initialSha },
+      merge_base_commit: { sha: initialSha },
+      total_commits: 1,
+      commits: [{ sha: head }],
+      files,
+      ...overrides,
+    };
   }
 
   function previewBase(): void {
@@ -131,6 +174,48 @@ describe('Vercel の配信スキップ判定', () => {
     commit(cwd, 'docs only');
     git(cwd, 'push', '-q', 'origin', 'preview');
     expect(previewDecision('0000000')).toBe(1);
+  });
+
+  test('履歴を取得できない初回プレビューは GitHub の比較で文書だけなら省略する', () => {
+    const head = unfetchablePreview();
+    const result = previewRun(undefined, '', comparison(head, [{ filename: 'docs/handoff.md', status: 'added' }]));
+    expect(result.status).toBe(0);
+    // The comparison is anchored on the live short hash and this exact commit.
+    expect(readFileSync(join(cwd, 'bin', 'curl.log'), 'utf8'))
+      .toContain(`/compare/${initialSha.slice(0, 7)}...${head}`);
+  });
+
+  test('GitHub の比較にアプリ変更・ソースからのリネームがあればビルドする', () => {
+    const head = unfetchablePreview();
+    expect(previewDecision(undefined, '', comparison(head, [
+      { filename: 'docs/handoff.md' }, { filename: 'src/app/page.tsx' },
+    ]))).toBe(1);
+    expect(previewDecision(undefined, '', comparison(head, [
+      { filename: 'docs/old-page.md', previous_filename: 'src/app/page.tsx', status: 'renamed' },
+    ]))).toBe(1);
+  });
+
+  test('GitHub の比較が不完全・別系統・別コミット・取得失敗ならビルドする', () => {
+    const head = unfetchablePreview();
+    const docs = [{ filename: 'docs/handoff.md' }];
+    const other = '1'.repeat(40);
+    const cases: unknown[] = [
+      undefined,
+      'not json',
+      comparison(head, docs, { status: 'diverged' }),
+      comparison(head, docs, { status: 'identical' }),
+      comparison(head, docs, { base_commit: { sha: other }, merge_base_commit: { sha: other } }),
+      comparison(head, docs, { merge_base_commit: { sha: other } }),
+      comparison(head, docs, { commits: [{ sha: other }] }),
+      comparison(head, docs, { total_commits: 2 }),
+      comparison(head, Array.from({ length: 300 }, (_, i) => ({ filename: `docs/${i}.md` }))),
+      comparison(head, []),
+      comparison(head, [{ filename: '' }]),
+      comparison(head, [{ filename: 'docs/handoff.md', previous_filename: 7 }]),
+    ];
+    for (const compare of cases) {
+      expect({ compare, status: previewDecision(undefined, '', compare) }).toEqual({ compare, status: 1 });
+    }
   });
 
   test('前回成功SHAが不明・取得不能・現在HEADと同じ場合はビルドする', () => {
