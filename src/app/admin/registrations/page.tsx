@@ -8,6 +8,7 @@ import { SbPageHeader } from '@/components/admin/SbUi';
 import RegistrationDuplicateLink from '@/components/admin/RegistrationDuplicateLink';
 import ListingVerificationReview from '@/components/admin/ListingVerificationReview';
 import ListingVerificationSearch from '@/components/admin/ListingVerificationSearch';
+import ListingVerificationPending from '@/components/admin/ListingVerificationPending';
 import { registrationListInput, registrationListResponse, type RegistrationListInput,
   type RegistrationCursor, type RegistrationListRow as Salon } from '@/lib/registration-list-contract';
 
@@ -181,6 +182,7 @@ export default function AdminRegistrationsPage() {
       <p className="text-sm mb-4">審査の承認は一般公開の完了ではありません。店舗作成後に公開条件を確認してください。</p>
       <p className="text-sm mb-4">申込区分は管理用の記録です。試験と記録しても、掲載や通知は自動停止しません。未確認の申込は推測で区分しないでください。</p>
       <RegistrationDuplicateLink />
+      <ListingVerificationPending />
       <ListingVerificationSearch />
       {mutationUncertain && <p role="alert">直前の更新結果が不明です。一覧の再取得に成功するまで、承認・却下はできません。</p>}
       <form onSubmit={applySearch} className="mb-5 space-y-3">
