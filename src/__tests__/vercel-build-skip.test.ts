@@ -19,7 +19,7 @@ function commit(cwd: string, message: string): string {
 // Answers like GitHub's compare API, computed from the test repository.
 const COMPARE_MOCK = `
 const { execFileSync } = require('node:child_process');
-const repo = process.env.MOCK_REPO;
+const repo = process.argv[3];
 const git = (...args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
 const match = process.argv[2].match(/\\/compare\\/([0-9a-f]+)\\.\\.\\.([0-9a-f]+)$/);
 if (!match) process.exit(22);
@@ -70,7 +70,7 @@ describe('Vercel の配信スキップ判定', () => {
       '    printf \'%s\\n\' "$url" >> "$MOCK_CURL_LOG"',
       '    [ -z "${MOCK_COMPARE_FAIL:-}" ] || exit 22',
       '    if [ -n "${MOCK_COMPARE_FILE:-}" ]; then cat "$MOCK_COMPARE_FILE"; exit 0; fi',
-      '    exec node "$MOCK_BIN/compare.js" "$url" ;;',
+      '    exec node "$MOCK_BIN/compare.js" "$url" "$MOCK_REPO" ;;',
       '  https://carelink-jp.com/api/health)',
       '    printf \'%s\\n\' "$url" >> "$MOCK_CURL_LOG"',
       '    printf \'{"version":"%s"}\\n\' "$MOCK_LIVE_VERSION" ;;',
