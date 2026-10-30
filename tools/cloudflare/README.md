@@ -98,3 +98,9 @@ is a local-only Playwright fixture: copy it into a separate test app's `e2e/`
 directory and use its exact guarded stack and loopback app origin. It uses test
 credentials in memory and must never be run against a hosted database. It does
 not exercise real customer delivery or publication.
+
+The GitHub E2E job also runs the existing guarded Playwright suite against a
+disposable local workerd after resetting its isolated local Supabase. It uses a
+temporary CA trusted by the local Worker and loopback HTTPS; it does not disable
+TLS verification or change the fixtures' GitHub Actions/loopback guards. This is
+local runtime coverage and is not hosted Cloudflare or real-provider validation.
