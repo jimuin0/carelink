@@ -137,7 +137,10 @@ async function main() {
     phase = 'production-build';
     await run(['run', 'build'], env);
     phase = 'playwright';
-    await run(['run', 'test:e2e'], env);
+    const testArgs = process.env.E2E_CONFIRM_THREE_STORES === 'true'
+      ? ['run', 'test:e2e', '--', 'e2e/000-three-store-registration.spec.ts', '--project=chromium', '--project=Mobile Safari']
+      : ['run', 'test:e2e'];
+    await run(testArgs, env);
   } finally {
     for (const socket of upgradedSockets) socket.destroy();
     server?.closeAllConnections();
