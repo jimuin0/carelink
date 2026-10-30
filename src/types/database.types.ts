@@ -223,18 +223,21 @@ export type Database = {
       birthday_notifications: {
         Row: {
           channel: string
+          delivery_state: string
           notified_at: string
           user_id: string
           year: number
         }
         Insert: {
           channel: string
+          delivery_state?: string
           notified_at?: string
           user_id: string
           year: number
         }
         Update: {
           channel?: string
+          delivery_state?: string
           notified_at?: string
           user_id?: string
           year?: number
@@ -1168,6 +1171,7 @@ export type Database = {
       }
       cron_report_sends: {
         Row: {
+          delivery_state: string
           facility_id: string
           id: string
           job: string
@@ -1175,6 +1179,7 @@ export type Database = {
           sent_at: string
         }
         Insert: {
+          delivery_state?: string
           facility_id: string
           id?: string
           job: string
@@ -1182,6 +1187,7 @@ export type Database = {
           sent_at?: string
         }
         Update: {
+          delivery_state?: string
           facility_id?: string
           id?: string
           job?: string
@@ -2379,6 +2385,7 @@ export type Database = {
           menu_remarks: string | null
           name: string
           nearest_station: string | null
+          onboarding_email_delivery_state: string
           onboarding_email_sent_at: string | null
           owner_message: string | null
           owner_name: string | null
@@ -2452,6 +2459,7 @@ export type Database = {
           menu_remarks?: string | null
           name: string
           nearest_station?: string | null
+          onboarding_email_delivery_state?: string
           onboarding_email_sent_at?: string | null
           owner_message?: string | null
           owner_name?: string | null
@@ -2525,6 +2533,7 @@ export type Database = {
           menu_remarks?: string | null
           name?: string
           nearest_station?: string | null
+          onboarding_email_delivery_state?: string
           onboarding_email_sent_at?: string | null
           owner_message?: string | null
           owner_name?: string | null
@@ -4989,6 +4998,7 @@ export type Database = {
           postal_code: string | null
           pr_text: string | null
           prefecture: string | null
+          registration_followup_delivery_state: string
           registration_followup_sent_at: string | null
           registration_license_warranted: boolean | null
           registration_terms_accepted_at: string | null
@@ -5030,6 +5040,7 @@ export type Database = {
           postal_code?: string | null
           pr_text?: string | null
           prefecture?: string | null
+          registration_followup_delivery_state?: string
           registration_followup_sent_at?: string | null
           registration_license_warranted?: boolean | null
           registration_terms_accepted_at?: string | null
@@ -5071,6 +5082,7 @@ export type Database = {
           postal_code?: string | null
           pr_text?: string | null
           prefecture?: string | null
+          registration_followup_delivery_state?: string
           registration_followup_sent_at?: string | null
           registration_license_warranted?: boolean | null
           registration_terms_accepted_at?: string | null

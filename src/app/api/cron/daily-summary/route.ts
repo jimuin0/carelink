@@ -8,9 +8,10 @@ import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { logCronRun, cronError } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { countReportDeliveryHolds, markReportDeliveryAccepted } from '@/lib/cron-delivery-state';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { todayJst, addDays } from '@/lib/admin-date';
-import { sendDailySummaryEmail } from '@/lib/email';
+import { sendDailySummaryEmail, type CronEmailOutcome } from '@/lib/email';
 import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
@@ -26,7 +27,7 @@ export const maxDuration = 60;
 async function sendDailySummaryEmails(
   supabase: ReturnType<typeof createServiceRoleClient>,
   dateStr: string,
-): Promise<{ sent: number; failed: number; skipped: number }> {
+): Promise<{ sent: number; failed: number; skipped: number; uncertain: number }> {
   // facility_notification_settings は PostgREST の db-max-rows(既定1000) 対象のテーブルセレクトの
   // ため、施設数が1000件を超えると単純な .select() では後半の opt-in 行が無音で取りこぼされ、
   // ON にしたのに日次サマリーが届かない施設が出る（silent miss）。fetchAllPaged で全件取得し、
@@ -48,7 +49,7 @@ async function sendDailySummaryEmails(
     console.error('[daily-summary] facility_notification_settings fetch failed', { err: optedInErr });
     throw new Error('Daily summary notification settings lookup failed', { cause: optedInErr });
   }
-  if (optedIn.length === 0) return { sent: 0, failed: 0, skipped: 0 };
+  if (optedIn.length === 0) return { sent: 0, failed: 0, skipped: 0, uncertain: 0 };
   const facilityIds = optedIn.map((r) => r.facility_id);
 
   const { data: summaries, error: summariesErr } = await supabase
@@ -61,7 +62,7 @@ async function sendDailySummaryEmails(
     console.error('[daily-summary] daily_revenue_summary fetch failed', { err: summariesErr, date: dateStr });
     throw new Error('Daily summary data lookup failed', { cause: summariesErr });
   }
-  if (!summaries || summaries.length === 0) return { sent: 0, failed: 0, skipped: 0 };
+  if (!summaries || summaries.length === 0) return { sent: 0, failed: 0, skipped: 0, uncertain: 0 };
 
   // 監査P2: 従来は施設ごとにfacility_members→profiles→facility_profilesの3クエリを
   // ループ内で直列発行していた(O(N))。施設数増加でVercel関数のmaxDuration(60s)を超えて
@@ -92,6 +93,7 @@ async function sendDailySummaryEmails(
 
   let sent = 0;
   let failed = 0;
+  let uncertain = 0;
   let skipped = 0;
   for (const s of summaries as Array<Record<string, number | string | null>>) {
     const facilityId = s.facility_id as string;
@@ -105,9 +107,10 @@ async function sendDailySummaryEmails(
     // Render cron が同一エンドポイントを二重発火する構成のため、UNIQUE 制約で2本目の INSERT を
     // 23505 で弾き、その run は送信せずスキップする（GitHub が最大176分遅れて発火しても period_key
     // が同一日付なので再送しない）。claim 取得に失敗（23505 含む）したら送信しない。
+    const claimTime = new Date().toISOString();
     const { error: claimErr } = await supabase
       .from('cron_report_sends')
-      .insert({ job: 'daily-summary', facility_id: facilityId, period_key: dateStr });
+      .insert({ job: 'daily-summary', facility_id: facilityId, period_key: dateStr, sent_at: claimTime, delivery_state: 'pending' });
     if (claimErr) {
       // 23505 は正常な二重発火の抑止（別 run が既に送信）。それ以外の error も二重送信を避けるため
       // 送らずスキップし、23505 以外だけ可視化する。23505 は「既に送信済み」で実害ゼロなので
@@ -120,6 +123,7 @@ async function sendDailySummaryEmails(
       continue;
     }
 
+    const delivery = { outcome: 'uncertain' as CronEmailOutcome };
     const ok = await sendDailySummaryEmail({
       facilityEmail: email,
       facilityName: facilityName ?? '施設',
@@ -130,18 +134,23 @@ async function sendDailySummaryEmails(
       cancelledCount: (s.cancelled_count as number) ?? 0,
       newCustomerCount: (s.new_customer_count as number) ?? 0,
       repeatCustomerCount: (s.repeat_customer_count as number) ?? 0,
+      onOutcome: outcome => { delivery.outcome = outcome; },
     });
-    if (ok) sent++;
-    else {
+    if (ok) {
+      if (await markReportDeliveryAccepted(supabase, 'daily-summary', facilityId, dateStr, claimTime)) sent++;
+      else { failed++; uncertain++; }
+    } else {
       failed++;
-      // 送信失敗時は claim を解放し、翌 run で再送できるようにする（sent_reminders 同型）。
+      // 明確な拒否だけ解放する。結果不明では自動再送を防ぐため保持する。
       // 解放にも失敗すると claim が残り翌 run が 23505 で skip＝そのメールが恒久欠落するため LOUD に可視化。
-      const { error: relErr } = await supabase.from('cron_report_sends').delete()
-        .eq('job', 'daily-summary').eq('facility_id', facilityId).eq('period_key', dateStr);
-      if (relErr) console.error('[daily-summary] claim release failed — mail may be permanently skipped', { facilityId, date: dateStr, err: relErr });
+      if (delivery.outcome === 'rejected') {
+        const { error: relErr } = await supabase.from('cron_report_sends').delete()
+          .eq('job', 'daily-summary').eq('facility_id', facilityId).eq('period_key', dateStr).eq('sent_at', claimTime).eq('delivery_state', 'pending');
+        if (relErr) console.error('[daily-summary] claim release failed — mail may be permanently skipped', { facilityId, date: dateStr, err: relErr });
+      } else { uncertain++; }
     }
   }
-  return { sent, failed, skipped };
+  return { sent, failed, skipped, uncertain };
 }
 
 export async function GET(request: Request) {
@@ -152,6 +161,8 @@ export async function GET(request: Request) {
   const startedAt = new Date();
   const supabase = createServiceRoleClient();
   try {
+    const pendingHolds = await countReportDeliveryHolds(supabase, 'daily-summary', new Date(startedAt.getTime() - 15 * 60_000).toISOString());
+    if (pendingHolds === null) return cronError('daily-summary', startedAt, new Error('REPORT_DELIVERY_HOLD_OBSERVATION_UNAVAILABLE'));
     // 前日の日付（JST）。setHours(getHours()+9) はサーバTZ依存かつ 24超で日付が
     // 繰り上がる（実行時刻によって集計対象日がずれる）ため、TZ非依存の純粋関数で
     // 「当日JST → 1日前」を求める。
@@ -175,11 +186,13 @@ export async function GET(request: Request) {
     // 旧実装は集計のみでメール送信が無く、設定トグルが効かない飾りだった。
     let emailsSent = 0;
     let deliveryFailures = 0;
+    let deliveryUncertain = 0;
     let emailsSkipped = 0;
     try {
       const r = await sendDailySummaryEmails(supabase, dateStr);
       emailsSent = r.sent;
       deliveryFailures = r.failed;
+      deliveryUncertain = r.uncertain;
       emailsSkipped = r.skipped;
     } catch (e) {
       console.error('[daily-summary] summary email batch failed', e);
@@ -193,9 +206,13 @@ export async function GET(request: Request) {
     // 個別スキップという概念がないため常に0が正しい。メール送信側のスキップ件数
     // （オーナー不在・メールアドレス未設定）は emailsSkipped として別途可視化する
     // （従来はここが常に無音でカウントされておらず、観測不能だった）。
-    await logCronRun('daily-summary', 'success', startedAt, { processed: count, skipped: 0, meta: { date: dateStr, emailsSent, emailsSkipped } });
     // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
     alertDeliveryFailures('daily-summary', deliveryFailures, { emailsSent });
+    if (deliveryFailures > 0 || pendingHolds > 0) return cronError('daily-summary', startedAt, new Error('DAILY_SUMMARY_DELIVERY_UNCONFIRMED'), {
+      extraLog: { processed: count, meta: { date: dateStr, emailsSent, emailsSkipped, deliveryFailures, deliveryUncertain, pendingHolds } },
+      extraBody: { processed: count, date: dateStr, emailsSent, emailsSkipped, deliveryFailures, deliveryUncertain, pendingHolds },
+    });
+    await logCronRun('daily-summary', 'success', startedAt, { processed: count, skipped: 0, meta: { date: dateStr, emailsSent, emailsSkipped } });
     return NextResponse.json({ processed: count, skipped: 0, date: dateStr, emailsSent, emailsSkipped });
   } catch (e) {
     console.error('[daily-summary] Error:', e);

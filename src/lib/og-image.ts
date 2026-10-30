@@ -1,6 +1,5 @@
 import { initWasm, Resvg } from '@resvg/resvg-wasm';
-import { readFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { readOgFontCss, readOgFont, loadOgWasm } from './og-image-assets';
 
 const WIDTH = 1200;
 const HEIGHT = 630;
@@ -8,8 +7,6 @@ const MAX_TITLE_LENGTH = 40;
 const MAX_SUBTITLE_LENGTH = 60;
 const CACHE_CONTROL = 'public, max-age=86400, s-maxage=86400, immutable';
 const FONT_FAMILY = 'Noto Sans JP Variable';
-const FONT_CSS_PATH = resolve(process.cwd(), 'node_modules/@fontsource-variable/noto-sans-jp/wght.css');
-const RESVG_WASM_PATH = resolve(process.cwd(), 'node_modules/@resvg/resvg-wasm/index_bg.wasm');
 const FONT_FACE_PATTERN = /@font-face\s*\{[^}]*?src:\s*url\(([^)]+)\)[^}]*?unicode-range:\s*([^;]+);[^}]*?\}/g;
 const UNICODE_RANGE_PATTERN = /U\+([0-9a-f]{1,6})(?:-([0-9a-f]{1,6}))?/gi;
 
@@ -36,20 +33,20 @@ function parseFontSubsets(css: string): FontSubset[] {
 }
 
 function getFontSubsets(): Promise<FontSubset[]> {
-  return fontSubsetsPromise ??= readFile(FONT_CSS_PATH, 'utf8').then(parseFontSubsets);
+  return fontSubsetsPromise ??= readOgFontCss().then(parseFontSubsets);
 }
 
 function readFontData(fontPath: string): Promise<Uint8Array> {
   const cached = fontDataByPath.get(fontPath);
   if (cached) return cached;
 
-  const fontData = readFile(fontPath);
+  const fontData = readOgFont(fontPath);
   fontDataByPath.set(fontPath, fontData);
   return fontData;
 }
 
 function initializeResvg(): Promise<void> {
-  return resvgInitialization ??= readFile(RESVG_WASM_PATH).then((wasm) => initWasm(wasm));
+  return resvgInitialization ??= loadOgWasm().then((wasm) => initWasm(wasm));
 }
 
 async function buildFontBuffers(text: string): Promise<Uint8Array[]> {
@@ -59,7 +56,7 @@ async function buildFontBuffers(text: string): Promise<Uint8Array[]> {
     codePoints.some((codePoint) => ranges.some(({ start, end }) => codePoint >= start && codePoint <= end))
   ));
   return Promise.all(usedSubsets.map(async ({ relativePath }) => {
-    const fontPath = resolve(dirname(FONT_CSS_PATH), relativePath.replace(/^\.\//u, ''));
+    const fontPath = relativePath.replace(/^\.\//u, '');
     return readFontData(fontPath);
   }));
 }
