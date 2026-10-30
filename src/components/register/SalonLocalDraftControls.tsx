@@ -263,7 +263,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
     <p className="mt-1 text-(--ecru-muted)">氏名や連絡先も残るため、共有端末では使わないでください。</p>
     <div className="mt-3 flex flex-wrap gap-2">
       {enabled ? <button type="button" onClick={stop} disabled={busy} className={DRAFT_BUTTON}>自動保存を止める</button>
-        : <button type="button" onClick={enable} disabled={!ready || busy || saved?.state === 'locked' || (saved?.state === 'saved' && !ownsSaved) || !props.canSave()} className={DRAFT_BUTTON}>自動保存を始める</button>}
+        : <button type="button" onClick={enable} disabled={!ready || busy || saved?.state === 'locked' || (saved?.state === 'saved' && !ownsSaved) || !props.canSave()} className={DRAFT_BUTTON}>この端末で下書きを自動保存する（7日間）</button>}
       <button type="button" onClick={restore} disabled={!ready || busy || saved?.state !== 'saved' || !props.canRestore()} className={DRAFT_BUTTON}>端末の下書きを復元</button>
       {/* 削除は取り消せないので、他の操作と見た目を分ける。 */}
       <button type="button" onClick={clear} disabled={!ready || busy || !saved?.backup} className={DRAFT_DANGER_BUTTON}>端末の下書きを削除</button>

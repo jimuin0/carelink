@@ -40,7 +40,7 @@ async function openTools(page: Page) {
   await expect(tools.getByRole('region', { name: 'この端末の下書き' })).toBeVisible();
 }
 const section = (page: Page) => page.getByRole('region', { name: 'この端末の下書き' });
-const optIn = (page: Page) => section(page).getByRole('button', { name: '自動保存を始める' });
+const optIn = (page: Page) => section(page).getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' });
 async function ready(page: Page, hasSavedDraft = false) {
   await page.goto('/register');
   // SSR inputs are enabled before hydration; wait for the form's isReady gate
