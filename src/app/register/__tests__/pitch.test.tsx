@@ -18,11 +18,9 @@ import { join } from 'path';
 import { render, screen, within } from '@testing-library/react';
 import RegisterPage, { PAID_PLAN_NOTICE, REGISTER_CTA_LABEL } from '@/components/register/RegisterLanding';
 import RegisterRoute from '@/app/register/page';
-import { getAvailableAreasAndTypes } from '@/lib/facilities';
 
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn() }) }));
 jest.mock('@/lib/recaptcha-client', () => ({ getRecaptchaToken: jest.fn().mockResolvedValue(null) }));
-jest.mock('@/lib/facilities', () => ({ getAvailableAreasAndTypes: jest.fn() }));
 
 describe('/register の訴求部分', () => {
   beforeEach(() => {
@@ -134,18 +132,9 @@ describe('/register の表示ルール（ソース）', () => {
   });
 });
 
-describe('/register ページ（掲載エリアの取得）', () => {
-  const mocked = getAvailableAreasAndTypes as jest.MockedFunction<typeof getAvailableAreasAndTypes>;
-
-  it('公開中の施設の都道府県を「現在の主な掲載エリア」として出す', async () => {
-    mocked.mockResolvedValueOnce({ areas: ['大阪府'], types: [] });
-    render(await RegisterRoute());
-    expect(screen.getByText('現在の主な掲載エリア：大阪府（順次拡大中）')).toBeInTheDocument();
-  });
-
-  it('取得に失敗してもページは出す（エリア表示だけ消える）', async () => {
-    mocked.mockRejectedValueOnce(new Error('NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required'));
-    render(await RegisterRoute());
+describe('/register ページ', () => {
+  it('掲載エリアを表示せず、申込導線を表示する', () => {
+    render(RegisterRoute());
     expect(screen.queryByText(/現在の主な掲載エリア/)).not.toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: REGISTER_CTA_LABEL })).toHaveLength(2);
   });

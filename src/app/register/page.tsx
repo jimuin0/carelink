@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import '@fontsource-variable/noto-serif-jp/index.css';
 import RegisterLanding from '@/components/register/RegisterLanding';
-import { getAvailableAreasAndTypes } from '@/lib/facilities';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,16 +37,7 @@ export const metadata: Metadata = {
   },
 };
 
-/**
- * 施設向けの掲載登録ページ。描画は RegisterLanding（訴求＋フォーム）。
- * ここでは「現在の主な掲載エリア」を DB の実在値から取るだけ。
- *
- * 取得に失敗しても（Supabase の公開キーを持たない Vercel Preview を含む）ページは出す。
- * エリア表示が消えるだけで、申し込みフォームは使える状態を保つ。
- */
-export default async function RegisterPage() {
-  const listingAreas = await getAvailableAreasAndTypes()
-    .then((r) => r.areas)
-    .catch(() => [] as string[]);
-  return <RegisterLanding listingAreas={listingAreas} />;
+/** 施設向けの掲載登録ページ。描画は RegisterLanding（訴求＋フォーム）。 */
+export default function RegisterPage() {
+  return <RegisterLanding />;
 }
