@@ -14,6 +14,15 @@
  *   - Logs cron execution
  */
 
+jest.mock('@/lib/cron-delivery-state', () => ({
+  countFollowupDeliveryHolds: jest.fn(async () => 0),
+  markFollowupDelivery: jest.fn(async () => true),
+  releaseFollowupDelivery: jest.fn(async (db, kind, id) => {
+    const table = kind === 'facility' ? 'facility_profiles' : 'salons';
+    const values = kind === 'facility' ? { onboarding_email_sent_at: null } : { registration_followup_sent_at: null };
+    const result = await db.from(table).update(values).eq('id', id); return !result.error;
+  }),
+}));
 jest.mock('@/lib/cron-auth', () => ({
   checkCronAuth: jest.fn(() => null),
 }));
@@ -52,6 +61,7 @@ import { logCronRun } from '@/lib/cron-logger';
 import { sendOnboardingFollowEmail, sendRegistrationLeadFollowEmail } from '@/lib/email';
 import { canonicalizeEmail } from '@/lib/email-canonical';
 import { GET } from '../route';
+import { countFollowupDeliveryHolds, markFollowupDelivery } from '@/lib/cron-delivery-state';
 
 // Holds the facility_profiles UPDATE mock for the current test (for claim/release assertions).
 let facUpdateMock: jest.Mock;
@@ -363,7 +373,7 @@ function setupDefaultMocks(
   (sendRegistrationLeadFollowEmail as jest.Mock).mockResolvedValue(true);
   if (emailSendFails) {
     // 送信失敗は throw ではなく false 返却で表現される（本番の safeSend は throw しない）→ claim 解放で再送。
-    (sendOnboardingFollowEmail as jest.Mock).mockResolvedValue(false);
+    (sendOnboardingFollowEmail as jest.Mock).mockImplementation(async data => { data.onOutcome('rejected'); return false; });
   }
 
   const facilities = facilitiesFound > 0
@@ -688,16 +698,56 @@ describe('GET /api/cron/onboarding-followup', () => {
   test('email send failure → releases claim (sent_at→null) for retry', async () => {
     setupDefaultMocks(1, true, true, true, true, true, true, true); // emailSendFails
     const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     const json = await res.json();
     expect(json.processed).toBe(0);
     const nullReleases = facUpdateMock.mock.calls.filter((c: any[]) => c[0].onboarding_email_sent_at === null);
     expect(nullReleases.length).toBe(1);
   });
 
+  test('uncertain facility follow-up retains its claim', async () => {
+    setupDefaultMocks(1, true, true, true, true);
+    (sendOnboardingFollowEmail as jest.Mock).mockImplementation(async data => { data.onOutcome('uncertain'); return false; });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.processed).toBe(0);
+    expect(json.deliveryUncertain).toBe(1);
+    const nullReleases = facUpdateMock.mock.calls.filter((c: any[]) => c[0].onboarding_email_sent_at === null);
+    expect(nullReleases.length).toBe(0);
+  });
+
+  test('an exception after facility delivery begins retains the claim', async () => {
+    setupDefaultMocks(1, true, true, true, true);
+    (sendOnboardingFollowEmail as jest.Mock).mockRejectedValue(new Error('synthetic failure'));
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(facUpdateMock.mock.calls.filter((c: any[]) => c[0].onboarding_email_sent_at === null)).toHaveLength(0);
+    expect(await res.json()).toMatchObject({ processingFailures: 1 });
+    spy.mockRestore();
+  });
+
+  test('stale follow-up claims remain visible without current candidates', async () => {
+    setupDefaultMocks(0); (countFollowupDeliveryHolds as jest.Mock).mockResolvedValueOnce(1);
+    const res = await GET(makeRequest() as any); expect(res.status).toBe(500); expect(await res.json()).toMatchObject({ pendingHolds: 1 });
+  });
+  test('unavailable hold observation stops before claiming', async () => {
+    setupDefaultMocks(1); (countFollowupDeliveryHolds as jest.Mock).mockResolvedValueOnce(null);
+    const res = await GET(makeRequest() as any); expect(res.status).toBe(500); expect(facUpdateMock).not.toHaveBeenCalled();
+  });
+  test('lost acceptance persistence leaves facility claim pending', async () => {
+    setupDefaultMocks(1, true, true, true, true); (markFollowupDelivery as jest.Mock).mockResolvedValueOnce(false);
+    const res = await GET(makeRequest() as any); expect(res.status).toBe(500); expect(await res.json()).toMatchObject({ deliveryUncertain: 1 });
+  });
+  test('a skipped facility claim must also be durably recorded', async () => {
+    setupDefaultMocks(1, true, true, true, true, false); (markFollowupDelivery as jest.Mock).mockResolvedValueOnce(false);
+    const res = await GET(makeRequest() as any); expect(res.status).toBe(500);
+  });
+
   test('claim release failure → logs error', async () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    (sendOnboardingFollowEmail as jest.Mock).mockRejectedValue(new Error('Email failed'));
+    (sendOnboardingFollowEmail as jest.Mock).mockImplementation(async data => { data.onOutcome('rejected'); return false; });
     (logCronRun as jest.Mock).mockResolvedValue(undefined);
     (checkCronAuth as jest.Mock).mockReturnValue(null);
     mockFromDelegate.mockImplementation(buildFrom({
@@ -707,8 +757,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(500);
     expect(errSpy).toHaveBeenCalledWith(
-      '[onboarding-followup] claim release failed',
-      expect.objectContaining({ facilityId: 'fac-123' })
+      '[onboarding-followup] claim release failed'
     );
     errSpy.mockRestore();
   });
@@ -888,11 +937,11 @@ describe('GET /api/cron/onboarding-followup', () => {
       const res = await GET(makeRequest() as any);
       expect(res.status).toBe(200);
       const json = await res.json();
-      expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith({
+      expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
         email: 'lead@example.com',
         facilityName: 'Lead Salon',
         receiptId: 'sal-1',
-      });
+      }));
       expect(json.processed).toBe(1);
       expect(json.sent).toBe(1);
     });
@@ -921,6 +970,13 @@ describe('GET /api/cron/onboarding-followup', () => {
     // 旧実装の `.eq('email', salon.email)` はバイト完全一致だったため、大文字小文字・
     // gmail の "+tag"/ドット違いで既存アカウントを検出できず、【既にアカウントを持つ店舗へ
     // 「まだ作られていません」と誤送信する fail-open】になっていた。
+
+    test('an already registered lead requires a durable skipped marker', async () => {
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [leadSalon], existingAccountEmails: [leadSalon.email] }));
+      (markFollowupDelivery as jest.Mock).mockResolvedValueOnce(false);
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(500); expect(sendRegistrationLeadFollowEmail).not.toHaveBeenCalled();
+    });
 
     test('(v-a) profiles.email が大文字違いでも「アカウント作成済み」と判定し送信しない', async () => {
       const caseSalon = { id: 'sal-case', email: 'Lead@Example.com', facility_name: 'Case Salon', business_type: 'clinic' };
@@ -961,11 +1017,11 @@ describe('GET /api/cron/onboarding-followup', () => {
       }));
       const res = await GET(makeRequest() as any);
       expect(res.status).toBe(200);
-      expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith({
+      expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
         email: 'Really.New+lead@gmail.com',
         facilityName: 'New Lead Salon',
         receiptId: 'sal-none',
-      });
+      }));
       const json = await res.json();
       expect(json.sent).toBe(1);
     });
@@ -978,16 +1034,44 @@ describe('GET /api/cron/onboarding-followup', () => {
     });
 
     test('(iv) 送信に失敗したら claim が解放される（翌 run で再試行できる）', async () => {
-      (sendRegistrationLeadFollowEmail as jest.Mock).mockResolvedValue(false);
+      (sendRegistrationLeadFollowEmail as jest.Mock).mockImplementation(async data => { data.onOutcome('rejected'); return false; });
       mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [leadSalon] }));
       const res = await GET(makeRequest() as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.sent).toBe(0);
       const nullReleases = salonUpdateMock.mock.calls.filter((c: any[]) => c[0].registration_followup_sent_at === null);
       expect(nullReleases.length).toBe(1);
     });
 
+    test('結果不明の登録フォローは claim を保持する', async () => {
+      (sendRegistrationLeadFollowEmail as jest.Mock).mockImplementation(async data => { data.onOutcome('uncertain'); return false; });
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [leadSalon] }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.sent).toBe(0);
+      expect(json.deliveryUncertain).toBe(1);
+      const nullReleases = salonUpdateMock.mock.calls.filter((c: any[]) => c[0].registration_followup_sent_at === null);
+      expect(nullReleases.length).toBe(0);
+    });
+
+    test('an exception after lead delivery begins retains the claim', async () => {
+      (sendRegistrationLeadFollowEmail as jest.Mock).mockRejectedValue(new Error('synthetic failure'));
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [leadSalon] }));
+      const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(500);
+      expect(salonUpdateMock.mock.calls.filter((c: any[]) => c[0].registration_followup_sent_at === null)).toHaveLength(0);
+      expect(await res.json()).toMatchObject({ processingFailures: 1 });
+      spy.mockRestore();
+    });
+
+    test('lost acceptance persistence leaves registration claim pending', async () => {
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [leadSalon] }));
+      (markFollowupDelivery as jest.Mock).mockResolvedValueOnce(false);
+      const res = await GET(makeRequest() as any); expect(res.status).toBe(500); expect(await res.json()).toMatchObject({ deliveryUncertain: 1 });
+    });
     test('(v) 既存の facility_profiles パスの挙動が変わっていない（同時に処理しても両方 sent に数えられる）', async () => {
       setupDefaultMocks(1, true, true, true, true); // facility_profiles 側は既存どおりフル完了ケース
       mockFromDelegate.mockImplementation(buildFrom({
@@ -1005,9 +1089,9 @@ describe('GET /api/cron/onboarding-followup', () => {
       expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
         expect.objectContaining({ facilityName: 'New Salon', ownerEmail: 'owner@example.com' })
       );
-      expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith({
+      expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
         email: 'lead@example.com', facilityName: 'Lead Salon', receiptId: 'sal-1',
-      });
+      }));
     });
 
     test('(vi) 第2パスのクエリが error を返したときに「0件で成功」に偽装されない → 500', async () => {
@@ -1095,15 +1179,14 @@ describe('GET /api/cron/onboarding-followup', () => {
 
     test('claim release 失敗 → ログに残す', async () => {
       const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-      (sendRegistrationLeadFollowEmail as jest.Mock).mockResolvedValue(false);
+      (sendRegistrationLeadFollowEmail as jest.Mock).mockImplementation(async data => { data.onOutcome('rejected'); return false; });
       mockFromDelegate.mockImplementation(buildFrom({
         facilities: [], salons: [leadSalon], salonReleaseError: { message: 'salon release boom' },
       }));
       const res = await GET(makeRequest() as any);
       expect(res.status).toBe(500);
       expect(errSpy).toHaveBeenCalledWith(
-        '[onboarding-followup] salon claim release failed',
-        expect.objectContaining({ salonId: 'sal-1' })
+        '[onboarding-followup] salon claim release failed'
       );
       errSpy.mockRestore();
     });
@@ -1183,9 +1266,9 @@ describe('GET /api/cron/onboarding-followup', () => {
     test('メールには受付番号（salons.id）を渡し、業種や施設名から新規作成の導線を組み立てさせない', async () => {
       mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [{ ...leadSalon, business_type: '美容室' }] }));
       await GET(makeRequest() as any);
-      expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith({
+      expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
         email: 'lead@example.com', facilityName: 'Lead Salon', receiptId: 'sal-1',
-      });
+      }));
     });
   });
 });

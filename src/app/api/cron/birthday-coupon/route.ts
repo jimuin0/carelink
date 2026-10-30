@@ -37,7 +37,8 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
 import { fromEnv } from '@/lib/email-from';
-import { sendResendChecked } from '@/lib/resend-result';
+import { sendResendForReconciliation } from '@/lib/resend-result';
+import { countBirthdayDeliveryHolds, markBirthdayDeliveryAccepted } from '@/lib/birthday-delivery-state';
 
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
@@ -70,6 +71,9 @@ export async function GET(request: Request) {
 
   const startedAt = new Date();
   try {
+    const staleBefore = new Date(startedAt.getTime() - 15 * 60_000).toISOString();
+    const pendingHolds = await countBirthdayDeliveryHolds(supabase, staleBefore);
+    if (pendingHolds === null) return cronError('birthday-coupon', startedAt, new Error('BIRTHDAY_DELIVERY_HOLD_OBSERVATION_UNAVAILABLE'));
     // 今日の日付（月・日のみ）
     const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
     const month = (jstNow.getUTCMonth() + 1).toString().padStart(2, '0');
@@ -115,6 +119,9 @@ export async function GET(request: Request) {
     // profiles は fetchAllPaged の戻り（常に配列）なので length 判定のみ（!profiles は到達不能=branch穴になる）。
     // ログ・返却は main 側のリッチ版（processed/skipped/status/sent を全て返す superset）に統一。
     if (profiles.length === 0) {
+      if (pendingHolds > 0) return cronError('birthday-coupon', startedAt, new Error('BIRTHDAY_DELIVERY_RECONCILIATION_REQUIRED'), {
+        extraLog: { meta: { pendingHolds } }, extraBody: { pendingHolds },
+      });
       await logCronRun('birthday-coupon', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', sent: 0 });
     }
@@ -133,23 +140,25 @@ export async function GET(request: Request) {
     // 23505 になるが、それは両 run の送信が両方完了した後にしか効かず無意味だった。
     // review-request cron（review_request_sent_at への CAS UPDATE）と同型の「claim-first」に揃える。
     // 送信の直前に INSERT で「送信権」を claim し、PK 違反(23505)なら他 run が先取り済みとして
-    // 送信をスキップする。送信が失敗したら claim を解放（DELETE）して翌 run に再送を委ねる。
+    // 送信をスキップする。事業者が明確に拒否した場合だけ claim を解放する。
     // クラッシュ等で解放自体が失敗した場合はその1件・当年のみ通知がロストし得る（稀・許容トレード
     // オフ）が、二重送信という実害の大きい失敗モードを避けることを優先する設計判断。
-    // notificationsTableReady=false（migration 未適用/取得失敗）のフォールバック時は claim による
-    // 相互排他ができないため、旧来どおり claim せず直接送信する（挙動は変更しない）。
+    // 記録を読めない場合は送信しない。結果不明の送信は claim を残し、自動再送を防ぐ。
 
     // claim（送信前 INSERT）ヘルパー。現在のチャネルはメールのみ。
     // 戻り値: 'claimed'=送信して良い / 'already-claimed'=他run先取り済み（送信せず送達扱い）/
     // 'claim-error'=記録できないため fail-safe で送信自体をスキップ（送達扱いにはしない＝翌runで再試行）。
     const claimNotification = async (
       userId: string,
-      channel: 'email'
+      channel: 'email',
+      claimTime: string
     ): Promise<'claimed' | 'already-claimed' | 'claim-error'> => {
       const { error: claimErr } = await supabase.from('birthday_notifications').insert({
         user_id: userId,
         year: birthdayYear,
         channel,
+        notified_at: claimTime,
+        delivery_state: 'pending',
       });
       if (!claimErr) return 'claimed';
       if ((claimErr as { code?: string }).code === '23505') return 'already-claimed';
@@ -157,14 +166,16 @@ export async function GET(request: Request) {
       return 'claim-error';
     };
 
-    // claim 解放（送信失敗時に DELETE で claim を取り消し、翌 run の再送を可能にする）。
-    const releaseNotificationClaim = async (userId: string, channel: 'email') => {
+    // 明確な拒否の場合だけ claim を解放し、翌 run の再試行を可能にする。
+    const releaseNotificationClaim = async (userId: string, channel: 'email', claimTime: string) => {
       const { error: releaseErr } = await supabase
         .from('birthday_notifications')
         .delete()
         .eq('user_id', userId)
         .eq('year', birthdayYear)
-        .eq('channel', channel);
+        .eq('channel', channel)
+        .eq('notified_at', claimTime)
+        .eq('delivery_state', 'pending');
       if (releaseErr) {
         // 解放にも失敗した場合、この1件は claim されたまま残り当年の当該チャネル通知は
         // 恒久的にロストし得る（クラッシュ等の稀なケース・許容トレードオフ）。可視化のみ行う。
@@ -183,10 +194,10 @@ export async function GET(request: Request) {
     // birthday_notifications が未適用（migration 前にコードが先行デプロイ）や取得失敗時は
     // 送達管理ができない。再送ロジックを有効にすると notifiedSet が空のまま 23505（既付与）
     // ユーザーへ毎 run 通知を送り重複が出るため、旧来の冪等動作（23505 はスキップ）に
-    // フォールバックする。これによりデプロイ順序に依存せず重複通知を防ぐ（発症前予防）。
-    const notificationsTableReady = !notifSelErr;
-    if (notifSelErr) {
-      console.warn('[birthday-coupon] birthday_notifications 取得失敗のため再送ロジックを無効化（migration 未適用の可能性）', { code: (notifSelErr as { code?: string }).code });
+    // フォールバックする。通知記録が読めない間はメールを送らず、再試行に備える。
+    const notificationsTableReady = !notifSelErr && Array.isArray(existingNotifications);
+    if (!notificationsTableReady) {
+      console.warn('[birthday-coupon] birthday_notifications 取得失敗のため再送ロジックを無効化（migration 未適用の可能性）', { code: (notifSelErr as { code?: string } | null)?.code });
     }
     const notifiedSet = new Set(
       (existingNotifications || []).map((n) => `${n.user_id}:${n.channel}`)
@@ -196,7 +207,9 @@ export async function GET(request: Request) {
     let skipped = 0;
     let deferred = 0;
     let deliveryFailures = 0;
+    let deliveryUncertain = 0;
     const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+    if (!notificationsTableReady && resend) deliveryFailures++;
 
     const loopStart = Date.now();
     for (let pi = 0; pi < profiles.length; pi++) {
@@ -251,7 +264,8 @@ export async function GET(request: Request) {
       // メール通知（未送達かつ送信可能な場合のみ）
       if (resend && profile.email && !profile.email_unsubscribed && !notifiedSet.has(`${profile.id}:email`)) {
         if (notificationsTableReady) {
-          const claimResult = await claimNotification(profile.id, 'email');
+          const claimTime = new Date().toISOString();
+          const claimResult = await claimNotification(profile.id, 'email', claimTime);
           if (claimResult === 'already-claimed') {
             // 他 run が先に claim・送信済み（またはまさに送信中）。二重送信を避けて送らない。
             notifiedSet.add(`${profile.id}:email`);
@@ -260,30 +274,28 @@ export async function GET(request: Request) {
             try {
               // Resend SDK は API エラーを throw せず戻り値の error に載せる。検査しないと
               // 送れていないのに claim を握ったまま送信済み扱いになる（lib/resend-result.ts 参照）。
-              // sendResendChecked に send 呼び出し自体を渡すことで、検査を経ずに結果を握る
-              // 書き方が構文的に作れないようにする。
-              await sendResendChecked(resend.emails.send({ from: fromEnv(), to: profile.email, subject: emailSubject, html: emailHtml }), 'cron/birthday-coupon');
-              notifiedSet.add(`${profile.id}:email`);
-            } catch (err) {
+              // 拒否は再試行可能、結果不明は claim を保持して照合待ちにする。
+              const outcome = await sendResendForReconciliation(resend.emails.send({ from: fromEnv(), to: profile.email, subject: emailSubject, html: emailHtml }));
+              if (outcome === 'delivered') {
+                const marked = await markBirthdayDeliveryAccepted(supabase, profile.id, birthdayYear, claimTime);
+                if (!marked) { deliveryFailures++; deliveryUncertain++; }
+                else notifiedSet.add(`${profile.id}:email`);
+              }
+              else {
+                deliveryFailures++;
+                if (outcome === 'rejected') await releaseNotificationClaim(profile.id, 'email', claimTime);
+                else deliveryUncertain++;
+              }
+            } catch {
               deliveryFailures++;
-              console.error('[birthday-coupon] email send failed', { userId: profile.id, err });
-              // 送信失敗: claim を解放して翌 run の再送を可能にする。
-              await releaseNotificationClaim(profile.id, 'email');
+              deliveryUncertain++;
+              console.error('[birthday-coupon] email result unconfirmed');
             }
           }
-          // claim-error: 送信自体をスキップ（claimNotification 内で既にログ済み・notifiedSet にも入れない）
+          else { deliveryFailures++; }
         } else {
-          // 【notificationsTableReady=false フォールバック・現行挙動を維持】
-          // claim による相互排他ができないため、旧来どおり claim せず直接送信し記録 insert はしない。
-          // ここに到達するのは初回付与時のみ（23505 側は notificationsTableReady=false だと
-          // 上流で skip される）なので1通だけ送信され重複は生じない。
-          try {
-            await sendResendChecked(resend.emails.send({ from: fromEnv(), to: profile.email, subject: emailSubject, html: emailHtml }), 'cron/birthday-coupon(fallback)');
-            notifiedSet.add(`${profile.id}:email`);
-          } catch (err) {
-            deliveryFailures++;
-            console.error('[birthday-coupon] email send failed', { userId: profile.id, err });
-          }
+          // 記録が読めないと並行 run や結果不明の送信を識別できない。
+          // The lookup failure is already counted for this run.
         }
       }
 
@@ -296,6 +308,10 @@ export async function GET(request: Request) {
     }
 
     alertDeliveryFailures('birthday-coupon', deliveryFailures, { sent, skipped });
+    if (deliveryFailures > 0 || pendingHolds > 0) return cronError('birthday-coupon', startedAt, new Error('BIRTHDAY_EMAIL_DELIVERY_UNCONFIRMED'), {
+      extraLog: { processed: sent, skipped, meta: { deferred, deliveryUncertain, pendingHolds } },
+      extraBody: { processed: sent, skipped, deferred, deliveryUncertain, pendingHolds },
+    });
     await logCronRun('birthday-coupon', 'success', startedAt, { processed: sent, skipped, meta: { deferred } });
     return NextResponse.json({ processed: sent, skipped, deferred, total: profiles.length });
   } catch (e) {

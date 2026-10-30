@@ -12,8 +12,9 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { logCronRun, cronError } from '@/lib/cron-logger';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { countReportDeliveryHolds, markReportDeliveryAccepted } from '@/lib/cron-delivery-state';
 import { todayJst, addDays, previousJstWeek } from '@/lib/admin-date';
-import { sendWeeklyReportEmail } from '@/lib/email';
+import { sendWeeklyReportEmail, type CronEmailOutcome } from '@/lib/email';
 import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
@@ -42,7 +43,7 @@ async function sendWeeklyReports(
   rows: Array<Record<string, number | string | null>>,
   start: string,
   end: string,
-): Promise<{ sent: number; failed: number; skipped: number; optedOut: number }> {
+): Promise<{ sent: number; failed: number; skipped: number; optedOut: number; uncertain: number }> {
   const byFacility = new Map<string, Sums>();
   for (const r of rows) {
     const id = r.facility_id as string;
@@ -93,7 +94,7 @@ async function sendWeeklyReports(
   // 全施設が明示的に OFF の場合、空の in.() フィルタで宛先を検索しない。
   // 送信対象が無い run は正常終了し、opt-out 件数だけを記録する。
   if (targetFacilityIds.length === 0) {
-    return { sent: 0, failed: 0, skipped: 0, optedOut: byFacility.size };
+    return { sent: 0, failed: 0, skipped: 0, optedOut: byFacility.size, uncertain: 0 };
   }
 
   const { rows: owners, error: ownersError } = await fetchAllPaged<{ facility_id: string; user_id: string }>(
@@ -138,6 +139,7 @@ async function sendWeeklyReports(
 
   let sent = 0;
   let failed = 0;
+  let uncertain = 0;
   let skipped = 0;
   let optedOutCount = 0;
   for (const [facilityId, sums] of byFacility) {
@@ -152,9 +154,10 @@ async function sendWeeklyReports(
     // Render cron の二重発火（GitHub は最大176分遅延あり）でも、period_key が同一週なので UNIQUE
     // 制約が2本目を 23505 で弾き、その run は送信せずスキップする。
     const periodKey = `${start}..${end}`;
+    const claimTime = new Date().toISOString();
     const { error: claimErr } = await supabase
       .from('cron_report_sends')
-      .insert({ job: 'weekly-report', facility_id: facilityId, period_key: periodKey });
+      .insert({ job: 'weekly-report', facility_id: facilityId, period_key: periodKey, sent_at: claimTime, delivery_state: 'pending' });
     if (claimErr) {
       // 23505 は正常な二重発火の抑止（別 run が既に送信済み）で実害ゼロのためカウント対象外。
       // 23505 以外は本来送るべきだったのに技術的失敗で送れなかったケースのため failed に計上する
@@ -166,6 +169,7 @@ async function sendWeeklyReports(
       continue;
     }
 
+    const delivery = { outcome: 'uncertain' as CronEmailOutcome };
     const ok = await sendWeeklyReportEmail({
       facilityEmail: email,
       facilityName: facilityName ?? '施設',
@@ -177,18 +181,23 @@ async function sendWeeklyReports(
       cancelledCount: sums.cancelled_count,
       newCustomerCount: sums.new_customer_count,
       repeatCustomerCount: sums.repeat_customer_count,
+      onOutcome: outcome => { delivery.outcome = outcome; },
     });
-    if (ok) sent++;
-    else {
+    if (ok) {
+      if (await markReportDeliveryAccepted(supabase, 'weekly-report', facilityId, periodKey, claimTime)) sent++;
+      else { failed++; uncertain++; }
+    } else {
       failed++;
-      // 送信失敗時は claim を解放し翌 run で再送できるようにする。
+      // 明確な拒否だけ解放する。結果不明では自動再送を防ぐため保持する。
       // 解放にも失敗すると claim が残り翌 run が 23505 で skip＝そのメールが恒久欠落するため LOUD に可視化。
-      const { error: relErr } = await supabase.from('cron_report_sends').delete()
-        .eq('job', 'weekly-report').eq('facility_id', facilityId).eq('period_key', periodKey);
-      if (relErr) console.error('[weekly-report] claim release failed — mail may be permanently skipped', { facilityId, period: periodKey, err: relErr });
+      if (delivery.outcome === 'rejected') {
+        const { error: relErr } = await supabase.from('cron_report_sends').delete()
+          .eq('job', 'weekly-report').eq('facility_id', facilityId).eq('period_key', periodKey).eq('sent_at', claimTime).eq('delivery_state', 'pending');
+        if (relErr) console.error('[weekly-report] claim release failed — mail may be permanently skipped', { facilityId, period: periodKey, err: relErr });
+      } else { uncertain++; }
     }
   }
-  return { sent, failed, skipped, optedOut: optedOutCount };
+  return { sent, failed, skipped, optedOut: optedOutCount, uncertain };
 }
 
 export async function GET(request: Request) {
@@ -198,6 +207,8 @@ export async function GET(request: Request) {
   const startedAt = new Date();
   const supabase = createServiceRoleClient();
   try {
+    const pendingHolds = await countReportDeliveryHolds(supabase, 'weekly-report', new Date(startedAt.getTime() - 15 * 60_000).toISOString());
+    if (pendingHolds === null) return cronError('weekly-report', startedAt, new Error('REPORT_DELIVERY_HOLD_OBSERVATION_UNAVAILABLE'));
     // 集計期間＝直近に終わった月曜〜日曜（JST）。TZ非依存の純粋関数で算出。
     // 通常の月曜実行では「昨日（日曜）までの 7 日間」と同じ。実行が遅れても週がずれない。
     const { start, end } = previousJstWeek(todayJst());
@@ -239,12 +250,14 @@ export async function GET(request: Request) {
 
     let emailsSent = 0;
     let deliveryFailures = 0;
+    let deliveryUncertain = 0;
     let emailsSkipped = 0;
     let optedOut = 0;
     if (rows.length > 0) {
       const r = await sendWeeklyReports(supabase, rows, start, end);
       emailsSent = r.sent;
       deliveryFailures = r.failed;
+      deliveryUncertain = r.uncertain;
       emailsSkipped = r.skipped;
       optedOut = r.optedOut;
     }
@@ -252,9 +265,13 @@ export async function GET(request: Request) {
     // skipped は「オーナー不在・メールアドレス未設定・claim失敗」で本来送るべきだったのに
     // 送れなかった件数（従来は無音でカウントされておらず観測不能だった）。opt-out（施設が
     // 明示的にOFF）は意図的な正常動作のため skipped とは別に optedOut として可視化する。
-    await logCronRun('weekly-report', 'success', startedAt, { processed: emailsSent, skipped: emailsSkipped, meta: { start, end, optedOut } });
     // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
     alertDeliveryFailures('weekly-report', deliveryFailures, { emailsSent });
+    if (deliveryFailures > 0 || pendingHolds > 0) return cronError('weekly-report', startedAt, new Error('WEEKLY_REPORT_DELIVERY_UNCONFIRMED'), {
+      extraLog: { processed: emailsSent, skipped: emailsSkipped, meta: { start, end, optedOut, deliveryFailures, deliveryUncertain, pendingHolds } },
+      extraBody: { processed: emailsSent, emailsSent, emailsSkipped, optedOut, deliveryFailures, deliveryUncertain, pendingHolds },
+    });
+    await logCronRun('weekly-report', 'success', startedAt, { processed: emailsSent, skipped: emailsSkipped, meta: { start, end, optedOut } });
     // processed/skipped は他 cron ルート（daily-summary 等）と揃えた共通レスポンス形式。
     // emailsSent/emailsSkipped は本ルート固有の従来フィールド名（既存テストが参照するため維持）。
     return NextResponse.json({ processed: emailsSent, skipped: emailsSkipped, emailsSent, start, end, emailsSkipped, optedOut });

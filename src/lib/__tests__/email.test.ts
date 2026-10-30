@@ -1126,3 +1126,37 @@ describe('owner mail shows the points the customer used', () => {
     expect(mail.html).not.toContain('ポイント利用');
   });
 });
+
+describe('cron email outcome reconciliation', () => {
+  const data = { facilityEmail: 'owner@example.invalid', facilityName: 'Synthetic', date: '2026-10-29', totalRevenue: 1,
+    bookingCount: 1, completedCount: 1, cancelledCount: 0, newCustomerCount: 1, repeatCustomerCount: 0 };
+  test.each([
+    [{ data: { id: 'synthetic-id' }, error: null }, true, 'delivered'],
+    [{ data: null, error: { statusCode: 400 } }, false, 'rejected'],
+    [{ data: null, error: { statusCode: 429 } }, false, 'rejected'],
+    [{ data: null, error: { statusCode: 408 } }, false, 'uncertain'],
+    [{ data: null, error: { statusCode: 409 } }, false, 'uncertain'],
+    [{ data: null, error: { statusCode: 500 } }, false, 'uncertain'],
+    [{ data: null, error: {} }, false, 'uncertain'],
+    [{ data: null, error: null }, false, 'uncertain'],
+  ])('classifies provider response %# without treating uncertainty as rejection', async (response, expected, status) => {
+    process.env.RESEND_API_KEY = 'test-resend-key';
+    mockSend.mockResolvedValueOnce(response);
+    const onOutcome = jest.fn();
+    expect(await sendDailySummaryEmail({ ...data, onOutcome })).toBe(expected);
+    expect(onOutcome).toHaveBeenCalledWith(status);
+  });
+  test('a provider exception is uncertain', async () => {
+    process.env.RESEND_API_KEY = 'test-resend-key'; mockSend.mockRejectedValueOnce(new Error('synthetic failure'));
+    const onOutcome = jest.fn();
+    expect(await sendDailySummaryEmail({ ...data, onOutcome })).toBe(false);
+    expect(onOutcome).toHaveBeenCalledWith('uncertain');
+  });
+  test('missing provider configuration is a pre-send rejection', async () => {
+    delete process.env.RESEND_API_KEY;
+    const onOutcome = jest.fn();
+    expect(await sendDailySummaryEmail({ ...data, onOutcome })).toBe(false);
+    expect(onOutcome).toHaveBeenCalledWith('rejected');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+});
