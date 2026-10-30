@@ -221,6 +221,9 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   try {
     const operatorPage=await operatorContext.newPage();
     await login(operatorPage,operator,'/admin/registrations');
+    const pending=operatorPage.locator('section').filter({ has:operatorPage.getByRole('heading',{ name:'提出書類の確認',exact:true }) });
+    await pending.getByRole('button',{ name:'一覧を読み込む' }).click();
+    await expect(pending.getByText(name,{ exact:true })).toBeVisible();
     const card=operatorPage.locator('div.bg-white.rounded-xl').filter({ hasText:name }).first();
     await expect(card).toBeVisible();
     await card.getByRole('button',{ name:'店舗確認書類を読み込む' }).click();
@@ -235,6 +238,8 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
     await card.getByLabel('申請者の管理権限を確認しました').check();
     await card.getByRole('button',{ name:'確認を記録する' }).click();
     await expect(card.getByText(/確認を記録しました/)).toBeVisible();
+    await pending.getByRole('button',{ name:'一覧を読み込む' }).click();
+    await expect(pending.getByText(name,{ exact:true })).toHaveCount(0);
   } finally { await operatorContext.close(); }
   const published = await page.request.patch(statusUrl, { headers: apiHeaders, data: { status: 'published' } });
   expect(published.status()).toBe(200);
