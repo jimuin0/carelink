@@ -19,9 +19,14 @@ INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
  ('fa910000-0000-4000-8000-000000000003','review-limit-editor@example.invalid',now());
 UPDATE public.profiles SET is_platform_admin=true WHERE id='fa910000-0000-4000-8000-000000000002';
 INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES
- ('fa910001-0000-4000-8000-000000000001','Synthetic limit A','synthetic-review-limit-a','その他','検証県','検証市','検証住所','published'),
- ('fa910001-0000-4000-8000-000000000002','Synthetic limit B','synthetic-review-limit-b','その他','検証県','検証市','検証住所','published'),
- ('fa910001-0000-4000-8000-000000000003','Synthetic edit C','synthetic-review-edit-c','その他','検証県','検証市','検証住所','published');
+ ('fa910001-0000-4000-8000-000000000001','Synthetic limit A','synthetic-review-limit-a','その他','検証県','検証市','検証住所','draft'),
+ ('fa910001-0000-4000-8000-000000000002','Synthetic limit B','synthetic-review-limit-b','その他','検証県','検証市','検証住所','draft'),
+ ('fa910001-0000-4000-8000-000000000003','Synthetic edit C','synthetic-review-edit-c','その他','検証県','検証市','検証住所','draft');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('fa910001-0000-4000-8000-000000000001');
+SELECT pg_temp.approve_synthetic_listing('fa910001-0000-4000-8000-000000000002');
+SELECT pg_temp.approve_synthetic_listing('fa910001-0000-4000-8000-000000000003');
+UPDATE public.facility_profiles SET status='published' WHERE id IN ('fa910001-0000-4000-8000-000000000001','fa910001-0000-4000-8000-000000000002','fa910001-0000-4000-8000-000000000003');
 SET LOCAL ROLE service_role;
 
 -- 1. Account limit. Before: only reviewer_ip was compared, so the same member

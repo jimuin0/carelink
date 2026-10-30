@@ -1,7 +1,7 @@
 // Synthetic fixtures only. Observe real lock contention, not merely concurrent promises.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { realpathSync, statSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 
 const localDockerShadow = process.argv[2] === '--local-docker-shadow';
 const root = localDockerShadow ? undefined : process.argv[2];
@@ -96,6 +96,9 @@ async function contend(label, lock, calls, release = 'COMMIT;', firstBeforeRest 
 }
 const actor = 'd1000000-0000-4000-8000-000000000001';
 const facility = 'd2000000-0000-4000-8000-000000000001';
+// The helper itself refuses non-shadow databases and uses the real review RPCs.
+const reviewFixture = readFileSync('supabase/shadow/listing-verification-setup.sql', 'utf8');
+const review = (facilityId, ownerId) => query(`${reviewFixture}\nSELECT pg_temp.approve_synthetic_listing('${facilityId}','${ownerId}');`);
 const menu = 'd3000000-0000-4000-8000-000000000001';
 const staff = 'd4000000-0000-4000-8000-000000000001';
 const op = n => `d5000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
@@ -178,6 +181,7 @@ async function main() {
   assert.ok(publication.every(value => value === 'forbidden'));
   assert.equal(query(`SELECT status FROM public.facility_profiles WHERE id='${facility}'`),'suspended');
   query(`UPDATE public.facility_members SET role='owner' WHERE user_id='${actor}' AND facility_id='${facility}'`);
+  review(facility, actor);
   query(`SET ROLE service_role; SELECT public.set_facilities_publication_atomic('${actor}',ARRAY['${facility}'::uuid],true)`);
   assert.equal(query(`SELECT status FROM public.facility_profiles WHERE id='${facility}'`),'published');
   const settingsCall = `SET ROLE service_role; CREATE FUNCTION pg_temp.attempt() RETURNS text LANGUAGE plpgsql AS $$ BEGIN
@@ -216,10 +220,12 @@ async function main() {
   query(`BEGIN; INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
     ('${owners[0]}','departing-one@example.invalid',now()),('${owners[1]}','departing-two@example.invalid',now());
     INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status)
-      VALUES('${departedFacility}','Synthetic departed','synthetic-departed','その他','検証県','検証市','検証住所','published');
+      VALUES('${departedFacility}','Synthetic departed','synthetic-departed','その他','検証県','検証市','検証住所','draft');
     INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
       ('${owners[0]}','${departedFacility}','owner'),('${owners[1]}','${departedFacility}','owner'),
       ('${actor}','${departedFacility}','admin'); COMMIT;`);
+  review(departedFacility, owners[0]);
+  query(`UPDATE public.facility_profiles SET status='published' WHERE id='${departedFacility}'`);
   await contend('two-owner-departures',`SELECT id FROM public.facility_profiles WHERE id='${departedFacility}' FOR UPDATE`,
     owners.map(owner => `DELETE FROM auth.users WHERE id='${owner}'; SELECT 'deleted';`));
   assert.equal(query(`SELECT count(*) FROM public.facility_members WHERE facility_id='${departedFacility}' AND role='owner'`),'0');
@@ -268,7 +274,9 @@ async function main() {
   // SHARE, otherwise deletion and the booking FK can form a deadlock cycle.
   query(`BEGIN; INSERT INTO auth.users(id,email,email_confirmed_at)
     VALUES('${retiringActor}','retirement-race@example.invalid',now());
-    INSERT INTO public.facility_members(user_id,facility_id,role) VALUES('${retiringActor}','${retiringFacility}','owner');
+    INSERT INTO public.facility_members(user_id,facility_id,role) VALUES('${retiringActor}','${retiringFacility}','owner'); COMMIT;`);
+  review(retiringFacility, retiringActor);
+  query(`BEGIN;
     UPDATE public.facility_profiles SET status='published',business_hours=
       (SELECT jsonb_object_agg(n,jsonb_build_object('open','09:00','close','19:00','is_holiday',false))
         FROM unnest(ARRAY['sun','mon','tue','wed','thu','fri','sat']) n)
@@ -341,6 +349,10 @@ main().catch(error => {
     query(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=current_database()
       AND application_name LIKE '${runPrefix}-%' AND pid<>pg_backend_pid()`);
     query(`BEGIN; DELETE FROM public.booking_adjust_operations WHERE operation_id='d6000000-0000-4000-8000-000000000001' AND actor_id='${actor}';
+      DELETE FROM public.listing_verification_approval_documents WHERE facility_id IN ('${facility}', 'd2000000-0000-4000-8000-000000000003','d2000000-0000-4000-8000-000000000005');
+      DELETE FROM public.listing_verification_approvals WHERE facility_id IN ('${facility}', 'd2000000-0000-4000-8000-000000000003','d2000000-0000-4000-8000-000000000005');
+      DELETE FROM storage.objects WHERE bucket_id='listing-verification' AND name IN (SELECT object_path FROM public.listing_verification_documents WHERE facility_id IN ('${facility}', 'd2000000-0000-4000-8000-000000000003','d2000000-0000-4000-8000-000000000005'));
+      DELETE FROM public.listing_verification_documents WHERE facility_id IN ('${facility}', 'd2000000-0000-4000-8000-000000000003','d2000000-0000-4000-8000-000000000005');
       DELETE FROM public.webhook_retry_queue WHERE facility_id IN ('${facility}',
       'd2000000-0000-4000-8000-000000000003','d2000000-0000-4000-8000-000000000005','d2000000-0000-4000-8000-000000000006');
       DELETE FROM public.manual_booking_operations WHERE facility_id IN ('${facility}',

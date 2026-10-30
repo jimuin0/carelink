@@ -42,6 +42,7 @@ export type ContactFormData = Omit<Contact, 'id' | 'created_at'>;
 
 // Facility (公開用施設プロフィール)
 export interface Facility {
+  medical_specialties?: string[];
   id: string;
   created_at: string;
   updated_at: string;

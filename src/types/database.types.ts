@@ -2375,6 +2375,7 @@ export type Database = {
           logo_url: string | null
           longitude: number | null
           main_photo_url: string | null
+          medical_specialties: string[]
           menu_remarks: string | null
           name: string
           nearest_station: string | null
@@ -2447,6 +2448,7 @@ export type Database = {
           logo_url?: string | null
           longitude?: number | null
           main_photo_url?: string | null
+          medical_specialties?: string[]
           menu_remarks?: string | null
           name: string
           nearest_station?: string | null
@@ -2519,6 +2521,7 @@ export type Database = {
           logo_url?: string | null
           longitude?: number | null
           main_photo_url?: string | null
+          medical_specialties?: string[]
           menu_remarks?: string | null
           name?: string
           nearest_station?: string | null
@@ -3658,6 +3661,126 @@ export type Database = {
           verified_at?: string | null
         }
         Relationships: []
+      }
+      listing_verification_approval_documents: {
+        Row: {
+          document_id: string
+          facility_id: string
+        }
+        Insert: {
+          document_id: string
+          facility_id: string
+        }
+        Update: {
+          document_id?: string
+          facility_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listing_verification_approval_documents_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "listing_verification_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "listing_verification_approval_documents_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "listing_verification_approvals"
+            referencedColumns: ["facility_id"]
+          },
+        ]
+      }
+      listing_verification_approvals: {
+        Row: {
+          document_ids: string[]
+          facility_id: string
+          facility_identity: Json
+          reviewed_at: string
+          reviewed_by: string | null
+        }
+        Insert: {
+          document_ids: string[]
+          facility_id: string
+          facility_identity: Json
+          reviewed_at?: string
+          reviewed_by?: string | null
+        }
+        Update: {
+          document_ids?: string[]
+          facility_id?: string
+          facility_identity?: Json
+          reviewed_at?: string
+          reviewed_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listing_verification_approvals_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "listing_verification_approvals_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      listing_verification_documents: {
+        Row: {
+          byte_size: number
+          created_at: string
+          document_type: string
+          facility_id: string
+          id: string
+          mime_type: string
+          object_path: string
+          sha256: string
+          submitted_by: string | null
+        }
+        Insert: {
+          byte_size: number
+          created_at?: string
+          document_type: string
+          facility_id: string
+          id: string
+          mime_type: string
+          object_path: string
+          sha256: string
+          submitted_by?: string | null
+        }
+        Update: {
+          byte_size?: number
+          created_at?: string
+          document_type?: string
+          facility_id?: string
+          id?: string
+          mime_type?: string
+          object_path?: string
+          sha256?: string
+          submitted_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listing_verification_documents_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "listing_verification_documents_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       manual_booking_operations: {
         Row: {
@@ -4858,6 +4981,7 @@ export type Database = {
           has_parking: boolean | null
           id: string
           is_public: boolean | null
+          medical_specialties: string[]
           nearest_station: string | null
           phone: string
           photo_url: string | null
@@ -4898,6 +5022,7 @@ export type Database = {
           has_parking?: boolean | null
           id?: string
           is_public?: boolean | null
+          medical_specialties?: string[]
           nearest_station?: string | null
           phone: string
           photo_url?: string | null
@@ -4938,6 +5063,7 @@ export type Database = {
           has_parking?: boolean | null
           id?: string
           is_public?: boolean | null
+          medical_specialties?: string[]
           nearest_station?: string | null
           phone?: string
           photo_url?: string | null
@@ -6344,6 +6470,7 @@ export type Database = {
           longitude: number | null
           main_photo_url: string | null
           max_price: number | null
+          medical_specialties: string[] | null
           menu_count: number | null
           min_price: number | null
           name: string | null
@@ -6437,6 +6564,62 @@ export type Database = {
       }
     }
     Functions: {
+      valid_medical_specialties: {
+        Args: { p_values: string[] }
+        Returns: boolean
+      }
+      update_facility_settings_with_specialties: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_patch: Json
+          p_specialties: string[]
+        }
+        Returns: {
+          id: string
+        }[]
+      }
+      prepare_listing_verification_document: {
+        Args: {
+          p_actor_id: string
+          p_byte_size: number
+          p_document_id: string
+          p_document_type: string
+          p_facility_id: string
+          p_mime_type: string
+          p_sha256: string
+        }
+        Returns: {
+          object_path: string
+          outcome: string
+        }[]
+      }
+      commit_salon_submission_with_specialties: {
+        Args: {
+          p_canonical_version: number
+          p_hmac_scheme: string
+          p_intent_id: string
+          p_payload_hmac: string
+          p_proof_hash: string
+          p_registration: Json
+          p_terms_sha256: string
+        }
+        Returns: {
+          outcome: string
+          receipt_id: string
+        }[]
+      }
+      approve_listing_verification: {
+        Args: {
+          p_actor_id: string
+          p_authority_verified: boolean
+          p_document_ids: string[]
+          p_document_verified: boolean
+          p_expected_identity: Json
+          p_facility_id: string
+        }
+        Returns: boolean
+      }
       set_salon_registration_classification: {
         Args: { p_actor: string; p_salon: string; p_value: string; p_expected_revision: number }
         Returns: Json

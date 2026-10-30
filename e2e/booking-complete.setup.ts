@@ -1,3 +1,4 @@
+import { approveSyntheticListing } from './listing-verification-fixture';
 // 来院者 予約完走 E2E のセットアップ。
 // CI の隔離 Supabase（supabase start＝一時 DB・本番不可侵）に「予約可能な施設」を
 // service role で seed する：公開施設＋スタッフ＋全曜日の勤務スケジュール（空き枠が出る）
@@ -35,12 +36,13 @@ setup('seed bookable facility', async () => {
       prefecture: '東京都',
       city: 'テスト市',
       address: 'テスト1-1-1',
-      status: 'published',
+      status: 'draft',
     })
     .select('id')
     .single();
   if (fe) throw new Error('seed facility: ' + fe.message);
   const facilityId = fac.id as string;
+  await approveSyntheticListing(sb, facilityId);
 
   // スタッフ
   const { data: staff, error: se } = await sb

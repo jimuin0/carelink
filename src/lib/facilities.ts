@@ -11,6 +11,7 @@ import { OSAKA_CITY, OSAKA_CITY_WARDS } from './facility-location';
 import { readPageResult } from './page-read-verification';
 import { bookingDurationForMenus, MENU_DURATION_FALLBACK_MINUTES } from './booking-slot-rules';
 import { isPublicReadOnlyPreview } from './preview-capabilities';
+import { medicalSpecialties } from './medical-specialties';
 
 const PER_PAGE = 20;
 
@@ -184,7 +185,12 @@ export async function searchFacilities(params: SearchParams) {
     )
     .eq('status', 'published');
 
-  if (params.type) query = query.eq('business_type', params.type);
+  if (params.type) {
+    // Only known specialty labels enter the PostgREST OR expression.
+    query = medicalSpecialties.includes(params.type)
+      ? query.or(`business_type.eq."${params.type}",medical_specialties.cs.{"${params.type}"}`)
+      : query.eq('business_type', params.type);
+  }
   if (params.prefecture) query = query.eq('prefecture', params.prefecture);
   if (params.city) query = query.eq('city', params.city);
   if (params.keyword) {
@@ -544,7 +550,7 @@ export async function getAvailableAreasAndTypes(): Promise<{ areas: string[]; ty
     const supabase = createServerSupabaseClient();
     const query = supabase
       .from(CARD_VIEW)
-      .select('prefecture, business_type')
+      .select('prefecture, business_type, medical_specialties')
       .eq('status', 'published');
 
     const timeout = new Promise<never>((_, reject) => {
@@ -567,6 +573,7 @@ export async function getAvailableAreasAndTypes(): Promise<{ areas: string[]; ty
     const rows = (data || []) as {
       prefecture: string | null;
       business_type: string | null;
+      medical_specialties?: string[] | null;
     }[];
 
     // null / 空文字を候補に出すとリンク先が壊れるため除外する。
@@ -581,7 +588,7 @@ export async function getAvailableAreasAndTypes(): Promise<{ areas: string[]; ty
     const types = [
       ...new Set(
         rows
-          .map((r) => r.business_type)
+          .flatMap((r) => [r.business_type, ...(r.medical_specialties ?? [])])
           .filter((v): v is string => !!v),
       ),
     ];

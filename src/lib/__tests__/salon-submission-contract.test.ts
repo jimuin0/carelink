@@ -15,6 +15,14 @@ const proof = '01'.repeat(32);
 const otherProof = '02'.repeat(32);
 
 describe('registration intent canonical contract', () => {
+  test('旧申込と空の診療科は同じ照合値を維持し、追加診療科の変更は別内容として扱う',()=>{
+    const original=canonicalSalonSubmission({ ...input,business_type:'内科' })!;
+    const empty=canonicalSalonSubmission({ ...input,business_type:'内科',medical_specialties:[] })!;
+    const multi=canonicalSalonSubmission({ ...input,business_type:'内科',medical_specialties:['内科','耳鼻咽喉科'] })!;
+    expect(empty.serialized).toBe(original.serialized);
+    expect(multi.serialized).not.toBe(original.serialized);
+    expect(multi.row.medical_specialties).toEqual(['内科','耳鼻咽喉科']);
+  });
   test.each(medicalBusinessTypes)('医療機関 %s の申込分類を署名対象の保存値に保持する', category => {
     const result = canonicalSalonSubmission({ ...input, business_type: category });
     expect(result).not.toBeNull();

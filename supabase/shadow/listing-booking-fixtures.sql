@@ -1,8 +1,12 @@
 -- Synthetic, transactional fixtures. Never run against production.
 BEGIN;
 SET LOCAL statement_timeout = '5s';
-INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status)
-VALUES('72000000-0000-4000-8000-000000000001','Synthetic','synthetic-listing-booking','その他','検証県','検証市','検証番地','published');
+-- Seeded before the hours and listing-verification gates; represents an
+-- existing published listing and preserves its legacy state without a bypass.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.facility_profiles WHERE id='72000000-0000-4000-8000-000000000001'
+    AND status='published' AND business_hours IS NULL) THEN RAISE EXCEPTION 'LEGACY_FIXTURE_MISSING'; END IF;
+END $$;
 INSERT INTO public.facility_menus(id,facility_id,category,name,price,duration_minutes,is_published)
 VALUES('72000000-0000-4000-8000-000000000002','72000000-0000-4000-8000-000000000001','synthetic','Synthetic',0,30,true),
 ('72000000-0000-4000-8000-000000000005','72000000-0000-4000-8000-000000000001','synthetic','Synthetic second',0,30,true);

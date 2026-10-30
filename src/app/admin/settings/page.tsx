@@ -26,6 +26,10 @@ import { BOOKING_CSV_MAX_ROWS, buildBookingCsv, readBookingCsvRows } from '@/lib
 import { businessTypeLabel } from '@/lib/business-type-label';
 import BusinessHoursEditor from '@/components/admin/BusinessHoursEditor';
 import SpecialHoursSettings from '@/components/admin/SpecialHoursSettings';
+import ListingEvidenceSubmission from '@/components/admin/ListingEvidenceSubmission';
+import MedicalSpecialtyPicker from '@/components/register/MedicalSpecialtyPicker';
+import { medicalBusinessTypes } from '@/lib/medical-business-types';
+import { medicalSpecialtiesSchema } from '@/lib/medical-specialties';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
 const CancelPolicySettings = dynamic(() => import('@/components/admin/CancelPolicySettings'), { ssr: false });
@@ -63,6 +67,7 @@ function AdminSettingsContent() {
   // Basic info
   const [name, setName] = useState('');
   const [businessType, setBusinessType] = useState('');
+  const [medicalSpecialties, setMedicalSpecialties] = useState<string[]>([]);
   const [catchCopy, setCatchCopy] = useState('');
   const [description, setDescription] = useState('');
 
@@ -147,6 +152,9 @@ function AdminSettingsContent() {
       if (data) {
         setName(data.name || '');
         setBusinessType(data.business_type || '');
+        const specialties = medicalSpecialtiesSchema.safeParse((data as typeof data & { medical_specialties?: unknown }).medical_specialties ?? []);
+        if (!specialties.success) { setLoadError(true); setLoading(false); return; }
+        setMedicalSpecialties(specialties.data);
         setCatchCopy(data.catch_copy || '');
         setDescription(data.description || '');
         setPostalCode(data.postal_code || '');
@@ -269,6 +277,7 @@ function AdminSettingsContent() {
         body: JSON.stringify({
           name,
           business_type: businessType,
+          medical_specialties: medicalSpecialties,
           catch_copy: catchCopy || null,
           description: description || null,
           postal_code: postalCode || null,
@@ -432,6 +441,8 @@ function AdminSettingsContent() {
 
       <BookingReadinessSection readiness={readiness} facilityId={facilityId} onRetry={() => setReadinessKey((k) => k + 1)} />
 
+      <ListingEvidenceSubmission key={facilityId} facilityId={facilityId} />
+
       {publishMissing && facilityStatus !== 'published' && (
         <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4">
           {/* 一覧には未入力だけでなく、直す必要のある PR 文言の表現も並ぶ。サーバーが保存済みの内容で
@@ -459,10 +470,19 @@ function AdminSettingsContent() {
           </div>
           <div>
             <label htmlFor="fac-type" className="form-label">業種 <span className="text-red-500">*</span></label>
-            <select id="fac-type" value={businessType} onChange={(e) => setBusinessType(e.target.value)} className="form-input">
+            <select id="fac-type" value={businessType} onChange={(e) => {
+              setBusinessType(e.target.value);
+              if (!medicalBusinessTypes.includes(e.target.value)) setMedicalSpecialties([]);
+            }} className="form-input">
               <option value="">選択してください</option>
-              {businessTypes.map((t) => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
+              {businessTypes.filter(t => !medicalBusinessTypes.includes(t) && t !== 'その他').map((t) => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
+              <option value="その他の医療機関">医療機関</option>
+              {medicalBusinessTypes.filter(type => type !== 'その他の医療機関').map(type => <option key={type} value={type} hidden>医療機関</option>)}
+              <option value="その他">その他</option>
             </select>
+            {medicalBusinessTypes.includes(businessType) && <div className="mt-3"><MedicalSpecialtyPicker value={medicalSpecialties} onChange={values => {
+              setMedicalSpecialties(values); setBusinessType(values[0] || 'その他の医療機関'); setDirty(true);
+            }} /></div>}
           </div>
           <div>
             <label htmlFor="fac-catch" className="form-label">キャッチコピー</label>

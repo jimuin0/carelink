@@ -1,3 +1,4 @@
+import { approveSyntheticListing } from './listing-verification-fixture';
 // 来院者（一般ユーザー）のキャンセルフロー E2E のセットアップ。
 // CI の隔離 Supabase に、来院者ユーザー＋その本人名義の予約(confirmed・未来日)を seed し、
 // 実 UI でログインして認証済み storageState を保存する。本番不可侵。
@@ -31,9 +32,10 @@ setup('provision visitor and a cancelable booking', async ({ page }) => {
   // 公開施設（予約のひも付け先）
   const { data: fac, error: fe } = await sb.from('facility_profiles').insert({
     name: `E2E来院者店舗_${ts}`, slug: `e2e-visitor-${ts}`, business_type: 'ヘアサロン',
-    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'published',
+    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'draft',
   }).select('id').single();
   if (fe) throw new Error('seed facility: ' + fe.message);
+  await approveSyntheticListing(sb, fac.id);
 
   // 来院者ユーザー
   const { data: cu, error: ce } = await sb.auth.admin.createUser({

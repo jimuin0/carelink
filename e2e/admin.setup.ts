@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
 import { ADMIN_AUTH_FILE, PENDING_BOOKING_FILE, CONFIRMED_BOOKING_FILE, MANUAL_BOOKING_FILE, SEED, jstToday } from './admin.fixtures';
+import { approveSyntheticListing } from './listing-verification-fixture';
 
 // supabase-js v2 は Node 20 で createClient 時に WebSocket（realtime 用）を要求し throw する。
 // seed は REST（auth.admin / from().insert）のみで realtime に接続しないため、ダミーを与えて
@@ -54,7 +55,7 @@ setup('provision test owner and authenticate', async ({ page }) => {
       prefecture: '東京都',
       city: 'テスト市',
       address: 'テスト1-1-1',
-      status: 'published',
+      status: 'draft',
     })
     .select('id')
     .single();
@@ -76,6 +77,7 @@ setup('provision test owner and authenticate', async ({ page }) => {
     .from('facility_members')
     .insert({ user_id: userId, facility_id: facilityId, role: 'owner' });
   if (me) throw new Error('seed member: ' + me.message);
+  await approveSyntheticListing(sb,facilityId,userId);
 
   // 4) スタッフ（staffCount>0 にして「スケジュール未設定」警告経路を検証）
   const { data: staff, error: se } = await sb
