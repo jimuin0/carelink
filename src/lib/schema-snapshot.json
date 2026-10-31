@@ -57,6 +57,7 @@
   ],
   "birthday_notifications": [
     "channel",
+    "delivery_state",
     "notified_at",
     "user_id",
     "year"
@@ -279,6 +280,7 @@
     "status"
   ],
   "cron_report_sends": [
+    "delivery_state",
     "facility_id",
     "id",
     "job",
@@ -596,6 +598,7 @@
     "menu_remarks",
     "name",
     "nearest_station",
+    "onboarding_email_delivery_state",
     "onboarding_email_sent_at",
     "owner_message",
     "owner_name",
@@ -1273,6 +1276,7 @@
     "postal_code",
     "pr_text",
     "prefecture",
+    "registration_followup_delivery_state",
     "registration_followup_sent_at",
     "registration_license_warranted",
     "registration_terms_accepted_at",

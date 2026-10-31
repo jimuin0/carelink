@@ -14,6 +14,7 @@ const mockSendFallback = jest.fn().mockResolvedValue({ success: true });
 const localMockFrom2 = jest.fn();
 
 // モックはホイストされるため、最初に定義する
+jest.mock('@/lib/birthday-delivery-state', () => ({ countBirthdayDeliveryHolds: jest.fn(async () => 0), markBirthdayDeliveryAccepted: jest.fn(async () => true) }));
 jest.mock('@/lib/cron-auth', () => ({ checkCronAuth: jest.fn(() => null) }));
 jest.mock('@/lib/cron-logger', () => ({ logCronRun: jest.fn().mockResolvedValue(undefined), cronError: jest.fn().mockResolvedValue({ status: 500, json: async () => ({ error: 'Internal error' }) }) }));
 jest.mock('@/lib/line', () => ({ sendLineText: jest.fn().mockResolvedValue(true) }));

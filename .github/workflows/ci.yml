@@ -288,6 +288,26 @@ jobs:
             sleep 10
           done
           exit 1
+      - name: Cloudflare local TLS and guard tests
+        run: node --test tools/cloudflare/ci-local-ca.test.mjs tools/cloudflare/worker-entry.test.mjs tools/cloudflare/safe-image-optimizer.test.mjs tools/cloudflare/normalize-webp-assets.test.mjs tools/cloudflare/build-local.test.mjs
+      - name: Fresh isolated database for Worker E2E
+        # Reset only this GitHub runner's disposable local stack; never a hosted DB.
+        run: supabase db reset --local
+      - name: Cloudflare local Worker HTTPS E2E
+        # Same CI-only Playwright guards, provider-free disposable database and
+        # TLS validation as the Next run; this is workerd, not a hosted Worker.
+        run: node scripts/run-ci-e2e.mjs
+        env:
+          CARELINK_CI_WORKER: '1'
+          SALON_REGISTRATION_V2_ENABLED: 'true'
+          SKIP_ENV_VALIDATION: true
+          PLAYWRIGHT_BASE_URL: https://localhost:3000
+          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ steps.supabase.outputs.service_role }}
+      - name: Fresh isolated database for Next.js E2E
+        # Worker fixtures may write synthetic rows; Next gets a clean stack too.
+        run: supabase db reset --local
       - name: Production Build and HTTPS E2E Tests
         # Browser and server use the same TLS local Supabase origin. In-memory
         # private keys; public CA only for Node trust; no TLS bypass flags.

@@ -34,6 +34,8 @@ async function raw(page: Page) {
 }
 /** 下書き・バックアップの操作欄は既定で畳んである（申込の入力を先に見せるため）。操作前に開く。 */
 async function openTools(page: Page) {
+  // Also wait after reload: opening SSR details before hydration can be reset.
+  await expect(page.getByRole('button', { name: '次へ', exact: true })).toBeEnabled();
   const tools = page.locator('#register-draft-tools');
   await tools.waitFor({ state: 'attached' });
   if (!(await tools.evaluate(element => (element as HTMLDetailsElement).open))) await tools.locator(':scope > summary').click();
