@@ -38,7 +38,7 @@ async function openTools(page: Page) {
   await expect(page.getByRole('button', { name: '次へ', exact: true })).toBeEnabled();
   const tools = page.locator('#register-draft-tools');
   await tools.waitFor({ state: 'attached' });
-  if (!(await tools.evaluate(element => (element as HTMLDetailsElement).open))) await tools.locator('summary').click();
+  if (!(await tools.evaluate(element => (element as HTMLDetailsElement).open))) await tools.locator(':scope > summary').click();
   await expect(tools.getByRole('region', { name: 'この端末の下書き' })).toBeVisible();
 }
 const section = (page: Page) => page.getByRole('region', { name: 'この端末の下書き' });
