@@ -73,6 +73,7 @@ describe('Vercel の配信スキップ判定', () => {
       '    exec node "$MOCK_BIN/compare.js" "$url" "$MOCK_REPO" ;;',
       '  https://carelink-jp.com/api/health)',
       '    printf \'%s\\n\' "$url" >> "$MOCK_CURL_LOG"',
+      '    [ -z "${MOCK_HEALTH_FAIL:-}" ] || exit 22',
       '    printf \'{"version":"%s"}\\n\' "$MOCK_LIVE_VERSION" ;;',
       '  *) exit 22 ;;',
       'esac',
@@ -92,6 +93,7 @@ describe('Vercel の配信スキップ判定', () => {
     head?: string;
     live?: string;
     compareFail?: boolean;
+    healthFail?: boolean;
     compare?: unknown;
   };
 
@@ -112,6 +114,7 @@ describe('Vercel の配信スキップ判定', () => {
         MOCK_CURL_LOG: join(work, 'bin', 'curl.log'),
         MOCK_LIVE_VERSION: options.live ?? initialSha.slice(0, 7),
         MOCK_COMPARE_FAIL: options.compareFail ? '1' : '',
+        MOCK_HEALTH_FAIL: options.healthFail ? '1' : '',
         MOCK_COMPARE_FILE: options.compare === undefined ? '' : compareFile,
         VERCEL_ENV: options.env ?? 'production',
         VERCEL_GIT_PREVIOUS_SHA: options.previous ?? '',
@@ -148,8 +151,51 @@ describe('Vercel の配信スキップ判定', () => {
     // The comparison is anchored on the last successful deployment and this exact commit.
     expect(curlLog()).toContain(`/compare/${initialSha}...${head}`);
     // Production never substitutes the live revision for the previous deployment.
-    expect(curlLog()).not.toContain('carelink-jp.com/api/health');
+    expect(curlLog()).not.toContain(`/compare/${initialSha.slice(0, 7)}...`);
+    // A skip is a green check on GitHub, so the log must allow auditing it.
+    expect(result.stdout).toContain(`対象=${head}`);
+    expect(result.stdout).toContain(`前回成功=${initialSha}`);
+    expect(result.stdout).toContain(`比較元=${initialSha}`);
+    expect(result.stdout).toContain('省略対象の変更: docs/handoff.md');
   });
+
+  test('本番で前回成功した配信が稼働中の版でなければビルドする', () => {
+    // e.g. another deployment was promoted, or a successful build never reached production.
+    const promoted = docsOnly('promoted elsewhere');
+    git(repo, 'switch', '-q', '-c', 'later');
+    docsOnly('docs after promotion');
+    const result = run({ previous: initialSha, live: promoted.slice(0, 7) });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('本番で稼働中の版と一致しない');
+    expect(curlLog()).not.toContain('/compare/');
+  });
+
+  test('本番で稼働中の版を確認できなければビルドする', () => {
+    docsOnly();
+    expect(run({ previous: initialSha, healthFail: true }).status).toBe(1);
+    expect(curlLog()).not.toContain('/compare/');
+    expect(run({ previous: initialSha, live: 'not-a-sha' }).status).toBe(1);
+  });
+
+  test('配信に関わるファイルの変更は文書と一緒でも必ずビルドする', () => {
+    // Widening the safe list must turn at least one of these red.
+    const deployInputs = [
+      'Dockerfile.vercel', '.vercelignore', 'vercel.json', 'package.json', 'package-lock.json',
+      'next.config.mjs', 'tsconfig.json', '.env.example', 'public/robots-extra.txt', 'src/lib/helper.ts',
+      'src/middleware.ts', 'src/app/api/health/route.ts', 'scripts/build-runtime-config-base.mjs',
+      'supabase/config.toml', 'eslint-plugin-carelink-safety/index.js', 'llms.txt',
+    ];
+    for (const path of deployInputs) {
+      git(repo, 'switch', '-q', '-C', 'case', initialSha);
+      mkdirSync(join(repo, path, '..'), { recursive: true });
+      writeFileSync(join(repo, path), `changed ${path}\n`);
+      docsOnly(`docs with ${path}`);
+      const result = run({ previous: initialSha });
+      expect({ path, status: result.status }).toEqual({ path, status: 1 });
+      expect(result.stdout).toContain(`配信物に影響する変更: ${path}`);
+    }
+    // Spawns git, bash and node for each path; keep headroom on a loaded CI runner.
+  }, 60_000);
 
   test('途中でアプリ変更の配信が失敗したら後続の文書変更で隠さない', () => {
     writeFileSync(join(repo, 'src', 'app', 'page.tsx'), 'export default function Page() { return <p>updated</p>; }\n');
@@ -161,7 +207,7 @@ describe('Vercel の配信スキップ判定', () => {
   test('本番で前回成功SHAが無い・不明・現在と同じならビルドする', () => {
     docsOnly();
     expect(run({ previous: '' }).status).toBe(1);
-    expect(curlLog()).toBe('');
+    expect(curlLog()).not.toContain('/compare/');
     expect(run({ previous: '0'.repeat(40) }).status).toBe(1);
     const head = git(repo, 'rev-parse', 'HEAD');
     expect(run({ previous: head }).status).toBe(1);
@@ -171,7 +217,7 @@ describe('Vercel の配信スキップ判定', () => {
     docsOnly();
     expect(run({ previous: initialSha, head: '' }).status).toBe(1);
     expect(run({ previous: initialSha, head: 'abc' }).status).toBe(1);
-    expect(curlLog()).toBe('');
+    expect(curlLog()).not.toContain('/compare/');
   });
 
   test('ビルドに使うスクリプトの変更はビルドする', () => {
@@ -264,7 +310,7 @@ describe('Vercel の配信スキップ判定', () => {
     for (const compare of cases) {
       expect({ compare, status: run({ env: 'preview', compare }).status }).toEqual({ compare, status: 1 });
     }
-  });
+  }, 60_000);
 
   test('既存のVercel設定が判定スクリプトを呼び出す', () => {
     const config = JSON.parse(readFileSync(join(process.cwd(), 'vercel.json'), 'utf8'));
