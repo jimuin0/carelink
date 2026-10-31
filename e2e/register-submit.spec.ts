@@ -285,7 +285,12 @@ test.describe('/register 送信', () => {
         .toEqual({ present: true, secure: true, httpOnly: true, sameSite: 'Lax' });
       await expect(page.getByText('申込の送信だけでは公開されません。')).toBeVisible();
       await expect(page.getByRole('heading', { name: '次にすること' })).toBeVisible();
-      await expect(page.getByText('無料掲載の公開には、店舗名・所在地・曜日別の営業時間（定休日を含む）の設定が必要です。')).toBeVisible();
+      await expect(page.getByRole('link', { name: '掲載までの詳しい流れを見る' })).toHaveAttribute('href', '/register/guide');
+      const guide = await page.context().newPage();
+      await guide.goto('/register/guide');
+      await expect(guide.getByRole('heading', { name: '掲載までの流れ', exact: true })).toBeVisible();
+      await expect(guide.getByText(/曜日ごとの営業時間と定休日を設定/)).toBeVisible();
+      await guide.close();
       await expect(page.getByText('ネット予約を利用せず、無料掲載だけでも利用できます。')).toBeVisible();
       await expect(page.getByRole('link', { name: '既存アカウントでログインして引き継ぐ' })).toHaveAttribute('href',
         '/auth/login?redirect=%2Fadmin%2Fonboarding%3Fhandoff%3Dregistration');
