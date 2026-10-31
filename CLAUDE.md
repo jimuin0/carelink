@@ -20,7 +20,7 @@
 - AI＝`@anthropic-ai/sdk`（問い合わせサポート等）
 - 解析＝`@vercel/analytics` / `@vercel/speed-insights` / GA4（`@next/third-parties` の `GoogleAnalytics`）/ Microsoft Clarity。GA4・Clarity は Cookie 同意（分析）後にだけ `src/components/AnalyticsGate.tsx` が読み込む（判定の単一ソース `src/lib/cookie-consent.ts`、Clarity の録画は公開ページだけ＝`src/lib/session-recording-scope.ts`）
 - テスト＝Jest 30（jsdom）・Playwright（E2E）＋`@axe-core/playwright`（a11y・`e2e/a11y-audit.spec.ts`）・Stryker 9（ミューテーション）・fast-check（プロパティ）・k6（負荷）
-- Lint＝ESLint 8 + `eslint-config-next` + 自作 `eslint-plugin-carelink-safety`
+- Lint＝ESLint 9 + `eslint-config-next` + 自作 `eslint-plugin-carelink-safety`。ESLint 系が要求する minimatch 3 は、修正済み minimatch 11 を同じ呼び方で使う `tools/minimatch-v3-compat` が受ける（経緯＝docs/minimatch-dependency-remediation-20261031.md）
 - pre-commit＝husky + lint-staged（`gitleaks protect` でシークレット流出防止）
 
 ## ディレクトリ構成
