@@ -27,18 +27,20 @@ test.describe('ページロード パフォーマンス', () => {
   });
 
   test('LCP 要素が 2.5 秒以内に描画される', async ({ page }) => {
+    // Register before navigation so a paint that occurs before `goto` resolves
+    // is not missed. Keep the newest candidate throughout the observation window.
+    await page.addInitScript(() => {
+      const state = window as Window & { __carelinkLcp?: number };
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) state.__carelinkLcp = entry.startTime;
+      });
+      observer.observe({ type: 'largest-contentful-paint', buffered: true });
+    });
     await page.goto('/');
     const lcp = await page.evaluate(() => {
       return new Promise<number>((resolve) => {
-        const observer = new PerformanceObserver((list) => {
-          const entries = list.getEntries();
-          if (entries.length > 0) {
-            resolve(entries[entries.length - 1].startTime);
-            observer.disconnect();
-          }
-        });
-        observer.observe({ entryTypes: ['largest-contentful-paint'] });
-        setTimeout(() => resolve(9999), 5000);
+        const state = window as Window & { __carelinkLcp?: number };
+        setTimeout(() => resolve(state.__carelinkLcp ?? 9999), Math.max(0, 5000 - performance.now()));
       });
     });
     expect(lcp).toBeLessThan(2500);
