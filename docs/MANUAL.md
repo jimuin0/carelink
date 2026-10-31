@@ -668,6 +668,23 @@ git push origin main
 
 > 手動デプロイが必要な場合: `npx vercel --prod`
 
+#### ビルドが省略される場合と、設定変更を反映する再デプロイ
+
+`vercel.json` の `ignoreCommand`（`scripts/vercel-should-build.sh`）が、本番でも Preview でも、
+前回成功した配信からの差分が文書・テスト・migration などだけならビルドを省略する
+（本番は、前回成功した配信が稼働中の版と一致するときだけ省略する）。省略された配信は
+Vercel では Canceled、GitHub のコミットステータスでは緑の success になる。判定の内容は
+その配信のビルドログの `判定情報:` 行（対象・前回成功・稼働中・比較元の SHA と変更ファイル）で確認する。
+
+そのため、**文書だけの push では環境変数などの設定変更は本番に反映されない。** 反映したいときは次のどちらかを使う。
+
+- Vercel のダッシュボードで、現在の本番配信を **Redeploy** する（同じコミットどうしの比較になり、必ずビルドされる）。
+- 空のコミット（`git commit --allow-empty -m "設定変更を反映"`）を push する（差分 0 件は必ずビルドされる）。
+
+⚠️ `NEXT_PUBLIC_*`（ブラウザに渡す公開設定）は、ビルド段のベースイメージ `node24-public-config` に焼き込まれている。
+Vercel の環境変数を変えて再デプロイするだけでは反映されない。CLAUDE.md「Vercelの固定Node.jsランタイム」の手順で
+ベースイメージを作り直し、`Dockerfile.vercel` の digest を更新してから配信する。
+
 ### 5.2 Vercel設定
 
 | 設定 | 値 |
@@ -2432,17 +2449,17 @@ git push origin main
 
 1. https://api.slack.com/apps → Create New App → Incoming Webhooks → ON
 2. Webhook URL をコピー → Vercel環境変数 `SLACK_WEBHOOK_URL` に設定
-3. 再デプロイ（pushまたは `npx vercel --prod`）
+3. 再デプロイ（5.1「設定変更を反映する再デプロイ」の方法で。文書だけの push ではビルドが省略され反映されない）
 
 #### Google Analytics 4
 
 1. https://analytics.google.com/ でプロパティ作成 → 測定ID取得
-2. Vercel環境変数 `NEXT_PUBLIC_GA_ID` に設定 → 再デプロイ
+2. `NEXT_PUBLIC_GA_ID` を設定する。ビルド段のベースイメージに焼き込む公開設定なので、5.1 の ⚠️ の手順で反映する
 
 #### Microsoft Clarity
 
 1. https://clarity.microsoft.com/ でプロジェクト作成 → ID取得
-2. Vercel環境変数 `NEXT_PUBLIC_CLARITY_ID` に設定 → 再デプロイ
+2. `NEXT_PUBLIC_CLARITY_ID` を設定する。ビルド段のベースイメージに焼き込む公開設定なので、5.1 の ⚠️ の手順で反映する
 
 #### カスタムドメイン
 
@@ -2460,7 +2477,7 @@ git push origin main
 |------|------|------|
 | フォーム送信で「送信に失敗しました」 | Supabase URL/Key 不正 | Vercel環境変数を確認 |
 | フォーム送信で「送信に失敗しました」 | RLSポリシー未設定 | Supabase → Policies でINSERTポリシー確認 |
-| Slack通知が来ない | `SLACK_WEBHOOK_URL` 未設定 | Vercel環境変数設定 → 再デプロイ |
+| Slack通知が来ない | `SLACK_WEBHOOK_URL` 未設定 | Vercel環境変数設定 → 再デプロイ（5.1「設定変更を反映する再デプロイ」） |
 | 検索結果が空 | facility_profiles にデータなし or status≠published | Supabase Dashboardでデータ・statusを確認 |
 | 施設詳細が404 | slugが不一致 or status≠published | facility_profiles.slug を確認 |
 | 口コミが表示されない | status≠published | facility_reviews.status を確認 |
