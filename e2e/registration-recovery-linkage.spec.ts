@@ -216,6 +216,25 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   await page.getByLabel(/書類のファイル/).setInputFiles({ name:'synthetic.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-synthetic') });
   await page.getByRole('button',{ name:'書類を提出する' }).click();
   await expect(page.getByText(/書類を受け付けました/)).toBeVisible();
+  // A store owner is not a platform reviewer, even for their own application.
+  // Exercise the real authenticated endpoints and database before review;
+  // the later operator review and publication must use this same document.
+  const submitted=await db.from('listing_verification_documents').select('id').eq('facility_id',created.facilityId);
+  expect(submitted.error).toBeNull(); expect(submitted.data).toHaveLength(1);
+  const documentId=submitted.data![0].id;
+  const pendingAsOwner=await page.request.get('/api/admin/listing-verification/pending',{headers:apiHeaders});
+  expect(pendingAsOwner.status()).toBe(403);
+  const downloadAsOwner=await page.request.get(`/api/admin/listing-verification/document?facility_id=${created.facilityId}&document_id=${documentId}`,{headers:apiHeaders});
+  expect(downloadAsOwner.status()).toBe(403);
+  const identityBeforeReview=await db.from('facility_profiles').select('name,prefecture,city,address').eq('id',created.facilityId).single();
+  expect(identityBeforeReview.error).toBeNull();
+  const approveAsOwner=await page.request.post('/api/admin/listing-verification/approve',{headers:apiHeaders,data:{
+    facilityId:created.facilityId,documentIds:[documentId],expectedIdentity:identityBeforeReview.data,
+    documentVerified:true,authorityVerified:true,
+  }});
+  expect(approveAsOwner.status()).toBe(403);
+  const prematureApproval=await db.from('listing_verification_approvals').select('facility_id').eq('facility_id',created.facilityId);
+  expect(prematureApproval.error).toBeNull(); expect(prematureApproval.data).toEqual([]);
   const operator=await identity(db,true);
   const operatorContext=await browser.newContext({ baseURL:'https://localhost:3000',ignoreHTTPSErrors:true });
   try {
