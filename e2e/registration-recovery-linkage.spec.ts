@@ -234,6 +234,18 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
     await card.getByRole('button',{ name:'店舗確認書類を読み込む' }).click();
     const download=card.getByRole('link',{ name:'書類を開く' });
     await expect(download).toBeVisible();
+    const evidenceUrl = await download.getAttribute('href');
+    expect(evidenceUrl).toMatch(/^\/api\/admin\/listing-verification\/document\?/);
+    // Even the submitting store owner may not read the operator-only evidence.
+    const ownerEvidence = await page.request.get(evidenceUrl!, { headers:apiHeaders });
+    expect(ownerEvidence.status()).toBe(403);
+    expect(await ownerEvidence.text()).not.toContain('%PDF-synthetic');
+    const anonymousContext = await browser.newContext({ baseURL:'https://localhost:3000', ignoreHTTPSErrors:true });
+    try {
+      const anonymousEvidence = await anonymousContext.request.get(evidenceUrl!, { headers:apiHeaders });
+      expect(anonymousEvidence.status()).toBe(403);
+      expect(await anonymousEvidence.text()).not.toContain('%PDF-synthetic');
+    } finally { await anonymousContext.close(); }
     const [evidence]=await Promise.all([operatorPage.waitForEvent('download'),download.click()]);
     const evidencePath=await evidence.path();
     expect(evidencePath).not.toBeNull();
