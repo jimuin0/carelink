@@ -32,12 +32,17 @@ async function raw(page: Page) {
     } finally { db.close(); }
   }, { dbName: SALON_LOCAL_DRAFT_DB, storeName: SALON_LOCAL_DRAFT_STORE, key: SALON_LOCAL_DRAFT_ID });
 }
-/** 下書き・バックアップの操作欄は既定で畳んである（申込の入力を先に見せるため）。操作前に開く。 */
+/** 下書き・バックアップの操作欄は既定で畳んである（申込の入力を先に見せるため）。操作前に開く。
+ *  端末に下書きがあると、アプリは IndexedDB を読み終えた時点で欄を自分で開く（onAttention）。
+ *  「閉じている」と読んでからクリックするまでの間にそれが起きると、クリックで閉じてしまう
+ *  （2026-11-01 の CI・Mobile Safari の再読み込み直後に発生）。開いたまま留まるまで繰り返す。 */
 async function openTools(page: Page) {
   const tools = page.locator('#register-draft-tools');
   await tools.waitFor({ state: 'attached' });
-  if (!(await tools.evaluate(element => (element as HTMLDetailsElement).open))) await tools.locator(':scope > summary').click();
-  await expect(tools.getByRole('region', { name: 'この端末の下書き' })).toBeVisible();
+  await expect(async () => {
+    if (!(await tools.evaluate(element => (element as HTMLDetailsElement).open))) await tools.locator(':scope > summary').click();
+    await expect(tools.getByRole('region', { name: 'この端末の下書き' })).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
 }
 const section = (page: Page) => page.getByRole('region', { name: 'この端末の下書き' });
 const optIn = (page: Page) => section(page).getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' });
