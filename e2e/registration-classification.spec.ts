@@ -48,8 +48,9 @@ test('platform operator records and corrects a synthetic registration classifica
   await page.getByLabel('検索項目').selectOption('receipt'); await page.getByLabel('検索値').fill(receipt.receiptId);
   await page.getByRole('button', { name: '検索する' }).click();
   await expect(page.getByText('申込区分：未確認')).toBeVisible();
-  await page.getByRole('button', { name: '試験と記録' }).click(); await expect(page.getByText('申込区分：試験')).toBeVisible();
-  await page.getByRole('button', { name: '未確認に戻す' }).click(); await expect(page.getByText('申込区分：未確認')).toBeVisible();
+  const classification = page.getByRole('combobox', { name: /の申込区分$/ });
+  await classification.selectOption('test'); await expect(page.getByText('申込区分：試験')).toBeVisible();
+  await classification.selectOption('unknown'); await expect(page.getByText('申込区分：未確認')).toBeVisible();
   const stored = await db.from('salon_registration_classifications').select('classification,revision').eq('salon_id', receipt.receiptId).single();
   expect(stored.error).toBeNull(); expect(stored.data).toEqual({ classification: 'unknown', revision: 2 });
   const after = await db.from('salons').select('id,status,claimed_facility_id').eq('id', receipt.receiptId).single();

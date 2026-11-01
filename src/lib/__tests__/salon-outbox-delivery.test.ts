@@ -77,19 +77,20 @@ test.each([
   [{ ok: true, ts: 'synthetic-ts' }, 'delivered'], [{ ok: false, error: 'http_500' }, 'uncertain'],
   [{ ok: true }, 'uncertain'], [{ ok: true, ts: 123 }, 'uncertain'], [{ ok: true, ts: '' }, 'uncertain'],
 ])('internal provider result is classified conservatively %#', async (result, outcome) => {
-  query.mockResolvedValue({ data: { source: 'recruit' }, error: null });
+  query.mockResolvedValue({ data: { source: 'recruit', facility_name: row.facility_name }, error: null });
   const deliver = await prepareSalonOutboxDelivery(db, internal, resend);
   expect(postToSlack).not.toHaveBeenCalled();
-  expect(select).toHaveBeenCalledWith('source');
+  expect(select).toHaveBeenCalledWith('source,facility_name');
   expect(eq).toHaveBeenCalledWith('id', id);
   (postToSlack as jest.Mock).mockResolvedValue(result);
   await expect(deliver()).resolves.toBe(outcome);
   expect(postToSlack).toHaveBeenCalledTimes(1);
   const payload = JSON.stringify((postToSlack as jest.Mock).mock.calls[0]);
-  expect(payload).toContain(id);
+  expect(payload).not.toContain(id);
   expect(payload).toContain('/admin/registrations');
   expect(payload).not.toContain(row.email);
-  expect(payload).not.toContain(row.facility_name);
+  expect(payload).toContain('&lt;script&gt;synthetic&lt;/script&gt;');
+  expect(postToSlack).toHaveBeenCalledWith(expect.objectContaining({ unfurl_links: false, unfurl_media: false }));
 });
 test.each([
   [{ data: { id: 'synthetic-message' }, error: null }, 'delivered'],

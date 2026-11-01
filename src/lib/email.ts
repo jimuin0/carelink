@@ -1105,7 +1105,7 @@ export async function sendRegistrationLeadFollowEmail(data: {
       <p>${facility} の${T.application}をいただきましたが、${T.account}の作成がまだのようです。</p>
       <p style="font-size:13px;color:#475569;">受付番号：${receipt}</p>
       <p>申込時と同じメールアドレスで${T.account}を作成し、メールアドレスの確認を済ませると、
-         「送信済みの掲載申込を復旧」の画面にこの申込が表示されます。申込を選ぶと、入力いただいた
+         「掲載申込の続き」の画面にこの申込が表示されます。申込を選ぶと、入力いただいた
          写真・営業時間・PR文などを引き継いで${T.shop}を作成できます。</p>
       <div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:16px;margin:16px 0;">
         <p style="margin:0;"><strong>このメールを受け取ったアドレスで作成してください。</strong></p>
