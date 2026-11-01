@@ -1038,7 +1038,8 @@ describe('sendRegistrationLeadFollowEmail', () => {
     const html = mockSend.mock.calls[0][0].html;
     expect(html).not.toContain('入力し直す必要はありません');
     expect(html).not.toContain('そのまま管理画面に引き継がれます');
-    expect(html).toContain('送信済みの掲載申込を復旧');
+    expect(html).toContain('「掲載申込の続き」の画面');
+    expect(html).not.toContain('送信済みの掲載申込を復旧');
     // 表示されないときに空の店舗を作らせない案内
     expect(html).toContain('新しく店舗を作成したり申し込み直したりせず');
     expect(html).toContain('href="https://carelink-jp.com/contact"');
