@@ -71,6 +71,13 @@ describe('postToSlack', () => {
     expect(body.text).toBe('hello');
   });
 
+  test('明示したリンクと画像のプレビュー設定を Slack に渡す', async () => {
+    await postToSlack({ text: 'https://example.invalid', unfurl_links: false, unfurl_media: false });
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.unfurl_links).toBe(false);
+    expect(body.unfurl_media).toBe(false);
+  });
+
   test('SLACK_BOT_TOKEN 未設定 → ok:false, error: not_configured', async () => {
     delete process.env.SLACK_BOT_TOKEN;
     const res = await postToSlack({ text: 'x' });

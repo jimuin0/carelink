@@ -1224,6 +1224,13 @@
     "updated_at",
     "updated_by"
   ],
+  "salon_registration_visibility": [
+    "hidden",
+    "revision",
+    "salon_id",
+    "updated_at",
+    "updated_by"
+  ],
   "salon_submission_intents": [
     "canonical_version",
     "committed_at",
