@@ -295,7 +295,8 @@ test('platform registration search traverses over 100 real rows and rejects stal
   if (beforeClick !== marker) throw new Error(await diagnosis('入力した検索値が、押す前に消えた'));
   await page.getByRole('button', { name: '検索する', exact: true }).click();
   const sent = await searched.catch(async () => { throw new Error(await diagnosis('押した後、入力した検索値での検索が送られなかった')); });
-  expect(sent.postDataJSON()).toEqual({ ...query, cursor: null });
+  // 画面からの検索は「表示する申込」（既定は通常の申込）も送る。
+  expect(sent.postDataJSON()).toEqual({ ...query, cursor: null, visibility: 'visible' });
   await expect(page.getByText(marker, { exact: true })).toHaveCount(50);
   await page.getByRole('button', { name: '次の50件' }).click();
   await expect(page.getByText('2ページ目')).toBeVisible();
