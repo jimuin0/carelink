@@ -9,6 +9,8 @@ jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
+jest.mock('@/lib/after-response', () => ({ runAfterResponse: (task: () => Promise<unknown>) => task() }));
+jest.mock('@/lib/notify', () => ({ sendNotify: (...args: unknown[]) => mockNotify(...args) }));
 
 const INQUIRY_UUID = '11111111-1111-1111-1111-111111111111';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
@@ -21,6 +23,7 @@ const mockGetUser = jest.fn();
 const mockSendInquiryReply = jest.fn();
 const mockReconcileInquiryReply = jest.fn();
 const mockBuildInquiryReplyEnvelope = jest.fn();
+const mockNotify = jest.fn();
 const PROVIDER_ID = '55555555-5555-4555-8555-555555555555';
 const ENVELOPE = { from: 'Test <support@example.invalid>', to: CONTACT.email,
   replyTo: 'Test <support@example.invalid>', subject: '合成件名', html: '<p>合成本文</p>' };
@@ -212,6 +215,7 @@ beforeEach(() => {
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   mockAnonFrom.mockReturnValue(profileChain({ is_platform_admin: true, display_name: '運営担当' }));
   mockSendInquiryReply.mockResolvedValue(true);
+  mockNotify.mockResolvedValue({ ok: true });
   mockBuildInquiryReplyEnvelope.mockImplementation((data: { to: string }) => ({ ...ENVELOPE, to: data.to }));
   mockReconcileInquiryReply.mockResolvedValue({ state: 'unknown' });
   mockAdminFrom.mockImplementation((table: string) => {
@@ -340,11 +344,13 @@ describe('POST /api/admin/inquiries/[id]/reply', () => {
     expect(await res.json()).toMatchObject({ ok: true, alreadySent: false, warning: null });
     expect(replies[0].sent_at).toEqual(expect.any(String));
     expect(mockSendInquiryReply).toHaveBeenCalledTimes(1);
+    expect(mockNotify).toHaveBeenCalledWith({ type: 'contact_reply_sent', data: { contact_id: INQUIRY_UUID } });
   });
 
   test('結果不明後の同一操作再試行は同じproviderキーを再利用する', async () => {
     mockSendInquiryReply.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     expect((await POST(makeRequest(), makeProps())).status).toBe(502);
+    expect(mockNotify).not.toHaveBeenCalled();
     expect(replies[0].sent_at).toBeNull();
     expect((await POST(makeRequest(), makeProps())).status).toBe(200);
     expect(replies[0].sent_at).toEqual(expect.any(String));
@@ -365,6 +371,15 @@ describe('POST /api/admin/inquiries/[id]/reply', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, alreadySent: true, warning: 'ticket_status_update_failed' });
     expect(mockSendInquiryReply).not.toHaveBeenCalled();
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+
+  test.each(['failure', 'exception'])('Slack %s does not change the accepted reply', async (failure) => {
+    if (failure === 'failure') mockNotify.mockResolvedValue({ ok: false });
+    else mockNotify.mockRejectedValue(new Error('sensitive provider error'));
+    const result = await POST(makeRequest(), makeProps());
+    expect(await result.json()).toMatchObject({ ok: true, alreadySent: false });
+    expect(mockConsoleError).toHaveBeenCalledWith('[inquiry-reply] Slack notification failed');
   });
 
   test('同じ操作IDの本文差替えを409で拒否する', async () => {
