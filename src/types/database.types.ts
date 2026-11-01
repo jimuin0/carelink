@@ -4960,6 +4960,38 @@ export type Database = {
           },
         ]
       }
+      salon_registration_visibility: {
+        Row: {
+          hidden: boolean
+          revision: number
+          salon_id: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          hidden: boolean
+          revision?: number
+          salon_id: string
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          hidden?: boolean
+          revision?: number
+          salon_id?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "salon_registration_visibility_salon_id_fkey"
+            columns: ["salon_id"]
+            isOneToOne: true
+            referencedRelation: "salons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       salons: {
         Row: {
           address: string | null
@@ -6622,6 +6654,10 @@ export type Database = {
       }
       set_salon_registration_classification: {
         Args: { p_actor: string; p_salon: string; p_value: string; p_expected_revision: number }
+        Returns: Json
+      }
+      set_salon_registration_visibility: {
+        Args: { p_actor: string; p_salon: string; p_hidden: boolean }
         Returns: Json
       }
       _postgis_deprecate: {

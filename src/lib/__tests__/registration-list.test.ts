@@ -4,11 +4,11 @@ import { registrationCursorFilter, registrationListInput } from '../registration
 const id = '74000000-0000-4000-8000-000000000001';
 const time = '2026-09-26T12:30:40.123456+00:00';
 const row = { id, name: 'Synthetic', email: 'Synthetic@example.invalid', phone: null,
-  status: null, created_at: time, claimed_at: null, claimed_facility_id: null, review_revision: 0 };
+  status: null, created_at: time, claimed_at: null, claimed_facility_id: null, review_revision: 0, hidden_mark: null };
 const chain = { select: jest.fn(), order: jest.fn(), eq: jest.fn(), is: jest.fn(), or: jest.fn(), limit: jest.fn() };
 const labels = { select: jest.fn(), in: jest.fn() };
 const from = jest.fn((table: string) => table === 'salon_registration_classifications' ? labels : chain);
-const classified = (value: typeof row) => ({ ...value, classification: null, classification_revision: 0 });
+const classified = ({ hidden_mark: _mark, ...value }: typeof row) => ({ ...value, classification: null, classification_revision: 0, hidden: false });
 const db = { from } as unknown as Parameters<typeof readRegistrationList>[0];
 beforeEach(() => {
   jest.clearAllMocks();
@@ -26,10 +26,29 @@ test.each([null, { extra: true }, { field: 'receipt', query: 'not-uuid' },
 test('defaults, explicit projection and deterministic null-last ordering', async () => {
   expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: [classified(row)], nextCursor: null });
   expect(from).toHaveBeenCalledWith('salons');
-  expect(chain.select).toHaveBeenCalledWith('id,name:facility_name,email,phone,status,created_at,claimed_at,claimed_facility_id,review_revision');
+  expect(chain.select).toHaveBeenCalledWith('id,name:facility_name,email,phone,status,created_at,claimed_at,claimed_facility_id,review_revision,hidden_mark:salon_registration_visibility(hidden)');
   expect(chain.order.mock.calls).toEqual([['created_at', { ascending: false, nullsFirst: false }], ['id', { ascending: false }]]);
   expect(chain.limit).toHaveBeenCalledWith(51);
-  expect(chain.eq).not.toHaveBeenCalled();
+  // 既定では、隠した印（hidden=true）の付いていない申込だけを DB 側で選ぶ。
+  expect(chain.eq.mock.calls).toEqual([['hidden_mark.hidden', true]]);
+  expect(chain.is.mock.calls).toEqual([['hidden_mark', null]]);
+});
+test('hidden view selects only marked rows in the database and labels them hidden', async () => {
+  chain.limit.mockResolvedValue({ data: [{ ...row, hidden_mark: { hidden: true } }], error: null });
+  expect(await readRegistrationList(db, { visibility: 'hidden' })).toEqual({ state: 'confirmed', salons: [{ ...classified(row), hidden: true }], nextCursor: null });
+  expect(chain.select).toHaveBeenCalledWith('id,name:facility_name,email,phone,status,created_at,claimed_at,claimed_facility_id,review_revision,hidden_mark:salon_registration_visibility!inner(hidden)');
+  expect(chain.eq.mock.calls).toEqual([['hidden_mark.hidden', true]]);
+  expect(chain.is).not.toHaveBeenCalled();
+});
+test.each([
+  ['visible', { hidden: true }], ['visible', { hidden: false }], ['hidden', null], ['hidden', { hidden: false }], ['hidden', { hidden: true, extra: 1 }],
+] as const)('a row whose hidden mark contradicts the %s view fails closed %#', async (visibility, mark) => {
+  chain.limit.mockResolvedValue({ data: [{ ...row, hidden_mark: mark }], error: null });
+  expect(await readRegistrationList(db, { visibility })).toEqual({ state: 'unavailable' });
+});
+test('unknown visibility cannot reach the database', async () => {
+  expect(await readRegistrationList(db, { visibility: 'all' })).toEqual({ state: 'invalid' });
+  expect(from).not.toHaveBeenCalled();
 });
 test.each([
   ['receipt', '74000000-0000-4000-8000-0000000000AB', 'id', '74000000-0000-4000-8000-0000000000ab'],
@@ -86,7 +105,7 @@ test('blank receipt search is deliberately all receipts, not malformed UUID', ()
 
 test('classification labels are read for the current page and missing labels remain unconfirmed', async () => {
   labels.in.mockResolvedValue({ data: [{ salon_id: id, classification: 'test', revision: 2 }], error: null });
-  expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: [{ ...row, classification: 'test', classification_revision: 2 }], nextCursor: null });
+  expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: [{ ...classified(row), classification: 'test', classification_revision: 2 }], nextCursor: null });
   expect(labels.in).toHaveBeenCalledWith('salon_id', [id]);
 });
 test.each([{ data: null, error: null }, { data: [], error: { message: 'private' } }, { data: [{ salon_id: id, classification: 'unsupported', revision: 1 }], error: null }, { data: [{ salon_id: id, classification: 'test', revision: 1 }, { salon_id: id, classification: 'real', revision: 2 }], error: null }])('classification lookup failures fail closed %#', async result => {
