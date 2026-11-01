@@ -15,22 +15,37 @@ LIVE_VERSION=''
 CHANGED_LIST="$(mktemp)" || exit 1
 trap 'rm -f "$CHANGED_LIST"' EXIT
 
+# Production is often idle, so this request usually boots a cold instance first
+# (measured 2026-11-01: about 5.6 s end to end, past the old 5 s limit, which
+# made the docs-only #879 deployment build). Allow 15 s and one retry; a failure
+# still only means "unknown", which builds.
+LIVE_ATTEMPTS=0
+while [ "$LIVE_ATTEMPTS" -lt 2 ] && [ -z "$LIVE_VERSION" ]; do
+  LIVE_ATTEMPTS=$((LIVE_ATTEMPTS + 1))
+  LIVE_VERSION="$(curl --fail --silent --show-error --max-time 15 \
+    https://carelink-jp.com/api/health 2>/dev/null \
+    | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{const v=JSON.parse(s).version;if(typeof v==="string"&&/^[0-9a-f]{7}$/.test(v))process.stdout.write(v)}catch{}})' \
+    2>/dev/null)"
+  [[ "$LIVE_VERSION" =~ ^[0-9a-f]{7}$ ]] || LIVE_VERSION=''
+done
+
 # Base candidates, most specific first. Vercel leaves PREVIOUS_SHA empty on a
 # branch's first preview, and after a rebase it may no longer be an ancestor.
 # Previews may then compare with the live application revision instead of
 # assuming main deployed: main may contain commits whose deployment failed.
+# PREVIOUS_SHA is only "the last successful deployment for the branch": a
+# production build that was never served (promotion of another deployment,
+# deployment checks, rollback) would otherwise hide its application changes
+# behind a later docs-only commit. Production therefore skips only when that
+# deployment is the one actually live.
 BASES=()
-if [[ "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+if [[ "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]] \
+  && { [ "${VERCEL_ENV:-}" = preview ] \
+    || { [ -n "$LIVE_VERSION" ] && [ "${PREVIOUS_SHA:0:7}" = "$LIVE_VERSION" ]; }; }; then
   BASES+=("$PREVIOUS_SHA")
 fi
-if [ "${VERCEL_ENV:-}" = preview ]; then
-  LIVE_VERSION="$(curl --fail --silent --show-error --max-time 5 \
-    https://carelink-jp.com/api/health 2>/dev/null \
-    | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{const v=JSON.parse(s).version;if(typeof v==="string"&&/^[0-9a-f]{7}$/.test(v))process.stdout.write(v)}catch{}})' \
-    2>/dev/null)"
-  if [[ "$LIVE_VERSION" =~ ^[0-9a-f]{7}$ ]]; then
-    BASES+=("$LIVE_VERSION")
-  fi
+if [ "${VERCEL_ENV:-}" = preview ] && [ -n "$LIVE_VERSION" ]; then
+  BASES+=("$LIVE_VERSION")
 fi
 
 COMPARED_WITH=''
@@ -78,8 +93,16 @@ if [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   done
 fi
 
+# A skipped deployment shows as a green "success" on GitHub, so every decision
+# leaves enough in the build log to audit it afterwards.
+echo "判定情報: 環境=${VERCEL_ENV:-unset} 対象=${HEAD_SHA:-なし} 前回成功=${PREVIOUS_SHA:-なし} 稼働中=${LIVE_VERSION:-不明} 稼働中の取得回数=${LIVE_ATTEMPTS} 比較候補=${#BASES[@]}"
+
 if [ -z "$COMPARED_WITH" ]; then
-  echo "判定情報: 環境=${VERCEL_ENV:-unset} SHA文字数=${#PREVIOUS_SHA} 対象SHA文字数=${#HEAD_SHA} 公開版取得=$([ -n "$LIVE_VERSION" ] && echo yes || echo no) 比較候補=${#BASES[@]} GitHub照合=no"
+  if [ "${VERCEL_ENV:-}" != preview ] && [[ "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]] \
+    && [ "${PREVIOUS_SHA:0:7}" != "${LIVE_VERSION:-}" ]; then
+    echo "前回成功した配信が本番で稼働中の版と一致しない（または稼働中の版を確認できない）ためビルドします"
+  fi
+  echo "判定情報: GitHub照合=no"
   echo "最後に成功した配信コミットからの差分を安全に確認できないためビルドします"
   exit 1
 fi
@@ -91,18 +114,19 @@ CHANGED_COUNT=0
 UNSAFE_PATH=''
 while IFS= read -r -d '' path; do
   CHANGED_COUNT=$((CHANGED_COUNT + 1))
-  if [[ ! "$path" =~ $SAFE_TO_SKIP ]]; then
+  if [[ ! "$path" =~ $SAFE_TO_SKIP ]] && [ -z "$UNSAFE_PATH" ]; then
     UNSAFE_PATH="$path"
-    break
   fi
 done < "$CHANGED_LIST"
 
+echo "判定情報: 比較元=${COMPARED_WITH} 変更=${CHANGED_COUNT}件 GitHub照合=yes"
 if [ "$CHANGED_COUNT" -eq 0 ] || [ -n "$UNSAFE_PATH" ]; then
-  echo "判定情報: 比較元=${COMPARED_WITH:0:7} 変更=${CHANGED_COUNT}件"
+  [ -z "$UNSAFE_PATH" ] || echo "配信物に影響する変更: ${UNSAFE_PATH}"
   echo "配信物に影響する変更または不明な差分があるためビルドします"
   exit 1
 fi
 
-echo "判定情報: 比較元=${COMPARED_WITH:0:7} 変更=${CHANGED_COUNT}件 GitHub照合=yes"
+tr '\0' '\n' < "$CHANGED_LIST" | head -n 50 | sed 's/^/省略対象の変更: /'
+[ "$CHANGED_COUNT" -le 50 ] || echo "省略対象の変更: ほか $((CHANGED_COUNT - 50)) 件"
 echo "前回の成功配信以降、配信物に影響しない変更のみのためビルドをスキップします"
 exit 0
