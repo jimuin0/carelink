@@ -564,6 +564,7 @@ npm run test:all            # test:ci → test:e2e
 - `scripts/gen-schema-fingerprint.sh [--check]` — 期待値の生成／陳腐化検査
 - `src/lib/schema-fingerprint.expected.json` — **生成物。手で編集しない**
 - `.github/workflows/schema-fingerprint.yml` — CI で `--check`（再生成忘れを止める）
+- `.github/workflows/three-store-email-verification.yml` — 隔離 Supabase で確認メールから3店舗登録まで検証する。
 
 ### 触るときの鉄則
 1. 🔴 **フィンガープリントは必ず RPC 経由で取る。** `scripts/schema-fingerprint.sql` を
