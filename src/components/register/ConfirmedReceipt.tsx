@@ -2,7 +2,6 @@ import Link from 'next/link';
 import Button from '@/components/ui/Button';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
-import { LISTING_PUBLISH_REQUIREMENT } from '@/lib/register-photo-policy';
 import ReceiptNumber from './ReceiptNumber';
 
 type Props = {
@@ -30,11 +29,11 @@ export default function ConfirmedReceipt({ id, name, type, area, signupHref, log
         <Button href={signupHref} prefetch="auto">店舗アカウントを作成する</Button>
         <Link href={loginHref} className="underline underline-offset-4">既存アカウントでログインして引き継ぐ</Link>
       </div>
-      <p className="mt-6 text-sm leading-relaxed">引き継ぎ後、管理画面の施設設定で確認書類を提出してください。運営の確認後、情報を整えて公開できます。</p>
-      <p className="mt-1 text-sm leading-relaxed">{LISTING_PUBLISH_REQUIREMENT}</p>
+      <p className="mt-6 text-sm leading-relaxed">引き継ぎ後、確認書類を提出し、運営の確認を受けてから公開できます。</p>
       <p className="mt-3 text-sm leading-relaxed">ネット予約を利用せず、無料掲載だけでも利用できます。</p>
-      <p className="text-sm mt-4 text-(--ecru-muted)">複数店舗は、店舗ごとに申し込み、同じアカウントで引き継げます。</p>
-      <a href="/register" target="_blank" rel="noopener noreferrer" className="mt-2 inline-block underline">別の店舗を申し込む（新しいタブ）</a>
+      <p className="mt-3 text-sm leading-relaxed">複数店舗は、店舗ごとに申し込み、同じアカウントで引き継げます。</p>
+      <Link href="/register/guide" className="mt-4 inline-block underline underline-offset-4">掲載までの詳しい流れを見る</Link>
+      <a href="/register" target="_blank" rel="noopener noreferrer" className="mt-3 block underline underline-offset-4">別の店舗を申し込む（新しいタブ）</a>
     </div>
   );
 }
