@@ -10,12 +10,15 @@ name: VCR image retention
 # 長期の鍵は置かない。GitHub の OIDC を Vercel の短命トークンに交換し、終了時に失効させる。
 # 前提（一度だけ・本人）: Vercel の team 設定に、このリポジトリのこの workflow を許可する
 #   VCR 用の OIDC ポリシーがあること。repo variable VERCEL_TEAM_ID に team ID があること。
+#
+# 🔴 2026-11-02 本人決定「止めて手で消す」: 自動実行（main への push・毎日）は止めた。
+#   OIDC ポリシーは作らない（Cloudflare へ移ると Vercel を使わなくなるため）。
+#   push のたび・毎日 403 で失敗し続けていた（何も削除していない）。
+#   今後は、配信イメージが 40 個に近づいたら、scripts/prune-vcr-images.mjs の選定で候補を出し、
+#   本人の承認を得てから手で消す（記録は docs/handoff/DB_EXTENSIONS_AND_VCR_REVIEW_20261029.md）。
+#   手動実行は残すが、OIDC ポリシーが無いうちは確認だけの実行もトークン交換で失敗する。
 
 on:
-  push:
-    branches: [main]
-  schedule:
-    - cron: '15 18 * * *' # 毎日 03:15 JST
   workflow_dispatch:
     inputs:
       dry_run:

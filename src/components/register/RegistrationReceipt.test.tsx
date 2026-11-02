@@ -31,6 +31,7 @@ test('confirmed receipt is checked server-side before display and carries only a
   expect(another).toHaveAttribute('rel', 'noopener noreferrer');
   expect(screen.getByText(/申込と同じメールアドレスでアカウントを作成するか、ログインしてください/)).toBeVisible();
   expect(screen.getByText(/店舗ごとに申し込み、同じアカウントで引き継げます/)).toBeVisible();
+  expect(screen.getByRole('link', { name: '掲載までの詳しい流れを見る' })).toHaveAttribute('href', '/register/guide');
   expect(screen.getByText(/ネット予約を利用せず、無料掲載だけでも利用できます/)).toBeVisible();
   expect(JSON.parse(window.sessionStorage.getItem(SALON_BROWSER_CONTEXT_KEY)!)).toEqual({ version: 1, intentId, phase: 'confirmed' });
 });

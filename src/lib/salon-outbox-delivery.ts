@@ -20,6 +20,7 @@ const jobSchema = z.object({
     ? job.notification_kind === 'receipt' : job.notification_kind === 'internal'));
 
 const sourceSchema = z.enum(['register', 'recruit']);
+const internalSchema = z.object({ source: sourceSchema, facility_name: z.string().trim().min(1).max(200) });
 const receiptSchema = z.object({
   source: z.literal('register'), email: z.string().email(), facility_name: z.string().min(1).max(200),
 });
@@ -39,15 +40,16 @@ export async function prepareSalonOutboxDelivery(
     if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_DEFAULT_CHANNEL) {
       throw new Error('Registration internal notification is not configured');
     }
-    const { data, error } = await db.from('salons').select('source').eq('id', job.registration_id).maybeSingle();
-    if (error || !sourceSchema.safeParse(data?.source).success) {
+    const { data, error } = await db.from('salons').select('source,facility_name').eq('id', job.registration_id).maybeSingle();
+    const registration = internalSchema.safeParse(data);
+    if (error || !registration.success) {
       throw new Error('Registration internal reference unavailable');
     }
-    // Version 1 projection: receipt reference and authenticated management URL
-    // only. Applicant names, email, phone and free text never reach Slack.
-    const text = `【${T.application}の受付】\n受付番号：${job.registration_id}\n確認先：${SITE_URL}/admin/registrations`;
+    // Escape Slack markup and line breaks in applicant-supplied names.
+    const name = registration.data.facility_name.replace(/[\r\n\t]+/g, ' ').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const text = `CareLink ${T.application}の受付\n店舗名：${name}\n確認先：${SITE_URL}/admin/registrations`;
     return async () => {
-      const result = await postToSlack({ text });
+      const result = await postToSlack({ text, unfurl_links: false, unfurl_media: false });
       return result.ok && typeof result.ts === 'string' && result.ts.length > 0 ? 'delivered' : 'uncertain';
     };
   }

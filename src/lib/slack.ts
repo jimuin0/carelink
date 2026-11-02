@@ -53,6 +53,8 @@ export interface SlackPostOptions {
   username?: string;
   /** Bot のアイコン絵文字カスタム（chat:write.customize scope 要） */
   icon_emoji?: string;
+  unfurl_links?: boolean;
+  unfurl_media?: boolean;
 }
 
 export interface SlackPostResult {
@@ -87,6 +89,8 @@ export async function postToSlack(opts: SlackPostOptions): Promise<SlackPostResu
   if (opts.reply_broadcast) body.reply_broadcast = true;
   if (opts.username) body.username = opts.username;
   if (opts.icon_emoji) body.icon_emoji = opts.icon_emoji;
+  if (opts.unfurl_links !== undefined) body.unfurl_links = opts.unfurl_links;
+  if (opts.unfurl_media !== undefined) body.unfurl_media = opts.unfurl_media;
 
   try {
     const res = await fetch(`${SLACK_API_BASE}/chat.postMessage`, {

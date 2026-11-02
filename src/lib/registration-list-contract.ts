@@ -8,6 +8,8 @@ export const registrationListInput = z.object({
   query: z.string().trim().max(254).default(''),
   status: z.enum(['all', 'pending', 'approved', 'rejected', 'unknown']).default('all'),
   cursor: registrationCursor.nullable().default(null),
+  // 一覧から隠した申込は既定では出さない。'hidden' で隠した申込だけを表示する。
+  visibility: z.enum(['visible', 'hidden']).default('visible'),
 }).strict().superRefine((input, context) => {
   if (input.field === 'receipt' && input.query && !z.uuid().safeParse(input.query).success) {
     context.addIssue({ code: 'custom', path: ['query'], message: '受付番号を確認してください' });
@@ -23,6 +25,7 @@ export const registrationListRow = z.object({
   claimed_at: timestamp.nullable(), claimed_facility_id: z.uuid().nullable(),
   review_revision: z.number().int().min(0).max(2147483647),
   classification: z.enum(['test', 'real', 'unknown']).nullable(), classification_revision: z.number().int().min(0),
+  hidden: z.boolean(),
 }).strict();
 export const registrationListResponse = z.object({
   salons: z.array(registrationListRow).max(50), nextCursor: registrationCursor.nullable(),

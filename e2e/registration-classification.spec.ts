@@ -15,8 +15,8 @@ test.beforeAll(() => {
     || process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) throw new Error('Classification fixture requires isolated CI without provider credentials');
 });
 
-test('platform operator records and corrects a synthetic registration classification', async ({ page, context }) => {
-  test.setTimeout(60000);
+test('platform operator records and corrects a synthetic registration classification, and hides and restores it', async ({ page, context }) => {
+  test.setTimeout(90000);
   await context.route('**/*', route => {
     const url = new URL(route.request().url());
     return url.origin === 'https://localhost:3000' || url.origin === 'https://localhost:54330' ? route.continue() : route.abort();
@@ -48,8 +48,25 @@ test('platform operator records and corrects a synthetic registration classifica
   await page.getByLabel('検索項目').selectOption('receipt'); await page.getByLabel('検索値').fill(receipt.receiptId);
   await page.getByRole('button', { name: '検索する' }).click();
   await expect(page.getByText('申込区分：未確認')).toBeVisible();
-  await page.getByRole('button', { name: '試験と記録' }).click(); await expect(page.getByText('申込区分：試験')).toBeVisible();
-  await page.getByRole('button', { name: '未確認に戻す' }).click(); await expect(page.getByText('申込区分：未確認')).toBeVisible();
+  const classification = page.getByRole('combobox', { name: /の申込区分$/ });
+  await classification.selectOption('test'); await expect(page.getByText('申込区分：試験')).toBeVisible();
+  await classification.selectOption('unknown'); await expect(page.getByText('申込区分：未確認')).toBeVisible();
+  // 一覧から隠す → 既定の一覧から消え、隠した申込の表示に出る → 戻すと既定の一覧に戻る。
+  // 実 DB の PostgREST で、embed を使った絞り込み（隠した印の有無）が意図どおりに効くことを確かめる。
+  await page.getByRole('button', { name: '一覧から隠す', exact: true }).click();
+  await expect(page.getByText(/を一覧から隠しました/)).toBeVisible();
+  await expect(page.getByText('この条件・ページに該当する登録申請はありません')).toBeVisible();
+  await page.getByLabel('表示する申込').selectOption('hidden');
+  await page.getByRole('button', { name: '検索する' }).click();
+  await expect(page.getByText(`受付番号：${receipt.receiptId}`)).toBeVisible();
+  await page.getByRole('button', { name: '一覧に戻す', exact: true }).click();
+  await expect(page.getByText(/を一覧に戻しました/)).toBeVisible();
+  await expect(page.getByText('一覧から隠した申込はありません')).toBeVisible();
+  await page.getByLabel('表示する申込').selectOption('visible');
+  await page.getByRole('button', { name: '検索する' }).click();
+  await expect(page.getByText(`受付番号：${receipt.receiptId}`)).toBeVisible();
+  const visibility = await db.from('salon_registration_visibility').select('hidden,revision').eq('salon_id', receipt.receiptId).single();
+  expect(visibility.error).toBeNull(); expect(visibility.data).toEqual({ hidden: false, revision: 2 });
   const stored = await db.from('salon_registration_classifications').select('classification,revision').eq('salon_id', receipt.receiptId).single();
   expect(stored.error).toBeNull(); expect(stored.data).toEqual({ classification: 'unknown', revision: 2 });
   const after = await db.from('salons').select('id,status,claimed_facility_id').eq('id', receipt.receiptId).single();

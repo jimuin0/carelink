@@ -15,11 +15,19 @@ LIVE_VERSION=''
 CHANGED_LIST="$(mktemp)" || exit 1
 trap 'rm -f "$CHANGED_LIST"' EXIT
 
-LIVE_VERSION="$(curl --fail --silent --show-error --max-time 5 \
-  https://carelink-jp.com/api/health 2>/dev/null \
-  | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{const v=JSON.parse(s).version;if(typeof v==="string"&&/^[0-9a-f]{7}$/.test(v))process.stdout.write(v)}catch{}})' \
-  2>/dev/null)"
-[[ "$LIVE_VERSION" =~ ^[0-9a-f]{7}$ ]] || LIVE_VERSION=''
+# Production is often idle, so this request usually boots a cold instance first
+# (measured 2026-11-01: about 5.6 s end to end, past the old 5 s limit, which
+# made the docs-only #879 deployment build). Allow 15 s and one retry; a failure
+# still only means "unknown", which builds.
+LIVE_ATTEMPTS=0
+while [ "$LIVE_ATTEMPTS" -lt 2 ] && [ -z "$LIVE_VERSION" ]; do
+  LIVE_ATTEMPTS=$((LIVE_ATTEMPTS + 1))
+  LIVE_VERSION="$(curl --fail --silent --show-error --max-time 15 \
+    https://carelink-jp.com/api/health 2>/dev/null \
+    | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{const v=JSON.parse(s).version;if(typeof v==="string"&&/^[0-9a-f]{7}$/.test(v))process.stdout.write(v)}catch{}})' \
+    2>/dev/null)"
+  [[ "$LIVE_VERSION" =~ ^[0-9a-f]{7}$ ]] || LIVE_VERSION=''
+done
 
 # Base candidates, most specific first. Vercel leaves PREVIOUS_SHA empty on a
 # branch's first preview, and after a rebase it may no longer be an ancestor.
@@ -87,7 +95,7 @@ fi
 
 # A skipped deployment shows as a green "success" on GitHub, so every decision
 # leaves enough in the build log to audit it afterwards.
-echo "判定情報: 環境=${VERCEL_ENV:-unset} 対象=${HEAD_SHA:-なし} 前回成功=${PREVIOUS_SHA:-なし} 稼働中=${LIVE_VERSION:-不明} 比較候補=${#BASES[@]}"
+echo "判定情報: 環境=${VERCEL_ENV:-unset} 対象=${HEAD_SHA:-なし} 前回成功=${PREVIOUS_SHA:-なし} 稼働中=${LIVE_VERSION:-不明} 稼働中の取得回数=${LIVE_ATTEMPTS} 比較候補=${#BASES[@]}"
 
 if [ -z "$COMPARED_WITH" ]; then
   if [ "${VERCEL_ENV:-}" != preview ] && [[ "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]] \
