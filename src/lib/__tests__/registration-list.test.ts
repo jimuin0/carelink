@@ -7,14 +7,16 @@ const row = { id, name: 'Synthetic', email: 'Synthetic@example.invalid', phone: 
   status: null, created_at: time, claimed_at: null, claimed_facility_id: null, review_revision: 0, hidden_mark: null };
 const chain = { select: jest.fn(), order: jest.fn(), eq: jest.fn(), is: jest.fn(), or: jest.fn(), limit: jest.fn() };
 const labels = { select: jest.fn(), in: jest.fn() };
-const from = jest.fn((table: string) => table === 'salon_registration_classifications' ? labels : chain);
-const classified = ({ hidden_mark: _mark, ...value }: typeof row) => ({ ...value, classification: null, classification_revision: 0, hidden: false });
+const notices = { select: jest.fn(), eq: jest.fn(), in: jest.fn() };
+const from = jest.fn((table: string) => table === 'salon_registration_classifications' ? labels : table === 'webhook_retry_queue' ? notices : chain);
+const classified = ({ hidden_mark: _mark, ...value }: typeof row) => ({ ...value, classification: null, classification_revision: 0, hidden: false, approval_notice: 'none' });
 const db = { from } as unknown as Parameters<typeof readRegistrationList>[0];
 beforeEach(() => {
   jest.clearAllMocks();
   for (const method of ['select', 'order', 'eq', 'is', 'or'] as const) chain[method].mockReturnValue(chain);
   chain.limit.mockResolvedValue({ data: [row], error: null });
   labels.select.mockReturnValue(labels); labels.in.mockResolvedValue({ data: [], error: null });
+  notices.select.mockReturnValue(notices); notices.eq.mockReturnValue(notices); notices.in.mockResolvedValue({ data: [], error: null });
 });
 test.each([null, { extra: true }, { field: 'receipt', query: 'not-uuid' },
   { field: 'facility', query: 'a'.repeat(201) }, { query: 'a\0b' },
@@ -110,4 +112,29 @@ test('classification labels are read for the current page and missing labels rem
 });
 test.each([{ data: null, error: null }, { data: [], error: { message: 'private' } }, { data: [{ salon_id: id, classification: 'unsupported', revision: 1 }], error: null }, { data: [{ salon_id: id, classification: 'test', revision: 1 }, { salon_id: id, classification: 'real', revision: 2 }], error: null }])('classification lookup failures fail closed %#', async result => {
   labels.in.mockResolvedValue(result); expect(await readRegistrationList(db, {})).toEqual({ state: 'unavailable' });
+});
+
+// 承認のお知らせメールの送信状況を、通知の待ち行列から読む（推測で「送った」と書かない）。
+test.each([
+  ['success', null, 'sent'], ['pending', null, 'queued'], ['processing', null, 'queued'],
+  ['processing', time, 'uncertain'], ['failed', null, 'failed'], ['cancelled', null, 'failed'],
+] as const)('approval notice %s (started %s) is shown as %s', async (status, started, shown) => {
+  notices.in.mockResolvedValue({ data: [{ registration_id: id, status, delivery_started_at: started }], error: null });
+  expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: [{ ...classified(row), approval_notice: shown }], nextCursor: null });
+  expect(notices.select).toHaveBeenCalledWith('registration_id,status,delivery_started_at');
+  expect(notices.eq).toHaveBeenCalledWith('notification_kind', 'approval');
+  expect(notices.in).toHaveBeenCalledWith('registration_id', [id]);
+});
+test.each([
+  { data: null, error: null }, { data: [], error: { message: 'private' } },
+  { data: [{ registration_id: id, status: 'unknown', delivery_started_at: null }], error: null },
+  { data: [{ registration_id: id, status: 'success' }], error: null },
+  { data: [{ registration_id: id, status: 'success', delivery_started_at: null }, { registration_id: id, status: 'failed', delivery_started_at: null }], error: null },
+])('approval notice lookup failures fail closed %#', async result => {
+  notices.in.mockResolvedValue(result); expect(await readRegistrationList(db, {})).toEqual({ state: 'unavailable' });
+});
+test('an empty page does not look up approval notices', async () => {
+  chain.limit.mockResolvedValue({ data: [], error: null });
+  expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: [], nextCursor: null });
+  expect(notices.in).not.toHaveBeenCalled();
 });

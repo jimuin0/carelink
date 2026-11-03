@@ -28,6 +28,9 @@ export const registrationListRow = z.object({
   review_revision: z.number().int().min(0).max(2147483647),
   classification: z.enum(['test', 'real', 'unknown']).nullable(), classification_revision: z.number().int().min(0),
   hidden: z.boolean(),
+  // 承認のお知らせメール：none＝積まれていない（承認前・メールの仕組みより前の承認・フォーム以外）、queued＝送信待ち、
+  // sent＝送信済み、uncertain＝送信を始めたが結果が分からない（照合が要る）、failed＝送れなかった。
+  approval_notice: z.enum(['none', 'queued', 'sent', 'uncertain', 'failed']),
 }).strict();
 export const registrationListResponse = z.object({
   salons: z.array(registrationListRow).max(50), nextCursor: registrationCursor.nullable(),
