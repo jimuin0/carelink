@@ -63,7 +63,6 @@ test.describe('a11y 客観測定（非ゲート・レポート）', () => {
       // コントラスト/タップ領域の件数を per-page で出力（実測の中心指標）
       const contrast = results.violations.find((v) => v.id === 'color-contrast');
       const targetSize = results.violations.find((v) => v.id === 'target-size');
-      // eslint-disable-next-line no-console
       console.log(
         `[a11y] ${path} : violations=${results.violations.length} ` +
           `color-contrast=${contrast?.nodes.length ?? 0} target-size=${targetSize?.nodes.length ?? 0}`
@@ -87,7 +86,6 @@ test.describe('a11y 客観測定（非ゲート・レポート）', () => {
       findings: allFindings,
     };
     writeFileSync(join(dir, 'a11y-audit.json'), JSON.stringify(report, null, 2));
-    // eslint-disable-next-line no-console
     console.log('[a11y] summary nodeCountByRule:', JSON.stringify(byRule));
   });
 });

@@ -21,6 +21,8 @@ export const registrationListInput = z.object({
 });
 export const registrationListRow = z.object({
   id: z.uuid(), name: z.string(), email: z.string(), phone: z.string().nullable(),
+  // register＝掲載申込フォーム。承認のお知らせメールは register の申込にだけ送る（DB のトリガと同じ条件）。
+  source: z.enum(['register', 'recruit']).nullable(),
   status: z.string().nullable(), created_at: timestamp.nullable(),
   claimed_at: timestamp.nullable(), claimed_facility_id: z.uuid().nullable(),
   review_revision: z.number().int().min(0).max(2147483647),

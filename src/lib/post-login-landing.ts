@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database-overrides';
 import { DEFAULT_REDIRECT, safeRedirect } from './safe-redirect';
+import { SALON_RECOVERY_PATH } from './salon-browser-context';
 
 /**
  * ログイン後の着地点の単一ソース（2026年10月23日）。
@@ -41,9 +42,33 @@ export async function readStoreAccess(client: Client, userId: string): Promise<S
   }
 }
 
-/** 戻り先の指定が無いログイン後の着地点。店舗を管理できるアカウントだけ /admin。 */
-export async function landingPathFor(client: Client, userId: string): Promise<string> {
-  return (await readStoreAccess(client, userId)) === 'store' ? STORE_ADMIN_PATH : DEFAULT_REDIRECT;
+type RecoveryClient = Pick<SupabaseClient<Database>, 'rpc'>;
+
+/**
+ * 確認済みのメールアドレスで引き継げる掲載申込（店舗をまだ作っていない申込）があるか。
+ * 確認できないときは false（来院者側へ倒す。申込の続きは /register/recover から自分で開ける）。
+ */
+export async function hasRecoverableRegistration(service: RecoveryClient, userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await service.rpc('list_recoverable_salon_receipts', { p_user_id: userId });
+    return !error && Array.isArray(data) && data.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 戻り先の指定が無いログイン後の着地点。店舗を管理できるアカウントは /admin。
+ * 🔴 2026-11-03: 掲載申込のあと店舗アカウントを作ってログインした申込者が、戻り先なしで入ると
+ * 来院者向けの /mypage に着地し、申込の続き（店舗の作成）への道が見えずに止まっていた
+ * （実際に 1 件、確認済みアカウントのまま店舗を作らずに止まった申込があった）。
+ * 店舗が無く、引き継げる申込があるアカウントは、申込の続き（/register/recover）へ送る。
+ */
+export async function landingPathFor(client: Client, userId: string, service?: RecoveryClient): Promise<string> {
+  const access = await readStoreAccess(client, userId);
+  if (access === 'store') return STORE_ADMIN_PATH;
+  if (access === 'none' && service && await hasRecoverableRegistration(service, userId)) return SALON_RECOVERY_PATH;
+  return DEFAULT_REDIRECT;
 }
 
 /**

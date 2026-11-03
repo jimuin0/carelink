@@ -16,7 +16,7 @@ test.beforeAll(() => {
 });
 
 test('platform operator records and corrects a synthetic registration classification, and hides and restores it', async ({ page, context }) => {
-  test.setTimeout(90000);
+  test.setTimeout(120000);
   await context.route('**/*', route => {
     const url = new URL(route.request().url());
     return url.origin === 'https://localhost:3000' || url.origin === 'https://localhost:54330' ? route.continue() : route.abort();
@@ -47,10 +47,12 @@ test('platform operator records and corrects a synthetic registration classifica
   await page.goto('/admin/registrations');
   await page.getByLabel('検索項目').selectOption('receipt'); await page.getByLabel('検索値').fill(receipt.receiptId);
   await page.getByRole('button', { name: '検索する' }).click();
-  await expect(page.getByText('申込区分：未確認')).toBeVisible();
-  const classification = page.getByRole('combobox', { name: /の申込区分$/ });
-  await classification.selectOption('test'); await expect(page.getByText('申込区分：試験')).toBeVisible();
-  await classification.selectOption('unknown'); await expect(page.getByText('申込区分：未確認')).toBeVisible();
+  const classification = page.getByRole('combobox', { name: /の申込の種類$/ });
+  await expect(classification).toHaveValue('unknown');
+  await classification.selectOption('test'); await expect(page.getByText('テスト・検証用として記録しました')).toBeVisible();
+  await expect(classification).toHaveValue('test');
+  await classification.selectOption('unknown'); await expect(page.getByText('未確認として記録しました')).toBeVisible();
+  await expect(classification).toHaveValue('unknown');
   // 一覧から隠す → 既定の一覧から消え、隠した申込の表示に出る → 戻すと既定の一覧に戻る。
   // 実 DB の PostgREST で、embed を使った絞り込み（隠した印の有無）が意図どおりに効くことを確かめる。
   await page.getByRole('button', { name: '一覧から隠す', exact: true }).click();
@@ -71,4 +73,22 @@ test('platform operator records and corrects a synthetic registration classifica
   expect(stored.error).toBeNull(); expect(stored.data).toEqual({ classification: 'unknown', revision: 2 });
   const after = await db.from('salons').select('id,status,claimed_facility_id').eq('id', receipt.receiptId).single();
   expect(after.error).toBeNull(); expect(after.data).toEqual(before.data);
+
+  // 承認すると、確認のあとで、申込者へのお知らせメールのジョブが DB のトリガで 1 件だけ積まれる（2026-11-03）。
+  // CI には送信の鍵が無いので、ここでは「積まれたこと」までを確かめる（実際の送信はしない）。
+  await page.getByRole('button', { name: '承認', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('メールが送られます');
+  await page.getByRole('button', { name: '承認する', exact: true }).click();
+  await expect(page.getByText(/を承認しました。申込者へ続きの手順のメールを送ります/)).toBeVisible();
+  const approvalJobs = await db.from('webhook_retry_queue').select('webhook_type,notification_kind,status')
+    .eq('registration_id', receipt.receiptId).eq('notification_kind', 'approval');
+  expect(approvalJobs.error).toBeNull();
+  expect(approvalJobs.data).toEqual([{ webhook_type: 'salon_registration_email', notification_kind: 'approval', status: 'pending' }]);
+  // 承認→審査中→承認と戻しても、同じ申込にお知らせメールを 2 回積まない。
+  const reopened = await db.from('salons').update({ status: 'pending' }).eq('id', receipt.receiptId);
+  expect(reopened.error).toBeNull();
+  const reapproved = await db.from('salons').update({ status: 'approved' }).eq('id', receipt.receiptId);
+  expect(reapproved.error).toBeNull();
+  const again = await db.from('webhook_retry_queue').select('id').eq('registration_id', receipt.receiptId).eq('notification_kind', 'approval');
+  expect(again.error).toBeNull(); expect(again.data).toHaveLength(1);
 });

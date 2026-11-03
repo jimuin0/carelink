@@ -14,10 +14,11 @@ const jobSchema = z.object({
   template_version: z.literal(1),
   payload: z.object({}).strict(),
   webhook_type: z.enum(['salon_registration_email', 'salon_registration_internal']),
-  notification_kind: z.enum(['receipt', 'internal']),
+  notification_kind: z.enum(['receipt', 'internal', 'approval', 'approval_sent']),
 }).refine(job => job.target_id === job.registration_id
   && (job.webhook_type === 'salon_registration_email'
-    ? job.notification_kind === 'receipt' : job.notification_kind === 'internal'));
+    ? job.notification_kind === 'receipt' || job.notification_kind === 'approval'
+    : job.notification_kind === 'internal' || job.notification_kind === 'approval_sent'));
 
 const sourceSchema = z.enum(['register', 'recruit']);
 const internalSchema = z.object({ source: sourceSchema, facility_name: z.string().trim().min(1).max(200) });
@@ -47,7 +48,10 @@ export async function prepareSalonOutboxDelivery(
     }
     // Escape Slack markup and line breaks in applicant-supplied names.
     const name = registration.data.facility_name.replace(/[\r\n\t]+/g, ' ').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const text = `CareLink ${T.application}の受付\n店舗名：${name}\n確認先：${SITE_URL}/admin/registrations`;
+    // approval_sent は、承認のお知らせメールを申込者へ送信できた後にだけ積まれる（下の approval を参照）。
+    const text = job.notification_kind === 'approval_sent'
+      ? `CareLink ${T.application}の承認メールを申込者へ送信しました\n店舗名：${name}\n確認先：${SITE_URL}/admin/registrations`
+      : `CareLink ${T.application}の受付\n店舗名：${name}\n確認先：${SITE_URL}/admin/registrations`;
     return async () => {
       const result = await postToSlack({ text, unfurl_links: false, unfurl_media: false });
       return result.ok && typeof result.ts === 'string' && result.ts.length > 0 ? 'delivered' : 'uncertain';
@@ -58,6 +62,7 @@ export async function prepareSalonOutboxDelivery(
     .eq('id', job.registration_id).maybeSingle();
   const receipt = receiptSchema.safeParse(data);
   if (error || !receipt.success) throw new Error('Registration email reference unavailable');
+  if (job.notification_kind === 'approval') return prepareApprovalEmail(db, job.registration_id, receipt.data, resend);
   const email = {
     from: fromEnv(), to: receipt.data.email,
     // 用語は掲載申込の導線と同じ（registration-glossary.ts）。以前は件名が「掲載申し込み」、
@@ -73,4 +78,47 @@ export async function prepareSalonOutboxDelivery(
   return () => sendResendForReconciliation(resend.emails.send(email, {
     idempotencyKey: `salon-receipt-v1-${job.registration_id}`,
   }));
+}
+
+/**
+ * 運営が掲載申込を「承認」したときのお知らせ（2026-11-03 本人決定）。
+ * ジョブは申込の状態が approved に変わったときに DB のトリガが 1 件だけ積む
+ * （supabase/migrations/20261103090000_registration_approval_notice.sql）。
+ * 承認は公開ではないので、公開までに申込者がすることを書く。送信できたら、運営の Slack へ
+ * 「送信しました」を知らせるジョブ（approval_sent）を積む。積めなかったときだけ直接 Slack へ送る。
+ */
+function prepareApprovalEmail(
+  db: ReturnType<typeof createServiceRoleClient>, registrationId: string,
+  receipt: z.infer<typeof receiptSchema>, resend: Resend,
+): () => Promise<ResendDeliveryOutcome> {
+  const email = {
+    from: fromEnv(), to: receipt.email,
+    // 受付メールと同じく、申込者が入力した店舗名は件名に入れない（本文だけ）。
+    subject: `【CareLink】${T.application}を確認しました`,
+    text: `CareLink 運営です。${T.application}を確認しました。\n\n${T.shopName}：${receipt.facility_name}\n受付番号：${registrationId}\n\n`
+      + `※この時点では、まだ一般公開されていません。公開までに、次の手順をお願いします。\n\n`
+      + `【1】${T.shop}を作成する（まだの方）\nこのメールを受け取ったメールアドレス（${receipt.email}）でログインし、申込を選んで${T.shop}を作成してください。${T.account}が無い場合は、同じメールアドレスで作成してください。\n`
+      + `ログイン：${SITE_URL}${salonRecoveryAuthPath('login')}\n${T.account}の作成：${SITE_URL}${salonRecoveryAuthPath('signup')}\n\n`
+      + `【2】確認書類を提出する\n${T.shop}の作成後、管理画面の施設設定から、${T.shopName}・所在地・運営者を確認できる書類を提出してください。\n\n`
+      + `【3】${T.shop}情報を整えて公開する\n運営が書類を確認した後、所在地・曜日ごとの営業時間（定休日を含む）などを設定し、管理画面から公開できます。\n\n`
+      + `ご不明な点は、受付番号を添えてお問い合わせください。\n${SITE_URL}/contact\n\nこのメールに心当たりがない場合は破棄してください。`,
+  };
+  return async () => {
+    const outcome = await sendResendForReconciliation(resend.emails.send(email, {
+      idempotencyKey: `salon-approval-v1-${registrationId}`,
+    }));
+    if (outcome !== 'delivered') return outcome;
+    const queued = await db.from('webhook_retry_queue').insert({
+      webhook_type: 'salon_registration_internal', target_id: registrationId, payload: {},
+      registration_id: registrationId, notification_kind: 'approval_sent', template_version: 1,
+    });
+    // 23505 は「既に積んである」＝重複送信を防げているので成功と同じ扱い。
+    if (queued.error && queued.error.code !== '23505') {
+      await postToSlack({
+        text: `CareLink ${T.application}の承認メールを申込者へ送信しました\n確認先：${SITE_URL}/admin/registrations`,
+        unfurl_links: false, unfurl_media: false,
+      }).catch(() => undefined);
+    }
+    return outcome;
+  };
 }

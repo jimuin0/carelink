@@ -7,6 +7,9 @@ const mockGetUser = jest.fn();
 const mockMembership = jest.fn();
 const mockCreate = jest.fn();
 jest.mock('@/lib/supabase-server-auth', () => ({ createServerSupabaseAuthClient: () => mockCreate() }));
+const mockService = jest.fn();
+const mockRecoverable = jest.fn();
+jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => mockService() }));
 jest.mock('next/navigation', () => ({ redirect: (url: string) => { throw new Error(`redirect:${url}`); } }));
 
 function client() {
@@ -22,6 +25,8 @@ beforeEach(() => {
   jest.resetAllMocks();
   mockCreate.mockImplementation(async () => client());
   mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null });
+  mockRecoverable.mockResolvedValue({ data: [], error: null });
+  mockService.mockImplementation(() => ({ rpc: (name: string, args: unknown) => mockRecoverable(name, args) }));
 });
 
 async function landing(): Promise<string> {
@@ -51,4 +56,21 @@ test('未ログインはログイン画面へ（戻り先なし＝ループし�
   mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
   expect(await landing()).toBe('redirect:/auth/login');
   expect(mockMembership).not.toHaveBeenCalled();
+});
+
+// 2026-11-03: 店舗をまだ作っていない申込者が /mypage に着地して止まっていた。
+test('店舗が無く引き継げる掲載申込がある申込者は、申込の続きへ', async () => {
+  mockMembership.mockResolvedValue({ data: null, error: null });
+  mockRecoverable.mockResolvedValue({ data: [{ receipt_id: 'r1' }], error: null });
+  expect(await landing()).toBe('redirect:/register/recover');
+  expect(mockRecoverable).toHaveBeenCalledWith('list_recoverable_salon_receipts', { p_user_id: 'u1' });
+});
+
+test('service role が使えない環境でも、店舗オーナーは /admin、それ以外は /mypage', async () => {
+  mockService.mockImplementation(() => { throw new Error('service role unavailable'); });
+  mockMembership.mockResolvedValue({ data: { role: 'owner' }, error: null });
+  expect(await landing()).toBe('redirect:/admin');
+  mockMembership.mockResolvedValue({ data: null, error: null });
+  expect(await landing()).toBe('redirect:/mypage');
+  expect(mockRecoverable).not.toHaveBeenCalled();
 });

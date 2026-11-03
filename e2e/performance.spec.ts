@@ -55,7 +55,8 @@ test.describe('ページロード パフォーマンス', () => {
         let clsScore = 0;
         const observer = new PerformanceObserver((list) => {
           for (const entry of list.getEntries()) {
-            const layoutEntry = entry as any;
+            // layout-shift の項目は TypeScript の標準の型に無いので、使う 2 つだけを型にする。
+            const layoutEntry = entry as PerformanceEntry & { hadRecentInput?: boolean; value: number };
             if (!layoutEntry.hadRecentInput) {
               clsScore += layoutEntry.value;
             }

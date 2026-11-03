@@ -21,6 +21,7 @@ export default function AdminRegistrationsPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmReject, setConfirmReject] = useState(false);
   const [confirmRejectSalon, setConfirmRejectSalon] = useState<Salon | null>(null);
+  const [confirmApproveSalon, setConfirmApproveSalon] = useState<Salon | null>(null);
   const [filters, setFilters] = useState<RegistrationListInput>({ field: 'facility', query: '', status: 'all', cursor: null, visibility: 'visible' });
   const [query, setQuery] = useState('');
   const [field, setField] = useState<RegistrationListInput['field']>('facility');
@@ -70,7 +71,7 @@ export default function AdminRegistrationsPage() {
 
   const invalidate = () => {
     ++generation.current; setLoading(true); setLoadError(false); setNextCursor(null);
-    setConfirmReject(false); setConfirmRejectSalon(null); setToast(null);
+    setConfirmReject(false); setConfirmRejectSalon(null); setConfirmApproveSalon(null); setToast(null);
   };
   const applySearch = (event: React.FormEvent) => {
     event.preventDefault();
@@ -113,7 +114,9 @@ export default function AdminRegistrationsPage() {
         return;
       }
       const label = status === 'approved' ? '承認' : '却下';
-      setToast({ type: 'success', message: `${salon.name}を${label}として記録しました。公開・申込者への通知はされていません` });
+      setToast({ type: 'success', message: status === 'approved' && salon.source === 'register'
+        ? `${salon.name}を承認しました。申込者へ続きの手順のメールを送ります（15分以内）。送信できたら Slack に通知します`
+        : `${salon.name}を${label}として記録しました。公開・申込者への通知はされていません` });
       setReloadKey((k) => k + 1);
     } catch {
       if (generation.current === ownGeneration) {
@@ -140,7 +143,7 @@ export default function AdminRegistrationsPage() {
       const result = await response.json();
       if (generation.current !== ownGeneration) return;
       if (!response.ok || result?.success !== true || result.classification !== classification || result.revision !== salon.classification_revision + 1) throw new Error('Unconfirmed update');
-      setToast({ type: 'success', message: classification === 'test' ? '試験申込として記録しました' : classification === 'real' ? '実申込として記録しました' : '未確認として記録しました' });
+      setToast({ type: 'success', message: classification === 'test' ? 'テスト・検証用として記録しました' : classification === 'real' ? '本物の申込として記録しました' : '未確認として記録しました' });
       setReloadKey(key => key + 1);
     } catch {
       if (generation.current === ownGeneration) {
@@ -180,7 +183,13 @@ export default function AdminRegistrationsPage() {
     }
   };
 
-  const handleApprove = (salon: Salon) => updateStatus(salon, 'approved');
+  const handleApprove = (salon: Salon) => setConfirmApproveSalon(salon);
+  const doApprove = async () => {
+    if (!confirmApproveSalon) return;
+    const salon = confirmApproveSalon;
+    setConfirmApproveSalon(null);
+    await updateStatus(salon, 'approved');
+  };
 
   const handleReject = (salon: Salon) => {
     setConfirmRejectSalon(salon);
@@ -195,6 +204,17 @@ export default function AdminRegistrationsPage() {
     await updateStatus(salon, 'rejected');
   };
 
+  const nextStep = (salon: Salon) => {
+    if (salon.status === 'rejected') return '却下済みです。この申込からは店舗を作れません。';
+    if (salon.claimed_facility_id) return '申込者が店舗を作成済みです。下の書類確認で、提出された書類を確認してください（確認後に申込者が公開できます）。';
+    if (salon.status === 'approved') return salon.source === 'register'
+      ? '承認済みです。申込者が同じメールアドレスでログインして店舗を作成するのを待っています（承認時に手順をメールで案内）。'
+      : '承認済みです。この申込は掲載申込フォーム以外からのため、承認のメールは送られていません。';
+    return salon.source === 'register'
+      ? '内容を確認し、問題なければ「承認」してください。申込者へ続きの手順のメールが送られます。'
+      : '内容を確認してください。この申込は掲載申込フォーム以外からのため、承認してもメールは送られません。';
+  };
+
   const statusLabel = (s: string | null) => {
     switch (s) {
       case 'pending': return { text: '審査中', cls: 'bg-yellow-100 text-yellow-700' };
@@ -207,9 +227,18 @@ export default function AdminRegistrationsPage() {
   return (
     <div>
       <SbPageHeader title="施設登録管理" />
-      <p className="text-sm mb-4">「承認」は運営の記録だけです。押しても店舗は公開されず、申込者への通知も送られません。公開できるのは、申込者が店舗を作成して確認書類を提出し、運営が書類を確認した後です（店舗作成後は、各申込の下に書類確認の欄が出ます）。「却下」すると、その申込からは店舗を作れなくなります（こちらも通知は送られません）。</p>
-      <p className="text-sm mb-4">申込区分は管理用の記録です。試験申込にしても、掲載や通知は自動停止しません。未確認の申込は推測で区分しないでください。</p>
-      <p className="text-sm mb-4">「一覧から隠す」は、この一覧の表示だけを変えます。申込・店舗・公開状態・通知は変わらず、データも削除しません。隠した申込は「表示する申込」で「一覧から隠した申込」を選ぶと確認でき、元に戻せます。</p>
+      <section aria-labelledby="registration-flow" className="mb-4 rounded-xl bg-white p-4 text-sm leading-relaxed">
+        <h2 id="registration-flow" className="font-bold mb-2">掲載までの流れ</h2>
+        <ol className="list-decimal pl-5 space-y-1">
+          <li><b>申込の受付</b>：申込者が掲載申込フォームから送信します。</li>
+          <li><b>承認（運営）</b>：「承認」すると、申込者へ続きの手順を案内するメールが送られます（15分以内・同じ申込には1回だけ）。送信できたら Slack に通知します。<b>承認だけでは公開されません。</b></li>
+          <li><b>店舗の作成（申込者）</b>：申込者が同じメールアドレスでログインし、店舗を作成します。</li>
+          <li><b>書類の確認（運営）</b>：店舗の作成後、この一覧の各申込の下に書類確認の欄が出ます。</li>
+          <li><b>公開（申込者）</b>：書類の確認後、申込者が店舗情報を整えて公開します。</li>
+        </ol>
+        <p className="mt-2">「却下」すると、その申込からは店舗を作れなくなります（申込者への通知は送られません）。</p>
+        <p className="mt-1">「一覧から隠す」は、この一覧の表示だけを変えます。申込・店舗・公開状態・通知は変わらず、データも削除しません。隠した申込は「表示する申込」で「一覧から隠した申込」を選ぶと確認でき、元に戻せます。</p>
+      </section>
       <RegistrationDuplicateLink />
       <ListingVerificationPending />
       <ListingVerificationSearch />
@@ -254,32 +283,37 @@ export default function AdminRegistrationsPage() {
             const st = statusLabel(salon.status);
             return (
               <div key={salon.id} className="bg-white rounded-xl p-4 shadow-xs">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
                       <span className={`text-xs px-2 py-0.5 rounded-full ${st.cls}`}>{st.text}</span>
                       <span className="text-xs text-gray-500">
-                        {salon.created_at ? new Date(salon.created_at).toLocaleDateString('ja-JP') : '受付日時未設定'}
+                        受付 {salon.created_at ? new Date(salon.created_at).toLocaleDateString('ja-JP') : '日時未設定'}
                       </span>
+                      {salon.classification === 'test' && <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">テスト・検証用</span>}
                     </div>
-                    <p className="font-bold">{salon.name}</p>
-                    <p className="text-xs">申込区分：{salon.classification === 'test' ? '試験' : salon.classification === 'real' ? '実申込' : '未確認'}</p>
-                    <label className="text-xs">申込区分を変更
-                      <select aria-label={`${salon.name}の申込区分`} className="form-input ml-2" value={salon.classification ?? 'unknown'} disabled={processingId !== null || mutationUncertain} onChange={event => void updateClassification(salon, event.target.value as 'test' | 'real' | 'unknown')}>
-                        <option value="unknown">未確認</option><option value="test">試験申込</option><option value="real">実申込</option>
-                      </select>
-                    </label>
-                    <button type="button" className="text-xs underline block mt-1 disabled:opacity-50" disabled={processingId !== null || mutationUncertain} onClick={() => void updateVisibility(salon, !salon.hidden)}>{salon.hidden ? '一覧に戻す' : '一覧から隠す'}</button>
-                    <p className="text-xs break-all">受付番号：{salon.id}</p>
-                    <p className="text-xs">{salon.claimed_facility_id ? '店舗作成済み（公開状態は別途確認）' : salon.claimed_at ? '旧形式の取り込み記録あり・要照合' : '店舗作成前'}</p>
-                    <p className="text-xs text-gray-500">{salon.email}{salon.phone ? ` / ${salon.phone}` : ''}</p>
+                    <p className="text-lg font-bold break-words">{salon.name}</p>
+                    <p className="text-sm mt-1"><span className="font-bold">次にすること：</span>{nextStep(salon)}</p>
+                    <p className="text-xs">{salon.claimed_facility_id ? '店舗作成済み（公開状態は書類確認の欄で確認）' : salon.claimed_at ? '旧形式の取り込み記録あり・要照合' : '店舗作成前'}</p>
+                    <p className="text-xs text-gray-500 mt-1 break-all">{salon.email}{salon.phone ? ` / ${salon.phone}` : ''}</p>
+                    <p className="text-xs text-gray-500 break-all">受付番号：{salon.id}</p>
                   </div>
                   {salon.status === 'pending' && (
                     <div className="flex gap-2">
-                      <button type="button" disabled={processingId !== null || mutationUncertain} onClick={() => handleApprove(salon)} className="text-xs bg-green-500 text-white px-3 py-1 rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed">承認</button>
-                      <button type="button" disabled={processingId !== null || mutationUncertain} onClick={() => handleReject(salon)} className="text-xs bg-red-100 text-red-600 px-3 py-1 rounded-lg hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed">却下</button>
+                      <button type="button" disabled={processingId !== null || mutationUncertain} onClick={() => handleApprove(salon)} className="text-sm bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed">承認</button>
+                      <button type="button" disabled={processingId !== null || mutationUncertain} onClick={() => handleReject(salon)} className="text-sm bg-red-100 text-red-700 px-4 py-2 rounded-lg hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed">却下</button>
                     </div>
                   )}
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-gray-100 pt-3 text-xs">
+                  <span className="font-bold text-gray-700">運営メモ</span>
+                  <label className="flex items-center gap-2">申込の種類
+                    <select aria-label={`${salon.name}の申込の種類`} className="form-input" value={salon.classification ?? 'unknown'} disabled={processingId !== null || mutationUncertain} onChange={event => void updateClassification(salon, event.target.value as 'test' | 'real' | 'unknown')}>
+                      <option value="unknown">未確認</option><option value="real">本物の申込</option><option value="test">テスト・検証用</option>
+                    </select>
+                  </label>
+                  <span className="text-gray-500">見分け用のメモです。公開・通知には影響しません。</span>
+                  <button type="button" className="underline disabled:opacity-50" disabled={processingId !== null || mutationUncertain} onClick={() => void updateVisibility(salon, !salon.hidden)}>{salon.hidden ? '一覧に戻す' : '一覧から隠す'}</button>
                 </div>
                 {salon.claimed_facility_id && <ListingVerificationReview key={salon.claimed_facility_id} facilityId={salon.claimed_facility_id} />}
               </div>
@@ -290,6 +324,16 @@ export default function AdminRegistrationsPage() {
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
+      <ConfirmDialog
+        open={confirmApproveSalon !== null}
+        title="申込を承認"
+        message={confirmApproveSalon?.source === 'register'
+          ? `${confirmApproveSalon.name}を承認しますか？申込者（${confirmApproveSalon.email}）へ、店舗の作成と書類提出の手順を案内するメールが送られます（15分以内・同じ申込には1回だけ）。承認だけでは公開されません。`
+          : `${confirmApproveSalon?.name}を承認しますか？この申込は掲載申込フォーム以外からのため、メールは送られません。承認だけでは公開されません。`}
+        confirmLabel="承認する"
+        onConfirm={doApprove}
+        onCancel={() => setConfirmApproveSalon(null)}
+      />
       <ConfirmDialog
         open={confirmReject}
         title="施設を却下"
