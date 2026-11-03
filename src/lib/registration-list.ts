@@ -26,7 +26,7 @@ export async function readRegistrationList(db: ReturnType<typeof createServiceRo
     if (input.cursor) query = query.or(registrationCursorFilter(input.cursor));
     const result = await query.limit(51);
     // 印が条件どおりでない行が 1 件でも返れば、取りこぼしを疑って一覧ごと失敗にする。
-    const baseRow = registrationListRow.omit({ classification: true, classification_revision: true, hidden: true, approval_notice: true })
+    const baseRow = registrationListRow.omit({ classification: true, classification_revision: true, hidden: true, approval_notice: true, documents_deferred: true })
       .extend({ hidden_mark: hiddenOnly ? z.object({ hidden: z.literal(true) }).strict() : z.null() });
     const rows = z.array(baseRow).max(51).safeParse(result.data);
     if (result.error !== null || !rows.success) return { state: 'unavailable' as const };
@@ -51,9 +51,15 @@ export async function readRegistrationList(db: ReturnType<typeof createServiceRo
       : notice.status === 'success' ? 'sent' as const
       : notice.status === 'processing' && notice.delivery_started_at !== null ? 'uncertain' as const
       : notice.status === 'pending' || notice.status === 'processing' ? 'queued' as const : 'failed' as const;
+    // 「書類は後から」の印（2026-11-03 本人決定）。
+    const deferrals = page.length === 0 ? { data: [], error: null } : await db.from('listing_verification_deferrals')
+      .select('salon_id,deferred').in('salon_id', page.map(row => row.id));
+    const parsedDeferrals = z.array(z.object({ salon_id: z.uuid(), deferred: z.boolean() }).strict()).max(50).safeParse(deferrals.data);
+    if (deferrals.error !== null || !parsedDeferrals.success) return { state: 'unavailable' as const };
+    const deferredIds = new Set(parsedDeferrals.data.filter(row => row.deferred).map(row => row.salon_id));
     const salons = page.map(row => ({ ...row, classification: index.get(row.id)?.classification ?? null,
       classification_revision: index.get(row.id)?.revision ?? 0, hidden: hiddenOnly,
-      approval_notice: noticeState(noticeIndex.get(row.id)) }));
+      approval_notice: noticeState(noticeIndex.get(row.id)), documents_deferred: deferredIds.has(row.id) }));
     let nextCursor: RegistrationCursor | null = null;
     if (rows.data.length > 50) {
       const last = salons[salons.length - 1];

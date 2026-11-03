@@ -5,7 +5,7 @@ import Page from '../page';
 const id = '74000000-0000-4000-8000-000000000001';
 const time = '2026-09-26T12:30:40.123456+00:00';
 const row = { id, name: '合成施設', email: 'synthetic@example.invalid', phone: null, source: 'register' as 'register' | 'recruit' | null,
-  status: 'pending', created_at: time, claimed_at: null, claimed_facility_id: null, review_revision: 0, classification: null, classification_revision: 0, hidden: false, approval_notice: 'none' as 'none' | 'queued' | 'sent' | 'uncertain' | 'failed' };
+  status: 'pending', created_at: time, claimed_at: null, claimed_facility_id: null, review_revision: 0, classification: null, classification_revision: 0, hidden: false, approval_notice: 'none' as 'none' | 'queued' | 'sent' | 'uncertain' | 'failed', documents_deferred: false };
 const cursor = { id, createdAt: time };
 const mockFetch = jest.fn();
 function response(body: unknown = { salons: [row], nextCursor: null }, ok = true) {
@@ -278,6 +278,65 @@ test.each([
   [{ status: 'approved', source: 'recruit' }, '承認のメールは送られていません'],
   [{ status: 'rejected' }, '却下済みです。この申込からは店舗を作れません。'],
 ] as const)('next step explains what happens now %#', async (patch, text) => {
+  mockFetch.mockResolvedValueOnce(response({ salons: [{ ...row, ...patch }], nextCursor: null }));
+  render(<Page />); await screen.findByText('合成施設');
+  expect(screen.getByText(new RegExp(text))).toBeVisible();
+});
+
+// 「書類は後から」（2026-11-03 本人決定）：付ける前に確認し、サーバーが確定した結果だけを表示する。
+test('document deferral is confirmed before it is turned on, and can be turned off', async () => {
+  render(<Page />); await screen.findByText('合成施設');
+  expect(screen.getByText(/すでにやりとりを進めていた店舗にだけ付けてください/)).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: '書類は後からにする' }));
+  expect(screen.getByRole('dialog')).toHaveTextContent('運営が書類を確認する前でも公開できるようになります');
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+  mockFetch.mockResolvedValueOnce(response({ success: true, deferred: true }));
+  mockFetch.mockResolvedValueOnce(response({ salons: [{ ...row, documents_deferred: true }], nextCursor: null }));
+  fireEvent.click(screen.getAllByRole('button', { name: '書類は後からにする' }).at(-1)!);
+  expect(await screen.findByText('合成施設を「書類は後から」にしました。書類の確認前でも公開できます')).toBeVisible();
+  expect(mockFetch.mock.calls[1][0]).toBe(`/api/admin/registrations/${id}/document-deferral`);
+  expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ deferred: true });
+  expect(await screen.findByText('書類は後から', { selector: 'span' })).toBeVisible();
+  mockFetch.mockResolvedValueOnce(response({ success: true, deferred: false }));
+  mockFetch.mockResolvedValueOnce(response({ salons: [row], nextCursor: null }));
+  fireEvent.click(screen.getByRole('button', { name: '書類を先に必須に戻す' }));
+  expect(await screen.findByText('合成施設は書類の確認が済んでから公開する扱いに戻しました')).toBeVisible();
+  expect(JSON.parse(mockFetch.mock.calls[3][1].body)).toEqual({ deferred: false });
+});
+test.each([
+  ['business failure', () => Promise.resolve(response({ success: false }, false))],
+  ['wrong acknowledgement', () => Promise.resolve(response({ success: true, deferred: true }))],
+  ['network failure', () => Promise.reject(new Error('offline'))],
+])('unconfirmed deferral (%s) blocks further changes until reload', async (_label, result) => {
+  mockFetch.mockResolvedValueOnce(response({ salons: [{ ...row, documents_deferred: true }], nextCursor: null }));
+  render(<Page />); await screen.findByText('合成施設');
+  mockFetch.mockImplementationOnce(result);
+  fireEvent.click(screen.getByRole('button', { name: '書類を先に必須に戻す' }));
+  expect(await screen.findByText('書類の扱いの更新結果を確認できません。一覧を再読み込みしてください。')).toBeVisible();
+  expect(screen.getByRole('button', { name: '書類を先に必須に戻す' })).toBeDisabled();
+});
+test('cancelling the deferral dialog changes nothing', async () => {
+  render(<Page />); await screen.findByText('合成施設');
+  fireEvent.click(screen.getByRole('button', { name: '書類は後からにする' }));
+  fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+});
+test.each(['success', 'failure'])('superseded deferral %s cannot update an unmounted screen', async mode => {
+  mockFetch.mockResolvedValueOnce(response({ salons: [{ ...row, documents_deferred: true }], nextCursor: null }));
+  const { unmount } = render(<Page />); await screen.findByText('合成施設');
+  const pending = deferred(); mockFetch.mockReturnValueOnce(pending.promise);
+  const button = screen.getByRole('button', { name: '書類を先に必須に戻す' });
+  act(() => { button.click(); button.click(); });
+  expect(mockFetch).toHaveBeenCalledTimes(2);
+  unmount();
+  await act(async () => { if (mode === 'success') pending.resolve(response({ success: true, deferred: false })); else pending.reject(new Error('late')); });
+  expect(mockFetch).toHaveBeenCalledTimes(2);
+});
+test.each([
+  [{ claimed_facility_id: '74000000-0000-4000-8000-0000000000aa', documents_deferred: true }, '「書類は後から」なので、営業時間などが揃えば書類の確認前でも公開できます'],
+  [{ claimed_facility_id: '74000000-0000-4000-8000-0000000000aa', documents_deferred: false }, '確認して記録すると、条件が揃っていれば公開されます'],
+] as const)('next step for a created shop reflects the document rule %#', async (patch, text) => {
   mockFetch.mockResolvedValueOnce(response({ salons: [{ ...row, ...patch }], nextCursor: null }));
   render(<Page />); await screen.findByText('合成施設');
   expect(screen.getByText(new RegExp(text))).toBeVisible();

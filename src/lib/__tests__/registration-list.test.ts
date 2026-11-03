@@ -8,8 +8,10 @@ const row = { id, name: 'Synthetic', email: 'Synthetic@example.invalid', phone: 
 const chain = { select: jest.fn(), order: jest.fn(), eq: jest.fn(), is: jest.fn(), or: jest.fn(), limit: jest.fn() };
 const labels = { select: jest.fn(), in: jest.fn() };
 const notices = { select: jest.fn(), eq: jest.fn(), in: jest.fn() };
-const from = jest.fn((table: string) => table === 'salon_registration_classifications' ? labels : table === 'webhook_retry_queue' ? notices : chain);
-const classified = ({ hidden_mark: _mark, ...value }: typeof row) => ({ ...value, classification: null, classification_revision: 0, hidden: false, approval_notice: 'none' });
+const deferrals = { select: jest.fn(), in: jest.fn() };
+const from = jest.fn((table: string) => table === 'salon_registration_classifications' ? labels : table === 'webhook_retry_queue' ? notices
+  : table === 'listing_verification_deferrals' ? deferrals : chain);
+const classified = ({ hidden_mark: _mark, ...value }: typeof row) => ({ ...value, classification: null, classification_revision: 0, hidden: false, approval_notice: 'none', documents_deferred: false });
 const db = { from } as unknown as Parameters<typeof readRegistrationList>[0];
 beforeEach(() => {
   jest.clearAllMocks();
@@ -17,6 +19,7 @@ beforeEach(() => {
   chain.limit.mockResolvedValue({ data: [row], error: null });
   labels.select.mockReturnValue(labels); labels.in.mockResolvedValue({ data: [], error: null });
   notices.select.mockReturnValue(notices); notices.eq.mockReturnValue(notices); notices.in.mockResolvedValue({ data: [], error: null });
+  deferrals.select.mockReturnValue(deferrals); deferrals.in.mockResolvedValue({ data: [], error: null });
 });
 test.each([null, { extra: true }, { field: 'receipt', query: 'not-uuid' },
   { field: 'facility', query: 'a'.repeat(201) }, { query: 'a\0b' },
@@ -137,4 +140,17 @@ test('an empty page does not look up approval notices', async () => {
   chain.limit.mockResolvedValue({ data: [], error: null });
   expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: [], nextCursor: null });
   expect(notices.in).not.toHaveBeenCalled();
+});
+
+// 「書類は後から」の印（2026-11-03）。外した印（deferred=false）は付いていない扱い。
+test.each([[true, true], [false, false]] as const)('document deferral %s is shown as %s', async (deferred, shown) => {
+  deferrals.in.mockResolvedValue({ data: [{ salon_id: id, deferred }], error: null });
+  expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: [{ ...classified(row), documents_deferred: shown }], nextCursor: null });
+  expect(deferrals.select).toHaveBeenCalledWith('salon_id,deferred');
+  expect(deferrals.in).toHaveBeenCalledWith('salon_id', [id]);
+});
+test.each([
+  { data: null, error: null }, { data: [], error: { message: 'private' } }, { data: [{ salon_id: id, deferred: 'yes' }], error: null },
+])('document deferral lookup failures fail closed %#', async result => {
+  deferrals.in.mockResolvedValue(result); expect(await readRegistrationList(db, {})).toEqual({ state: 'unavailable' });
 });

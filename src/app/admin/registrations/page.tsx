@@ -22,6 +22,7 @@ export default function AdminRegistrationsPage() {
   const [confirmReject, setConfirmReject] = useState(false);
   const [confirmRejectSalon, setConfirmRejectSalon] = useState<Salon | null>(null);
   const [confirmApproveSalon, setConfirmApproveSalon] = useState<Salon | null>(null);
+  const [confirmDeferSalon, setConfirmDeferSalon] = useState<Salon | null>(null);
   const [filters, setFilters] = useState<RegistrationListInput>({ field: 'facility', query: '', status: 'all', cursor: null, visibility: 'visible' });
   const [query, setQuery] = useState('');
   const [field, setField] = useState<RegistrationListInput['field']>('facility');
@@ -71,7 +72,7 @@ export default function AdminRegistrationsPage() {
 
   const invalidate = () => {
     ++generation.current; setLoading(true); setLoadError(false); setNextCursor(null);
-    setConfirmReject(false); setConfirmRejectSalon(null); setConfirmApproveSalon(null); setToast(null);
+    setConfirmReject(false); setConfirmRejectSalon(null); setConfirmApproveSalon(null); setConfirmDeferSalon(null); setToast(null);
   };
   const applySearch = (event: React.FormEvent) => {
     event.preventDefault();
@@ -183,6 +184,39 @@ export default function AdminRegistrationsPage() {
     }
   };
 
+  const updateDeferral = async (salon: Salon, deferred: boolean) => {
+    if (mutationLock.current) return;
+    mutationLock.current = true; setProcessingId(salon.id);
+    const ownGeneration = generation.current;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await fetch(`/api/admin/registrations/${salon.id}/document-deferral`, {
+        method: 'PATCH', signal: controller.signal, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deferred }),
+      });
+      const result = await response.json();
+      if (generation.current !== ownGeneration) return;
+      if (!response.ok || result?.success !== true || result.deferred !== deferred) throw new Error('Unconfirmed update');
+      setToast({ type: 'success', message: deferred ? `${salon.name}を「書類は後から」にしました。書類の確認前でも公開できます` : `${salon.name}は書類の確認が済んでから公開する扱いに戻しました` });
+      setReloadKey(key => key + 1);
+    } catch {
+      if (generation.current === ownGeneration) {
+        uncertainRef.current = true; setMutationUncertain(true);
+        setToast({ type: 'error', message: '書類の扱いの更新結果を確認できません。一覧を再読み込みしてください。' });
+      }
+    } finally {
+      clearTimeout(timer); mutationLock.current = false;
+      if (generation.current === ownGeneration) setProcessingId(null);
+    }
+  };
+  const doDefer = async () => {
+    if (!confirmDeferSalon) return;
+    const salon = confirmDeferSalon;
+    setConfirmDeferSalon(null);
+    await updateDeferral(salon, true);
+  };
+
   const handleApprove = (salon: Salon) => setConfirmApproveSalon(salon);
   const doApprove = async () => {
     if (!confirmApproveSalon) return;
@@ -206,7 +240,9 @@ export default function AdminRegistrationsPage() {
 
   const nextStep = (salon: Salon) => {
     if (salon.status === 'rejected') return '却下済みです。この申込からは店舗を作れません。';
-    if (salon.claimed_facility_id) return '申込者が店舗を作成済みです。下の書類確認で、提出された書類を確認してください（確認後に申込者が公開できます）。';
+    if (salon.claimed_facility_id) return salon.documents_deferred
+      ? '申込者が店舗を作成済みです。「書類は後から」なので、営業時間などが揃えば書類の確認前でも公開できます。書類が届いたら、下の書類確認で確認してください。'
+      : '申込者が店舗を作成済みです。下の書類確認で、提出された書類を確認してください（確認して記録すると、条件が揃っていれば公開されます）。';
     if (salon.status === 'approved') {
       if (salon.source !== 'register') return '承認済みです。この申込は掲載申込フォーム以外からのため、承認のメールは送られていません。';
       const waiting = '申込者が同じメールアドレスでログインして店舗を作成するのを待っています。';
@@ -239,9 +275,9 @@ export default function AdminRegistrationsPage() {
           <li><b>申込の受付</b>：申込者が掲載申込フォームから送信します。</li>
           <li><b>承認（運営）</b>：「承認」すると、申込者へ続きの手順を案内するメールが送られます（15分以内・同じ申込には1回だけ）。送信できたら Slack に通知します。<b>承認だけでは公開されません。</b></li>
           <li><b>店舗の作成（申込者）</b>：申込者が同じメールアドレスでログインし、店舗を作成します。</li>
-          <li><b>書類の確認（運営）</b>：店舗の作成後、この一覧の各申込の下に書類確認の欄が出ます。</li>
-          <li><b>公開（申込者）</b>：書類の確認後、申込者が店舗情報を整えて公開します。</li>
+          <li><b>書類の確認と公開（運営）</b>：店舗の作成後、この一覧の各申込の下に書類確認の欄が出ます。書類を確認して記録すると、店舗名・所在地・曜日ごとの営業時間が揃っていれば<b>そのまま公開されます</b>。揃っていなければ、申込者が設定を終えた時点で公開されます。</li>
         </ol>
+        <p className="mt-2"><b>「書類は後から」</b>：すでにやりとりを進めていた店舗にだけ付けてください。付けた申込から作られた店舗は、書類の確認前でも公開でき、書類は公開後に提出してもらいます。</p>
         <p className="mt-2">「却下」すると、その申込からは店舗を作れなくなります（申込者への通知は送られません）。</p>
         <p className="mt-1">「一覧から隠す」は、この一覧の表示だけを変えます。申込・店舗・公開状態・通知は変わらず、データも削除しません。隠した申込は「表示する申込」で「一覧から隠した申込」を選ぶと確認でき、元に戻せます。</p>
       </section>
@@ -297,6 +333,7 @@ export default function AdminRegistrationsPage() {
                         受付 {salon.created_at ? new Date(salon.created_at).toLocaleDateString('ja-JP') : '日時未設定'}
                       </span>
                       {salon.classification === 'test' && <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">テスト・検証用</span>}
+                      {salon.documents_deferred && <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">書類は後から</span>}
                     </div>
                     <p className="text-lg font-bold break-words">{salon.name}</p>
                     <p className="text-sm mt-1"><span className="font-bold">次にすること：</span>{nextStep(salon)}</p>
@@ -320,6 +357,10 @@ export default function AdminRegistrationsPage() {
                   </label>
                   <span className="text-gray-500">見分け用のメモです。公開・通知には影響しません。</span>
                   <button type="button" className="underline disabled:opacity-50" disabled={processingId !== null || mutationUncertain} onClick={() => void updateVisibility(salon, !salon.hidden)}>{salon.hidden ? '一覧に戻す' : '一覧から隠す'}</button>
+                  <button type="button" className="underline disabled:opacity-50" disabled={processingId !== null || mutationUncertain}
+                    onClick={() => salon.documents_deferred ? void updateDeferral(salon, false) : setConfirmDeferSalon(salon)}>
+                    {salon.documents_deferred ? '書類を先に必須に戻す' : '書類は後からにする'}
+                  </button>
                 </div>
                 {salon.claimed_facility_id && <ListingVerificationReview key={salon.claimed_facility_id} facilityId={salon.claimed_facility_id} />}
               </div>
@@ -330,6 +371,14 @@ export default function AdminRegistrationsPage() {
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
+      <ConfirmDialog
+        open={confirmDeferSalon !== null}
+        title="書類は後からにする"
+        message={`${confirmDeferSalon?.name}を「書類は後から」にしますか？この申込から作られた店舗は、運営が書類を確認する前でも公開できるようになります。すでにやりとりを進めていた店舗にだけ付けてください。`}
+        confirmLabel="書類は後からにする"
+        onConfirm={doDefer}
+        onCancel={() => setConfirmDeferSalon(null)}
+      />
       <ConfirmDialog
         open={confirmApproveSalon !== null}
         title="申込を承認"

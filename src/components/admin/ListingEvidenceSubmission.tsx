@@ -45,7 +45,7 @@ export default function ListingEvidenceSubmission({ facilityId }: { facilityId: 
 
   return <section className="my-6 rounded-xl border border-gray-200 p-4" onChange={event => event.stopPropagation()}>
     <h2 className="mb-3 text-lg font-bold">店舗確認書類の提出</h2>
-    <p className="mb-3 text-sm">新しい店舗を公開する前に、運営が書類と管理権限を確認します。</p>
+    <p className="mb-3 text-sm">運営が書類と管理権限を確認します。確認が済むと、店舗名・所在地・曜日ごとの営業時間が揃っていれば公開されます（運営から「書類は後から」と案内された店舗は、公開後の提出でも構いません）。</p>
     <fieldset disabled={busy || !!attempt}>
       <ListingEvidencePicker key={pickerVersion} type={type} file={file} onTypeChange={setType} onFileChange={setFile} />
     </fieldset>
