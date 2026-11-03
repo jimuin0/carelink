@@ -12,8 +12,8 @@ export async function readRegistrationList(db: ReturnType<typeof createServiceRo
     // 'hidden' は隠した行だけ（!inner）、既定は「隠した印が付いていない」行だけ（印の embed が NULL）。
     let query = db.from('salons')
       .select(hiddenOnly
-        ? 'id,name:facility_name,email,phone,status,created_at,claimed_at,claimed_facility_id,review_revision,hidden_mark:salon_registration_visibility!inner(hidden)'
-        : 'id,name:facility_name,email,phone,status,created_at,claimed_at,claimed_facility_id,review_revision,hidden_mark:salon_registration_visibility(hidden)')
+        ? 'id,name:facility_name,email,phone,source,status,created_at,claimed_at,claimed_facility_id,review_revision,hidden_mark:salon_registration_visibility!inner(hidden)'
+        : 'id,name:facility_name,email,phone,source,status,created_at,claimed_at,claimed_facility_id,review_revision,hidden_mark:salon_registration_visibility(hidden)')
       .eq('hidden_mark.hidden', true)
       .order('created_at', { ascending: false, nullsFirst: false }).order('id', { ascending: false });
     if (!hiddenOnly) query = query.is('hidden_mark', null);

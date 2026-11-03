@@ -3,7 +3,7 @@ import { readRegistrationList } from '../registration-list';
 import { registrationCursorFilter, registrationListInput } from '../registration-list-contract';
 const id = '74000000-0000-4000-8000-000000000001';
 const time = '2026-09-26T12:30:40.123456+00:00';
-const row = { id, name: 'Synthetic', email: 'Synthetic@example.invalid', phone: null,
+const row = { id, name: 'Synthetic', email: 'Synthetic@example.invalid', phone: null, source: 'register',
   status: null, created_at: time, claimed_at: null, claimed_facility_id: null, review_revision: 0, hidden_mark: null };
 const chain = { select: jest.fn(), order: jest.fn(), eq: jest.fn(), is: jest.fn(), or: jest.fn(), limit: jest.fn() };
 const labels = { select: jest.fn(), in: jest.fn() };
@@ -26,7 +26,7 @@ test.each([null, { extra: true }, { field: 'receipt', query: 'not-uuid' },
 test('defaults, explicit projection and deterministic null-last ordering', async () => {
   expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: [classified(row)], nextCursor: null });
   expect(from).toHaveBeenCalledWith('salons');
-  expect(chain.select).toHaveBeenCalledWith('id,name:facility_name,email,phone,status,created_at,claimed_at,claimed_facility_id,review_revision,hidden_mark:salon_registration_visibility(hidden)');
+  expect(chain.select).toHaveBeenCalledWith('id,name:facility_name,email,phone,source,status,created_at,claimed_at,claimed_facility_id,review_revision,hidden_mark:salon_registration_visibility(hidden)');
   expect(chain.order.mock.calls).toEqual([['created_at', { ascending: false, nullsFirst: false }], ['id', { ascending: false }]]);
   expect(chain.limit).toHaveBeenCalledWith(51);
   // 既定では、隠した印（hidden=true）の付いていない申込だけを DB 側で選ぶ。
@@ -36,7 +36,7 @@ test('defaults, explicit projection and deterministic null-last ordering', async
 test('hidden view selects only marked rows in the database and labels them hidden', async () => {
   chain.limit.mockResolvedValue({ data: [{ ...row, hidden_mark: { hidden: true } }], error: null });
   expect(await readRegistrationList(db, { visibility: 'hidden' })).toEqual({ state: 'confirmed', salons: [{ ...classified(row), hidden: true }], nextCursor: null });
-  expect(chain.select).toHaveBeenCalledWith('id,name:facility_name,email,phone,status,created_at,claimed_at,claimed_facility_id,review_revision,hidden_mark:salon_registration_visibility!inner(hidden)');
+  expect(chain.select).toHaveBeenCalledWith('id,name:facility_name,email,phone,source,status,created_at,claimed_at,claimed_facility_id,review_revision,hidden_mark:salon_registration_visibility!inner(hidden)');
   expect(chain.eq.mock.calls).toEqual([['hidden_mark.hidden', true]]);
   expect(chain.is).not.toHaveBeenCalled();
 });
