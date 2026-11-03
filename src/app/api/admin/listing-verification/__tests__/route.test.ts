@@ -62,3 +62,14 @@ test('不正ID・施設なし・未確認の状態を区別する',async()=>{
   from.mockImplementation((table:string)=>table === 'facility_profiles' ? chain(identity) : table === 'listing_verification_documents' ? chain([]) : chain(null));
   expect((await (await GET(request())).json()).currentApproval).toBe(false);
 });
+// 承認済みで下書きのまま公開を待っている店舗だけを「公開待ち」として返す（運営が公開をやり直せるように）。
+test.each([
+  ['draft',true,true],['draft',false,false],['published',true,false],['suspended',true,false],
+])('店舗が %s・公開待ちの印 %s のとき、公開待ちは %s',async(status,pending,expected)=>{
+  const from=jest.fn((table:string)=>table === 'facility_profiles' ? chain({ ...identity,status })
+    : table === 'listing_verification_documents' ? chain([]) : chain({ facility_identity:identity,auto_publish_pending:pending }));
+  jest.mocked(createServiceRoleClient).mockReturnValue({ from } as never);
+  const body=await (await GET(request())).json();
+  expect(body.publicationPending).toBe(expected);
+  expect(body.identity).toEqual(identity);
+});

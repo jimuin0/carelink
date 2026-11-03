@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { Page } from '@playwright/test';
 import { prepareSalonIntent } from '../src/lib/salon-submission-intent';
 import { commitSalonSubmission } from '../src/lib/salon-submission-commit';
 import { approveSyntheticListing } from './listing-verification-fixture';
@@ -25,13 +26,13 @@ function service(): SupabaseClient {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false } });
 }
-async function user(db: SupabaseClient, email = `gate-${randomUUID()}@example.invalid`) {
-  const created = await db.auth.admin.createUser({ email, password: randomUUID(), email_confirm: true });
+async function user(db: SupabaseClient, email = `gate-${randomUUID()}@example.invalid`, password = randomUUID()) {
+  const created = await db.auth.admin.createUser({ email, password, email_confirm: true });
   if (created.error || !created.data.user) throw new Error('Synthetic user unavailable');
   return created.data.user.id;
 }
-async function operator(db: SupabaseClient) {
-  const id = await user(db);
+async function operator(db: SupabaseClient, email?: string, password?: string) {
+  const id = await user(db, email, password);
   const promoted = await db.from('profiles').update({ is_platform_admin: true }).eq('id', id).select('id').single();
   if (promoted.error) throw new Error('Synthetic operator unavailable');
   return id;
@@ -158,4 +159,76 @@ test('ログイン後に申込の続きへ送るのは、承認済みでまだ�
   expect(await claimable()).toBe(true);
   await facility(db, false, salon);
   expect(await claimable()).toBe(false);
+});
+
+test('一括公開でも公開待ちの印が外れる', async () => {
+  const db = service();
+  const shop = await facility(db, false);
+  await approveSyntheticListing(db, shop.id, shop.owner, false);
+  expect((await db.from('facility_profiles').update({ business_hours: READY_HOURS }).eq('id', shop.id).select('id')).error).toBeNull();
+  const bulk = await db.rpc('set_facilities_publication_atomic', { p_actor_id: shop.owner, p_facility_ids: [shop.id], p_is_published: true });
+  expect(bulk.error).toBeNull();
+  expect(await statusOf(db, shop.id)).toBe('published');
+  expect(await pendingOf(db, shop.id)).toBe(false);
+});
+
+test('送信済み・送信を始めた承認メールは、取り消しでも止めず、もう一度の承認でも送り直さない', async () => {
+  const db = service();
+  const job = async (salon: string) => (await db.from('webhook_retry_queue').select('status,delivery_started_at')
+    .eq('registration_id', salon).eq('notification_kind', 'approval').eq('template_version', 1).single()).data;
+  const approve = (salon: string, status: string) => db.from('salons').update({ status }).eq('id', salon).select('id');
+  const sent = await registration(db);
+  await approve(sent, 'approved');
+  expect((await db.from('webhook_retry_queue').update({ status: 'success', processed_at: new Date().toISOString() })
+    .eq('registration_id', sent).eq('notification_kind', 'approval').select('id')).error).toBeNull();
+  await approve(sent, 'pending'); expect((await job(sent))?.status).toBe('success');
+  await approve(sent, 'approved'); expect((await job(sent))?.status).toBe('success');
+  const started = await registration(db); const startedAt = new Date().toISOString();
+  await approve(started, 'approved');
+  expect((await db.from('webhook_retry_queue').update({ status: 'processing', claimed_at: startedAt, delivery_started_at: startedAt })
+    .eq('registration_id', started).eq('notification_kind', 'approval').select('id')).error).toBeNull();
+  await approve(started, 'pending'); expect(await job(started)).toMatchObject({ status: 'processing' });
+  // cron が取った直後で、まだ送信を始めていないものは止める（送信開始の記録は processing を条件にする）。
+  const claimed = await registration(db);
+  await approve(claimed, 'approved');
+  expect((await db.from('webhook_retry_queue').update({ status: 'processing', claimed_at: new Date().toISOString() })
+    .eq('registration_id', claimed).eq('notification_kind', 'approval').select('id')).error).toBeNull();
+  await approve(claimed, 'pending'); expect(await job(claimed)).toEqual({ status: 'cancelled', delivery_started_at: null });
+});
+
+async function login(page: Page, email: string, password: string) {
+  await page.goto('/auth/login?redirect=/admin/registrations');
+  await page.getByRole('button', { name: '必須のみ', exact: true }).click();
+  await page.fill('#login-email', email); await page.fill('#login-password', password);
+  await page.getByRole('button', { name: 'ログイン', exact: true }).click();
+  await page.waitForURL(url => !url.pathname.startsWith('/auth/login'), { timeout: 20000 });
+}
+
+// 動機①：以前は DB の中だけで公開していたため、キャッチコピー・紹介文の禁止表現の検査を通らずに公開された。
+// 運営の「公開をもう一度試す」（承認直後と同じ部品）が、実際の API・DB の上で禁止表現の店舗を公開しないことを確かめる。
+test('禁止表現がある店舗は、書類が承認済みでも公開せず、直すと公開する', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.context().route('**/*', route => {
+    const url = new URL(route.request().url());
+    return url.origin === 'https://localhost:3000' || url.origin === 'https://localhost:54330' ? route.continue() : route.abort();
+  });
+  const db = service();
+  const email = `gate-operator-${randomUUID()}@example.invalid`; const password = `Local-${randomUUID()}Aa9!`;
+  await operator(db, email, password);
+  const shop = await facility(db, true);
+  expect((await db.from('facility_profiles').update({ catch_copy: '必ず治る施術' }).eq('id', shop.id).select('id')).error).toBeNull();
+  await approveSyntheticListing(db, shop.id, shop.owner, false);
+  expect(await pendingOf(db, shop.id)).toBe(true);
+  await login(page, email, password);
+  const headers = { Origin: 'https://localhost:3000', 'x-real-ip': '2001:db8:' + randomUUID().replace(/-/g, '').match(/.{1,4}/g)!.slice(0, 6).join(':') };
+  const retry = () => page.request.post('/api/admin/listing-verification/publish', { headers, data: { facilityId: shop.id } });
+  const refused = await retry();
+  expect(refused.status()).toBe(200); expect(await refused.json()).toEqual({ state: 'done', publication: 'not_ready' });
+  expect(await statusOf(db, shop.id)).toBe('draft');
+  expect(await pendingOf(db, shop.id)).toBe(true);
+  expect((await db.from('facility_profiles').update({ catch_copy: '地域に根ざした店です' }).eq('id', shop.id).select('id')).error).toBeNull();
+  const published = await retry();
+  expect(await published.json()).toEqual({ state: 'done', publication: 'published' });
+  expect(await statusOf(db, shop.id)).toBe('published');
+  expect(await pendingOf(db, shop.id)).toBe(false);
 });

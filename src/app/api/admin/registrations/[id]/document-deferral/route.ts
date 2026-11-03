@@ -20,11 +20,11 @@ const route = withRoute(async (request, ctx) => {
     if (result.error || !data.success) throw new Error('Document deferral dependency failed');
     if (data.data.outcome === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     if (data.data.outcome === 'rejected') return NextResponse.json({ error: '却下した申込には「書類は後から」を付けられません。' }, { status: 409 });
-    if (data.data.outcome !== 'updated' || data.data.deferred !== body.data.deferred || data.data.revision === undefined
-      || data.data.facility_published === undefined)
+    if (data.data.outcome !== 'updated' || data.data.deferred !== body.data.deferred || data.data.revision === undefined)
       return NextResponse.json({ error: '更新できません。一覧を再取得してください。' }, { status: 409 });
     // 外しても、公開中の店舗はそのまま公開される（画面がそう伝えられるように返す）。
-    return NextResponse.json({ success: true, deferred: data.data.deferred, facilityPublished: data.data.facility_published });
+    // migration 20261103150000 より前の DB は公開中かを返さないので、不明（null）として返す。
+    return NextResponse.json({ success: true, deferred: data.data.deferred, facilityPublished: data.data.facility_published ?? null });
   } catch {
     return serverError('registration-document-deferral', new Error('Document deferral dependency failed'), '/api/admin/registrations/[id]/document-deferral', '更新結果を確認できません。');
   }

@@ -43,8 +43,13 @@ test('a rejected registration cannot be deferred', async () => {
   expect((await response.json()).error).toContain('却下した申込');
 });
 test('database rejects revoked platform administrator', async () => { mockRpc.mockResolvedValue({ data: { outcome: 'forbidden' }, error: null }); expect((await PATCH(request())).status).toBe(403); });
-test.each([{ outcome: 'updated', deferred: false, revision: 1, facility_published: false }, { outcome: 'updated', deferred: true, facility_published: false },
-  { outcome: 'updated', deferred: true, revision: 1 }])('wrong acknowledgement is not success %#', async data => {
+// 配信と migration の順番に関係なく、確定した更新を失敗と返さない（公開中かが分からなければ null）。
+test('a database without the published flag still confirms the update', async () => {
+  mockRpc.mockResolvedValue({ data: { outcome: 'updated', deferred: true, revision: 1 }, error: null });
+  const response = await PATCH(request()); expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ success: true, deferred: true, facilityPublished: null });
+});
+test.each([{ outcome: 'updated', deferred: false, revision: 1, facility_published: false }, { outcome: 'updated', deferred: true, facility_published: false }])('wrong acknowledgement is not success %#', async data => {
   mockRpc.mockResolvedValue({ data, error: null }); expect((await PATCH(request())).status).toBe(409);
 });
 test.each([{ data: null, error: null }, { data: { outcome: 'updated', deferred: true, revision: 1, facility_published: false, extra: 1 }, error: null }, { data: null, error: { message: 'private' } }])('malformed or failed database result reports failure %#', async data => {

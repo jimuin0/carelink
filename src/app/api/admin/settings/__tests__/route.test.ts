@@ -487,13 +487,23 @@ test('PATCH: 公開待ちの店舗は保存の後に自動公開を試み、公�
   expect((await res.json()).published).toBe(true);
   expect(publishVerifiedFacilityIfReady).toHaveBeenCalledWith(expect.anything(), FACILITY_UUID, USER_ID);
 });
+test('PATCH: 公開ゲートが止めたときは、保存できたうえで公開できなかったことを伝える', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  (publishVerifiedFacilityIfReady as jest.Mock).mockResolvedValueOnce('blocked');
+  const res = await PATCH(makePatchRequest({ name: '更新施設', booking_auto_confirm: true }));
+  expect(res.status).toBe(200);
+  const json = await res.json();
+  expect(json.publicationBlocked).toBe(true); expect(json.published).toBeUndefined();
+});
 test.each(['not_ready', 'not_pending', 'unavailable'])('PATCH: 自動公開しなかった（%s）ときは published を返さない', async outcome => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(updateChain());
   (publishVerifiedFacilityIfReady as jest.Mock).mockResolvedValueOnce(outcome);
   const res = await PATCH(makePatchRequest({ name: '更新施設', booking_auto_confirm: true }));
   expect(res.status).toBe(200);
-  expect((await res.json()).published).toBeUndefined();
+  const json = await res.json();
+  expect(json.published).toBeUndefined(); expect(json.publicationBlocked).toBeUndefined();
 });
 test('PATCH: 却下された申込の店舗は公開中の店舗名を変えられないと案内する', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id:FACILITY_UUID }));

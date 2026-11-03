@@ -190,6 +190,16 @@ test('保存でサーバーが自動公開したら、公開したことと公�
   expect(screen.getAllByText('公開中').length).toBeGreaterThan(0);
 });
 
+test('保存できたが公開ゲートが止めたときは、書類の提出し直しを案内する', async () => {
+  mockProfile.business_hours = { mon: { open: '10:00', close: '18:00' }, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
+  mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, publicationBlocked: true }) });
+  render(<AdminSettingsPage />);
+  await screen.findByDisplayValue('合成店舗B');
+  fireEvent.click(screen.getAllByRole('button', { name: '保存する' })[0]);
+  await screen.findByText(/まだ公開できません。施設設定から確認書類を提出し直してください/);
+  expect(screen.queryAllByText('公開中')).toHaveLength(0);
+});
+
 test.each(['business-failure', 'invalid-json', 'http-failure'])('保存結果が不確定なら成功表示も入力破棄もしない：%s', async mode => {
   mockFetch.mockResolvedValue({ ok: mode !== 'http-failure', json: async () => {
     if (mode === 'invalid-json') throw new Error('synthetic invalid JSON');

@@ -290,13 +290,21 @@ test.each([
   await expect(prepareSalonOutboxDelivery(db, approval, resend)).rejects.toThrow('Registration facility state unavailable');
   expect(send).not.toHaveBeenCalled();
 });
+test('when queuing the Slack report fails but it was actually queued, Slack is not told twice', async () => {
+  insert.mockResolvedValue({ data: null, error: { code: 'PGRST000' } });
+  queuedLookup.mockResolvedValue({ data: { id: 'queued' }, error: null });
+  const deliver = await prepareSalonOutboxDelivery(db, approval, resend);
+  await expect(deliver()).resolves.toBe('delivered');
+  expect(postToSlack).not.toHaveBeenCalled();
+});
+// 積めたか確かめられないときは直接送る（重複の 1 通より、「送信しました」が届かない方が困る）。
 test.each([
-  [{ data: { id: 'queued' }, error: null }], [{ data: null, error: { message: 'x' } }], [Promise.reject(new Error('down'))],
-])('when queuing the Slack report fails but it may exist, Slack is not told twice %#', async lookup => {
+  [{ data: null, error: { message: 'x' } }], [Promise.reject(new Error('down'))],
+])('when it cannot be confirmed whether the Slack report was queued, Slack is told directly %#', async lookup => {
   insert.mockResolvedValue({ data: null, error: { code: 'PGRST000' } });
   if (lookup instanceof Promise) { lookup.catch(() => undefined); queuedLookup.mockReturnValue(lookup); }
   else queuedLookup.mockResolvedValue(lookup);
   const deliver = await prepareSalonOutboxDelivery(db, approval, resend);
   await expect(deliver()).resolves.toBe('delivered');
-  expect(postToSlack).not.toHaveBeenCalled();
+  expect(postToSlack).toHaveBeenCalledTimes(1);
 });

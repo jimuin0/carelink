@@ -10,11 +10,11 @@
 --      まだ無い店舗だけに効く（確認した後の店舗名・所在地の変更は、確認し直す）。
 --   ④ 却下した申込には「書類は後から」を付けない。付け外しの結果に、店舗が公開中かを返す
 --      （外しても公開中の店舗はそのまま公開されるため、画面がそう伝えられるように）。
---   ⑤ 承認を取り消したら、まだ送り始めていない承認メールを止める。もう一度承認したら、止めたメールを送る
+--   ⑤ 承認を取り消したら、まだ送り始めていない承認メール（cron が取った直後を含む）を止める。もう一度承認したら、止めたメールを送る
 --      （送った後・送り始めた後のメールは二度と送らない、は従来どおり）。
 --   ⑥ ログイン後に申込の続きへ自動で送るのは、運営が承認し、まだ誰も店舗を作っていない申込があるときだけ
 --      （公開フォームから他人のメールアドレスで申し込まれても、その人の着地点を変えられないように）。
--- 既存の確認記録・公開中の店舗・提出済みの書類・送信済みのメールには触れない。
+-- 既存の確認記録・公開中の店舗・提出済みの書類・送信済みのメールには触れない（下書き以外の店舗に残った公開待ちの印だけを外す）。
 BEGIN;
 DO $guard$ BEGIN
   IF to_regclass('public.salons') IS NULL OR to_regclass('public.facility_profiles') IS NULL
@@ -181,6 +181,11 @@ CREATE TRIGGER clear_listing_auto_publish_pending
   AFTER UPDATE OF status ON public.facility_profiles
   FOR EACH ROW WHEN (NEW.status = 'published' AND OLD.status IS DISTINCT FROM 'published')
   EXECUTE FUNCTION public.clear_listing_auto_publish_pending();
+-- 20261103120000 の頃に手動・一括の公開で印が残った店舗（下書き以外なのに公開待ち）を片付ける。
+-- 残すと、その店舗が後で非公開に戻して設定を保存しただけで、意図せず再公開される。
+UPDATE public.listing_verification_approvals a SET auto_publish_pending=false
+  FROM public.facility_profiles f
+  WHERE f.id=a.facility_id AND a.auto_publish_pending AND f.status IS DISTINCT FROM 'draft';
 
 -- ⑤ 承認メール：もう一度承認されたら、承認の取り消しで止めたメール（送り始めていないもの）だけを送り直す。
 CREATE OR REPLACE FUNCTION public.enqueue_salon_approval_notice()
@@ -200,9 +205,11 @@ END $$;
 CREATE FUNCTION public.cancel_salon_approval_notice()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 BEGIN
+  -- cron が取った直後（processing）でも、送信を始める前なら止める。cron は送信開始を記録するときに
+  -- 「processing・自分の claim・未開始」を条件にするので、止めた行には送信を始めない。
   UPDATE public.webhook_retry_queue SET status='cancelled', last_error='registration_approval_revoked'
     WHERE registration_id=NEW.id AND notification_kind='approval' AND template_version=1
-      AND status='pending' AND delivery_started_at IS NULL;
+      AND status IN ('pending','processing') AND delivery_started_at IS NULL;
   RETURN NULL;
 END $$;
 REVOKE ALL ON FUNCTION public.cancel_salon_approval_notice() FROM PUBLIC, anon, authenticated;

@@ -23,14 +23,15 @@ export const GET = withRoute(async request => {
   try {
     const db = createServiceRoleClient() as SupabaseClient;
     const [facility,documents,approval] = await Promise.all([
-      db.from('facility_profiles').select('name,prefecture,city,address').eq('id',id.data).maybeSingle(),
+      db.from('facility_profiles').select('name,prefecture,city,address,status').eq('id',id.data).maybeSingle(),
       db.from('listing_verification_documents').select('id,document_type,created_at,submitted_by')
         .eq('facility_id',id.data).order('created_at',{ ascending:true }).limit(20),
-      db.from('listing_verification_approvals').select('facility_identity').eq('facility_id',id.data).maybeSingle(),
+      db.from('listing_verification_approvals').select('facility_identity,auto_publish_pending').eq('facility_id',id.data).maybeSingle(),
     ]);
     if (facility.error || documents.error || approval.error) throw new Error('lookup failed');
     if (!facility.data) return NextResponse.json({ error:'施設が見つかりません' }, { status:404,headers });
-    const identity = listingFacilityIdentity.parse(facility.data);
+    const { status, ...identityRow } = facility.data;
+    const identity = listingFacilityIdentity.parse(identityRow);
     const rows = z.array(documentRow).max(20).parse(documents.data);
     const applicantIds = [...new Set(rows.flatMap(row => row.submitted_by ? [row.submitted_by] : []))];
     let applicants: z.infer<typeof applicantRow>[] = [];
@@ -48,7 +49,9 @@ export const GET = withRoute(async request => {
     const approved = approval.data ? listingFacilityIdentity.safeParse(approval.data.facility_identity) : null;
     const currentApproval = !!approved?.success && Object.keys(identity).every(key =>
       identity[key as keyof typeof identity] === approved.data[key as keyof typeof identity]);
-    return NextResponse.json({ identity,documents:listed,currentApproval }, { headers });
+    // 書類は承認済みで、下書きのまま公開を待っている（承認直後の公開が一時的な障害で失敗した等）。
+    const publicationPending = status === 'draft' && approval.data?.auto_publish_pending === true;
+    return NextResponse.json({ identity,documents:listed,currentApproval,publicationPending }, { headers });
   } catch {
     return NextResponse.json({ error:'確認情報を読み込めませんでした' }, { status:503,headers });
   }

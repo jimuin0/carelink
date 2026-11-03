@@ -300,7 +300,7 @@ test('document deferral is confirmed before it is turned on, and can be turned o
   expect(mockFetch.mock.calls[1][0]).toBe(`/api/admin/registrations/${id}/document-deferral`);
   expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ deferred: true });
   expect(await screen.findByText('書類は後から', { selector: 'span' })).toBeVisible();
-  mockFetch.mockResolvedValueOnce(response({ success: true, deferred: false }));
+  mockFetch.mockResolvedValueOnce(response({ success: true, deferred: false, facilityPublished: false }));
   mockFetch.mockResolvedValueOnce(response({ salons: [row], nextCursor: null }));
   fireEvent.click(screen.getByRole('button', { name: '書類を先に必須に戻す' }));
   expect(await screen.findByText('合成施設は書類の確認が済んでから公開する扱いに戻しました')).toBeVisible();
@@ -326,6 +326,14 @@ test('turning deferral off for a published shop says it stays published', async 
   mockFetch.mockResolvedValueOnce(response({ salons: [row], nextCursor: null }));
   fireEvent.click(screen.getByRole('button', { name: '書類を先に必須に戻す' }));
   expect(await screen.findByText(/公開中の店舗はそのまま公開され、次に非公開にした後の再公開から書類の確認が必要です/)).toBeVisible();
+});
+test('when the database cannot say whether the shop is published, the message covers both', async () => {
+  mockFetch.mockResolvedValueOnce(response({ salons: [{ ...row, documents_deferred: true }], nextCursor: null }));
+  render(<Page />); await screen.findByText('合成施設');
+  mockFetch.mockResolvedValueOnce(response({ success: true, deferred: false, facilityPublished: null }));
+  mockFetch.mockResolvedValueOnce(response({ salons: [row], nextCursor: null }));
+  fireEvent.click(screen.getByRole('button', { name: '書類を先に必須に戻す' }));
+  expect(await screen.findByText(/すでに公開中の店舗は、非公開にするまでそのまま公開されます/)).toBeVisible();
 });
 test('a refused deferral shows the reason and reloads instead of blocking', async () => {
   render(<Page />); await screen.findByText('合成施設');

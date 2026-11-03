@@ -93,7 +93,7 @@ export async function prepareSalonOutboxDelivery(
     // 🔴 以前は「申込時のタブに戻って次のURLを開いてください」と案内していたが、スマホのメールアプリからは
     // 申込時のタブに戻れない（2026年10月23日）。リンク先は、確認済みのログインメールで申込を選び直せる
     // /register/recover へ進む登録画面にする（タブ・ブラウザに依存しない唯一の入口）。
-    text: `CareLinkへの${T.application}をいただき、ありがとうございます。\n\n${T.shopName}：${receipt.data.facility_name}\n受付番号：${job.registration_id}\n\n掲載申込の受付が完了しました。一般公開は、店舗情報の設定と、運営による確認書類の確認が済んだ後に反映されます。\n\n【次の手順】申込の続き（店舗情報の確認・設定）へ進むには、このメールを受け取ったメールアドレス（${receipt.data.email}）で${T.account}を作成してください。別のメールアドレスで作成すると、この申込を引き継げません。スマートフォンや別のブラウザからでも続けられます。\n${SITE_URL}${salonRecoveryAuthPath('signup')}\n\nすでに同じメールアドレスでアカウントをお持ちの場合は、こちらからログインしてください。\n${SITE_URL}${salonRecoveryAuthPath('login')}\n\n受付を確認できない場合は、新たに送信せず受付番号を添えてお問い合わせください。\n${SITE_URL}/contact\n\nこのメールに心当たりがない場合は破棄してください。`,
+    text: `CareLinkへの${T.application}をいただき、ありがとうございます。\n\n${T.shopName}：${receipt.data.facility_name}\n受付番号：${job.registration_id}\n\n掲載申込の受付が完了しました。一般公開は、店舗情報の設定と運営の確認の後に反映されます（公開までの手順は、運営が申込を確認したときのメールでご案内します）。\n\n【次の手順】申込の続き（店舗情報の確認・設定）へ進むには、このメールを受け取ったメールアドレス（${receipt.data.email}）で${T.account}を作成してください。別のメールアドレスで作成すると、この申込を引き継げません。スマートフォンや別のブラウザからでも続けられます。\n${SITE_URL}${salonRecoveryAuthPath('signup')}\n\nすでに同じメールアドレスでアカウントをお持ちの場合は、こちらからログインしてください。\n${SITE_URL}${salonRecoveryAuthPath('login')}\n\n受付を確認できない場合は、新たに送信せず受付番号を添えてお問い合わせください。\n${SITE_URL}/contact\n\nこのメールに心当たりがない場合は破棄してください。`,
   };
   return () => sendResendForReconciliation(resend.emails.send(email, {
     idempotencyKey: `salon-receipt-v1-${job.registration_id}`,
@@ -141,10 +141,11 @@ function prepareApprovalEmail(
     });
     // 23505 は「既に積んである」＝重複送信を防げているので成功と同じ扱い。
     // 応答だけが失われて実は積めていた場合に二重に知らせないよう、直接送る前に積めたかを読み直す。
+    // 読み直せないときは直接送る（重複の 1 通より、「送信しました」が届かない方が困るため）。
     const missing = queued.error && queued.error.code !== '23505'
       ? await db.from('webhook_retry_queue').select('id').eq('registration_id', registrationId)
         .eq('notification_kind', 'approval_sent').eq('template_version', 1).maybeSingle()
-        .then(found => !found.error && found.data === null, () => false)
+        .then(found => found.error !== null || found.data === null, () => true)
       : false;
     if (missing) {
       await postToSlack({

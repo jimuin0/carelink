@@ -326,7 +326,11 @@ async function patchSettings(request: NextRequest) {
   // 保存は止めず、注意だけ返す（2026年10月23日）。
   const warning = parsed.data.business_hours ? await hoursSaveStaffWarning(admin, auth.facilityId) : null;
   // 運営が書類を確認済みで公開待ちの店舗は、保存で公開の条件が揃ったらここで公開する（保存自体は確定済み）。
-  const published = await publishVerifiedFacilityIfReady(admin as SupabaseClient, auth.facilityId, auth.userId) === 'published';
+  // 公開ゲートが止めた（書類の確認後に店舗名・所在地が変わった、申込が却下されている）ときは、店舗にもそう伝える。
+  const publication = await publishVerifiedFacilityIfReady(admin as SupabaseClient, auth.facilityId, auth.userId);
+  const published = publication === 'published';
+  const publicationBlocked = publication === 'blocked';
   // 保存した所在地を返し、画面の入力欄を実際に保存された値へ合わせられるようにする。
-  return NextResponse.json({ ok: true, ...(location ? { location } : {}), ...(warning ? { warning } : {}), ...(published ? { published } : {}) });
+  return NextResponse.json({ ok: true, ...(location ? { location } : {}), ...(warning ? { warning } : {}),
+    ...(published ? { published } : {}), ...(publicationBlocked ? { publicationBlocked } : {}) });
 }

@@ -202,7 +202,9 @@ export default function AdminRegistrationsPage() {
       setToast({ type: 'success', message: deferred ? `${salon.name}を「書類は後から」にしました。書類の確認前でも公開できます`
         : result.facilityPublished === true
           ? `${salon.name}を書類が先の扱いに戻しました。公開中の店舗はそのまま公開され、次に非公開にした後の再公開から書類の確認が必要です`
-          : `${salon.name}は書類の確認が済んでから公開する扱いに戻しました` });
+          : result.facilityPublished === false
+            ? `${salon.name}は書類の確認が済んでから公開する扱いに戻しました`
+            : `${salon.name}を書類が先の扱いに戻しました。すでに公開中の店舗は、非公開にするまでそのまま公開されます` });
       setReloadKey(key => key + 1);
     } catch {
       if (generation.current === ownGeneration) {

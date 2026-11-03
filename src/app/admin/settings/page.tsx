@@ -326,9 +326,13 @@ function AdminSettingsContent() {
       // 運営が書類を確認済みの店舗は、保存で公開の条件が揃うとサーバーがそのまま公開する。
       const autoPublished = result?.published === true;
       if (autoPublished) setFacilityStatus('published');
-      const saved = autoPublished ? '施設情報を保存し、運営の確認が済んでいるため店舗を公開しました' : '施設情報を保存しました';
+      const saved = autoPublished ? '施設情報を保存し、運営の確認が済んでいるため店舗を公開しました'
+        // 書類の確認後に店舗名・所在地が変わった（または掲載申込が却下されている）ため、公開ゲートが止めた。
+        : result?.publicationBlocked === true
+          ? '施設情報を保存しました。ただし、運営が書類を確認した後に店舗名・所在地が変わっているため、まだ公開できません。施設設定から確認書類を提出し直してください（掲載申込が却下されている場合は公開できません）'
+          : '施設情報を保存しました';
       setToast({
-        type: hoursWarning ? 'info' : 'success',
+        type: hoursWarning || result?.publicationBlocked === true ? 'info' : 'success',
         message: !sendHours
           ? `${saved}。営業時間はまだ入力されていないため、ネット予約は始まりません`
           : hoursWarning
