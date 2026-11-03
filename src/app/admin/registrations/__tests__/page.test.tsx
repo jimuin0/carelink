@@ -111,7 +111,9 @@ test('mutation serializes clicks and search, checks business success then reload
   render(<Page />); await screen.findByText('合成施設');
   // 承認は申込者へメールを送るので、押す前に宛先と内容を確認させる。確認前は何も送らない。
   fireEvent.click(screen.getByRole('button', { name: '承認', exact: true }));
-  expect(screen.getByRole('dialog')).toHaveTextContent('申込者（synthetic@example.invalid）へ、店舗の作成と書類提出の手順を案内するメールが送られます');
+  expect(screen.getByRole('dialog')).toHaveTextContent('申込者（synthetic@example.invalid）へ、続きの手順を案内するメールが送られます');
+  // やりとりを進めていた店舗は、承認の前に「書類は後から」を付けるよう促す（メールの文面が変わるため）。
+  expect(screen.getByRole('dialog')).toHaveTextContent('先に「書類は後からにする」を付けてから承認してください');
   expect(screen.getByRole('dialog')).toHaveTextContent('承認だけでは公開されません');
   expect(mockFetch).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button', { name: '承認する' }));
@@ -277,6 +279,7 @@ test.each([
   [{ status: 'approved', source: 'register', approval_notice: 'none' }, '申込者へのメールは送っていません（メールの仕組みができる前の承認）'],
   [{ status: 'approved', source: 'recruit' }, '承認のメールは送られていません'],
   [{ status: 'rejected' }, '却下済みです。この申込からは店舗を作れません。'],
+  [{ status: 'rejected', claimed_facility_id: '74000000-0000-4000-8000-0000000000aa' }, 'この申込から作られた店舗は公開できません（すでに公開中の場合は、非公開になるまで公開が続きます）'],
 ] as const)('next step explains what happens now %#', async (patch, text) => {
   mockFetch.mockResolvedValueOnce(response({ salons: [{ ...row, ...patch }], nextCursor: null }));
   render(<Page />); await screen.findByText('合成施設');
@@ -314,6 +317,37 @@ test.each([
   fireEvent.click(screen.getByRole('button', { name: '書類を先に必須に戻す' }));
   expect(await screen.findByText('書類の扱いの更新結果を確認できません。一覧を再読み込みしてください。')).toBeVisible();
   expect(screen.getByRole('button', { name: '書類を先に必須に戻す' })).toBeDisabled();
+});
+// 独立レビュー（2026-11-03）：外しても公開中の店舗はそのまま公開される。そう伝える。
+test('turning deferral off for a published shop says it stays published', async () => {
+  mockFetch.mockResolvedValueOnce(response({ salons: [{ ...row, documents_deferred: true }], nextCursor: null }));
+  render(<Page />); await screen.findByText('合成施設');
+  mockFetch.mockResolvedValueOnce(response({ success: true, deferred: false, facilityPublished: true }));
+  mockFetch.mockResolvedValueOnce(response({ salons: [row], nextCursor: null }));
+  fireEvent.click(screen.getByRole('button', { name: '書類を先に必須に戻す' }));
+  expect(await screen.findByText(/公開中の店舗はそのまま公開され、次に非公開にした後の再公開から書類の確認が必要です/)).toBeVisible();
+});
+test('a refused deferral shows the reason and reloads instead of blocking', async () => {
+  render(<Page />); await screen.findByText('合成施設');
+  fireEvent.click(screen.getByRole('button', { name: '書類は後からにする' }));
+  mockFetch.mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ error: '却下した申込には「書類は後から」を付けられません。' }) } as Response);
+  mockFetch.mockResolvedValueOnce(response());
+  fireEvent.click(screen.getAllByRole('button', { name: '書類は後からにする' }).at(-1)!);
+  expect(await screen.findByText('却下した申込には「書類は後から」を付けられません。')).toBeVisible();
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(3));
+  expect(screen.getByRole('button', { name: '書類は後からにする' })).toBeEnabled();
+});
+test('a rejected registration offers no deferral, but a deferral already set can still be removed', async () => {
+  mockFetch.mockResolvedValueOnce(response({ salons: [{ ...row, status: 'rejected' }, { ...row, id: '74000000-0000-4000-8000-0000000000bb', name: '合成施設2', status: 'rejected', documents_deferred: true }], nextCursor: null }));
+  render(<Page />); await screen.findByText('合成施設2');
+  expect(screen.queryByRole('button', { name: '書類は後からにする' })).toBeNull();
+  expect(screen.getByRole('button', { name: '書類を先に必須に戻す' })).toBeVisible();
+});
+test('rejecting a registration with a shop explains the shop cannot be published', async () => {
+  mockFetch.mockResolvedValueOnce(response({ salons: [{ ...row, claimed_facility_id: '74000000-0000-4000-8000-0000000000aa' }], nextCursor: null }));
+  render(<Page />); await screen.findByText('合成施設');
+  fireEvent.click(screen.getByRole('button', { name: '却下', exact: true }));
+  expect(screen.getByRole('dialog')).toHaveTextContent('この申込から作られた店舗は公開できなくなります');
 });
 test('cancelling the deferral dialog changes nothing', async () => {
   render(<Page />); await screen.findByText('合成施設');

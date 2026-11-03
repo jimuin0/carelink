@@ -7,7 +7,7 @@
 import {
   checkBookingReadiness as checkPublishReadiness, checkPublishReadiness as checkListingReadiness, isPublishedLocationConflict,
   isPublishedHoursConflict, readWorkingStaff, summarizeWorkingStaff, workingStaffQuery, workingTimeMeetsBusinessHours,
-  bookableMenusQuery, shortestBookingMinutes, isListingVerificationConflict,
+  bookableMenusQuery, shortestBookingMinutes, isListingVerificationConflict, isListingRegistrationRejectedConflict,
 } from '../facility-publish-gate';
 
 test('未審査の公開拒否だけを確認待ちとして区別する', () => {
@@ -15,6 +15,13 @@ test('未審査の公開拒否だけを確認待ちとして区別する', () =>
   expect(isListingVerificationConflict({ code: '23514', message: 'other' })).toBe(false);
   expect(isListingVerificationConflict({ code: '23505', message: '"published_listing_verification_required"' })).toBe(false);
   expect(isListingVerificationConflict(null)).toBe(false);
+});
+
+test('却下した申込の公開拒否を、書類の確認待ちと区別する', () => {
+  expect(isListingRegistrationRejectedConflict({ code: '23514', message: '"published_listing_registration_rejected"' })).toBe(true);
+  expect(isListingVerificationConflict({ code: '23514', message: '"published_listing_registration_rejected"' })).toBe(false);
+  expect(isListingRegistrationRejectedConflict({ code: '23514', message: '"published_listing_verification_required"' })).toBe(false);
+  expect(isListingRegistrationRejectedConflict(null)).toBe(false);
 });
 
 test.each([null, undefined, false, '23514', {}, { code: '23514' },

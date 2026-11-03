@@ -6701,6 +6701,10 @@ export type Database = {
       }
       try_auto_publish_verified_facility: {
         Args: { p_facility_id: string; p_actor: string }
+        Returns: string
+      }
+      has_claimable_approved_salon_receipt: {
+        Args: { p_user_id: string }
         Returns: boolean
       }
       set_salon_registration_visibility: {

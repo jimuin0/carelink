@@ -93,7 +93,7 @@ const ICON_PATHS: Record<'calendar' | 'card' | 'people' | 'list', string> = {
 const STEPS = [
   { n: '01', title: '基本情報を入力', body: '店舗名・業種・連絡先などを入力' },
   { n: '02', title: 'アカウントを作成', body: '登録内容を確認して管理画面へ進む' },
-  { n: '03', title: '掲載を準備', body: `管理画面で確認書類を提出し、${LISTING_PUBLISH_ITEMS}を設定。運営の確認後に無料掲載を公開できます` },
+  { n: '03', title: '掲載を準備', body: `管理画面で確認書類を提出し、${LISTING_PUBLISH_ITEMS}を設定。運営の確認後に無料掲載が公開されます` },
 ];
 
 /**

@@ -16,12 +16,23 @@ const send = jest.fn();
 const resend = { emails: { send } } as unknown as Resend;
 const query = jest.fn();
 const eq = jest.fn(() => ({ maybeSingle: query }));
-const select = jest.fn(() => ({ eq }));
+// 承認メールは送る直前に、申込の状態（status・claimed_facility_id）を別に読む。
+const stateQuery = jest.fn();
+const select = jest.fn((columns: string) => ({ eq: columns === 'status,claimed_facility_id' ? jest.fn(() => ({ maybeSingle: stateQuery })) : eq }));
 const insert = jest.fn();
 const deferralQuery = jest.fn();
 const deferralEq = jest.fn(() => ({ maybeSingle: deferralQuery }));
+const facilityQuery = jest.fn();
+const facilityEq = jest.fn(() => ({ maybeSingle: facilityQuery }));
+// Slack 用ジョブを積めなかったとき、直接送る前に積めていたかを読み直す。
+const queuedLookup = jest.fn();
+const queuedChain: Record<string, jest.Mock> = {};
+queuedChain.eq = jest.fn(() => queuedChain);
+queuedChain.maybeSingle = queuedLookup;
 const from = jest.fn((table: string) => table === 'listing_verification_deferrals'
-  ? { select: jest.fn(() => ({ eq: deferralEq })) } : { select, insert });
+  ? { select: jest.fn(() => ({ eq: deferralEq })) }
+  : table === 'facility_profiles' ? { select: jest.fn(() => ({ eq: facilityEq })) }
+    : table === 'webhook_retry_queue' ? { insert, select: jest.fn(() => queuedChain) } : { select, insert });
 const db = { from } as unknown as ReturnType<typeof createServiceRoleClient>;
 const originalToken = process.env.SLACK_BOT_TOKEN;
 const originalChannel = process.env.SLACK_DEFAULT_CHANNEL;
@@ -35,6 +46,9 @@ beforeEach(() => {
   (postToSlack as jest.Mock).mockResolvedValue({ ok: true, ts: 'synthetic-ts' });
   insert.mockResolvedValue({ data: null, error: null });
   deferralQuery.mockResolvedValue({ data: null, error: null });
+  stateQuery.mockResolvedValue({ data: { status: 'approved', claimed_facility_id: null }, error: null });
+  facilityQuery.mockResolvedValue({ data: { status: 'draft' }, error: null });
+  queuedLookup.mockResolvedValue({ data: null, error: null });
 });
 afterAll(() => {
   if (originalToken === undefined) delete process.env.SLACK_BOT_TOKEN;
@@ -181,6 +195,9 @@ test.each([
   const deliver = await prepareSalonOutboxDelivery(db, approval, resend);
   await expect(deliver()).resolves.toBe('delivered');
   expect(postToSlack).toHaveBeenCalledTimes(1);
+  expect(queuedChain.eq).toHaveBeenCalledWith('registration_id', id);
+  expect(queuedChain.eq).toHaveBeenCalledWith('notification_kind', 'approval_sent');
+  expect(queuedChain.eq).toHaveBeenCalledWith('template_version', 1);
   const [message] = (postToSlack as jest.Mock).mock.calls[0];
   expect(message.text).toContain('承認メールを申込者へ送信しました');
   expect(message.text).not.toContain(row.email);
@@ -227,4 +244,59 @@ test.each([
   deferralQuery.mockResolvedValue(result);
   await expect(prepareSalonOutboxDelivery(db, approval, resend)).rejects.toThrow('Registration document deferral unavailable');
   expect(send).not.toHaveBeenCalled();
+});
+
+// 独立レビュー（2026-11-03）：文面は送る時点の申込と店舗の状態で決める。
+test.each(['pending', 'rejected', null])('approval revoked before sending (%s) stops the email', async status => {
+  stateQuery.mockResolvedValue({ data: { status, claimed_facility_id: null }, error: null });
+  await expect(prepareSalonOutboxDelivery(db, approval, resend)).rejects.toThrow('Registration is no longer approved');
+  expect(send).not.toHaveBeenCalled();
+});
+test.each([
+  { data: null, error: null }, { data: { status: 'approved', claimed_facility_id: 'invalid' }, error: null },
+  { data: { status: 'approved', claimed_facility_id: null }, error: { message: 'private' } },
+])('an unreadable approval state stops before sending %#', async result => {
+  stateQuery.mockResolvedValue(result);
+  await expect(prepareSalonOutboxDelivery(db, approval, resend)).rejects.toThrow('Registration approval state unavailable');
+  expect(send).not.toHaveBeenCalled();
+});
+const facilityId = '71000000-0000-4000-8000-0000000000f1';
+test.each([
+  [true, true], [false, false],
+])('a shop that is already published is told so, not to create a shop (deferred=%s)', async (deferred, asksForDocuments) => {
+  stateQuery.mockResolvedValue({ data: { status: 'approved', claimed_facility_id: facilityId }, error: null });
+  facilityQuery.mockResolvedValue({ data: { status: 'published' }, error: null });
+  deferralQuery.mockResolvedValue({ data: { deferred }, error: null });
+  const deliver = await prepareSalonOutboxDelivery(db, approval, resend);
+  await deliver();
+  const text = send.mock.calls[0][0].text as string;
+  expect(facilityEq).toHaveBeenCalledWith('id', facilityId);
+  expect(text).toContain('店舗はすでに CareLink に公開されています');
+  expect(text).not.toContain('まだ一般公開されていません');
+  expect(text).not.toContain('店舗を作成する');
+  expect(text.includes('確認書類がまだの場合は')).toBe(asksForDocuments);
+});
+test('a created but unpublished shop still gets the steps', async () => {
+  stateQuery.mockResolvedValue({ data: { status: 'approved', claimed_facility_id: facilityId }, error: null });
+  const deliver = await prepareSalonOutboxDelivery(db, approval, resend);
+  await deliver();
+  expect(send.mock.calls[0][0].text).toContain('まだ一般公開されていません');
+});
+test.each([
+  { data: null, error: { message: 'private' } }, { data: { status: 7 }, error: null },
+])('an unreadable shop state stops before sending %#', async result => {
+  stateQuery.mockResolvedValue({ data: { status: 'approved', claimed_facility_id: facilityId }, error: null });
+  facilityQuery.mockResolvedValue(result);
+  await expect(prepareSalonOutboxDelivery(db, approval, resend)).rejects.toThrow('Registration facility state unavailable');
+  expect(send).not.toHaveBeenCalled();
+});
+test.each([
+  [{ data: { id: 'queued' }, error: null }], [{ data: null, error: { message: 'x' } }], [Promise.reject(new Error('down'))],
+])('when queuing the Slack report fails but it may exist, Slack is not told twice %#', async lookup => {
+  insert.mockResolvedValue({ data: null, error: { code: 'PGRST000' } });
+  if (lookup instanceof Promise) { lookup.catch(() => undefined); queuedLookup.mockReturnValue(lookup); }
+  else queuedLookup.mockResolvedValue(lookup);
+  const deliver = await prepareSalonOutboxDelivery(db, approval, resend);
+  await expect(deliver()).resolves.toBe('delivered');
+  expect(postToSlack).not.toHaveBeenCalled();
 });

@@ -323,13 +323,17 @@ function AdminSettingsContent() {
       setReadinessKey((k) => k + 1);
       // 営業時間とスタッフの勤務時間が重ならない曜日があれば、API が warning で知らせる（保存はされている）。
       const hoursWarning = typeof result?.warning === 'string' && result.warning ? result.warning : null;
+      // 運営が書類を確認済みの店舗は、保存で公開の条件が揃うとサーバーがそのまま公開する。
+      const autoPublished = result?.published === true;
+      if (autoPublished) setFacilityStatus('published');
+      const saved = autoPublished ? '施設情報を保存し、運営の確認が済んでいるため店舗を公開しました' : '施設情報を保存しました';
       setToast({
         type: hoursWarning ? 'info' : 'success',
         message: !sendHours
-          ? '施設情報を保存しました。営業時間はまだ入力されていないため、ネット予約は始まりません'
+          ? `${saved}。営業時間はまだ入力されていないため、ネット予約は始まりません`
           : hoursWarning
-            ? `施設情報を保存しました。${hoursWarning}`
-            : '施設情報を保存しました',
+            ? `${saved}。${hoursWarning}`
+            : saved,
       });
       return true;
     } catch {

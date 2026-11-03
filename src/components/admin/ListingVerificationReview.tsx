@@ -8,6 +8,16 @@ const identity = z.object({ name:z.string().nullable(),prefecture:z.string().nul
 const responseSchema = z.object({ identity,documents:z.array(z.object({ id:z.uuid(),document_type:z.string(),created_at:z.string(),
   applicantName:z.string().nullable(),applicantEmail:z.string().nullable() }).strict()).max(20),currentApproval:z.boolean() }).strict();
 type Review = z.infer<typeof responseSchema>;
+// 承認の後に公開できたかは API が実際の結果を返す。推測で「公開しました」と書かない。
+const PUBLICATION_MESSAGES = {
+  published:'確認を記録し、店舗を公開しました。',
+  already_published:'確認を記録しました。店舗はすでに公開中です。',
+  not_ready:'確認を記録しました。店舗名・所在地・曜日ごとの営業時間などが揃っていない、またはキャッチコピー・紹介文に直す表現があるため、まだ公開していません。店舗が設定を直して保存した時点で公開されます。',
+  suspended:'確認を記録しました。店舗が休止中のため公開していません。店舗が再開するときに、店舗の操作で公開できます。',
+  blocked:'確認を記録しましたが、公開できませんでした。申込が却下済みか、店舗情報が確認した内容から変わっています。',
+  not_pending:'確認を記録しました。公開の状態を確認できなかったため、一覧を読み直してください。',
+  unavailable:'確認を記録しました。公開できたかを確認できなかったため、一覧を読み直してください。',
+} as const;
 
 export default function ListingVerificationReview({ facilityId }: { facilityId:string }) {
   const [review,setReview] = useState<Review | null>(null);
@@ -36,7 +46,7 @@ export default function ListingVerificationReview({ facilityId }: { facilityId:s
         body:JSON.stringify({ facilityId,documentIds:selected,expectedIdentity:review.identity,documentVerified:true,authorityVerified:true }) });
       const result=await response.json();
       if (!response.ok || result?.state !== 'approved') throw new Error('unavailable');
-      setMessage('確認を記録しました。店舗名・所在地・曜日ごとの営業時間が揃っていれば公開しました。揃っていない場合は、店舗が設定を終えた時点で公開されます。');
+      setMessage(PUBLICATION_MESSAGES[result?.publication as keyof typeof PUBLICATION_MESSAGES] ?? PUBLICATION_MESSAGES.unavailable);
     } catch { setMessage('確認結果を確定できませんでした。情報を読み直してから確認してください。'); }
     finally { setReview(null); setBusy(false); }
   }

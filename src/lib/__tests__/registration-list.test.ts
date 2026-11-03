@@ -118,21 +118,32 @@ test.each([{ data: null, error: null }, { data: [], error: { message: 'private' 
 });
 
 // 承認のお知らせメールの送信状況を、通知の待ち行列から読む（推測で「送った」と書かない）。
+// cancelled は、送り始める前に承認が取り消されて止めたもの（送っていない）。
+const notice = (status: string, started: string | null = null, kind = 'approval') =>
+  ({ registration_id: id, notification_kind: kind, status, delivery_started_at: started });
 test.each([
   ['success', null, 'sent'], ['pending', null, 'queued'], ['processing', null, 'queued'],
-  ['processing', time, 'uncertain'], ['failed', null, 'failed'], ['cancelled', null, 'failed'],
+  ['processing', time, 'uncertain'], ['failed', null, 'failed'], ['cancelled', null, 'none'],
 ] as const)('approval notice %s (started %s) is shown as %s', async (status, started, shown) => {
-  notices.in.mockResolvedValue({ data: [{ registration_id: id, status, delivery_started_at: started }], error: null });
+  // 受付のジョブ（receipt・internal）は承認メールの表示に影響しない。
+  notices.in.mockResolvedValue({ data: [notice(status, started), notice('failed', null, 'receipt'), notice('success', null, 'internal')], error: null });
   expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: [{ ...classified(row), approval_notice: shown }], nextCursor: null });
-  expect(notices.select).toHaveBeenCalledWith('registration_id,status,delivery_started_at');
-  expect(notices.eq).toHaveBeenCalledWith('notification_kind', 'approval');
+  expect(notices.select).toHaveBeenCalledWith('registration_id,notification_kind,status,delivery_started_at');
+  expect(notices.eq).toHaveBeenCalledWith('template_version', 1);
   expect(notices.in).toHaveBeenCalledWith('registration_id', [id]);
+});
+// Slack の「送信しました」（approval_sent）は、メールが送信できた後にだけ積まれる。メールのジョブを
+// 成功に更新できずに残っていても送信済みと出す（Slack と一覧を食い違わせない）。
+test.each(['processing', 'failed', 'pending'])('a queued sent-report means sent even if the email job shows %s', async status => {
+  notices.in.mockResolvedValue({ data: [notice(status, time), notice('pending', null, 'approval_sent')], error: null });
+  expect((await readRegistrationList(db, {})) as { salons: { approval_notice: string }[] }).toMatchObject({ salons: [{ approval_notice: 'sent' }] });
 });
 test.each([
   { data: null, error: null }, { data: [], error: { message: 'private' } },
-  { data: [{ registration_id: id, status: 'unknown', delivery_started_at: null }], error: null },
-  { data: [{ registration_id: id, status: 'success' }], error: null },
-  { data: [{ registration_id: id, status: 'success', delivery_started_at: null }, { registration_id: id, status: 'failed', delivery_started_at: null }], error: null },
+  { data: [notice('unknown')], error: null },
+  { data: [notice('success', null, 'other')], error: null },
+  { data: [{ registration_id: id, notification_kind: 'approval', status: 'success' }], error: null },
+  { data: [notice('success'), notice('failed')], error: null },
 ])('approval notice lookup failures fail closed %#', async result => {
   notices.in.mockResolvedValue(result); expect(await readRegistrationList(db, {})).toEqual({ state: 'unavailable' });
 });

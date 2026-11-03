@@ -6,7 +6,7 @@ import { withRoute, serverError } from '@/lib/with-route';
 export const dynamic = 'force-dynamic';
 // 「書類は後から」（2026-11-03 本人決定）。付けた申込から作られた店舗は、書類の確認前でも公開できる。運営だけが付け外しできる。
 const input = z.object({ deferred: z.boolean() }).strict();
-const output = z.object({ outcome: z.enum(['updated', 'unchanged', 'not_found', 'forbidden', 'invalid']), deferred: z.boolean().optional(), revision: z.number().int().positive().optional() }).strict();
+const output = z.object({ outcome: z.enum(['updated', 'unchanged', 'not_found', 'forbidden', 'invalid', 'rejected']), deferred: z.boolean().optional(), revision: z.number().int().positive().optional(), facility_published: z.boolean().optional() }).strict();
 const route = withRoute(async (request, ctx) => {
   try {
     const path = new URL(request.url).pathname.match(/^\/api\/admin\/registrations\/([^/]+)\/document-deferral$/);
@@ -19,9 +19,12 @@ const route = withRoute(async (request, ctx) => {
     const data = output.safeParse(result.data);
     if (result.error || !data.success) throw new Error('Document deferral dependency failed');
     if (data.data.outcome === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    if (data.data.outcome !== 'updated' || data.data.deferred !== body.data.deferred || data.data.revision === undefined)
+    if (data.data.outcome === 'rejected') return NextResponse.json({ error: '却下した申込には「書類は後から」を付けられません。' }, { status: 409 });
+    if (data.data.outcome !== 'updated' || data.data.deferred !== body.data.deferred || data.data.revision === undefined
+      || data.data.facility_published === undefined)
       return NextResponse.json({ error: '更新できません。一覧を再取得してください。' }, { status: 409 });
-    return NextResponse.json({ success: true, deferred: data.data.deferred });
+    // 外しても、公開中の店舗はそのまま公開される（画面がそう伝えられるように返す）。
+    return NextResponse.json({ success: true, deferred: data.data.deferred, facilityPublished: data.data.facility_published });
   } catch {
     return serverError('registration-document-deferral', new Error('Document deferral dependency failed'), '/api/admin/registrations/[id]/document-deferral', '更新結果を確認できません。');
   }
