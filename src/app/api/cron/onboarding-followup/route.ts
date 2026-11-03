@@ -13,6 +13,7 @@ import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
 import { canonicalizeEmail } from '@/lib/email-canonical';
 import { facilitySetupSteps, loadFacilitySetupFacts } from '@/lib/facility-setup-steps';
+import { countFollowupDeliveryHolds, markFollowupDelivery, releaseFollowupDelivery } from '@/lib/cron-delivery-state';
 
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
@@ -48,6 +49,8 @@ export async function GET(request: Request) {
 
   const startedAt = new Date();
   try {
+    const pendingHolds = await countFollowupDeliveryHolds(supabase, new Date(startedAt.getTime() - 15 * 60_000).toISOString());
+    if (pendingHolds === null) return cronError('onboarding-followup', startedAt, new Error('FOLLOWUP_DELIVERY_HOLD_OBSERVATION_UNAVAILABLE'));
     const now = new Date();
     // 3〜7日前に作成された施設（古い順 = staleness 期限が近いものから優先）
     const staleAfter = new Date(now.getTime() - STALE_LOOKBACK_MS).toISOString();
@@ -122,6 +125,7 @@ export async function GET(request: Request) {
     }
 
     if (facilities.length === 0 && salons.length === 0) {
+      if (pendingHolds > 0) return cronError('onboarding-followup', startedAt, new Error('FOLLOWUP_DELIVERY_RECONCILIATION_REQUIRED'), { extraLog: { meta: { pendingHolds } }, extraBody: { pendingHolds } });
       await logCronRun('onboarding-followup', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', sent: 0, deferred: 0 });
     }
@@ -135,6 +139,7 @@ export async function GET(request: Request) {
     let skipped = 0;
     let deferred = 0;
     let deliveryFailures = 0;
+    let deliveryUncertain = 0;
     let processingFailures = 0;
 
     for (let i = 0; i < facilities.length; i++) {
@@ -148,9 +153,10 @@ export async function GET(request: Request) {
       }
 
       // Claim before sending (CAS guard via .is('onboarding_email_sent_at', null))
+      const claimTime = new Date().toISOString();
       const { data: claimed, error: claimError } = await supabase
         .from('facility_profiles')
-        .update({ onboarding_email_sent_at: new Date().toISOString() })
+        .update({ onboarding_email_sent_at: claimTime, onboarding_email_delivery_state: 'pending' })
         .eq('id', facility.id)
         .is('onboarding_email_sent_at', null)
         .select('id');
@@ -163,9 +169,10 @@ export async function GET(request: Request) {
 
       // claim を先に立てる方式は二重送信を防ぐ一方、送信や前処理が一過性失敗すると
       // sent_at が立ったまま二度と再送されない（silent な恒久 miss）。
-      // 「連絡先なし(noContact)」は再送しても無意味なので claim 維持、それ以外の失敗は claim を解放する。
+      // 連絡先なしと送信結果不明は claim を保持し、送信前の失敗や明確な拒否だけ解放する。
       let delivered = false;
       let noContact = false;
+      let releaseAllowed = true;
       try {
         // 未完了ステップを特定する。項目と完了条件は /admin の「店舗セットアップ」と同じ単一ソース
         // （facility-setup-steps.ts＝公開ゲート・ネット予約の判定から導出）。以前はここだけ別の条件で
@@ -200,39 +207,39 @@ export async function GET(request: Request) {
 
           if (!profile?.email) { noContact = true; }
           else {
-            // 実際の送達可否で delivered を決める。safeSend は throw せず false を返すため、
-            // ここで true 固定にすると送信失敗時も claim 解放（再送）が発火しない恒久 miss になる。
+            // 結果不明は送信された可能性があるため、自動再送しない。
+            releaseAllowed = false;
             delivered = await sendOnboardingFollowEmail({
               ownerEmail: profile.email,
               facilityName: facility.name,
               missingSteps,
               bookingSteps,
+              onOutcome: outcome => { releaseAllowed = outcome === 'rejected'; },
             });
             if (!delivered) deliveryFailures++;
           }
         }
       } catch (facilityErr) {
-        processingFailures++;
+        if (releaseAllowed) processingFailures++;
         console.error('[onboarding-followup] facility processing error', { facilityId: facility.id, err: facilityErr });
       }
 
       if (!delivered) {
-        // 連絡先なし → claim 維持（再送無意味）。それ以外の失敗 → claim 解放して翌 run で再送。
-        if (!noContact) {
-          const { error: releaseErr } = await supabase
-            .from('facility_profiles')
-            .update({ onboarding_email_sent_at: null })
-            .eq('id', facility.id);
-          if (releaseErr) {
+        // 送信前の失敗と明確な拒否だけ再試行できる。
+        if (!noContact && releaseAllowed) {
+          if (!await releaseFollowupDelivery(supabase, 'facility', facility.id, claimTime)) {
             processingFailures++;
-            console.error('[onboarding-followup] claim release failed', { facilityId: facility.id, err: releaseErr });
+            console.error('[onboarding-followup] claim release failed');
           }
         }
+        if (noContact && !await markFollowupDelivery(supabase, 'facility', facility.id, claimTime, 'skipped')) processingFailures++;
+        if (!noContact && !releaseAllowed) { processingFailures++; deliveryUncertain++; }
         skipped++;
         continue;
       }
 
-      sent++;
+      if (await markFollowupDelivery(supabase, 'facility', facility.id, claimTime, 'delivered')) sent++;
+      else { processingFailures++; deliveryUncertain++; }
     }
 
     // ---- 第2パス: salons（アカウント未作成の登録リード） ----
@@ -251,9 +258,10 @@ export async function GET(request: Request) {
 
       // Claim before sending (CAS guard via .is('registration_followup_sent_at', null))。
       // 取得条件と同じ「未取り込み・未却下」も claim の条件に含める（取得後に変わった申込には送らない）。
+      const claimTime = new Date().toISOString();
       const { data: salonClaimed, error: salonClaimError } = await supabase
         .from('salons')
-        .update({ registration_followup_sent_at: new Date().toISOString() })
+        .update({ registration_followup_sent_at: claimTime, registration_followup_delivery_state: 'pending' })
         .eq('id', salon.id)
         .is('registration_followup_sent_at', null)
         .eq('source', RECOVERABLE_SALON_SOURCE)
@@ -274,6 +282,7 @@ export async function GET(request: Request) {
       // このメールはもう意味を持たない（既にアカウントがある＝リードとして解消済み）ので
       // claim は維持し、再送しない（無限に catch し続けない）。
       let alreadyRegistered = false;
+      let releaseAllowed = true;
       try {
         // 同じメールアドレスで profiles（＝アカウント）が既に作られていないか確認する。
         // error を無視すると「行が無い」と誤判定して誤ってフォローメールを送りかねないため、
@@ -297,41 +306,42 @@ export async function GET(request: Request) {
         if (existingProfile) {
           alreadyRegistered = true;
         } else {
+          releaseAllowed = false;
           delivered = await sendRegistrationLeadFollowEmail({
             email: salon.email,
             facilityName: salon.facility_name,
             receiptId: salon.id,
+            onOutcome: outcome => { releaseAllowed = outcome === 'rejected'; },
           });
           if (!delivered) deliveryFailures++;
         }
       } catch (salonErr) {
-        processingFailures++;
+        if (releaseAllowed) processingFailures++;
         console.error('[onboarding-followup] salon processing error', { salonId: salon.id, err: salonErr });
       }
 
       if (!delivered) {
-        // アカウント作成済み → claim 維持（再送無意味）。それ以外の失敗 → claim 解放して翌 run で再送。
-        if (!alreadyRegistered) {
-          const { error: salonReleaseErr } = await supabase
-            .from('salons')
-            .update({ registration_followup_sent_at: null })
-            .eq('id', salon.id);
-          if (salonReleaseErr) {
+        // アカウント作成済みと結果不明は保持し、送信前の失敗や明確な拒否だけ解放する。
+        if (!alreadyRegistered && releaseAllowed) {
+          if (!await releaseFollowupDelivery(supabase, 'registration', salon.id, claimTime)) {
             processingFailures++;
-            console.error('[onboarding-followup] salon claim release failed', { salonId: salon.id, err: salonReleaseErr });
+            console.error('[onboarding-followup] salon claim release failed');
           }
         }
+        if (alreadyRegistered && !await markFollowupDelivery(supabase, 'registration', salon.id, claimTime, 'skipped')) processingFailures++;
+        if (!alreadyRegistered && !releaseAllowed) { processingFailures++; deliveryUncertain++; }
         skipped++;
         continue;
       }
 
-      sent++;
+      if (await markFollowupDelivery(supabase, 'registration', salon.id, claimTime, 'delivered')) sent++;
+      else { processingFailures++; deliveryUncertain++; }
     }
 
     alertDeliveryFailures('onboarding-followup', deliveryFailures, { sent, skipped });
-    if (processingFailures > 0) return cronError('onboarding-followup', startedAt, 'Follow-up processing failed', {
-      extraLog: { processed: sent, skipped, meta: { deferred, processingFailures } },
-      extraBody: { processed: sent, skipped, deferred, processingFailures },
+    if (processingFailures > 0 || deliveryFailures > 0 || pendingHolds > 0) return cronError('onboarding-followup', startedAt, 'Follow-up processing failed', {
+      extraLog: { processed: sent, skipped, meta: { deferred, processingFailures, deliveryFailures, deliveryUncertain, pendingHolds } },
+      extraBody: { processed: sent, sent, skipped, deferred, processingFailures, deliveryFailures, deliveryUncertain, pendingHolds },
     });
     await logCronRun('onboarding-followup', 'success', startedAt, { processed: sent, skipped, meta: { deferred } });
     return NextResponse.json({ processed: sent, skipped, deferred, sent });

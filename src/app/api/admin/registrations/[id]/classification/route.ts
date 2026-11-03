@@ -26,5 +26,5 @@ const route = withRoute(async (request, ctx) => {
   }
 }, { csrf: true, requireAuth: true, rateLimit: { limiter: null, limit: 10, windowMs: 60_000, prefix: 'registration-classification' }, sentryTag: 'registration-classification' });
 export async function PATCH(request: Request) {
-  const response = await route(request); response.headers.set('Cache-Control', 'no-store'); return response;
+  const response = await route(request); response.headers.set('Cache-Control', 'no-store, no-transform'); return response;
 }

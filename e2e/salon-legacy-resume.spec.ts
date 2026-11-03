@@ -69,8 +69,27 @@ async function isolateServerRateLimit(page: Page, ip: string) {
   }));
 }
 async function frozenV1(page: Page) {
-  await page.addInitScript(() => {
+  await page.addInitScript(({ workerMode }) => {
     const target = window as typeof window & { __next_f?: unknown[]; __carelinkV1PropFreezes?: number };
+    if (workerMode) {
+      // vinext transports the same RSC prop as string chunks instead of Next's
+      // [tag, chunk] tuples. Keep the same exact-one replacement assertion.
+      const queue: string[] = [];
+      let downstream: (...values: string[]) => number = Array.prototype.push;
+      target.__carelinkV1PropFreezes = 0;
+      Object.defineProperty(queue, 'push', {
+        configurable: true,
+        get: () => (...entries: string[]) => downstream.apply(queue, entries.map(entry => {
+          const marker = '"v2Enabled":true';
+          const count = entry.split(marker).length - 1;
+          target.__carelinkV1PropFreezes! += count;
+          return count ? entry.replaceAll(marker, '"v2Enabled":false') : entry;
+        })),
+        set: (handler: (...values: string[]) => number) => { downstream = handler; },
+      });
+      Reflect.set(target, Symbol.for('vinext.navigationRuntime'), { bootstrap: { routeManifest: null, rsc: { rsc: queue } }, functions: {} });
+      return;
+    }
     const queue = target.__next_f || [];
     let downstream: (...values: unknown[]) => unknown = Array.prototype.push;
     target.__carelinkV1PropFreezes = 0;
@@ -89,7 +108,7 @@ async function frozenV1(page: Page) {
       set: (handler: (...values: unknown[]) => unknown) => { downstream = handler; },
     });
     target.__next_f = queue;
-  });
+  }, { workerMode: process.env.CARELINK_CI_WORKER === '1' });
   // Keep the real HTTP response/origin, TLS, CSP and browser address space.
   // Only the real bootstrap's parsed configuration prop is frozen before React.
   const document = await page.goto('/register');

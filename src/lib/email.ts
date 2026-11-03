@@ -265,17 +265,20 @@ function toQueuePayload(
  * 「失敗時は翌 run で再送」する cron（onboarding-followup / favorites-digest）は、この戻り値で
  * 実際の送達可否を判定する。再throwすると他の一括送信が巻き込まれて止まるため throw はしない。
  */
+export type CronEmailOutcome = 'delivered' | 'rejected' | 'uncertain';
+
 async function safeSend(
   resend: Resend,
   params: Parameters<Resend['emails']['send']>[0],
   context: string,
-  options: { idempotencyKey?: string; requireMessageId?: boolean; redactFailureDetails?: boolean } = {},
+  options: { idempotencyKey?: string; requireMessageId?: boolean; redactFailureDetails?: boolean; onOutcome?: (outcome: 'delivered' | 'rejected' | 'uncertain') => void } = {},
 ): Promise<boolean> {
   if (QUEUEABLE_EMAIL_CONTEXTS.has(context)) {
     return sendDurableEventEmail(resend, toQueuePayload(params) as { from: string; to: string; subject: string; html: string }, context);
   }
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const fail = (detail: string): false => {
+  const fail = (detail: string, outcome: 'rejected' | 'uncertain' = 'uncertain'): false => {
+    options.onOutcome?.(outcome);
     const safeDetail = options.redactFailureDetails ? 'provider outcome not confirmed' : detail;
     safeCaptureException(new Error(`resend send failed: ${safeDetail}`), `email:${context}`);
     if (!BULK_AGGREGATED_CONTEXTS.has(context)) {
@@ -304,12 +307,14 @@ async function safeSend(
     // 送られていないのに全て成功扱いされ、アラートも一切出なかった。error を必ず検査する。
     if (result && result.error) {
       const err = result.error as { statusCode?: number; name?: string; message?: string };
-      return fail(`${err.statusCode ?? ''} ${err.name ?? ''} ${err.message ?? JSON.stringify(result.error)}`.trim());
+      const rejected = typeof err.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 500 && err.statusCode !== 408 && err.statusCode !== 409;
+      return fail(`${err.statusCode ?? ''} ${err.name ?? ''} ${err.message ?? JSON.stringify(result.error)}`.trim(), rejected ? 'rejected' : 'uncertain');
     }
-    if (options.requireMessageId) {
+    if (options.requireMessageId || options.onOutcome) {
       const data = result && result.data as { id?: unknown } | null | undefined;
       if (!data || typeof data.id !== 'string' || data.id.length === 0) return fail('provider response missing message id');
     }
+    options.onOutcome?.('delivered');
     return true;
   } catch (e) {
     // タイムアウト・ネットワーク断等の例外系。
@@ -840,9 +845,10 @@ export async function sendDailySummaryEmail(data: {
   cancelledCount: number;
   newCustomerCount: number;
   repeatCustomerCount: number;
+  onOutcome?: (outcome: CronEmailOutcome) => void;
 }): Promise<boolean> {
   const resend = getResend();
-  if (!resend) return false;
+  if (!resend) { data.onOutcome?.('rejected'); return false; }
   const facility = esc(data.facilityName);
   const date = esc(data.date);
   const row = (label: string, value: string) =>
@@ -864,7 +870,7 @@ export async function sendDailySummaryEmail(data: {
       </table>
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/analytics" style="${EMAIL_BUTTON_STYLE}">分析を見る</a></p>
     `),
-  }, 'daily_summary');
+  }, 'daily_summary', { onOutcome: data.onOutcome });
 }
 
 /** 週次レポート（施設オーナー向け・email_weekly_report 有効時のみ weekly-report cron から送信） */
@@ -879,9 +885,10 @@ export async function sendWeeklyReportEmail(data: {
   cancelledCount: number;
   newCustomerCount: number;
   repeatCustomerCount: number;
+  onOutcome?: (outcome: CronEmailOutcome) => void;
 }): Promise<boolean> {
   const resend = getResend();
-  if (!resend) return false;
+  if (!resend) { data.onOutcome?.('rejected'); return false; }
   const facility = esc(data.facilityName);
   const period = esc(`${data.periodStart} 〜 ${data.periodEnd}`);
   const row = (label: string, value: string) =>
@@ -903,7 +910,7 @@ export async function sendWeeklyReportEmail(data: {
       </table>
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/analytics" style="${EMAIL_BUTTON_STYLE}">分析を見る</a></p>
     `),
-  }, 'weekly_report');
+  }, 'weekly_report', { onOutcome: data.onOutcome });
 }
 
 /** 施設オーナー向け3日後フォローメール（未完了項目のリマインド） */
@@ -917,10 +924,11 @@ export async function sendOnboardingFollowEmail(data: {
   facilityName: string;
   missingSteps: string[];
   bookingSteps?: string[];
+  onOutcome?: (outcome: CronEmailOutcome) => void;
 }) {
   const resend = getResend();
   // API キー未設定は送達不可＝false（cron 側で未送信扱い）。
-  if (!resend) return false;
+  if (!resend) { data.onOutcome?.('rejected'); return false; }
   const facility = esc(data.facilityName);
   const list = (steps: string[]) => `<ul style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:16px 16px 16px 32px;margin:8px 0 16px;">${steps.map(s => `<li>${esc(s)}</li>`).join('')}</ul>`;
   const bookingSteps = data.bookingSteps ?? [];
@@ -940,7 +948,7 @@ export async function sendOnboardingFollowEmail(data: {
       ${listing}${booking}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin" style="${EMAIL_BUTTON_STYLE}">管理画面で設定を完了する</a></p>
     `),
-  }, 'onboarding_follow');
+  }, 'onboarding_follow', { onOutcome: data.onOutcome });
 }
 
 export async function sendBookingStatusUpdate(data: BookingEmailData & { newStatus: string; reason?: string }): Promise<boolean> {
@@ -1088,10 +1096,11 @@ export async function sendRegistrationLeadFollowEmail(data: {
   email: string;
   facilityName: string;
   receiptId: string;
+  onOutcome?: (outcome: CronEmailOutcome) => void;
 }): Promise<boolean> {
   const resend = getResend();
   // API キー未設定は送達不可＝false（cron 側で未送信扱いに戻す）。
-  if (!resend) return false;
+  if (!resend) { data.onOutcome?.('rejected'); return false; }
   const signupUrl = SITE_URL + salonRecoveryAuthPath('signup');
   const loginUrl = SITE_URL + salonRecoveryAuthPath('login');
   const facility = esc(data.facilityName);
@@ -1117,5 +1126,5 @@ export async function sendRegistrationLeadFollowEmail(data: {
       <p style="font-size:13px;color:#475569;">すでにアカウントをお持ちの場合は、<a href="${esc(loginUrl)}" style="color:#0369a1;">ログインして申込を再開</a>してください。</p>
       <p style="font-size:13px;color:#475569;">申込が表示されない場合は、新しく${T.shop}を作成したり申し込み直したりせず、受付番号を添えて<a href="${SITE_URL}/contact" style="color:#0369a1;">お問い合わせ</a>ください。</p>
     `),
-  }, 'registration_lead_follow');
+  }, 'registration_lead_follow', { onOutcome: data.onOutcome });
 }

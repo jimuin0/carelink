@@ -8,7 +8,14 @@ test('fixed public assets opt into the CDN without retaining browser copies or c
     // Vercel consumes this header at its edge; the standalone acceptance server
     // exposes it so the policy can be checked before deployment.
     expect(headers['vercel-cdn-cache-control'], path).toBe('public, s-maxage=3600');
-    expect(headers['cache-control'], path).toBe('public, max-age=0');
+    if (process.env.CARELINK_CI_WORKER === '1') {
+      // Cloudflare's local assets binding adds must-revalidate. It remains
+      // immediately stale in the browser; this does not assert edge caching.
+      expect(headers['cache-control'].split(',').map(value => value.trim()).sort(), path)
+        .toEqual(['max-age=0', 'must-revalidate', 'public']);
+    } else {
+      expect(headers['cache-control'], path).toBe('public, max-age=0');
+    }
     expect(headers['set-cookie'], path).toBeUndefined();
     expect(headers['x-content-type-options'], path).toBe('nosniff');
   }

@@ -7,6 +7,7 @@
  * - 取得エラー→500 / 例外→500 / opt-out・オーナー不在・メール未登録はスキップ
  */
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/cron-delivery-state', () => ({ countReportDeliveryHolds: jest.fn(async () => 0), markReportDeliveryAccepted: jest.fn(async () => true) }));
 jest.mock('@/lib/cron-auth');
 jest.mock('@/lib/cron-logger', () => {
   const logCronRun = jest.fn().mockResolvedValue(undefined);
@@ -38,6 +39,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { sendWeeklyReportEmail } from '@/lib/email';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { GET } from '../route';
+import { countReportDeliveryHolds, markReportDeliveryAccepted } from '@/lib/cron-delivery-state';
 
 const mockFrom = jest.fn();
 // aggregate_daily_revenue（集計し直し）の RPC。既定は成功。
@@ -172,8 +174,8 @@ test('M-1: claim insert が 23505 以外の error → 送信せずerrorログ＋
 });
 
 test('M-1: 送信が false → claim を解放する（delete 呼び出し）', async () => {
-  (sendWeeklyReportEmail as jest.Mock).mockResolvedValue(false);
-  const deleteSpy = jest.fn(() => ({ eq: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: null }) }) }) }));
+  (sendWeeklyReportEmail as jest.Mock).mockImplementation(async data => { data.onOutcome('rejected'); return false; });
+  const deleteSpy = jest.fn(() => ({ eq: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: null }) }) }) }) }) }));
   mockFrom.mockImplementation((table: string) => {
     if (table === 'daily_revenue_summary') return chain({ data: [{ facility_id: 'f-1', total_revenue: 100, booking_count: 1 }], error: null });
     if (table === 'facility_notification_settings') return chain({ data: [], error: null });
@@ -188,11 +190,29 @@ test('M-1: 送信が false → claim を解放する（delete 呼び出し）', 
   expect(deleteSpy).toHaveBeenCalled(); // claim 解放
 });
 
+test('結果不明の送信は claim を保持する', async () => {
+  (sendWeeklyReportEmail as jest.Mock).mockImplementation(async data => { data.onOutcome('uncertain'); return false; });
+  const deleteSpy = jest.fn(() => ({ eq: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: null }) }) }) }) }) }));
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'daily_revenue_summary') return chain({ data: [{ facility_id: 'f-1', total_revenue: 100, booking_count: 1 }], error: null });
+    if (table === 'facility_notification_settings') return chain({ data: [], error: null });
+    if (table === 'facility_members') return chain({ data: [{ facility_id: 'f-1', user_id: 'u1' }] });
+    if (table === 'profiles') return chain({ data: [{ id: 'u1', email: 'owner@example.com' }] });
+    if (table === 'facility_profiles') return chain({ data: [{ id: 'f-1', name: 'テスト施設' }] });
+    if (table === 'cron_report_sends') return { insert: () => Promise.resolve({ error: null }), delete: deleteSpy };
+    return chain({ data: null });
+  });
+  const json = await (await GET(makeRequest())).json();
+  expect(json.emailsSent).toBe(0);
+  expect(json.deliveryUncertain).toBe(1);
+  expect(deleteSpy).not.toHaveBeenCalled(); // claim 解放
+});
+
 test('M-1: 送信 false かつ claim 解放も失敗 → LOUD にログ（恒久欠落の可視化）', async () => {
   const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-  (sendWeeklyReportEmail as jest.Mock).mockResolvedValue(false);
+  (sendWeeklyReportEmail as jest.Mock).mockImplementation(async data => { data.onOutcome('rejected'); return false; });
   const relErr = { message: 'delete failed' };
-  const deleteSpy = jest.fn(() => ({ eq: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: relErr }) }) }) }));
+  const deleteSpy = jest.fn(() => ({ eq: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: relErr }) }) }) }) }) }));
   mockFrom.mockImplementation((table: string) => {
     if (table === 'daily_revenue_summary') return chain({ data: [{ facility_id: 'f-1', total_revenue: 100, booking_count: 1 }], error: null });
     if (table === 'facility_notification_settings') return chain({ data: [], error: null });
@@ -263,7 +283,7 @@ test('オーナーのメール未登録 → スキップ（emailsSkippedに計�
 });
 
 test('メール送信が false → emailsSent に計上しない', async () => {
-  (sendWeeklyReportEmail as jest.Mock).mockResolvedValue(false);
+  (sendWeeklyReportEmail as jest.Mock).mockImplementation(async data => { data.onOutcome('rejected'); return false; });
   setupFrom({ rows: { data: [{ facility_id: 'f-1', total_revenue: 100 }], error: null } });
   const json = await (await GET(makeRequest())).json();
   expect(json.emailsSent).toBe(0);
@@ -540,4 +560,18 @@ describe('週次の集計期間と集計し直し', () => {
     }));
     errSpy.mockRestore();
   });
+});
+
+test('stale report claims remain visible without resending', async () => {
+  (countReportDeliveryHolds as jest.Mock).mockResolvedValueOnce(1);
+  const res = await GET(makeRequest()); expect(res.status).toBe(500); expect(await res.json()).toMatchObject({ pendingHolds: 1 });
+});
+test('unavailable report hold observation stops before aggregation', async () => {
+  (countReportDeliveryHolds as jest.Mock).mockResolvedValueOnce(null);
+  const res = await GET(makeRequest()); expect(res.status).toBe(500); expect(mockRpc).not.toHaveBeenCalled();
+});
+test('lost report acceptance update retains the claim and reports uncertainty', async () => {
+  setupFrom({ rows: { data: [{ facility_id: 'f-1', total_revenue: 1 }], error: null } });
+  (markReportDeliveryAccepted as jest.Mock).mockResolvedValueOnce(false);
+  const res = await GET(makeRequest()); expect(res.status).toBe(500); expect(await res.json()).toMatchObject({ deliveryUncertain: 1 });
 });

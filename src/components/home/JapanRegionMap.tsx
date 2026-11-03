@@ -37,6 +37,7 @@ export default function JapanRegionMap() {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
+  const [loadMap, setLoadMap] = useState(false);
   const hoveredRef = useRef<string | null>(null);
   const listenersAttached = useRef(false);
 
@@ -48,6 +49,20 @@ export default function JapanRegionMap() {
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      const timer = setTimeout(() => setLoadMap(true), 0);
+      return () => clearTimeout(timer);
+    }
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) { setLoadMap(true); observer.disconnect(); }
+    }, { rootMargin: '250px' });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !loadMap) return;
 
     let cleanup: (() => void) | null = null;
 
@@ -110,7 +125,7 @@ export default function JapanRegionMap() {
     }
 
     return () => cleanup?.();
-  }, [router]);
+  }, [router, loadMap]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -124,7 +139,7 @@ export default function JapanRegionMap() {
     // ラベルは地図上の px 座標で置くので、外枠を地図と同じ大きさに固定する（幅が変わるとずれる）。
     <div ref={containerRef} className="relative mx-auto" style={{ width: JAPAN_MAP_SIZE.width, height: JAPAN_MAP_SIZE.height }}>
       <div className="flex justify-center">
-        <Japan
+        {loadMap && <Japan
           type="select-single"
           size={JAPAN_MAP_SIZE.width}
           mapColor={BASE_COLOR}
@@ -134,7 +149,7 @@ export default function JapanRegionMap() {
           disableClick
           disableHover
           onSelect={() => {}}
-        />
+        />}
       </div>
 
       <div className="absolute inset-0 pointer-events-none">

@@ -20,7 +20,7 @@ beforeEach(() => {
 test('confirmed classification uses verified actor and atomic revision', async () => {
   const response = await PATCH(request()); expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ success: true, classification: 'test', revision: 1 });
-  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(response.headers.get('cache-control')).toBe('no-store, no-transform');
   expect(mockRpc).toHaveBeenCalledWith('set_salon_registration_classification', { p_actor: actor, p_salon: id, p_value: 'test', p_expected_revision: 0 });
 });
 test('anonymous and cross-origin requests cannot change classification', async () => {

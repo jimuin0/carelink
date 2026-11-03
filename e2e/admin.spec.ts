@@ -9,6 +9,7 @@ import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import AxeBuilder from '@axe-core/playwright';
 import { SEED, PENDING_BOOKING_FILE, CONFIRMED_BOOKING_FILE, MANUAL_BOOKING_FILE, jstToday } from './admin.fixtures';
+import { captureCreateResponse } from './capture-create-response';
 
 test.describe.serial('管理画面（オーナー）', () => {
   // ── 読み取り検証（seed 初期値に依存・書き込みより前に実行）──
@@ -138,9 +139,9 @@ test.describe.serial('管理画面（オーナー）', () => {
     await page.goto(`/admin/coupons/new?facility_id=${fixture.facilityId}`);
     await page.fill('#coupon-name', couponName);
     await page.fill('#coupon-value', '500'); // discount_type=fixed の既定で割引額が必要
-    const [created]=await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname==='/api/admin/coupons' && r.request().method()==='POST'),page.getByRole('button',{name:'クーポンを作成'}).click()]);
-    expect(created.status()).toBe(201);
-    expect((await created.json()).coupon.facility_id).toBe(fixture.facilityId);
+    const created = await captureCreateResponse(page, '/api/admin/coupons', () => page.getByRole('button',{name:'クーポンを作成'}).click());
+    expect(created.status).toBe(201);
+    expect((created.body as { coupon: { facility_id: string } }).coupon.facility_id).toBe(fixture.facilityId);
     // 作成成功で /admin/coupons へ遷移し、一覧に出る（書き込み永続化）
     await page.waitForURL(url => url.pathname === '/admin/coupons' && url.searchParams.get('facility_id') === fixture.facilityId, { timeout: 15000 });
     await expect(page.getByText(couponName)).toBeVisible();

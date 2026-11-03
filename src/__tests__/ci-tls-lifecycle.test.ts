@@ -22,7 +22,7 @@ function stream() {
   return value;
 }
 
-async function harness() {
+async function harness(workerMode = false) {
   const server = Object.assign(new EventEmitter(), {
     listen: jest.fn((_port: number, _host: string, ready: () => void) => ready()), close: jest.fn(), closeAllConnections: jest.fn(),
   });
@@ -42,7 +42,8 @@ async function harness() {
     mkdtempSync: jest.fn(() => '/tmp/fixture-public-ca'), writeFileSync: jest.fn(), unlinkSync: jest.fn(), rmdirSync: jest.fn() };
   const process = Object.assign(new EventEmitter(), {
     env: { CI: 'true', GITHUB_ACTIONS: 'true', PLAYWRIGHT_BASE_URL: 'https://localhost:3000',
-      NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321', RUNNER_TEMP: '/tmp' }, exitCode: 0,
+      NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321', RUNNER_TEMP: '/tmp',
+      ...(workerMode ? { CARELINK_CI_WORKER: '1' } : {}) }, exitCode: 0,
     kill: jest.fn((_pid: number, signal: string | number) => { if (signal === 0) throw new Error('exited'); }),
   });
   const error = jest.fn();
@@ -52,6 +53,7 @@ async function harness() {
     'node:child_process': { spawn }, 'node:http': { request: httpRequest },
     'node:https': { createServer: (_tls: unknown, callback: typeof handler) => { handler = callback; return server; } },
     './ci-test-tls.mjs': { createLocalCertificate: () => ({ key: 'PRIVATE_FIXTURE', cert: 'PUBLIC_FIXTURE' }) },
+    '../tools/cloudflare/ci-local-ca.mjs': { createWorkerLocalCertificate: () => ({ key: 'PRIVATE_FIXTURE', cert: 'PUBLIC_LEAF_FIXTURE', ca: 'PUBLIC_CA_FIXTURE' }) },
   };
   runInNewContext(transpileModule(source, { compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2022 } }).outputText, {
     require: (name: string) => { if (!(name in modules)) throw new Error('unexpected import'); return modules[name]; },
@@ -153,4 +155,13 @@ test('production build failure after successful collection still prevents tests 
   expect(h.error).toHaveBeenCalledWith('Isolated TLS dependency lifecycle failed at production-build.');
   expect(h.fs.unlinkSync).toHaveBeenCalled();
   expect(h.server.closeAllConnections).toHaveBeenCalled();
+});
+
+
+test('Worker mode trusts the generated CA and builds the Worker before the guarded suite', async () => {
+  const h = await harness(true);
+  expect(h.fs.writeFileSync).toHaveBeenCalledWith('/tmp/fixture-public-ca/certificate.pem', 'PUBLIC_CA_FIXTURE', expect.anything());
+  await h.finish();
+  expect(h.spawn.mock.calls.map(call => call[1])).toEqual([['run', 'test:e2e', '--', '--list'], ['run', 'build:vinext'], ['run', 'test:e2e']]);
+  expect(h.error).not.toHaveBeenCalled();
 });

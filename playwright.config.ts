@@ -270,7 +270,7 @@ export default defineConfig({
   ],
   webServer: process.env.CI
     ? {
-        command: 'node scripts/start-ci-https.mjs',
+        command: process.env.CARELINK_CI_WORKER === '1' ? 'node tools/cloudflare/start-ci-worker-https.mjs' : 'node scripts/start-ci-https.mjs',
         url: 'https://localhost:3000',
         ignoreHTTPSErrors: true,
         reuseExistingServer: false,

@@ -2,6 +2,7 @@
 // 作成は既カバーだが PATCH/DELETE（src/app/admin/coupons/[id]/edit/page.tsx:86,123）は未カバーのため新設。
 // CI の隔離 Supabase 上でのみ動作（本番不可侵）。admin-batch.setup の storageState（owner 認証）を共有して使う。
 import { test, expect } from '@playwright/test';
+import { captureCreateResponse } from './capture-create-response';
 
 test('オーナーがクーポンを作成→編集→削除できる（書き込み→一覧反映/消滅）', async ({ page }) => {
   // CI の retries で同一 storageState（同一施設）を再利用するため、毎回ユニーク名で衝突を避ける。
@@ -25,10 +26,10 @@ test('オーナーがクーポンを作成→編集→削除できる（書き�
   // --- 作成：割引額に有効値(500円)を入力（PR#479 で fixed→discount_value 1以上必須）→ 作成 → 一覧へ遷移。
   await page.locator('#coupon-value').fill('500');
   await createBtn.scrollIntoViewIfNeeded();
-  const [created]=await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname==='/api/admin/coupons' && r.request().method()==='POST'),createBtn.press('Enter')]);
-  expect(created.status()).toBe(201);
+  const created = await captureCreateResponse(page, '/api/admin/coupons', () => createBtn.press('Enter'));
+  expect(created.status).toBe(201);
   // 店舗が1つのオーナーには「編集する店舗」の枠が出ない（2026-10-23）。対象店舗は作成結果から取る。
-  const facilityId: string = (await created.json()).coupon.facility_id;
+  const facilityId: string = (created.body as { coupon: { facility_id: string } }).coupon.facility_id;
   expect(facilityId).toMatch(/^[0-9a-f-]{36}$/);
 
   // POST /api/admin/coupons 成功で一覧へ router.push → 作成したクーポンが表示される（永続化）。

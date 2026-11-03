@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:https';
 import { request as httpRequest } from 'node:http';
 import { createLocalCertificate } from './ci-test-tls.mjs';
+import { createWorkerLocalCertificate } from '../tools/cloudflare/ci-local-ca.mjs';
 
 let child;
 let cancelled = false;
@@ -60,14 +61,15 @@ async function main() {
     return;
   }
   phase = 'certificate';
-  const tls = createLocalCertificate();
+  const workerMode = process.env.CARELINK_CI_WORKER === '1';
+  const tls = workerMode ? createWorkerLocalCertificate() : createLocalCertificate();
   const directory = mkdtempSync(join(process.env.RUNNER_TEMP, 'carelink-public-ca-'));
   const caPath = join(directory, 'certificate.pem');
   let server;
   const upgradedSockets = new Set();
   try {
     // Only the PUBLIC certificate is persisted. Node reads extra CAs at startup.
-    writeFileSync(caPath, tls.cert, { mode: 0o600, flag: 'wx' });
+    writeFileSync(caPath, tls.ca || tls.cert, { mode: 0o600, flag: 'wx' });
     const env = { ...process.env, NEXT_PUBLIC_SUPABASE_URL: 'https://localhost:54330',
       NODE_EXTRA_CA_CERTS: caPath, ADMIN_COOKIE_SECRET: randomBytes(32).toString('hex') };
     phase = 'dependency-proxy';
@@ -135,7 +137,7 @@ async function main() {
     phase = 'playwright-collection';
     await run(['run', 'test:e2e', '--', '--list'], env);
     phase = 'production-build';
-    await run(['run', 'build'], env);
+    await run(['run', workerMode ? 'build:vinext' : 'build'], env);
     phase = 'playwright';
     await run(['run', 'test:e2e'], env);
   } finally {

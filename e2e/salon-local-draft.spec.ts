@@ -37,6 +37,8 @@ async function raw(page: Page) {
  *  「閉じている」と読んでからクリックするまでの間にそれが起きると、クリックで閉じてしまう
  *  （2026-11-01 の CI・Mobile Safari の再読み込み直後に発生）。開いたまま留まるまで繰り返す。 */
 async function openTools(page: Page) {
+  // Also wait after reload: opening SSR details before hydration can be reset.
+  await expect(page.getByRole('button', { name: '次へ', exact: true })).toBeEnabled();
   const tools = page.locator('#register-draft-tools');
   await tools.waitFor({ state: 'attached' });
   await expect(async () => {
