@@ -116,18 +116,20 @@ test.each([{ data: null, error: null }, { data: [], error: { message: 'private' 
 
 // 承認のお知らせメールの送信状況を、通知の待ち行列から読む（推測で「送った」と書かない）。
 test.each([
-  ['success', 'sent'], ['pending', 'queued'], ['processing', 'queued'], ['failed', 'failed'], ['cancelled', 'failed'],
-] as const)('approval notice %s is shown as %s', async (status, shown) => {
-  notices.in.mockResolvedValue({ data: [{ registration_id: id, status }], error: null });
+  ['success', null, 'sent'], ['pending', null, 'queued'], ['processing', null, 'queued'],
+  ['processing', time, 'uncertain'], ['failed', null, 'failed'], ['cancelled', null, 'failed'],
+] as const)('approval notice %s (started %s) is shown as %s', async (status, started, shown) => {
+  notices.in.mockResolvedValue({ data: [{ registration_id: id, status, delivery_started_at: started }], error: null });
   expect(await readRegistrationList(db, {})).toEqual({ state: 'confirmed', salons: [{ ...classified(row), approval_notice: shown }], nextCursor: null });
-  expect(notices.select).toHaveBeenCalledWith('registration_id,status');
+  expect(notices.select).toHaveBeenCalledWith('registration_id,status,delivery_started_at');
   expect(notices.eq).toHaveBeenCalledWith('notification_kind', 'approval');
   expect(notices.in).toHaveBeenCalledWith('registration_id', [id]);
 });
 test.each([
   { data: null, error: null }, { data: [], error: { message: 'private' } },
-  { data: [{ registration_id: id, status: 'unknown' }], error: null },
-  { data: [{ registration_id: id, status: 'success' }, { registration_id: id, status: 'failed' }], error: null },
+  { data: [{ registration_id: id, status: 'unknown', delivery_started_at: null }], error: null },
+  { data: [{ registration_id: id, status: 'success' }], error: null },
+  { data: [{ registration_id: id, status: 'success', delivery_started_at: null }, { registration_id: id, status: 'failed', delivery_started_at: null }], error: null },
 ])('approval notice lookup failures fail closed %#', async result => {
   notices.in.mockResolvedValue(result); expect(await readRegistrationList(db, {})).toEqual({ state: 'unavailable' });
 });

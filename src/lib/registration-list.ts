@@ -39,14 +39,18 @@ export async function readRegistrationList(db: ReturnType<typeof createServiceRo
     if (index.size !== parsedLabels.data.length) return { state: 'unavailable' as const };
     // 承認のお知らせメールの送信状況（通知の待ち行列の approval ジョブ）。一覧に「送ったか」を推測で書かないため。
     const notices = page.length === 0 ? { data: [], error: null } : await db.from('webhook_retry_queue')
-      .select('registration_id,status').eq('notification_kind', 'approval').in('registration_id', page.map(row => row.id));
-    const parsedNotices = z.array(z.object({ registration_id: z.uuid(), status: z.enum(['pending', 'processing', 'success', 'failed', 'cancelled']) }).strict())
+      .select('registration_id,status,delivery_started_at').eq('notification_kind', 'approval').in('registration_id', page.map(row => row.id));
+    const parsedNotices = z.array(z.object({ registration_id: z.uuid(), status: z.enum(['pending', 'processing', 'success', 'failed', 'cancelled']), delivery_started_at: z.string().nullable() }).strict())
       .max(50).safeParse(notices.data);
     if (notices.error !== null || !parsedNotices.success) return { state: 'unavailable' as const };
-    const noticeIndex = new Map(parsedNotices.data.map(notice => [notice.registration_id, notice.status]));
+    const noticeIndex = new Map(parsedNotices.data.map(notice => [notice.registration_id, notice]));
     if (noticeIndex.size !== parsedNotices.data.length) return { state: 'unavailable' as const };
-    const noticeState = (status: string | undefined) => status === undefined ? 'none' as const
-      : status === 'success' ? 'sent' as const : status === 'pending' || status === 'processing' ? 'queued' as const : 'failed' as const;
+    // 送信を始めた後に結果が分からなくなったジョブは、webhook-retry が自動の再送から外して processing のまま残す
+    // （送れている可能性がある）。「送信待ち」とは書かず、送れたか確認が要る状態として出す。
+    const noticeState = (notice: (typeof parsedNotices.data)[number] | undefined) => notice === undefined ? 'none' as const
+      : notice.status === 'success' ? 'sent' as const
+      : notice.status === 'processing' && notice.delivery_started_at !== null ? 'uncertain' as const
+      : notice.status === 'pending' || notice.status === 'processing' ? 'queued' as const : 'failed' as const;
     const salons = page.map(row => ({ ...row, classification: index.get(row.id)?.classification ?? null,
       classification_revision: index.get(row.id)?.revision ?? 0, hidden: hiddenOnly,
       approval_notice: noticeState(noticeIndex.get(row.id)) }));

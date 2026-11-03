@@ -212,6 +212,7 @@ export default function AdminRegistrationsPage() {
       const waiting = '申込者が同じメールアドレスでログインして店舗を作成するのを待っています。';
       if (salon.approval_notice === 'sent') return `承認済みです。申込者へ続きの手順のメールを送信しました。${waiting}`;
       if (salon.approval_notice === 'queued') return `承認済みです。申込者へのメールは送信待ちです（15分以内）。${waiting}`;
+      if (salon.approval_notice === 'uncertain') return '承認済みです。申込者へのメールは、送信を始めましたが届いたか確認できていません。送信記録を確かめるまで、個別の案内や再送はしないでください。';
       if (salon.approval_notice === 'failed') return '承認済みですが、申込者へのメールを送れませんでした。お問い合わせの返信などで、個別に続きの手順を案内してください。';
       return `承認済みですが、申込者へのメールは送っていません（メールの仕組みができる前の承認）。${waiting}`;
     }
