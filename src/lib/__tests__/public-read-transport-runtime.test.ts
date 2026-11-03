@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 /**
  * 公開読み取りの接続プールが、実行中の Node の fetch で本当に通信できることを確かめる。
  *
