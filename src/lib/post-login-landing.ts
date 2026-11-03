@@ -45,13 +45,17 @@ export async function readStoreAccess(client: Client, userId: string): Promise<S
 type RecoveryClient = Pick<SupabaseClient<Database>, 'rpc'>;
 
 /**
- * 確認済みのメールアドレスで引き継げる掲載申込（店舗をまだ作っていない申込）があるか。
+ * 確認済みのメールアドレスに、運営が承認し、まだ誰も店舗を作っていない掲載申込があるか。
+ * 承認前の申込は数えない：公開フォームは誰のメールアドレスでも申し込めるため、数えると第三者が
+ * 他人のログイン後の着地点を変えられる。自分が引き継いだ申込も数えない（所属が外れたアカウントが
+ * ログインのたびに申込の続きへ送られ続けないように）。承認前の申込者は、ログイン画面の
+ * 「申込の続きから」や受付メールのリンクから進める。
  * 確認できないときは false（来院者側へ倒す。申込の続きは /register/recover から自分で開ける）。
  */
 export async function hasRecoverableRegistration(service: RecoveryClient, userId: string): Promise<boolean> {
   try {
-    const { data, error } = await service.rpc('list_recoverable_salon_receipts', { p_user_id: userId });
-    return !error && Array.isArray(data) && data.length > 0;
+    const { data, error } = await service.rpc('has_claimable_approved_salon_receipt', { p_user_id: userId });
+    return !error && data === true;
   } catch {
     return false;
   }

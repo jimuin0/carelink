@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { hasListingEvidenceSignature, listingEvidenceInputSchema, listingEvidencePath } from './listing-verification-evidence';
+import { publishVerifiedFacilityIfReady } from './listing-auto-publish';
 
 export const listingFacilityIdentity = z.object({ name:z.string().nullable(),prefecture:z.string().nullable(),
   city:z.string().nullable(),address:z.string().nullable() }).strict();
@@ -54,7 +55,9 @@ export async function approveListingEvidence(db: SupabaseClient, value: unknown)
       p_document_ids:input.documentIds,p_expected_identity:input.expectedIdentity,p_document_verified:true,p_authority_verified:true });
     if (approval.error?.code === '42501') return { state:'forbidden' as const };
     if (approval.error !== null || approval.data !== true) return { state:'unavailable' as const };
-    return { state:'approved' as const };
+    // 承認は確定済み。公開できたか（揃っていなかったか・休止中か等）をそのまま運営に返す。
+    const publication = await publishVerifiedFacilityIfReady(db,input.facilityId,input.actorId);
+    return { state:'approved' as const,publication };
   } catch {
     // The operation may have committed: do not claim rejection or retry with a
     // different document until the operator reloads the current review state.

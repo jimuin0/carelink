@@ -197,8 +197,14 @@ export default function AdminRegistrationsPage() {
       });
       const result = await response.json();
       if (generation.current !== ownGeneration) return;
+      if (response.status === 409 && typeof result?.error === 'string') { setToast({ type: 'error', message: result.error }); setReloadKey(key => key + 1); return; }
       if (!response.ok || result?.success !== true || result.deferred !== deferred) throw new Error('Unconfirmed update');
-      setToast({ type: 'success', message: deferred ? `${salon.name}を「書類は後から」にしました。書類の確認前でも公開できます` : `${salon.name}は書類の確認が済んでから公開する扱いに戻しました` });
+      setToast({ type: 'success', message: deferred ? `${salon.name}を「書類は後から」にしました。書類の確認前でも公開できます`
+        : result.facilityPublished === true
+          ? `${salon.name}を書類が先の扱いに戻しました。公開中の店舗はそのまま公開され、次に非公開にした後の再公開から書類の確認が必要です`
+          : result.facilityPublished === false
+            ? `${salon.name}は書類の確認が済んでから公開する扱いに戻しました`
+            : `${salon.name}を書類が先の扱いに戻しました。すでに公開中の店舗は、非公開にするまでそのまま公開されます` });
       setReloadKey(key => key + 1);
     } catch {
       if (generation.current === ownGeneration) {
@@ -239,7 +245,9 @@ export default function AdminRegistrationsPage() {
   };
 
   const nextStep = (salon: Salon) => {
-    if (salon.status === 'rejected') return '却下済みです。この申込からは店舗を作れません。';
+    if (salon.status === 'rejected') return salon.claimed_facility_id
+      ? '却下済みです。この申込から作られた店舗は公開できません（すでに公開中の場合は、非公開になるまで公開が続きます）。'
+      : '却下済みです。この申込からは店舗を作れません。';
     if (salon.claimed_facility_id) return salon.documents_deferred
       ? '申込者が店舗を作成済みです。「書類は後から」なので、営業時間などが揃えば書類の確認前でも公開できます。書類が届いたら、下の書類確認で確認してください。'
       : '申込者が店舗を作成済みです。下の書類確認で、提出された書類を確認してください（確認して記録すると、条件が揃っていれば公開されます）。';
@@ -357,10 +365,10 @@ export default function AdminRegistrationsPage() {
                   </label>
                   <span className="text-gray-500">見分け用のメモです。公開・通知には影響しません。</span>
                   <button type="button" className="underline disabled:opacity-50" disabled={processingId !== null || mutationUncertain} onClick={() => void updateVisibility(salon, !salon.hidden)}>{salon.hidden ? '一覧に戻す' : '一覧から隠す'}</button>
-                  <button type="button" className="underline disabled:opacity-50" disabled={processingId !== null || mutationUncertain}
+                  {(salon.documents_deferred || salon.status !== 'rejected') && <button type="button" className="underline disabled:opacity-50" disabled={processingId !== null || mutationUncertain}
                     onClick={() => salon.documents_deferred ? void updateDeferral(salon, false) : setConfirmDeferSalon(salon)}>
                     {salon.documents_deferred ? '書類を先に必須に戻す' : '書類は後からにする'}
-                  </button>
+                  </button>}
                 </div>
                 {salon.claimed_facility_id && <ListingVerificationReview key={salon.claimed_facility_id} facilityId={salon.claimed_facility_id} />}
               </div>
@@ -383,7 +391,7 @@ export default function AdminRegistrationsPage() {
         open={confirmApproveSalon !== null}
         title="申込を承認"
         message={confirmApproveSalon?.source === 'register'
-          ? `${confirmApproveSalon.name}を承認しますか？申込者（${confirmApproveSalon.email}）へ、店舗の作成と書類提出の手順を案内するメールが送られます（15分以内・同じ申込には1回だけ）。承認だけでは公開されません。`
+          ? `${confirmApproveSalon.name}を承認しますか？申込者（${confirmApproveSalon.email}）へ、続きの手順を案内するメールが送られます（15分以内・同じ申込には1回だけ）。承認だけでは公開されません。${confirmApproveSalon.documents_deferred ? '' : 'すでにやりとりを進めていた店舗なら、先に「書類は後からにする」を付けてから承認してください（メールの案内が「書類は公開後に提出」になります）。'}`
           : `${confirmApproveSalon?.name}を承認しますか？この申込は掲載申込フォーム以外からのため、メールは送られません。承認だけでは公開されません。`}
         confirmLabel="承認する"
         onConfirm={doApprove}
@@ -392,7 +400,7 @@ export default function AdminRegistrationsPage() {
       <ConfirmDialog
         open={confirmReject}
         title="施設を却下"
-        message={`${confirmRejectSalon?.name}を却下しますか？この申込からは店舗を作れなくなります。申込者への通知は送られません。`}
+        message={`${confirmRejectSalon?.name}を却下しますか？${confirmRejectSalon?.claimed_facility_id ? 'この申込から作られた店舗は公開できなくなります（すでに公開中の場合は、非公開になるまで公開が続きます）。' : 'この申込からは店舗を作れなくなります。'}申込者への通知は送られません。`}
         confirmLabel="却下する"
         onConfirm={doReject}
         onCancel={() => { setConfirmReject(false); setConfirmRejectSalon(null); }}

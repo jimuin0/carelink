@@ -18,6 +18,7 @@
 
 import { createServiceRoleClient } from './supabase-server';
 import { isTransientSupabaseError } from './err';
+import { isPublicReadOnlyPreview } from './preview-capabilities';
 
 const SLACK_API_BASE = 'https://slack.com/api';
 // Provider bodies and transport exceptions may contain private data. Only fixed
@@ -75,6 +76,10 @@ export interface SlackPostResult {
  * SLACK_BOT_TOKEN 未設定時も error: 'not_configured' を返すのみ。
  */
 export async function postToSlack(opts: SlackPostOptions): Promise<SlackPostResult> {
+  // 公開閲覧専用の Preview は誰でも開ける。そこには本番の Slack トークンが入っているが、
+  // middleware の対象外の API（withRoute を使わないもの）は Preview でも処理まで届くため、
+  // 送信の唯一の出口であるここで止める（外部の人が本番の Slack へ投稿させられないように）。
+  if (isPublicReadOnlyPreview()) return { ok: false, error: 'preview_read_only' };
   const token = process.env.SLACK_BOT_TOKEN;
   const channel = opts.channel || process.env.SLACK_DEFAULT_CHANNEL;
 

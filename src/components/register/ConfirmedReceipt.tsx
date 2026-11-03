@@ -29,7 +29,7 @@ export default function ConfirmedReceipt({ id, name, type, area, signupHref, log
         <Button href={signupHref} prefetch="auto">店舗アカウントを作成する</Button>
         <Link href={loginHref} className="underline underline-offset-4">既存アカウントでログインして引き継ぐ</Link>
       </div>
-      <p className="mt-6 text-sm leading-relaxed">引き継ぎ後、確認書類を提出し、運営の確認を受けてから公開できます。</p>
+      <p className="mt-6 text-sm leading-relaxed">引き継ぎ後、確認書類を提出してください。運営が確認すると、設定が揃っていれば公開されます。</p>
       <p className="mt-3 text-sm leading-relaxed">ネット予約を利用せず、無料掲載だけでも利用できます。</p>
       <p className="mt-3 text-sm leading-relaxed">複数店舗は、店舗ごとに申し込み、同じアカウントで引き継げます。</p>
       <Link href="/register/guide" className="mt-4 inline-block underline underline-offset-4">掲載までの詳しい流れを見る</Link>

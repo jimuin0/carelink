@@ -2,6 +2,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { Blob } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { approveListingEvidence, readListingEvidence } from '../listing-verification-review';
+import { publishVerifiedFacilityIfReady } from '../listing-auto-publish';
+
+// 承認の後の自動公開は listing-auto-publish.ts の単体テストで確かめる。ここでは呼び方と結果の受け渡しだけ。
+jest.mock('../listing-auto-publish', () => ({ publishVerifiedFacilityIfReady: jest.fn() }));
+beforeEach(() => { (publishVerifiedFacilityIfReady as jest.Mock).mockResolvedValue('published'); });
 
 const actorId='11111111-1111-4111-8111-111111111111';
 const facilityId='22222222-2222-4222-8222-222222222222';
@@ -23,7 +28,8 @@ test('書類と権限の両方を確認し、資料が正しい施設の非公�
   const f=fixture();
   const result = await approveListingEvidence(f.db,input);
   expect(f.download).toHaveBeenCalled();
-  expect(result).toEqual({ state:'approved' });
+  expect(result).toEqual({ state:'approved',publication:'published' });
+  expect(publishVerifiedFacilityIfReady).toHaveBeenCalledWith(f.db,facilityId,actorId);
   expect(f.rpc).toHaveBeenCalledWith('approve_listing_verification', { p_actor_id:actorId,p_facility_id:facilityId,
     p_document_ids:[documentId],p_expected_identity:expectedIdentity,p_document_verified:true,p_authority_verified:true });
 });
@@ -50,7 +56,7 @@ test('補足書類も内容を確認してから承認し、いずれかが不�
   f.maybeSingle.mockResolvedValueOnce({ data:doc,error:null }).mockResolvedValueOnce({
     data:{ ...doc,id:second,object_path:`facilities/${facilityId}/${second}.pdf` },error:null,
   });
-  expect(await approveListingEvidence(f.db,{ ...input,documentIds:[documentId,second] })).toEqual({ state:'approved' });
+  expect(await approveListingEvidence(f.db,{ ...input,documentIds:[documentId,second] })).toEqual({ state:'approved',publication:'published' });
   expect(f.download).toHaveBeenCalledTimes(2);
   expect(f.rpc).toHaveBeenCalledWith('approve_listing_verification',expect.objectContaining({ p_document_ids:[documentId,second] }));
   const bad=fixture();
@@ -73,4 +79,13 @@ test('書類の照合・読取障害と不完全な承認結果は安全に拒�
   expect(await approveListingEvidence(f.db,input)).toEqual({ state:'unavailable' });
   f.rpc.mockResolvedValueOnce({ data:null,error:{ code:'test' } });
   expect(await approveListingEvidence(f.db,input)).toEqual({ state:'unavailable' });
+});
+
+test('承認が確定しなかったときは公開を試みない', async () => {
+  for (const result of [{ data:false,error:null },{ data:null,error:{ code:'42501' } },{ data:null,error:{ code:'other' } }]) {
+    const f=fixture(); f.rpc.mockResolvedValue(result);
+    (publishVerifiedFacilityIfReady as jest.Mock).mockClear();
+    expect((await approveListingEvidence(f.db,input)).state).not.toBe('approved');
+    expect(publishVerifiedFacilityIfReady).not.toHaveBeenCalled();
+  }
 });

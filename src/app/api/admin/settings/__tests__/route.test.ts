@@ -16,6 +16,8 @@ jest.mock('@/lib/audit-logger', () => ({
   getRequestContext: jest.fn(() => ({ ip: '127.0.0.1', ua: 'test' })),
 }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
+// 書類の確認済みで公開待ちの店舗の自動公開（listing-auto-publish.ts の単体テストで中身を確かめる）。
+jest.mock('@/lib/listing-auto-publish', () => ({ publishVerifiedFacilityIfReady: jest.fn(async () => 'not_pending') }));
 
 const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
@@ -37,6 +39,7 @@ import { PATCH } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { FACILITY_INPUT_LIMITS } from '@/lib/facility-input-limits';
+import { publishVerifiedFacilityIfReady } from '@/lib/listing-auto-publish';
 
 const VALID_BODY = { name: 'テスト施設' };
 
@@ -277,6 +280,13 @@ test('未審査の施設は公開できず、確認待ちと表示する', async
   expect((await response.json()).error).toContain('管理権限の確認');
   expect(writeAuditLog).not.toHaveBeenCalled();
 });
+test('却下された申込の店舗は公開できないと表示する', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id:FACILITY_UUID }));
+  publishMocks(); mockAdminRpc.mockResolvedValue({ data:null,error:{ code:'23514',message:'"published_listing_registration_rejected"' } });
+  const response = await PATCH(makePatchRequest({ status:'published' },{ facility_id:FACILITY_UUID,action:'status' }));
+  expect(response.status).toBe(409);
+  expect((await response.json()).error).toContain('掲載申込が却下されている');
+});
 test('auth error alongside a user is not usable authorization', async () => {
   mockGetUser.mockResolvedValue({ data:{ user:{ id:USER_ID } },error:{ message:'08006' } });
   expect((await PATCH(makePatchRequest())).status).toBe(503); expect(mockAdminRpc).not.toHaveBeenCalled();
@@ -468,6 +478,41 @@ test('PATCH: 正常更新 → 200 ok:true', async () => {
   expect(json.ok).toBe(true);
 });
 
+test('PATCH: 公開待ちの店舗は保存の後に自動公開を試み、公開できたら伝える', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  (publishVerifiedFacilityIfReady as jest.Mock).mockResolvedValueOnce('published');
+  const res = await PATCH(makePatchRequest({ name: '更新施設', booking_auto_confirm: true }));
+  expect(res.status).toBe(200);
+  expect((await res.json()).published).toBe(true);
+  expect(publishVerifiedFacilityIfReady).toHaveBeenCalledWith(expect.anything(), FACILITY_UUID, USER_ID);
+});
+test('PATCH: 公開ゲートが止めたときは、保存できたうえで公開できなかったことを伝える', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  (publishVerifiedFacilityIfReady as jest.Mock).mockResolvedValueOnce('blocked');
+  const res = await PATCH(makePatchRequest({ name: '更新施設', booking_auto_confirm: true }));
+  expect(res.status).toBe(200);
+  const json = await res.json();
+  expect(json.publicationBlocked).toBe(true); expect(json.published).toBeUndefined();
+});
+test.each(['not_ready', 'not_pending', 'unavailable'])('PATCH: 自動公開しなかった（%s）ときは published を返さない', async outcome => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  (publishVerifiedFacilityIfReady as jest.Mock).mockResolvedValueOnce(outcome);
+  const res = await PATCH(makePatchRequest({ name: '更新施設', booking_auto_confirm: true }));
+  expect(res.status).toBe(200);
+  const json = await res.json();
+  expect(json.published).toBeUndefined(); expect(json.publicationBlocked).toBeUndefined();
+});
+test('PATCH: 却下された申込の店舗は公開中の店舗名を変えられないと案内する', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id:FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain({ code:'23514',message:'"published_listing_registration_rejected"' }));
+  const response=await PATCH(makePatchRequest({ name:'変更後' }));
+  expect(response.status).toBe(409);
+  expect((await response.json()).error).toContain('掲載申込が却下されている');
+  expect(publishVerifiedFacilityIfReady).not.toHaveBeenCalled();
+});
 test('PATCH: 複数診療科を施設設定と同一の権限付き処理で保存する', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(updateChain());

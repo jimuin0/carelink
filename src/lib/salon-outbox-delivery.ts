@@ -63,11 +63,25 @@ export async function prepareSalonOutboxDelivery(
   const receipt = receiptSchema.safeParse(data);
   if (error || !receipt.success) throw new Error('Registration email reference unavailable');
   if (job.notification_kind === 'approval') {
+    // 文面は送る時点の状態で決める（承認から送信まで最大 15 分あり、その間に状態が変わり得る）。
+    // 承認が取り消されていたら送らない（取り消し時に DB が止めるが、送信の直前にも確かめる）。
+    const current = await db.from('salons').select('status,claimed_facility_id').eq('id', job.registration_id).maybeSingle();
+    const state = z.object({ status: z.string().nullable(), claimed_facility_id: z.uuid().nullable() }).safeParse(current.data);
+    if (current.error || !state.success) throw new Error('Registration approval state unavailable');
+    if (state.data.status !== 'approved') throw new Error('Registration is no longer approved');
     // 「書類は後から」（2026-11-03 本人決定）が付いた申込には、先に公開・書類は公開後、と案内する。
     const deferral = await db.from('listing_verification_deferrals').select('deferred').eq('salon_id', job.registration_id).maybeSingle();
     const checked = z.object({ deferred: z.boolean() }).nullable().safeParse(deferral.data);
     if (deferral.error || !checked.success) throw new Error('Registration document deferral unavailable');
-    return prepareApprovalEmail(db, job.registration_id, receipt.data, resend, checked.data?.deferred === true);
+    let published = false;
+    if (state.data.claimed_facility_id) {
+      const facility = await db.from('facility_profiles').select('status').eq('id', state.data.claimed_facility_id).maybeSingle();
+      const facilityState = z.object({ status: z.string() }).nullable().safeParse(facility.data);
+      if (facility.error || !facilityState.success) throw new Error('Registration facility state unavailable');
+      published = facilityState.data?.status === 'published';
+    }
+    const stage = published ? 'published' : checked.data?.deferred === true ? 'deferred' : 'documents';
+    return prepareApprovalEmail(db, job.registration_id, receipt.data, resend, stage, checked.data?.deferred === true);
   }
   const email = {
     from: fromEnv(), to: receipt.data.email,
@@ -79,7 +93,7 @@ export async function prepareSalonOutboxDelivery(
     // 🔴 以前は「申込時のタブに戻って次のURLを開いてください」と案内していたが、スマホのメールアプリからは
     // 申込時のタブに戻れない（2026年10月23日）。リンク先は、確認済みのログインメールで申込を選び直せる
     // /register/recover へ進む登録画面にする（タブ・ブラウザに依存しない唯一の入口）。
-    text: `CareLinkへの${T.application}をいただき、ありがとうございます。\n\n${T.shopName}：${receipt.data.facility_name}\n受付番号：${job.registration_id}\n\n掲載申込の受付が完了しました。一般公開は、店舗情報の設定と公開操作の後に反映されます。\n\n【次の手順】申込の続き（店舗情報の確認・設定）へ進むには、このメールを受け取ったメールアドレス（${receipt.data.email}）で${T.account}を作成してください。別のメールアドレスで作成すると、この申込を引き継げません。スマートフォンや別のブラウザからでも続けられます。\n${SITE_URL}${salonRecoveryAuthPath('signup')}\n\nすでに同じメールアドレスでアカウントをお持ちの場合は、こちらからログインしてください。\n${SITE_URL}${salonRecoveryAuthPath('login')}\n\n受付を確認できない場合は、新たに送信せず受付番号を添えてお問い合わせください。\n${SITE_URL}/contact\n\nこのメールに心当たりがない場合は破棄してください。`,
+    text: `CareLinkへの${T.application}をいただき、ありがとうございます。\n\n${T.shopName}：${receipt.data.facility_name}\n受付番号：${job.registration_id}\n\n掲載申込の受付が完了しました。一般公開は、店舗情報の設定と運営の確認の後に反映されます（公開までの手順は、運営が申込を確認したときのメールでご案内します）。\n\n【次の手順】申込の続き（店舗情報の確認・設定）へ進むには、このメールを受け取ったメールアドレス（${receipt.data.email}）で${T.account}を作成してください。別のメールアドレスで作成すると、この申込を引き継げません。スマートフォンや別のブラウザからでも続けられます。\n${SITE_URL}${salonRecoveryAuthPath('signup')}\n\nすでに同じメールアドレスでアカウントをお持ちの場合は、こちらからログインしてください。\n${SITE_URL}${salonRecoveryAuthPath('login')}\n\n受付を確認できない場合は、新たに送信せず受付番号を添えてお問い合わせください。\n${SITE_URL}/contact\n\nこのメールに心当たりがない場合は破棄してください。`,
   };
   return () => sendResendForReconciliation(resend.emails.send(email, {
     idempotencyKey: `salon-receipt-v1-${job.registration_id}`,
@@ -95,22 +109,25 @@ export async function prepareSalonOutboxDelivery(
  */
 function prepareApprovalEmail(
   db: ReturnType<typeof createServiceRoleClient>, registrationId: string,
-  receipt: z.infer<typeof receiptSchema>, resend: Resend, documentsDeferred: boolean,
+  receipt: z.infer<typeof receiptSchema>, resend: Resend, stage: 'published' | 'deferred' | 'documents', documentsDeferred: boolean,
 ): () => Promise<ResendDeliveryOutcome> {
-  const steps = documentsDeferred
+  const createStep = `【1】${T.shop}を作成する（まだの方）\nこのメールを受け取ったメールアドレス（${receipt.email}）でログインし、申込を選んで${T.shop}を作成してください。${T.account}が無い場合は、同じメールアドレスで作成してください。\n`
+    + `ログイン：${SITE_URL}${salonRecoveryAuthPath('login')}\n${T.account}の作成：${SITE_URL}${salonRecoveryAuthPath('signup')}\n\n`;
+  const body = stage === 'published'
+    // 店舗の作成・公開が承認より先に済んでいる（「書類は後から」・書類の確認での公開など）。
+    ? `${T.shop}はすでに CareLink に公開されています。\n\n`
+      + (documentsDeferred ? `確認書類がまだの場合は、管理画面の施設設定から、${T.shopName}・所在地・運営者を確認できる書類を提出してください。\n\n` : '')
+    : `※この時点では、まだ一般公開されていません。公開までに、次の手順をお願いします。\n\n` + createStep + (stage === 'deferred'
     ? `【2】${T.shop}情報を整えて公開する\n所在地・曜日ごとの営業時間（定休日を含む）などを設定し、管理画面から公開できます。\n\n`
       + `【3】確認書類を公開後に提出する\n管理画面の施設設定から、${T.shopName}・所在地・運営者を確認できる書類を提出してください。\n\n`
     : `【2】確認書類を提出する\n${T.shop}の作成後、管理画面の施設設定から、${T.shopName}・所在地・運営者を確認できる書類を提出してください。\n\n`
-      + `【3】公開\n運営が書類を確認すると、所在地・曜日ごとの営業時間（定休日を含む）などの設定が済んでいれば、そのまま公開されます。まだの場合は、管理画面で設定を済ませた時点で公開されます。\n\n`;
+      + `【3】公開\n運営が書類を確認すると、所在地・曜日ごとの営業時間（定休日を含む）などの設定が済んでいれば、そのまま公開されます。まだの場合は、管理画面で設定を済ませた時点で公開されます。\n\n`);
   const email = {
     from: fromEnv(), to: receipt.email,
     // 受付メールと同じく、申込者が入力した店舗名は件名に入れない（本文だけ）。
     subject: `【CareLink】${T.application}を確認しました`,
     text: `CareLink 運営です。${T.application}を確認しました。\n\n${T.shopName}：${receipt.facility_name}\n受付番号：${registrationId}\n\n`
-      + `※この時点では、まだ一般公開されていません。公開までに、次の手順をお願いします。\n\n`
-      + `【1】${T.shop}を作成する（まだの方）\nこのメールを受け取ったメールアドレス（${receipt.email}）でログインし、申込を選んで${T.shop}を作成してください。${T.account}が無い場合は、同じメールアドレスで作成してください。\n`
-      + `ログイン：${SITE_URL}${salonRecoveryAuthPath('login')}\n${T.account}の作成：${SITE_URL}${salonRecoveryAuthPath('signup')}\n\n`
-      + steps
+      + body
       + `ご不明な点は、受付番号を添えてお問い合わせください。\n${SITE_URL}/contact\n\nこのメールに心当たりがない場合は破棄してください。`,
   };
   return async () => {
@@ -123,7 +140,14 @@ function prepareApprovalEmail(
       registration_id: registrationId, notification_kind: 'approval_sent', template_version: 1,
     });
     // 23505 は「既に積んである」＝重複送信を防げているので成功と同じ扱い。
-    if (queued.error && queued.error.code !== '23505') {
+    // 応答だけが失われて実は積めていた場合に二重に知らせないよう、直接送る前に積めたかを読み直す。
+    // 読み直せないときは直接送る（重複の 1 通より、「送信しました」が届かない方が困るため）。
+    const missing = queued.error && queued.error.code !== '23505'
+      ? await db.from('webhook_retry_queue').select('id').eq('registration_id', registrationId)
+        .eq('notification_kind', 'approval_sent').eq('template_version', 1).maybeSingle()
+        .then(found => found.error !== null || found.data === null, () => true)
+      : false;
+    if (missing) {
       await postToSlack({
         text: `CareLink ${T.application}の承認メールを申込者へ送信しました\n確認先：${SITE_URL}/admin/registrations`,
         unfurl_links: false, unfurl_media: false,

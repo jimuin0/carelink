@@ -38,19 +38,30 @@ export async function readRegistrationList(db: ReturnType<typeof createServiceRo
     const index = new Map(parsedLabels.data.map(label => [label.salon_id, label]));
     if (index.size !== parsedLabels.data.length) return { state: 'unavailable' as const };
     // 承認のお知らせメールの送信状況（通知の待ち行列の approval ジョブ）。一覧に「送ったか」を推測で書かないため。
+    // approval_sent（Slack の「送信しました」）は、メールが送信できた後にだけ積まれる。メールのジョブの状態を
+    // 更新できずに残っていても、こちらがあれば送信済みとして扱う（Slack と一覧の表示を食い違わせない）。
+    // 一意の索引と同じ template_version=1 で絞る（版を足したときに同じ申込の行が重複しないように）。
+    // 申込ごとのジョブは種類ごとに 1 件（受付・受付の Slack・承認・承認の Slack）まで。
     const notices = page.length === 0 ? { data: [], error: null } : await db.from('webhook_retry_queue')
-      .select('registration_id,status,delivery_started_at').eq('notification_kind', 'approval').in('registration_id', page.map(row => row.id));
-    const parsedNotices = z.array(z.object({ registration_id: z.uuid(), status: z.enum(['pending', 'processing', 'success', 'failed', 'cancelled']), delivery_started_at: z.string().nullable() }).strict())
-      .max(50).safeParse(notices.data);
+      .select('registration_id,notification_kind,status,delivery_started_at').eq('template_version', 1)
+      .in('registration_id', page.map(row => row.id));
+    const parsedNotices = z.array(z.object({ registration_id: z.uuid(), notification_kind: z.enum(['receipt', 'internal', 'approval', 'approval_sent']), status: z.enum(['pending', 'processing', 'success', 'failed', 'cancelled']), delivery_started_at: z.string().nullable() }).strict())
+      .max(200).safeParse(notices.data);
     if (notices.error !== null || !parsedNotices.success) return { state: 'unavailable' as const };
-    const noticeIndex = new Map(parsedNotices.data.map(notice => [notice.registration_id, notice]));
-    if (noticeIndex.size !== parsedNotices.data.length) return { state: 'unavailable' as const };
+    const approvalNotices = parsedNotices.data.filter(notice => notice.notification_kind === 'approval');
+    const noticeIndex = new Map(approvalNotices.map(notice => [notice.registration_id, notice]));
+    if (noticeIndex.size !== approvalNotices.length) return { state: 'unavailable' as const };
+    const sentIds = new Set(parsedNotices.data.filter(notice => notice.notification_kind === 'approval_sent').map(notice => notice.registration_id));
     // 送信を始めた後に結果が分からなくなったジョブは、webhook-retry が自動の再送から外して processing のまま残す
     // （送れている可能性がある）。「送信待ち」とは書かず、送れたか確認が要る状態として出す。
-    const noticeState = (notice: (typeof parsedNotices.data)[number] | undefined) => notice === undefined ? 'none' as const
-      : notice.status === 'success' ? 'sent' as const
-      : notice.status === 'processing' && notice.delivery_started_at !== null ? 'uncertain' as const
-      : notice.status === 'pending' || notice.status === 'processing' ? 'queued' as const : 'failed' as const;
+    // cancelled は、送り始める前に承認が取り消されて止めたもの（送っていない）。
+    const noticeState = (id: string) => {
+      const notice = noticeIndex.get(id);
+      if (sentIds.has(id) || notice?.status === 'success') return 'sent' as const;
+      if (notice === undefined || notice.status === 'cancelled') return 'none' as const;
+      if (notice.status === 'processing' && notice.delivery_started_at !== null) return 'uncertain' as const;
+      return notice.status === 'pending' || notice.status === 'processing' ? 'queued' as const : 'failed' as const;
+    };
     // 「書類は後から」の印（2026-11-03 本人決定）。
     const deferrals = page.length === 0 ? { data: [], error: null } : await db.from('listing_verification_deferrals')
       .select('salon_id,deferred').in('salon_id', page.map(row => row.id));
@@ -59,7 +70,7 @@ export async function readRegistrationList(db: ReturnType<typeof createServiceRo
     const deferredIds = new Set(parsedDeferrals.data.filter(row => row.deferred).map(row => row.salon_id));
     const salons = page.map(row => ({ ...row, classification: index.get(row.id)?.classification ?? null,
       classification_revision: index.get(row.id)?.revision ?? 0, hidden: hiddenOnly,
-      approval_notice: noticeState(noticeIndex.get(row.id)), documents_deferred: deferredIds.has(row.id) }));
+      approval_notice: noticeState(row.id), documents_deferred: deferredIds.has(row.id) }));
     let nextCursor: RegistrationCursor | null = null;
     if (rows.data.length > 50) {
       const last = salons[salons.length - 1];

@@ -78,6 +78,7 @@ describe('readManagedFacilityName', () => {
 });
 
 // 2026-11-03: 申込者が戻り先なしでログインすると /mypage に着地し、店舗の作成へ進めずに止まっていた。
+// 数えるのは、運営が承認し、まだ誰も店舗を作っていない申込だけ（第三者が他人の着地点を変えられないように）。
 describe('引き継げる掲載申込がある申込者は申込の続きへ', () => {
   const rpcClient = (result: Result | (() => never)) => {
     const rpc = jest.fn(async () => (typeof result === 'function' ? result() : result));
@@ -85,24 +86,25 @@ describe('引き継げる掲載申込がある申込者は申込の続きへ', (
   };
   test('店舗が無く、引き継げる申込があれば /register/recover', async () => {
     const { client } = membershipClient({ data: null, error: null });
-    const { service, rpc } = rpcClient({ data: [{ receipt_id: 'r1' }], error: null });
+    const { service, rpc } = rpcClient({ data: true, error: null });
     expect(await landingPathFor(client, 'u1', service)).toBe('/register/recover');
-    expect(rpc).toHaveBeenCalledWith('list_recoverable_salon_receipts', { p_user_id: 'u1' });
+    expect(rpc).toHaveBeenCalledWith('has_claimable_approved_salon_receipt', { p_user_id: 'u1' });
   });
   test('店舗を持つアカウントは申込の有無を見ずに /admin', async () => {
     const { client } = membershipClient({ data: { role: 'owner' }, error: null });
-    const { service, rpc } = rpcClient({ data: [{ receipt_id: 'r1' }], error: null });
+    const { service, rpc } = rpcClient({ data: true, error: null });
     expect(await landingPathFor(client, 'u1', service)).toBe(STORE_ADMIN_PATH);
     expect(rpc).not.toHaveBeenCalled();
   });
   test('店舗の有無が確認できないときは申込も見ずに /mypage', async () => {
     const { client } = membershipClient({ data: null, error: { message: 'x' } });
-    const { service, rpc } = rpcClient({ data: [{ receipt_id: 'r1' }], error: null });
+    const { service, rpc } = rpcClient({ data: true, error: null });
     expect(await landingPathFor(client, 'u1', service)).toBe('/mypage');
     expect(rpc).not.toHaveBeenCalled();
   });
   test.each([
-    [{ data: [], error: null }], [{ data: null, error: null }], [{ data: [{ receipt_id: 'r1' }], error: { code: '42501' } }],
+    [{ data: false, error: null }], [{ data: null, error: null }], [{ data: [{ receipt_id: 'r1' }], error: null }],
+    [{ data: true, error: { code: '42501' } }],
     [() => { throw new Error('network'); }],
   ] as const)('申込が無い・確認できないときは /mypage %#', async result => {
     const { client } = membershipClient({ data: null, error: null });

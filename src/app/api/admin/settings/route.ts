@@ -8,7 +8,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { checkPublishReadiness, isListingVerificationConflict, isPublishedHoursConflict, isPublishedLocationConflict, LISTING_HOURS_MESSAGE } from '@/lib/facility-publish-gate';
+import { publishVerifiedFacilityIfReady } from '@/lib/listing-auto-publish';
+import { checkPublishReadiness, isListingRegistrationRejectedConflict, isListingVerificationConflict, isPublishedHoursConflict, isPublishedLocationConflict, LISTING_HOURS_MESSAGE } from '@/lib/facility-publish-gate';
 import { validateFacilityPrText } from '@/lib/medical-ad-guard';
 import { hoursSaveStaffWarning } from '@/lib/staff-hours-warning';
 import type { Database } from '@/types/database.types';
@@ -194,7 +195,8 @@ async function patchSettings(request: NextRequest) {
     if (error?.message.includes('FACILITY_PERMISSION_REVOKED')) return NextResponse.json({ error:'店舗の管理権限がありません' },{ status:403 });
     if (error?.message.includes('FACILITY_OWNER_REQUIRED')) return NextResponse.json({ error:'店舗所有者の確認が必要です。公開変更は保存されていません' },{ status:409 });
 
-    if (isListingVerificationConflict(error)) return NextResponse.json({ error: '掲載前に、店舗を確認できる書類と管理権限の確認が必要です。運営の確認が完了するまでお待ちください。' }, { status: 409 });
+    if (isListingRegistrationRejectedConflict(error)) return NextResponse.json({ error: '掲載申込が却下されているため公開できません。お問い合わせください。' }, { status: 409 });
+    if (isListingVerificationConflict(error)) return NextResponse.json({ error: '掲載前に、店舗を確認できる書類と管理権限の確認が必要です。施設設定から書類を提出してください。運営が確認すると、店舗名・所在地・曜日ごとの営業時間が揃っていれば自動で公開されます。' }, { status: 409 });
     if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '所在地が変更されています。都道府県・市区町村・住所を確認して、再度公開してください。' }, { status: 409 });
     // 公開ゲートを通った後に営業時間が変わった（別タブでの保存など）。DB が同じ規則で最終確認している。
     if (isPublishedHoursConflict(error)) return NextResponse.json({ error: '営業時間が変更されています。営業時間を確認して保存してから、再度公開してください。', missing: [LISTING_HOURS_MESSAGE] }, { status: 409 });
@@ -290,7 +292,8 @@ async function patchSettings(request: NextRequest) {
     : await (admin as SupabaseClient).rpc('update_facility_settings_with_specialties', { ...args,p_specialties:specialties });
   if (error?.message.includes('FACILITY_PERMISSION_REVOKED')) return NextResponse.json({ error:'店舗の管理権限がありません' },{ status:403 });
 
-  if (isListingVerificationConflict(error)) return NextResponse.json({ error:'店舗名や住所を変更するには、先に非公開にして変更を保存し、確認書類を提出してください。運営の確認後に再公開できます。' }, { status:409 });
+  if (isListingRegistrationRejectedConflict(error)) return NextResponse.json({ error:'掲載申込が却下されているため、公開中の店舗名や住所は変更できません。お問い合わせください。' }, { status:409 });
+  if (isListingVerificationConflict(error)) return NextResponse.json({ error:'店舗名や住所を変更するには、先に非公開にして変更を保存し、確認書類を提出してください。運営が確認すると、営業時間などが揃っていれば自動で再公開されます。' }, { status:409 });
   if (isPublishedLocationConflict(error)) {
     // 店舗は住所を消していない。「非公開へ」と案内すると、営業時間など無関係な保存のたびに
     // 公開をやめるよう求めることになるため、直し方（番地の入力）を示す。
@@ -322,6 +325,12 @@ async function patchSettings(request: NextRequest) {
   // 営業時間を保存して、勤務時間を保存したスタッフの誰の勤務も営業時間と重ならなくなったら、予約枠が出ない。
   // 保存は止めず、注意だけ返す（2026年10月23日）。
   const warning = parsed.data.business_hours ? await hoursSaveStaffWarning(admin, auth.facilityId) : null;
+  // 運営が書類を確認済みで公開待ちの店舗は、保存で公開の条件が揃ったらここで公開する（保存自体は確定済み）。
+  // 公開ゲートが止めた（書類の確認後に店舗名・所在地が変わった、申込が却下されている）ときは、店舗にもそう伝える。
+  const publication = await publishVerifiedFacilityIfReady(admin as SupabaseClient, auth.facilityId, auth.userId);
+  const published = publication === 'published';
+  const publicationBlocked = publication === 'blocked';
   // 保存した所在地を返し、画面の入力欄を実際に保存された値へ合わせられるようにする。
-  return NextResponse.json({ ok: true, ...(location ? { location } : {}), ...(warning ? { warning } : {}) });
+  return NextResponse.json({ ok: true, ...(location ? { location } : {}), ...(warning ? { warning } : {}),
+    ...(published ? { published } : {}), ...(publicationBlocked ? { publicationBlocked } : {}) });
 }
