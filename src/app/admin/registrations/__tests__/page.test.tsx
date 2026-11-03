@@ -5,7 +5,7 @@ import Page from '../page';
 const id = '74000000-0000-4000-8000-000000000001';
 const time = '2026-09-26T12:30:40.123456+00:00';
 const row = { id, name: '合成施設', email: 'synthetic@example.invalid', phone: null, source: 'register' as 'register' | 'recruit' | null,
-  status: 'pending', created_at: time, claimed_at: null, claimed_facility_id: null, review_revision: 0, classification: null, classification_revision: 0, hidden: false };
+  status: 'pending', created_at: time, claimed_at: null, claimed_facility_id: null, review_revision: 0, classification: null, classification_revision: 0, hidden: false, approval_notice: 'none' as 'none' | 'queued' | 'sent' | 'failed' };
 const cursor = { id, createdAt: time };
 const mockFetch = jest.fn();
 function response(body: unknown = { salons: [row], nextCursor: null }, ok = true) {
@@ -270,7 +270,10 @@ test('approval of a non-form registration says no email is sent', async () => {
   expect(mockFetch).toHaveBeenCalledTimes(1);
 });
 test.each([
-  [{ status: 'approved', source: 'register' }, '申込者が同じメールアドレスでログインして店舗を作成するのを待っています'],
+  [{ status: 'approved', source: 'register', approval_notice: 'sent' }, '申込者へ続きの手順のメールを送信しました。申込者が同じメールアドレスでログインして店舗を作成するのを待っています'],
+  [{ status: 'approved', source: 'register', approval_notice: 'queued' }, '申込者へのメールは送信待ちです（15分以内）'],
+  [{ status: 'approved', source: 'register', approval_notice: 'failed' }, '申込者へのメールを送れませんでした。お問い合わせの返信などで、個別に続きの手順を案内してください'],
+  [{ status: 'approved', source: 'register', approval_notice: 'none' }, '申込者へのメールは送っていません（メールの仕組みができる前の承認）'],
   [{ status: 'approved', source: 'recruit' }, '承認のメールは送られていません'],
   [{ status: 'rejected' }, '却下済みです。この申込からは店舗を作れません。'],
 ] as const)('next step explains what happens now %#', async (patch, text) => {

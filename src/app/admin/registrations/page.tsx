@@ -207,9 +207,14 @@ export default function AdminRegistrationsPage() {
   const nextStep = (salon: Salon) => {
     if (salon.status === 'rejected') return '却下済みです。この申込からは店舗を作れません。';
     if (salon.claimed_facility_id) return '申込者が店舗を作成済みです。下の書類確認で、提出された書類を確認してください（確認後に申込者が公開できます）。';
-    if (salon.status === 'approved') return salon.source === 'register'
-      ? '承認済みです。申込者が同じメールアドレスでログインして店舗を作成するのを待っています（承認時に手順をメールで案内）。'
-      : '承認済みです。この申込は掲載申込フォーム以外からのため、承認のメールは送られていません。';
+    if (salon.status === 'approved') {
+      if (salon.source !== 'register') return '承認済みです。この申込は掲載申込フォーム以外からのため、承認のメールは送られていません。';
+      const waiting = '申込者が同じメールアドレスでログインして店舗を作成するのを待っています。';
+      if (salon.approval_notice === 'sent') return `承認済みです。申込者へ続きの手順のメールを送信しました。${waiting}`;
+      if (salon.approval_notice === 'queued') return `承認済みです。申込者へのメールは送信待ちです（15分以内）。${waiting}`;
+      if (salon.approval_notice === 'failed') return '承認済みですが、申込者へのメールを送れませんでした。お問い合わせの返信などで、個別に続きの手順を案内してください。';
+      return `承認済みですが、申込者へのメールは送っていません（メールの仕組みができる前の承認）。${waiting}`;
+    }
     return salon.source === 'register'
       ? '内容を確認し、問題なければ「承認」してください。申込者へ続きの手順のメールが送られます。'
       : '内容を確認してください。この申込は掲載申込フォーム以外からのため、承認してもメールは送られません。';

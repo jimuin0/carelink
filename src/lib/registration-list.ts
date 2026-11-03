@@ -26,7 +26,7 @@ export async function readRegistrationList(db: ReturnType<typeof createServiceRo
     if (input.cursor) query = query.or(registrationCursorFilter(input.cursor));
     const result = await query.limit(51);
     // 印が条件どおりでない行が 1 件でも返れば、取りこぼしを疑って一覧ごと失敗にする。
-    const baseRow = registrationListRow.omit({ classification: true, classification_revision: true, hidden: true })
+    const baseRow = registrationListRow.omit({ classification: true, classification_revision: true, hidden: true, approval_notice: true })
       .extend({ hidden_mark: hiddenOnly ? z.object({ hidden: z.literal(true) }).strict() : z.null() });
     const rows = z.array(baseRow).max(51).safeParse(result.data);
     if (result.error !== null || !rows.success) return { state: 'unavailable' as const };
@@ -37,8 +37,19 @@ export async function readRegistrationList(db: ReturnType<typeof createServiceRo
     if (labels.error !== null || !parsedLabels.success) return { state: 'unavailable' as const };
     const index = new Map(parsedLabels.data.map(label => [label.salon_id, label]));
     if (index.size !== parsedLabels.data.length) return { state: 'unavailable' as const };
+    // 承認のお知らせメールの送信状況（通知の待ち行列の approval ジョブ）。一覧に「送ったか」を推測で書かないため。
+    const notices = page.length === 0 ? { data: [], error: null } : await db.from('webhook_retry_queue')
+      .select('registration_id,status').eq('notification_kind', 'approval').in('registration_id', page.map(row => row.id));
+    const parsedNotices = z.array(z.object({ registration_id: z.uuid(), status: z.enum(['pending', 'processing', 'success', 'failed', 'cancelled']) }).strict())
+      .max(50).safeParse(notices.data);
+    if (notices.error !== null || !parsedNotices.success) return { state: 'unavailable' as const };
+    const noticeIndex = new Map(parsedNotices.data.map(notice => [notice.registration_id, notice.status]));
+    if (noticeIndex.size !== parsedNotices.data.length) return { state: 'unavailable' as const };
+    const noticeState = (status: string | undefined) => status === undefined ? 'none' as const
+      : status === 'success' ? 'sent' as const : status === 'pending' || status === 'processing' ? 'queued' as const : 'failed' as const;
     const salons = page.map(row => ({ ...row, classification: index.get(row.id)?.classification ?? null,
-      classification_revision: index.get(row.id)?.revision ?? 0, hidden: hiddenOnly }));
+      classification_revision: index.get(row.id)?.revision ?? 0, hidden: hiddenOnly,
+      approval_notice: noticeState(noticeIndex.get(row.id)) }));
     let nextCursor: RegistrationCursor | null = null;
     if (rows.data.length > 50) {
       const last = salons[salons.length - 1];
