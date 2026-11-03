@@ -113,7 +113,7 @@ export default function AdminRegistrationsPage() {
         return;
       }
       const label = status === 'approved' ? '承認' : '却下';
-      setToast({ type: 'success', message: `${salon.name}を${label}しました` });
+      setToast({ type: 'success', message: `${salon.name}を${label}として記録しました。公開・申込者への通知はされていません` });
       setReloadKey((k) => k + 1);
     } catch {
       if (generation.current === ownGeneration) {
@@ -207,7 +207,7 @@ export default function AdminRegistrationsPage() {
   return (
     <div>
       <SbPageHeader title="施設登録管理" />
-      <p className="text-sm mb-4">審査の承認は一般公開の完了ではありません。店舗作成後に公開条件を確認してください。</p>
+      <p className="text-sm mb-4">「承認」は運営の記録だけです。押しても店舗は公開されず、申込者への通知も送られません。公開できるのは、申込者が店舗を作成して確認書類を提出し、運営が書類を確認した後です（店舗作成後は、各申込の下に書類確認の欄が出ます）。「却下」すると、その申込からは店舗を作れなくなります（こちらも通知は送られません）。</p>
       <p className="text-sm mb-4">申込区分は管理用の記録です。試験申込にしても、掲載や通知は自動停止しません。未確認の申込は推測で区分しないでください。</p>
       <p className="text-sm mb-4">「一覧から隠す」は、この一覧の表示だけを変えます。申込・店舗・公開状態・通知は変わらず、データも削除しません。隠した申込は「表示する申込」で「一覧から隠した申込」を選ぶと確認でき、元に戻せます。</p>
       <RegistrationDuplicateLink />
@@ -293,7 +293,7 @@ export default function AdminRegistrationsPage() {
       <ConfirmDialog
         open={confirmReject}
         title="施設を却下"
-        message={`${confirmRejectSalon?.name}を却下しますか？`}
+        message={`${confirmRejectSalon?.name}を却下しますか？この申込からは店舗を作れなくなります。申込者への通知は送られません。`}
         confirmLabel="却下する"
         onConfirm={doReject}
         onCancel={() => { setConfirmReject(false); setConfirmRejectSalon(null); }}

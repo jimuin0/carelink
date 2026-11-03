@@ -1,0 +1,713 @@
+{
+  "managed": [
+    {
+      "id": "bot-protection",
+      "name": "Bot Protection",
+      "action": "log",
+      "wafRuleId": "managed_bot_protection"
+    },
+    {
+      "id": "ai-bots",
+      "name": "AI Bots",
+      "action": "allow",
+      "wafRuleId": "managed_ai_bots"
+    },
+    {
+      "id": "bot-id",
+      "name": "BotID",
+      "action": "basic",
+      "wafRuleId": null
+    }
+  ],
+  "rules": [
+    {
+      "action": {
+        "mitigate": {
+          "action": "deny",
+          "actionDuration": null,
+          "rateLimit": null,
+          "redirect": null
+        }
+      },
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])(?:GoogleOther|Amazonbot|Reflectionbot|AhrefsBot)(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "neq",
+              "type": "path",
+              "value": "/robots.txt"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "preview"
+            }
+          ]
+        }
+      ],
+      "description": "Preview-only verification of collection crawler blocking before production rollout.",
+      "id": "rule_care_link_collection_crawler_preview_guard_ETgiW2",
+      "name": "CareLink collection crawler preview guard",
+      "valid": true,
+      "validationErrors": null,
+      "_status": "live"
+    },
+    {
+      "action": {
+        "mitigate": {
+          "action": "deny",
+          "actionDuration": null,
+          "rateLimit": null,
+          "redirect": null
+        }
+      },
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])(?:GoogleOther|Amazonbot|Reflectionbot|AhrefsBot|meta-externalagent)(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "neq",
+              "type": "path",
+              "value": "/robots.txt"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            }
+          ]
+        }
+      ],
+      "description": "Production collection GET/HEAD blocked before Functions; robots.txt remains readable.",
+      "id": "rule_care_link_collection_crawler_cpu_guard_TMmzAo",
+      "name": "CareLink collection crawler CPU guard",
+      "valid": true,
+      "validationErrors": null,
+      "_status": "live"
+    },
+    {
+      "action": {
+        "mitigate": {
+          "action": "deny",
+          "actionDuration": null,
+          "rateLimit": null,
+          "redirect": null
+        }
+      },
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "type",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "area",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "keyword",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "sort",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "page",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "rating_min",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "price_min",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "price_max",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "features",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "symptom",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "insurance",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "lat",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "lng",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "available_date",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "available_time",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "q",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "zipcode",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "op": "re",
+              "type": "user_agent",
+              "value": "(?:^|[\\s(;])Amzn-SearchBot(?:[\\s/;)-]|$)"
+            },
+            {
+              "op": "inc",
+              "type": "method",
+              "value": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            {
+              "op": "eq",
+              "type": "path",
+              "value": "/search"
+            },
+            {
+              "op": "eq",
+              "type": "environment",
+              "value": "production"
+            },
+            {
+              "key": "prefecture",
+              "op": "ex",
+              "type": "query"
+            }
+          ]
+        }
+      ],
+      "description": "Amzn-SearchBot GET/HEAD to /search with a search query param (robots-disallowed) denied before Functions; bare /search stays crawlable.",
+      "id": "rule_care_link_search_header_observation_1TcEAe",
+      "name": "CareLink filtered search crawl guard",
+      "valid": true,
+      "validationErrors": null,
+      "_status": "live"
+    }
+  ],
+  "hasDraft": false,
+  "pendingChanges": 0
+}

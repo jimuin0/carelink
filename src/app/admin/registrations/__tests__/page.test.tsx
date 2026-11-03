@@ -24,7 +24,8 @@ test('receipt and creation status are distinct from approval/publication; search
   expect(await screen.findByText('合成施設')).toBeVisible();
   expect(screen.getByText(`受付番号：${id}`)).toBeVisible();
   expect(screen.getByText('店舗作成前')).toBeVisible();
-  expect(screen.getByText(/審査の承認は一般公開の完了ではありません/)).toBeVisible();
+  // 承認・却下は記録だけで、公開も申込者への通知もしないことを運営に明示する（2026-11-03 実際に誤解が起きた）。
+  expect(screen.getByText(/「承認」は運営の記録だけです。押しても店舗は公開されず、申込者への通知も送られません/)).toBeVisible();
   fireEvent.change(screen.getByLabelText('検索項目'), { target: { value: 'email' } });
   fireEvent.change(screen.getByLabelText('検索値'), { target: { value: ' Synthetic.Name+tag@GoogleMail.com ' } });
   fireEvent.change(screen.getByLabelText('審査状態'), { target: { value: 'approved' } });
@@ -97,6 +98,7 @@ test('changing applied conditions closes a stale rejection dialog', async () => 
   render(<Page />); await screen.findByText('合成施設');
   fireEvent.click(screen.getByRole('button', { name: '却下', exact: true }));
   expect(screen.getByRole('dialog')).toBeVisible();
+  expect(screen.getByRole('dialog')).toHaveTextContent('この申込からは店舗を作れなくなります。申込者への通知は送られません。');
   fireEvent.click(screen.getByRole('button', { name: '検索する' }));
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(mockFetch.mock.calls.some(([, options]) => options.method === 'PATCH')).toBe(false);
@@ -112,6 +114,7 @@ test('mutation serializes clicks and search, checks business success then reload
   expect(mockFetch).toHaveBeenCalledTimes(2);
   await act(async () => { patch.resolve(response({ success: true })); });
   expect(await screen.findByText('承認済', { selector: 'span' })).toBeVisible();
+  expect(screen.getByText('合成施設を承認として記録しました。公開・申込者への通知はされていません')).toBeVisible();
   expect(screen.getByRole('button', { name: '検索する' })).toBeEnabled();
   expect(mockFetch.mock.calls[1][0]).toBe(`/api/admin/registrations/${id}`);
   expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ status: 'approved', expected_status: 'pending', expected_revision: 0 });
@@ -124,7 +127,7 @@ test.each(['business', 'http', 'throw'])('mutation %s failure is ambiguous, not 
   fireEvent.click(screen.getByRole('button', { name: '承認', exact: true }));
   expect(await screen.findByText(/結果を確認できませんでした/)).toBeVisible();
   expect(mockFetch).toHaveBeenCalledTimes(2);
-  expect(screen.queryByText('合成施設を承認しました')).not.toBeInTheDocument();
+  expect(screen.queryByText(/合成施設を承認として記録しました/)).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: '承認', exact: true })).toBeDisabled();
   expect(screen.getByRole('button', { name: '却下', exact: true })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: '承認', exact: true }));
