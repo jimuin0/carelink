@@ -8,4 +8,10 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
-
+    ignore:
+      # undici は Node 内蔵の fetch に Agent を渡すため、本番の Node が内蔵する世代と揃える。
+      # 8 系は Node 24（内蔵 7.x）の fetch で `invalid onRequestStart method` になり、
+      # 公開ページの読み込みが全滅する（src/lib/__tests__/public-read-transport-runtime.test.ts）。
+      # メジャーは Node を上げるときに一緒に上げ、その検査で通信できることを確かめる。
+      - dependency-name: "undici"
+        update-types: ["version-update:semver-major"]
