@@ -31,6 +31,8 @@ export const registrationListRow = z.object({
   // 承認のお知らせメール：none＝積まれていない（承認前・メールの仕組みより前の承認・フォーム以外）、queued＝送信待ち、
   // sent＝送信済み、uncertain＝送信を始めたが結果が分からない（照合が要る）、failed＝送れなかった。
   approval_notice: z.enum(['none', 'queued', 'sent', 'uncertain', 'failed']),
+  // 「書類は後から」：付いている申込から作られた店舗は、書類の確認前でも公開できる。
+  documents_deferred: z.boolean(),
 }).strict();
 export const registrationListResponse = z.object({
   salons: z.array(registrationListRow).max(50), nextCursor: registrationCursor.nullable(),

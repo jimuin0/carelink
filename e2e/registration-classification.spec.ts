@@ -67,6 +67,14 @@ test('platform operator records and corrects a synthetic registration classifica
   await page.getByLabel('表示する申込').selectOption('visible');
   await page.getByRole('button', { name: '検索する' }).click();
   await expect(page.getByText(`受付番号：${receipt.receiptId}`)).toBeVisible();
+  // 「書類は後から」を付けて外す（確認画面を通る・DB に印が残る）。
+  await page.getByRole('button', { name: '書類は後からにする', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '書類は後からにする', exact: true }).click();
+  await expect(page.getByText(/を「書類は後から」にしました/)).toBeVisible();
+  await page.getByRole('button', { name: '書類を先に必須に戻す', exact: true }).click();
+  await expect(page.getByText(/書類の確認が済んでから公開する扱いに戻しました/)).toBeVisible();
+  const deferral = await db.from('listing_verification_deferrals').select('deferred,revision').eq('salon_id', receipt.receiptId).single();
+  expect(deferral.error).toBeNull(); expect(deferral.data).toEqual({ deferred: false, revision: 2 });
   const visibility = await db.from('salon_registration_visibility').select('hidden,revision').eq('salon_id', receipt.receiptId).single();
   expect(visibility.error).toBeNull(); expect(visibility.data).toEqual({ hidden: false, revision: 2 });
   const stored = await db.from('salon_registration_classifications').select('classification,revision').eq('salon_id', receipt.receiptId).single();

@@ -927,11 +927,19 @@
     "facility_id"
   ],
   "listing_verification_approvals": [
+    "auto_publish_pending",
     "document_ids",
     "facility_id",
     "facility_identity",
     "reviewed_at",
     "reviewed_by"
+  ],
+  "listing_verification_deferrals": [
+    "deferred",
+    "revision",
+    "salon_id",
+    "updated_at",
+    "updated_by"
   ],
   "listing_verification_documents": [
     "byte_size",

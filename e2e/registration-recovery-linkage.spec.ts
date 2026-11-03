@@ -257,6 +257,15 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
     await card.getByLabel('申請者の管理権限を確認しました').check();
     await card.getByRole('button',{ name:'確認を記録する' }).click();
     await expect(card.getByText(/確認を記録しました/)).toBeVisible();
+    // 2026-11-03: 書類を承認すると、公開の条件（店舗名・所在地・曜日ごとの営業時間・オーナー）が揃っていればその場で公開し、
+    // 揃っていなければ公開待ちの印を付ける。承認直後の状態が、条件の判定と食い違わないことを実際の DB で確かめる。
+    const ready=await db.rpc('facility_ready_for_auto_publication',{ p_facility_id:created.facilityId });
+    expect(ready.error).toBeNull();
+    const afterApproval=await db.from('facility_profiles').select('status').eq('id',created.facilityId).single();
+    expect(afterApproval.error).toBeNull();
+    expect(afterApproval.data?.status).toBe(ready.data===true ? 'published' : 'draft');
+    const pendingMark=await db.from('listing_verification_approvals').select('auto_publish_pending').eq('facility_id',created.facilityId).single();
+    expect(pendingMark.error).toBeNull(); expect(pendingMark.data?.auto_publish_pending).toBe(ready.data!==true);
     await pending.getByRole('button',{ name:'一覧を読み込む' }).click();
     await expect(pending.getByText(name,{ exact:true })).toHaveCount(0);
   } finally { await operatorContext.close(); }

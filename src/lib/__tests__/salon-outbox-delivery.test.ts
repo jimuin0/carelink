@@ -18,7 +18,10 @@ const query = jest.fn();
 const eq = jest.fn(() => ({ maybeSingle: query }));
 const select = jest.fn(() => ({ eq }));
 const insert = jest.fn();
-const from = jest.fn(() => ({ select, insert }));
+const deferralQuery = jest.fn();
+const deferralEq = jest.fn(() => ({ maybeSingle: deferralQuery }));
+const from = jest.fn((table: string) => table === 'listing_verification_deferrals'
+  ? { select: jest.fn(() => ({ eq: deferralEq })) } : { select, insert });
 const db = { from } as unknown as ReturnType<typeof createServiceRoleClient>;
 const originalToken = process.env.SLACK_BOT_TOKEN;
 const originalChannel = process.env.SLACK_DEFAULT_CHANNEL;
@@ -31,6 +34,7 @@ beforeEach(() => {
   send.mockResolvedValue({ data: { id: 'synthetic-message' }, error: null });
   (postToSlack as jest.Mock).mockResolvedValue({ ok: true, ts: 'synthetic-ts' });
   insert.mockResolvedValue({ data: null, error: null });
+  deferralQuery.mockResolvedValue({ data: null, error: null });
 });
 afterAll(() => {
   if (originalToken === undefined) delete process.env.SLACK_BOT_TOKEN;
@@ -188,5 +192,39 @@ test('approval_sent posts the sent report with the escaped shop name', async () 
   const [message] = (postToSlack as jest.Mock).mock.calls[0];
   expect(message.text).toBe(`CareLink 掲載申込の承認メールを申込者へ送信しました\n店舗名：&lt;script&gt;synthetic&lt;/script&gt;\n確認先：${SITE_URL}/admin/registrations`);
   expect(message.text).not.toContain(row.email);
+  expect(send).not.toHaveBeenCalled();
+});
+
+// 2026-11-03 本人決定：通常は「書類 → 運営の確認 → 揃っていれば自動で公開」、
+// 「書類は後から」が付いた申込は「先に公開・書類は公開後に提出」と案内する。
+test('approval email for a normal registration says documents come first and publication follows the review', async () => {
+  const deliver = await prepareSalonOutboxDelivery(db, approval, resend);
+  await deliver();
+  const [email] = send.mock.calls[0];
+  expect(deferralEq).toHaveBeenCalledWith('salon_id', id);
+  expect(email.text).toContain('【2】確認書類を提出する');
+  expect(email.text).toContain('運営が書類を確認すると、所在地・曜日ごとの営業時間（定休日を含む）などの設定が済んでいれば、そのまま公開されます');
+  expect(email.text).not.toContain('公開後に提出');
+});
+test.each([{ deferred: true }])('approval email for a deferred registration lets the shop publish first %#', async data => {
+  deferralQuery.mockResolvedValue({ data, error: null });
+  const deliver = await prepareSalonOutboxDelivery(db, approval, resend);
+  await deliver();
+  const [email] = send.mock.calls[0];
+  expect(email.text).toContain('【2】店舗情報を整えて公開する');
+  expect(email.text).toContain('【3】確認書類を公開後に提出する');
+  expect(email.text).not.toContain('運営が書類を確認すると');
+});
+test('a deferral explicitly turned off is treated as a normal registration', async () => {
+  deferralQuery.mockResolvedValue({ data: { deferred: false }, error: null });
+  const deliver = await prepareSalonOutboxDelivery(db, approval, resend);
+  await deliver();
+  expect(send.mock.calls[0][0].text).toContain('【2】確認書類を提出する');
+});
+test.each([
+  { data: null, error: { message: 'private' } }, { data: { deferred: 'yes' }, error: null },
+])('an unreadable deferral stops before sending, so the wrong steps are never mailed %#', async result => {
+  deferralQuery.mockResolvedValue(result);
+  await expect(prepareSalonOutboxDelivery(db, approval, resend)).rejects.toThrow('Registration document deferral unavailable');
   expect(send).not.toHaveBeenCalled();
 });

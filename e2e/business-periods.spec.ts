@@ -27,6 +27,9 @@ test('owner saves, reloads and publishes split, night, early and all-day hours i
     prefecture: '愛知県', city: '西尾市', address: '合成町1', status: 'draft', business_hours: closed })).error).toBeNull();
   expect((await db.from('facility_members').insert({ facility_id: id, user_id: identity.data.user!.id, role: 'owner' })).error).toBeNull();
   await approveSyntheticListing(db,id,identity.data.user!.id,false);
+  // 営業時間が無いので、承認しただけでは公開されず、公開待ちの印が付く。
+  expect((await db.from('facility_profiles').select('status').eq('id', id).single()).data?.status).toBe('draft');
+  expect((await db.from('listing_verification_approvals').select('auto_publish_pending').eq('facility_id', id).single()).data?.auto_publish_pending).toBe(true);
   await page.goto(`/auth/login?redirect=${encodeURIComponent(`/admin/settings?facility_id=${id}`)}`);
   await page.getByRole('button', { name: '必須のみ', exact: true }).click();
   await page.fill('#login-email', email); await page.fill('#login-password', password);
@@ -61,9 +64,11 @@ test('owner saves, reloads and publishes split, night, early and all-day hours i
   const proof = info.outputPath('business-hours-split.png');
   await mon.screenshot({ path: proof });
   await info.attach('business-hours-split', { path: proof, contentType: 'image/png' });
-  const published = page.waitForResponse(r => r.url().includes('/api/admin/settings') && r.request().method() === 'PATCH');
-  await page.getByRole('button', { name: '公開する', exact: true }).click();
-  expect((await published).status()).toBe(200);
+  // 2026-11-03 本人決定：書類の承認のときに公開の条件が揃っていなければ、店舗が設定を終えて揃った時点で自動で公開する。
+  // この店舗は営業時間が無い状態で承認しているので、営業時間を保存した時点で公開されている（「公開する」を押す必要は無い）。
+  expect((await db.from('facility_profiles').select('status').eq('id', id).single()).data?.status).toBe('published');
+  expect((await db.from('listing_verification_approvals').select('auto_publish_pending').eq('facility_id', id).single()).data?.auto_publish_pending).toBe(false);
+  await expect(page.getByRole('button', { name: '公開する', exact: true })).toHaveCount(0);
   const visitor = await browser.newContext();
   try {
     const publicPage = await visitor.newPage(); await publicPage.goto(`/facility/${slug}`);

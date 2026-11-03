@@ -62,7 +62,13 @@ export async function prepareSalonOutboxDelivery(
     .eq('id', job.registration_id).maybeSingle();
   const receipt = receiptSchema.safeParse(data);
   if (error || !receipt.success) throw new Error('Registration email reference unavailable');
-  if (job.notification_kind === 'approval') return prepareApprovalEmail(db, job.registration_id, receipt.data, resend);
+  if (job.notification_kind === 'approval') {
+    // 「書類は後から」（2026-11-03 本人決定）が付いた申込には、先に公開・書類は公開後、と案内する。
+    const deferral = await db.from('listing_verification_deferrals').select('deferred').eq('salon_id', job.registration_id).maybeSingle();
+    const checked = z.object({ deferred: z.boolean() }).nullable().safeParse(deferral.data);
+    if (deferral.error || !checked.success) throw new Error('Registration document deferral unavailable');
+    return prepareApprovalEmail(db, job.registration_id, receipt.data, resend, checked.data?.deferred === true);
+  }
   const email = {
     from: fromEnv(), to: receipt.data.email,
     // 用語は掲載申込の導線と同じ（registration-glossary.ts）。以前は件名が「掲載申し込み」、
@@ -89,8 +95,13 @@ export async function prepareSalonOutboxDelivery(
  */
 function prepareApprovalEmail(
   db: ReturnType<typeof createServiceRoleClient>, registrationId: string,
-  receipt: z.infer<typeof receiptSchema>, resend: Resend,
+  receipt: z.infer<typeof receiptSchema>, resend: Resend, documentsDeferred: boolean,
 ): () => Promise<ResendDeliveryOutcome> {
+  const steps = documentsDeferred
+    ? `【2】${T.shop}情報を整えて公開する\n所在地・曜日ごとの営業時間（定休日を含む）などを設定し、管理画面から公開できます。\n\n`
+      + `【3】確認書類を公開後に提出する\n管理画面の施設設定から、${T.shopName}・所在地・運営者を確認できる書類を提出してください。\n\n`
+    : `【2】確認書類を提出する\n${T.shop}の作成後、管理画面の施設設定から、${T.shopName}・所在地・運営者を確認できる書類を提出してください。\n\n`
+      + `【3】公開\n運営が書類を確認すると、所在地・曜日ごとの営業時間（定休日を含む）などの設定が済んでいれば、そのまま公開されます。まだの場合は、管理画面で設定を済ませた時点で公開されます。\n\n`;
   const email = {
     from: fromEnv(), to: receipt.email,
     // 受付メールと同じく、申込者が入力した店舗名は件名に入れない（本文だけ）。
@@ -99,8 +110,7 @@ function prepareApprovalEmail(
       + `※この時点では、まだ一般公開されていません。公開までに、次の手順をお願いします。\n\n`
       + `【1】${T.shop}を作成する（まだの方）\nこのメールを受け取ったメールアドレス（${receipt.email}）でログインし、申込を選んで${T.shop}を作成してください。${T.account}が無い場合は、同じメールアドレスで作成してください。\n`
       + `ログイン：${SITE_URL}${salonRecoveryAuthPath('login')}\n${T.account}の作成：${SITE_URL}${salonRecoveryAuthPath('signup')}\n\n`
-      + `【2】確認書類を提出する\n${T.shop}の作成後、管理画面の施設設定から、${T.shopName}・所在地・運営者を確認できる書類を提出してください。\n\n`
-      + `【3】${T.shop}情報を整えて公開する\n運営が書類を確認した後、所在地・曜日ごとの営業時間（定休日を含む）などを設定し、管理画面から公開できます。\n\n`
+      + steps
       + `ご不明な点は、受付番号を添えてお問い合わせください。\n${SITE_URL}/contact\n\nこのメールに心当たりがない場合は破棄してください。`,
   };
   return async () => {

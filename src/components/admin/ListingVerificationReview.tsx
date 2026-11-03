@@ -36,7 +36,7 @@ export default function ListingVerificationReview({ facilityId }: { facilityId:s
         body:JSON.stringify({ facilityId,documentIds:selected,expectedIdentity:review.identity,documentVerified:true,authorityVerified:true }) });
       const result=await response.json();
       if (!response.ok || result?.state !== 'approved') throw new Error('unavailable');
-      setMessage('確認を記録しました。掲載の公開操作は店舗側で行います。');
+      setMessage('確認を記録しました。店舗名・所在地・曜日ごとの営業時間が揃っていれば公開しました。揃っていない場合は、店舗が設定を終えた時点で公開されます。');
     } catch { setMessage('確認結果を確定できませんでした。情報を読み直してから確認してください。'); }
     finally { setReview(null); setBusy(false); }
   }

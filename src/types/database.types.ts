@@ -3694,6 +3694,7 @@ export type Database = {
       }
       listing_verification_approvals: {
         Row: {
+          auto_publish_pending: boolean
           document_ids: string[]
           facility_id: string
           facility_identity: Json
@@ -3701,6 +3702,7 @@ export type Database = {
           reviewed_by: string | null
         }
         Insert: {
+          auto_publish_pending?: boolean
           document_ids: string[]
           facility_id: string
           facility_identity: Json
@@ -3708,6 +3710,7 @@ export type Database = {
           reviewed_by?: string | null
         }
         Update: {
+          auto_publish_pending?: boolean
           document_ids?: string[]
           facility_id?: string
           facility_identity?: Json
@@ -3727,6 +3730,38 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: true
             referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      listing_verification_deferrals: {
+        Row: {
+          deferred: boolean
+          revision: number
+          salon_id: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          deferred: boolean
+          revision?: number
+          salon_id: string
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          deferred?: boolean
+          revision?: number
+          salon_id?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listing_verification_deferrals_salon_id_fkey"
+            columns: ["salon_id"]
+            isOneToOne: true
+            referencedRelation: "salons"
             referencedColumns: ["id"]
           },
         ]
@@ -6655,6 +6690,18 @@ export type Database = {
       set_salon_registration_classification: {
         Args: { p_actor: string; p_salon: string; p_value: string; p_expected_revision: number }
         Returns: Json
+      }
+      set_listing_verification_deferral: {
+        Args: { p_actor: string; p_salon: string; p_deferred: boolean }
+        Returns: Json
+      }
+      facility_ready_for_auto_publication: {
+        Args: { p_facility_id: string }
+        Returns: boolean
+      }
+      try_auto_publish_verified_facility: {
+        Args: { p_facility_id: string; p_actor: string }
+        Returns: boolean
       }
       set_salon_registration_visibility: {
         Args: { p_actor: string; p_salon: string; p_hidden: boolean }
