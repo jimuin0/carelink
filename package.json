@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint src",
+    "lint": "eslint src e2e",
     "test": "jest",
     "test:ci": "jest --ci",
     "test:coverage": "jest --coverage",
