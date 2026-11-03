@@ -6699,6 +6699,10 @@ export type Database = {
         Args: { p_facility_id: string }
         Returns: boolean
       }
+      try_auto_publish_verified_facility: {
+        Args: { p_facility_id: string; p_actor: string }
+        Returns: boolean
+      }
       set_salon_registration_visibility: {
         Args: { p_actor: string; p_salon: string; p_hidden: boolean }
         Returns: Json
