@@ -115,3 +115,13 @@ Log は記録だけで、リクエストは変えない（Vercel 公式）。
 - `Amzn-SearchBot` は 51 回あった。すべて地域×業種のページで、拒否ルールの対象（条件付き `/search`）には来ていない。
 - 日本からの Mac の Chrome は、この 6 時間に 0 回だった。
 - 止めるかどうか・どう止めるかは、上の「残り」と同じく本人の判断待ち。Firewall は変更していない。
+
+## 海外からの偽装巡回に確認画面を出す（2026-11-02・本人決定「止める」）
+
+- 追加したルール「CareLink overseas spoofed Mac Chrome challenge」（動作は Challenge＝確認画面）。条件はすべて満たすとき：
+  国が日本以外／UA が `Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/<数字>`／GET・HEAD／`/api/` 以外／`/robots.txt` 以外／本番。
+  人は確認を通過できる。日本からのアクセスと検索エンジン（Googlebot など）は対象外。
+- Hobby の独自ルールは 3 つまで。枠を空けるため、Preview 用の収集ボット拒否ルールを、本番用の「CareLink collection crawler CPU guard」に OR の条件群として統合した（断る対象は変えていない）。
+- 変更前後のルールは `docs/handoff/firewall/custom-rules-before-20261102.json` / `custom-rules-after-20261102.json`。公開は 2026-11-02 03:35 UTC。
+- 公開後の確認（2026-11-02 18:35〜11-03 00:32 UTC の 6 時間）：対象の海外アクセス 17 回はすべて Challenge（応答 429）。検索エンジン 79 回はすべて通過。日本の Mac の Chrome は 0 回。
+- 戻すときは、追加したルールを `vercel firewall rules remove` で消し、必要なら before の JSON で CPU guard を元に戻して `vercel firewall publish` する。
