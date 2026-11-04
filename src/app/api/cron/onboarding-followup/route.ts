@@ -288,6 +288,9 @@ export async function GET(request: Request) {
           .from('profiles')
           .select('id')
           .eq('email_canonical', canonicalizeEmail(salon.email))
+          // Only existence matters: aliases may belong to several existing profiles.
+          // Do not turn that valid existing-account result into PGRST116/retry.
+          .limit(1)
           .maybeSingle();
 
         if (profileCheckErr) {

@@ -293,8 +293,15 @@ function buildFrom(opts: any = {}) {
         eq: jest.fn((field: string, value: string) => {
           if (field === 'email_canonical') {
             const canonicalExisting = existingAccountEmails.map((e: string) => canonicalizeEmail(e));
-            const found = canonicalExisting.includes(value) ? { id: `profile-${value}` } : null;
-            return { maybeSingle: jest.fn().mockResolvedValue({ data: found, error: profileEmailCheckError }) };
+            const matches = canonicalExisting.filter(email => email === value);
+            let rowLimit = Infinity;
+            const query = {
+              limit: jest.fn((limit: number) => { rowLimit = limit; return query; }),
+              maybeSingle: jest.fn(async () => Math.min(matches.length, rowLimit) <= 1
+                ? { data: matches.length ? { id: 'existing-profile' } : null, error: profileEmailCheckError }
+                : { data: null, error: { code: 'PGRST116', message: 'Multiple rows returned' } }),
+            };
+            return query;
           }
           return { maybeSingle: jest.fn().mockResolvedValue({ data: profile, error: profileError }) };
         }),
@@ -915,6 +922,19 @@ describe('GET /api/cron/onboarding-followup', () => {
       expect(nullReleases.length).toBe(0);
       const json = await res.json();
       expect(json.sent).toBe(0);
+    });
+
+    test('複数アカウントが同じメール正規形でも登録済みとして扱い、督促しない', async () => {
+      mockFromDelegate.mockImplementation(buildFrom({
+        facilities: [],
+        salons: [leadSalon],
+        existingAccountEmails: ['lead@example.com', 'Lead@example.com'],
+      }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      expect(sendRegistrationLeadFollowEmail).not.toHaveBeenCalled();
+      expect(salonUpdateMock.mock.calls.filter((call: any[]) => call[0].registration_followup_sent_at === null)).toHaveLength(0);
+      expect((await res.json()).sent).toBe(0);
     });
 
     // ─── メール突合の canonical 化（2026年8月20日追加）───────────────────────────
