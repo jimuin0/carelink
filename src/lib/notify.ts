@@ -32,6 +32,10 @@ function escSlack(s: string): string {
  */
 export type NotifyPayload =
   | {
+      type: 'contact_reply_sent';
+      data: { contact_id: string };
+    }
+  | {
       type: 'contact';
       data: {
         /** contacts.id（運営宛のお問い合わせの受付番号） */
@@ -57,6 +61,9 @@ function adminUrlFor(payload: NotifyPayload): string {
     case 'contact':
       return `${base}/admin/inquiries`;
 
+    case 'contact_reply_sent':
+      return `${base}/admin/mail?contactId=${payload.data.contact_id}`;
+
     case 'facility_inquiry':
       // 【2026年7月10日 恒久根治】/admin/inquiries は contacts テーブル（運営宛の全社横断
       // 問い合わせ・platformAdmin専用）を表示するページで、facility_inquiries とは別物。
@@ -80,6 +87,12 @@ function buildSlackBlocks(payload: NotifyPayload, text: string): unknown[] {
 
 function buildSlackMessage(payload: NotifyPayload): string {
   switch (payload.type) {
+    case 'contact_reply_sent':
+      return [
+        ':outbox_tray: *お問い合わせへの返信を送信サービスが受理しました*',
+        `> *受付番号:* ${payload.data.contact_id}`,
+        '> 内容と送信状況は管理画面で確認してください。',
+      ].join('\n');
     case 'contact':
       return [
         ':envelope: *お問い合わせ（運営宛）を受け付けました*',
@@ -100,6 +113,7 @@ function buildSlackMessage(payload: NotifyPayload): string {
 const recordId = z.string().regex(UUID_REGEX);
 
 export const notifyPayloadSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('contact_reply_sent'), data: z.object({ contact_id: recordId }) }),
   z.object({
     type: z.literal('contact'),
     data: z.object({ contact_id: recordId }),
