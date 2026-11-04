@@ -72,8 +72,8 @@ async function step3(page: Page) {
 async function submit(page: Page) {
   await page.locator('label', { hasText: '国家資格が必要な施術（あん摩マッサージ指圧・鍼・灸・柔道整復など）は、その資格を持つ者が行っている' }).locator('input').check();
   await page.locator('label', { hasText: '利用規約' }).locator('input').check();
-  await page.getByRole('button', { name: '登録する', exact: true }).click();
-  await page.getByRole('button', { name: '送信する', exact: true }).click();
+  await page.getByRole('button', { name: '申し込む', exact: true }).click();
+  await page.getByRole('button', { name: 'この内容で申し込む', exact: true }).click();
 }
 test('opt-in retains original photo bytes and partial input across a real IndexedDB reload; consent is not restored', async ({ page, context }) => {
   await isolated(context); await ready(page); expect(await raw(page)).toBeNull();

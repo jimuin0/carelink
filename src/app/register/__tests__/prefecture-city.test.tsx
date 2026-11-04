@@ -64,11 +64,11 @@ function mockFetchWithZipcloud() {
 async function submitAndGetSalonBody(fetchMock: jest.Mock) {
   await screen.findByRole('textbox', { name: /^PR文/ });
   checkAllConsents();
-  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
 
   const dialog = await screen.findByRole('dialog');
   act(() => {
-    fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'この内容で申し込む' }));
   });
 
   await waitFor(() => expect(pushMock).toHaveBeenCalled());

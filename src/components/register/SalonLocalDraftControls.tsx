@@ -259,8 +259,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
 
   return <section aria-label="この端末の下書き" className="text-sm">
     <h3 className="font-medium">この端末に自動保存</h3>
-    <p className="mt-1 text-(--ecru-muted)">入力と写真を、このブラウザーに7日間保存します。</p>
-    <p className="mt-1 text-(--ecru-muted)">氏名や連絡先も残るため、共有端末では使わないでください。</p>
+    <p className="mt-1 text-(--ecru-muted)">入力と写真を7日間、このブラウザーに保存します。共有の端末では使わないでください。</p>
     <div className="mt-3 flex flex-wrap gap-2">
       {enabled ? <button type="button" onClick={stop} disabled={busy} className={DRAFT_BUTTON}>自動保存を止める</button>
         : <button type="button" onClick={enable} disabled={!ready || busy || saved?.state === 'locked' || (saved?.state === 'saved' && !ownsSaved) || !props.canSave()} className={DRAFT_BUTTON}>この端末で下書きを自動保存する（7日間）</button>}
@@ -273,8 +272,8 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
     {saved?.state === 'locked' && <p className="mt-2">送信に使用した下書きは、別のタブやブラウザー再起動後も復元できません。受付状況をご確認ください。</p>}
     <details className="mt-3 text-(--ecru-muted)">
       <summary className="cursor-pointer underline">保存について詳しく</summary>
-      <p className="mt-2">自動保存を止めても保存内容は残ります。送信前に最新内容を保存し、重複申込を避けるため復元をロックします。</p>
-      <p className="mt-1">最後の保存から7日後、次にこの画面を開いたときに削除します。ブラウザーのデータ削除でも失われます。別の端末に移すにはファイルに保存してください。</p>
+      <p className="mt-2">止めても保存内容は残ります。送信した下書きは、二重申込を防ぐため復元できなくなります。</p>
+      <p className="mt-1">7日たつと削除します。別の端末に移すときは「ファイルに保存」を使います。</p>
     </details>
   </section>;
 });

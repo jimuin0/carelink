@@ -7,6 +7,7 @@ import { postToSlack } from './slack';
 import { sendResendForReconciliation, type ResendDeliveryOutcome } from './resend-result';
 import { salonRecoveryAuthPath } from './salon-browser-context';
 import { REGISTRATION_TERMS as T } from './registration-glossary';
+import { registrationStepHeading as step } from './registration-flow';
 
 const jobSchema = z.object({
   registration_id: z.string().regex(UUID_REGEX),
@@ -93,7 +94,12 @@ export async function prepareSalonOutboxDelivery(
     // 🔴 以前は「申込時のタブに戻って次のURLを開いてください」と案内していたが、スマホのメールアプリからは
     // 申込時のタブに戻れない（2026年10月23日）。リンク先は、確認済みのログインメールで申込を選び直せる
     // /register/recover へ進む登録画面にする（タブ・ブラウザに依存しない唯一の入口）。
-    text: `CareLinkへの${T.application}をいただき、ありがとうございます。\n\n${T.shopName}：${receipt.data.facility_name}\n受付番号：${job.registration_id}\n\n掲載申込の受付が完了しました。一般公開は、店舗情報の設定と運営の確認の後に反映されます（公開までの手順は、運営が申込を確認したときのメールでご案内します）。\n\n【次の手順】申込の続き（店舗情報の確認・設定）へ進むには、このメールを受け取ったメールアドレス（${receipt.data.email}）で${T.account}を作成してください。別のメールアドレスで作成すると、この申込を引き継げません。スマートフォンや別のブラウザからでも続けられます。\n${SITE_URL}${salonRecoveryAuthPath('signup')}\n\nすでに同じメールアドレスでアカウントをお持ちの場合は、こちらからログインしてください。\n${SITE_URL}${salonRecoveryAuthPath('login')}\n\n受付を確認できない場合は、新たに送信せず受付番号を添えてお問い合わせください。\n${SITE_URL}/contact\n\nこのメールに心当たりがない場合は破棄してください。`,
+    text: `CareLinkへの${T.application}をいただき、ありがとうございます。\n\n${T.shopName}：${receipt.data.facility_name}\n受付番号：${job.registration_id}\n\n`
+      // 手順の見出しは画面の図（RegistrationFlow）と同じ src/lib/registration-flow.ts から取る。
+      + `■ 一般公開までの4ステップ\n${step('apply', true)}\n${step('account')}　← 次はここ\n${step('documents')}\n${step('publish')}\n\n`
+      + `■ 次にすること\nこのメールを受け取ったメールアドレス（${receipt.data.email}）で${T.account}を作成してください。別のメールアドレスでは申込を引き継げません。スマートフォンや別のブラウザからでも続けられます。\n${SITE_URL}${salonRecoveryAuthPath('signup')}\n\n`
+      + `アカウントをお持ちの方はログイン：\n${SITE_URL}${salonRecoveryAuthPath('login')}\n\n`
+      + `受付を確認できないときは、申し込み直さず、受付番号を添えてお問い合わせください。\n${SITE_URL}/contact\n\nこのメールに心当たりがない場合は破棄してください。`,
   };
   return () => sendResendForReconciliation(resend.emails.send(email, {
     idempotencyKey: `salon-receipt-v1-${job.registration_id}`,
@@ -111,17 +117,18 @@ function prepareApprovalEmail(
   db: ReturnType<typeof createServiceRoleClient>, registrationId: string,
   receipt: z.infer<typeof receiptSchema>, resend: Resend, stage: 'published' | 'deferred' | 'documents', documentsDeferred: boolean,
 ): () => Promise<ResendDeliveryOutcome> {
-  const createStep = `【1】${T.shop}を作成する（まだの方）\nこのメールを受け取ったメールアドレス（${receipt.email}）でログインし、申込を選んで${T.shop}を作成してください。${T.account}が無い場合は、同じメールアドレスで作成してください。\n`
+  // 3 種類とも同じ 4 ステップの見出し（src/lib/registration-flow.ts）を使い、種類ごとに番号の中身を入れ替えない。
+  const accountStep = `${step('account')}（まだの方）\nこのメールを受け取ったメールアドレス（${receipt.email}）でログインし、申込を選んで${T.shop}を作成してください。${T.account}が無い場合は、同じメールアドレスで作成してください。\n`
     + `ログイン：${SITE_URL}${salonRecoveryAuthPath('login')}\n${T.account}の作成：${SITE_URL}${salonRecoveryAuthPath('signup')}\n\n`;
+  const documentsText = `管理画面の施設設定から確認書類を提出してください（${T.shopName}・所在地・運営者を確認できるもの1点）。`;
   const body = stage === 'published'
-    // 店舗の作成・公開が承認より先に済んでいる（「書類は後から」・書類の確認での公開など）。
     ? `${T.shop}はすでに CareLink に公開されています。\n\n`
-      + (documentsDeferred ? `確認書類がまだの場合は、管理画面の施設設定から、${T.shopName}・所在地・運営者を確認できる書類を提出してください。\n\n` : '')
-    : `※この時点では、まだ一般公開されていません。公開までに、次の手順をお願いします。\n\n` + createStep + (stage === 'deferred'
-    ? `【2】${T.shop}情報を整えて公開する\n所在地・曜日ごとの営業時間（定休日を含む）などを設定し、管理画面から公開できます。\n\n`
-      + `【3】確認書類を公開後に提出する\n管理画面の施設設定から、${T.shopName}・所在地・運営者を確認できる書類を提出してください。\n\n`
-    : `【2】確認書類を提出する\n${T.shop}の作成後、管理画面の施設設定から、${T.shopName}・所在地・運営者を確認できる書類を提出してください。\n\n`
-      + `【3】公開\n運営が書類を確認すると、所在地・曜日ごとの営業時間（定休日を含む）などの設定が済んでいれば、そのまま公開されます。まだの場合は、管理画面で設定を済ませた時点で公開されます。\n\n`);
+      + (documentsDeferred ? `${step('documents')}\n確認書類がまだの場合は、${documentsText}\n\n` : '')
+    : `※この時点では、まだ一般公開されていません。\n\n■ 一般公開までの4ステップ\n${step('apply', true)}\n\n` + accountStep + (stage === 'deferred'
+    ? `${step('documents')}（公開後で構いません）\n${documentsText}\n\n`
+      + `${step('publish')}\n所在地・曜日ごとの営業時間（定休日を含む）などを設定すると、管理画面から公開できます。\n\n`
+    : `${step('documents')}\n${T.shop}の作成後、${documentsText}\n\n`
+      + `${step('publish')}\n運営が書類を確認すると、所在地・曜日ごとの営業時間（定休日を含む）などの設定が済んでいれば、そのまま公開されます。まだの場合は、管理画面で設定を済ませた時点で公開されます。\n\n`);
   const email = {
     from: fromEnv(), to: receipt.email,
     // 受付メールと同じく、申込者が入力した店舗名は件名に入れない（本文だけ）。

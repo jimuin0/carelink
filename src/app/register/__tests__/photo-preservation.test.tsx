@@ -24,7 +24,7 @@ test('real photo picker retains previews/files after a rejected submit and permi
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
   await screen.findByLabelText(/^郵便番号/);
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-  await screen.findByRole('button', { name: '登録する' });
+  await screen.findByRole('button', { name: '申し込む' });
   const first = new File(['first'], 'first.png', { type: 'image/png' });
   const second = new File(['second'], 'second.png', { type: 'image/png' });
   fireEvent.change(screen.getByLabelText('外観の写真を選択'), { target: { files: [first] } });
@@ -32,9 +32,9 @@ test('real photo picker retains previews/files after a rejected submit and permi
   await waitFor(() => { expect(screen.getByAltText('外観')).toBeVisible(); expect(screen.getByAltText('内観 1')).toBeVisible(); });
   screen.getAllByRole('checkbox').forEach(box => fireEvent.click(box));
   const submit = async () => {
-    fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+    fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
     const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'この内容で申し込む' }));
   };
   await submit();
   const building = await screen.findByLabelText('建物名・部屋番号');
@@ -43,7 +43,7 @@ test('real photo picker retains previews/files after a rejected submit and permi
   expect(mockRemove).toHaveBeenCalledTimes(1);
   fireEvent.change(building, { target: { value: '合成建物' } });
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-  await screen.findByRole('button', { name: '登録する' });
+  await screen.findByRole('button', { name: '申し込む' });
   expect(screen.getByAltText('外観')).toBeVisible();
   expect(screen.getByAltText('内観 1')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: '外観の写真を削除' }));
