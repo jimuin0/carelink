@@ -16,7 +16,7 @@ const db = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () 
 const base = { registration_id: id, target_id: id, template_version: 1, payload: {}, webhook_type: 'salon_registration_internal' };
 
 test.each(['internal', 'approval_sent'])('テスト用チャンネルへの実送信 %s', async kind => {
-  const token = process.env.CARELINK_SLACK_TEST_TOKEN;
+  const token = process.env.CARELINK_SLACK_TEST_BOT_CREDENTIAL;
   const channel = process.env.CARELINK_SLACK_TEST_CHANNEL;
   expect(token && channel).toBeTruthy();
   process.env.SLACK_BOT_TOKEN = token;

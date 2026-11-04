@@ -25,6 +25,6 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: テスト用チャンネルへ送る
         env:
-          CARELINK_SLACK_TEST_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          CARELINK_SLACK_TEST_BOT_CREDENTIAL: ${{ secrets.SLACK_BOT_TOKEN }}
           CARELINK_SLACK_TEST_CHANNEL: C0A8QP9QA9F
         run: npx jest --ci --coverage=false --testMatch '<rootDir>/scripts/slack-live-check/*.live.ts'
