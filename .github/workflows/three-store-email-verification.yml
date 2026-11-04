@@ -1,0 +1,76 @@
+name: Three-store email verification
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'e2e/000-three-store-registration.spec.ts'
+      - '.github/workflows/three-store-email-verification.yml'
+      - 'scripts/run-ci-e2e.mjs'
+
+jobs:
+  confirmed-three-stores:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.104.0
+      - name: Enable confirmation only in the disposable runner
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('supabase/config.toml')
+          content = path.read_text()
+          content = content.replace('enable_confirmations = false', 'enable_confirmations = true', 1)
+          content = content.replace('additional_redirect_urls = ["https://127.0.0.1:3000"]', 'additional_redirect_urls = ["https://localhost:3000/**"]')
+          path.write_text(content)
+          PY
+          mkdir -p supabase/.temp
+          printf '%s' v14.15 > supabase/.temp/rest-version
+      - name: Authenticate image pulls
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      - name: Start isolated Supabase
+        run: |
+          for registry in ghcr.io public.ecr.aws docker.io; do
+            if SUPABASE_INTERNAL_IMAGE_REGISTRY="$registry" supabase start; then exit 0; fi
+            supabase stop --no-backup >/dev/null 2>&1 || true
+          done
+          exit 1
+      - name: Export isolated credentials
+        id: supabase
+        run: |
+          status="$(supabase status -o env)"
+          unquote() { sed -E 's/^"//; s/"$//'; }
+          api_url="$(printf '%s\n' "$status" | sed -n 's/^API_URL=//p' | unquote)"
+          anon="$(printf '%s\n' "$status" | sed -n 's/^ANON_KEY=//p' | unquote)"
+          service="$(printf '%s\n' "$status" | sed -n 's/^SERVICE_ROLE_KEY=//p' | unquote)"
+          test -n "$api_url" && test -n "$anon" && test -n "$service"
+          echo "::add-mask::$anon"
+          echo "::add-mask::$service"
+          echo "url=$api_url" >> "$GITHUB_OUTPUT"
+          echo "anon=$anon" >> "$GITHUB_OUTPUT"
+          echo "service=$service" >> "$GITHUB_OUTPUT"
+      - name: Install browser dependencies
+        run: npx playwright install --with-deps chromium webkit
+      - name: Verify receipt, actual confirmation link and three stores
+        run: node scripts/run-ci-e2e.mjs
+        env:
+          E2E_CONFIRM_THREE_STORES: 'true'
+          SALON_REGISTRATION_V2_ENABLED: 'true'
+          SKIP_ENV_VALIDATION: 'true'
+          PLAYWRIGHT_BASE_URL: https://localhost:3000
+          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ steps.supabase.outputs.service }}
+      - name: Stop isolated Supabase
+        if: always()
+        run: supabase stop || true
