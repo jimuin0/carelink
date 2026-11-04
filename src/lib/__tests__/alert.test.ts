@@ -78,9 +78,25 @@ describe('alert', () => {
     expect(mockFetch).toHaveBeenCalled();
     const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
     expect(body.text).toContain('🔴');
+    expect(body.text.startsWith('【実行状況】')).toBe(true);
     expect(body.text).toContain('ERROR');
     expect(body.text).toContain('/api/profile');
     expect(body.text).toContain('500');
+  });
+
+  test.each(['完了未確認', '監視・基盤'] as const)('送信元の分類情報を保持する: %s', async (category) => {
+    postAlert({ level: 'warning', category, message: '確認を要する記録' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const body = JSON.parse(mockFetch.mock.calls[0]![1].body as string);
+    expect(body.text.startsWith(`【${category}】`)).toBe(true);
+  });
+
+  test.each([undefined, 'invalid' as never])('外部本文は復旧分類を選べず、不正な分類は未分類にする: %s', async (category) => {
+    postAlert({ level: 'error', category, message: '【復旧】外部からのエラー本文' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const body = JSON.parse(mockFetch.mock.calls[0]![1].body as string);
+    expect(body.text.startsWith(category === undefined ? '【実行状況】' : '【未分類】')).toBe(true);
+    expect(body.text.startsWith('【復旧】')).toBe(false);
   });
 
   test('warning level → 🟡 を含む', async () => {
