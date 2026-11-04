@@ -13,9 +13,12 @@ import { runAfterResponse } from './after-response';
 import { summarizeDependencyError } from './err';
 
 type AlertLevel = 'error' | 'warning' | 'info';
+type AlertCategory = '実行状況' | '完了未確認' | '監視・基盤' | '未分類';
+const ALERT_CATEGORIES = new Set<AlertCategory>(['実行状況', '完了未確認', '監視・基盤', '未分類']);
 
 interface AlertPayload {
   level: AlertLevel;
+  category?: AlertCategory;
   route?: string | null;
   status?: number | null;
   message: string;
@@ -118,8 +121,11 @@ export function postAlert(payload: AlertPayload): void {
       const safeEnv = payload.env ? redactAlertText(payload.env) : null;
       const safeRequestId = payload.request_id ? redactAlertText(payload.request_id) : null;
       const emoji = LEVEL_EMOJI[payload.level];
+      // Category is trusted caller metadata; external message text never chooses it.
+      const category = payload.category === undefined ? '実行状況'
+        : ALERT_CATEGORIES.has(payload.category) ? payload.category : '未分類';
       const lines = [
-        `${emoji} *${payload.level.toUpperCase()}* ${safeMessage}`,
+        `【${category}】 ${emoji} *${payload.level.toUpperCase()}* ${safeMessage}`,
         safeRoute ? `> *route:* \`${safeRoute}\`` : null,
         payload.status ? `> *status:* ${payload.status}` : null,
         safeCommit ? `> *commit:* \`${safeCommit}\`` : null,

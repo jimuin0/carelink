@@ -68,6 +68,7 @@ export async function logCronRun(
     // 業務処理は既に実行済み。記録障害をthrow/再試行するとメール等を二重送信し得るため、
     // 固定文言の運用警告とdegraded heartbeatだけで記録不能を明示する。
     alertWarning('cron 実行ログを保存できませんでした。業務処理を再実行せず記録状況を確認してください。', {
+      category: '監視・基盤',
       route: `/api/cron/${jobName}`,
       extra: { job_name: jobName, execution_status: status, log_persisted: false },
     });
