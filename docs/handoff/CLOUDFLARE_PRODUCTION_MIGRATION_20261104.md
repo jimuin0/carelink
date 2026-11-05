@@ -117,4 +117,5 @@ DB は移行で変更しないので、DB の戻しは要らない。
   (b) Cloudflare Workers Builds（Git 連携）のどちらかを用意する。用意するまでは手元から `wrangler deploy` する。
 - **Vercel Speed Insights の代わり**：Worker では空の部品に差し替えている。Cloudflare 側の計測（Web Analytics 等）を使うかは別途。
 - **Vercel の後片付け**：切り替え後 2 週間は戻し先として残す。その後、Git 連携の停止・プロジェクト削除は本人の承認後。
+- **アカウント名の変更**：本人が後で表示名を変えたい（2026-11-05）。名前は表示だけで、Worker・ドメインはアカウント ID にひも付くため影響なし。
 - **CLAUDE.md・`docs/MANUAL.md` の記載（デプロイ＝Vercel）の更新**：切り替えが済んでから行う。
