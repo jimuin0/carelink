@@ -56,9 +56,9 @@ async function prepareForm(phone = '09012345678', contactPhone?: string) {
 }
 
 async function submit() {
-  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
   const dialog = await screen.findByRole('dialog');
-  fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'この内容で申し込む' }));
 }
 
 test('full-width phone and direct phone survive the real UI and submit normalized values', async () => {
@@ -136,7 +136,7 @@ test('早期upload失敗後の遅延成功を待ち、成功写真をcleanupし�
   await waitFor(() => expect(mockRemove).toHaveBeenCalledTimes(1));
   expect(mockRemove.mock.calls[0][0]).toEqual([mockUpload.mock.calls[1][0]]);
   expect(mockFetch).not.toHaveBeenCalled();
-  expect(screen.getByRole('button', { name: '登録する' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: '申し込む' })).toBeEnabled();
 });
 
 test.each([400, 403, 429])('明確な%s拒否は写真cleanup・元のエラー表示後に再送できる', async (status) => {
@@ -146,7 +146,7 @@ test.each([400, 403, 429])('明確な%s拒否は写真cleanup・元のエラー�
   await screen.findByText('合成の入力エラー');
   expect(mockRemove).toHaveBeenCalledTimes(1);
   expect(mockRemove.mock.calls[0][0]).toHaveLength(2);
-  expect(screen.getByRole('button', { name: '登録する' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: '申し込む' })).toBeEnabled();
   await submit();
   await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`/register/complete?id=${id}`));
   expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -161,7 +161,7 @@ test.each(['network', 'server', 'malformed', 'missing-id', 'invalid-id'])('%sの
   await submit();
   await screen.findByText(/送信結果を確認できませんでした/);
   expect(screen.getByRole('link', { name: '受付状況を問い合わせる' })).toHaveAttribute('href', '/contact');
-  const button = screen.getByRole('button', { name: '登録する' });
+  const button = screen.getByRole('button', { name: '申し込む' });
   expect(button).toBeDisabled();
   fireEvent.click(button);
   expect(mockFetch).toHaveBeenCalledTimes(1);

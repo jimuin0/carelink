@@ -130,14 +130,14 @@ test.describe('/register 送信', () => {
     await fillStep1(page, 'reconciliation-fixture@example.invalid');
     await fillStep2(page);
     for (const box of await page.getByRole('checkbox').all()) await box.check();
-    await page.getByRole('button', { name: '登録する', exact: true }).click();
-    const confirmButton = page.getByRole('dialog').getByRole('button', { name: '送信する', exact: true });
+    await page.getByRole('button', { name: '申し込む', exact: true }).click();
+    const confirmButton = page.getByRole('dialog').getByRole('button', { name: 'この内容で申し込む', exact: true });
     // WebKit's iPhone emulation can stall a coordinate click on the modal's
     // lower action after body scroll-lock; use the native touch action there.
     if ((page.viewportSize()?.width ?? 0) < 500) await confirmButton.tap();
     else await confirmButton.click();
     await expect(page.getByText('送信結果を確認できませんでした。同じ申込の受付状況を確認してください。新たな申込として送信しないでください。')).toBeVisible();
-    await expect(page.getByRole('button', { name: '登録する', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: '申し込む', exact: true })).toBeDisabled();
     await expect(page.getByRole('link', { name: '受付状況を問い合わせる' })).toHaveAttribute('href', '/contact');
     expect(attempts).toBe(1);
     expect(new URL(page.url()).pathname).toBe('/register');
@@ -243,12 +243,12 @@ test.describe('/register 送信', () => {
         .locator('input[type="checkbox"]')
         .check();
 
-      const submitButton = page.getByRole('button', { name: '登録する' });
+      const submitButton = page.getByRole('button', { name: '申し込む' });
       await expect(submitButton).toBeEnabled();
 
       // 確認ダイアログを経由するフローなので、まず送信ボタン→確認ダイアログの「送信する」の順。
       await submitButton.click();
-      await expect(page.getByRole('heading', { name: '登録内容を送信しますか？' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'この内容で申し込みますか？' })).toBeVisible();
 
       // POST /api/salons/commit のレスポンスを直接観測する。画面遷移だけを見ると、
       // 別の理由（クライアント側の別ルーティング等）で complete に着いた場合を見逃すため、
@@ -257,7 +257,7 @@ test.describe('/register 送信', () => {
         (r) => new URL(r.url()).pathname === '/api/salons/commit' && r.request().method() === 'POST',
         { timeout: 20000 },
       );
-      await page.getByRole('button', { name: '送信する' }).click();
+      await page.getByRole('button', { name: 'この内容で申し込む' }).click();
       const resp = await salonsResponse;
 
       if (resp.status() !== 201) {
@@ -283,16 +283,16 @@ test.describe('/register 送信', () => {
       // Never include the capability cookie value in assertion output.
       expect({ present: !!claim, secure: claim?.secure, httpOnly: claim?.httpOnly, sameSite: claim?.sameSite })
         .toEqual({ present: true, secure: true, httpOnly: true, sameSite: 'Lax' });
-      await expect(page.getByText('申込の送信だけでは公開されません。')).toBeVisible();
+      await expect(page.getByRole('list', { name: '掲載までの4ステップ' }).locator('[aria-current="step"]')).toContainText('アカウント作成');
       await expect(page.getByRole('heading', { name: '次にすること' })).toBeVisible();
-      await expect(page.getByRole('link', { name: '掲載までの詳しい流れを見る' })).toHaveAttribute('href', '/register/guide');
+      await expect(page.getByRole('link', { name: '掲載までの流れ（図）' })).toHaveAttribute('href', '/register/guide');
       const guide = await page.context().newPage();
       await guide.goto('/register/guide');
       await expect(guide.getByRole('heading', { name: '掲載までの流れ', exact: true })).toBeVisible();
-      await expect(guide.getByText(/曜日ごとの営業時間と定休日を設定/)).toBeVisible();
+      await expect(guide.getByRole('heading', { name: '無料掲載とネット予約' })).toBeVisible();
       await guide.close();
-      await expect(page.getByText('ネット予約を利用せず、無料掲載だけでも利用できます。')).toBeVisible();
-      await expect(page.getByRole('link', { name: '既存アカウントでログインして引き継ぐ' })).toHaveAttribute('href',
+      await expect(page.getByText('無料掲載だけの利用も、複数店舗の申込もできます。')).toBeVisible();
+      await expect(page.getByRole('link', { name: 'アカウントがある方はログイン' })).toHaveAttribute('href',
         '/auth/login?redirect=%2Fadmin%2Fonboarding%3Fhandoff%3Dregistration');
       await expect(page.getByRole('link', { name: '店舗アカウントを作成する' })).toHaveAttribute('href',
         '/auth/signup?redirect=%2Fadmin%2Fonboarding%3Fhandoff%3Dregistration');
@@ -318,7 +318,7 @@ test.describe('/register 送信', () => {
         const password = randomUUID();
         const created = await db.auth.admin.createUser({ email, password, email_confirm: true });
         if (created.error || !created.data.user) throw new Error('Synthetic owner creation failed');
-        await page.getByRole('link', { name: '既存アカウントでログインして引き継ぐ' }).click();
+        await page.getByRole('link', { name: 'アカウントがある方はログイン' }).click();
         await page.fill('#login-email', email);
         await page.fill('#login-password', password);
         await page.getByRole('button', { name: 'ログイン', exact: true }).click();

@@ -727,7 +727,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   /** 送信ボタンの横に出す「準備中」の案内。入力は続けられることと、待っている理由を書く。 */
   const readyStatus = !formReady && !submissionUnknown
     ? <p role="status" id="register-ready-status" className="mt-2 text-sm text-(--ecru-muted)">
-      入力はそのまま続けられます。送信の準備をしています（通信状況によって時間がかかります）。しばらく待っても「次へ」や送信を押せない場合は、JavaScriptの設定と通信状況を確認してください。
+      送信の準備中です。入力はそのまま続けられます（押せないままのときは、JavaScriptの設定と通信状況をご確認ください）。
     </p>
     : null;
   const readyDescription = !formReady && !submissionUnknown ? { 'aria-describedby': 'register-ready-status' } : {};
@@ -782,8 +782,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               onRestore={async blob => { if (!(await restoreDraft(new File([blob], 'carelink-local-draft.json', { type: 'application/json' }), true))) throw new Error('Local draft restoration not confirmed'); }} />
             <section aria-label="入力の手動バックアップ" className="border-t border-(--ecru-line) pt-5 text-sm">
               <h3 className="font-medium">ファイルに保存</h3>
-              <p className="mt-1 text-(--ecru-muted)">別の端末で続きを入力するときに使えます。</p>
-              <p className="mt-1 text-(--ecru-muted)">ファイルには氏名・連絡先・写真が含まれます。共有端末では保存せず、不要になったら削除してください。</p>
+              <p className="mt-1 text-(--ecru-muted)">別の端末で続けるときに使います。氏名・連絡先・写真が入るので、共有の端末には保存しないでください。</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" onClick={() => void downloadDraft()} disabled={backupDisabled} className={DRAFT_BUTTON}>入力と元の写真をバックアップ</button>
                 {/* ファイル選択欄は sr-only（「Choose File」等のブラウザー既定の英語表示を出さない）。
@@ -1098,7 +1097,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               <div className="flex gap-4">
                 <Button onClick={() => goToStep(2)} variant="secondary" size="lg" className="flex-1">戻る</Button>
                 <Button type="submit" disabled={!formReady || submitting || submissionUnknown || submissionConfirmed || draftBusy || legacyStorageBlocked} {...readyDescription} size="lg" className="flex-1">
-                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '登録する'}
+                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '申し込む'}
                 </Button>
               </div>
               {/* 3 ページ目は隠したまま常に描かれるので、表示中だけ出す（同じ id を 2 つ作らない）。 */}
@@ -1110,11 +1109,11 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
 
       <ConfirmDialog
         open={showConfirm}
-        title="登録内容を送信しますか？"
+        title="この内容で申し込みますか？"
         // 受付と一般公開は別の手続き（/register の FAQ・受付メールと同じ事実を書く）。以前は
         // 「すぐに掲載を開始できます」と書いており、送信すれば公開されると誤解させていた。
-        message={`送信後、店舗アカウントを作成すると入力内容が管理画面に引き継がれます。公開には、施設設定からの確認書類の提出と運営の確認、および${LISTING_PUBLISH_ITEMS}の設定が必要です。申込を送信しただけでは公開されません。`}
-        confirmLabel="送信する"
+        message={`送信しただけでは公開されません。このあとアカウント作成・書類の提出・運営の確認を経て公開されます（${LISTING_PUBLISH_ITEMS}の設定も必要です）。`}
+        confirmLabel="この内容で申し込む"
         cancelLabel="戻る"
         confirmDisabled={submitting || submissionUnknown || submissionConfirmed || draftBusy || (restoredNeedsReview && !restoredUnsentAcknowledged)}
         onConfirm={handleConfirmSubmit}

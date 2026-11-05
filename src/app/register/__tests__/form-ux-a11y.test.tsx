@@ -47,12 +47,12 @@ async function toStep3() {
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
   await screen.findByLabelText(/^郵便番号/);
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-  await screen.findByRole('button', { name: '登録する' });
+  await screen.findByRole('button', { name: '申し込む' });
 }
 async function submitAndReadPayload() {
   screen.getAllByRole('checkbox').forEach(box => { if (!(box as HTMLInputElement).checked) fireEvent.click(box); });
-  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
-  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '送信する' }));
+  fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'この内容で申し込む' }));
   await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
   return JSON.parse(mockFetch.mock.calls.find(([url]) => url === '/api/salons')![1].body);
 }
@@ -128,7 +128,7 @@ describe('ステップの切り替え', () => {
     const stepHeight = heightOf('次へ');
     expect(stepHeight).toHaveLength(1);
     await toStep3();
-    expect(heightOf('登録する')).toEqual(stepHeight);
+    expect(heightOf('申し込む')).toEqual(stepHeight);
     expect(heightOf('戻る')).toEqual(stepHeight);
   });
 });
@@ -228,7 +228,7 @@ describe('入力補助', () => {
     fireEvent.blur(postal);
     expect(postal).toHaveValue('590-0075');
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-    await screen.findByRole('button', { name: '登録する' });
+    await screen.findByRole('button', { name: '申し込む' });
     const payload = await submitAndReadPayload();
     expect(payload.postal_code).toBe('590-0075');
   });
@@ -256,7 +256,7 @@ describe('詳細情報', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '駐車場あり' }));
     fireEvent.click(within(group).getByRole('button', { name: /個室あり/ }));
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-    await screen.findByRole('button', { name: '登録する' });
+    await screen.findByRole('button', { name: '申し込む' });
     const payload = await submitAndReadPayload();
     expect(payload.has_parking).toBe(true);
     expect(payload.features).toEqual(expect.arrayContaining(['駐車場あり', '個室あり']));
@@ -269,7 +269,7 @@ describe('詳細情報', () => {
     const parking = screen.getByRole('checkbox', { name: '駐車場あり' });
     fireEvent.click(parking); fireEvent.click(parking);
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-    await screen.findByRole('button', { name: '登録する' });
+    await screen.findByRole('button', { name: '申し込む' });
     const payload = await submitAndReadPayload();
     expect(payload.has_parking).toBe(false);
     expect(payload.features).not.toContain('駐車場あり');

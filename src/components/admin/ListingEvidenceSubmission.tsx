@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import ListingEvidencePicker from '@/components/register/ListingEvidencePicker';
+import RegistrationFlow from '@/components/register/RegistrationFlow';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { uploadListingEvidence } from '@/lib/listing-verification-upload';
 import type { ListingEvidenceType } from '@/lib/listing-verification-evidence';
@@ -32,7 +33,7 @@ export default function ListingEvidenceSubmission({ facilityId }: { facilityId: 
       },
     }, { facilityId, documentId: current.id, type: current.type, file: current.file });
     if (result.state === 'uploaded') {
-      setMessage('書類を受け付けました。運営が内容と管理権限を確認します。');
+      setMessage('書類を受け付けました。運営の確認をお待ちください。');
       setAttempt(null); setFile(null); setType(''); setPickerVersion(version => version + 1);
     } else if (result.state === 'invalid') {
       setMessage('ファイルの形式またはサイズを確認してください。');
@@ -45,7 +46,8 @@ export default function ListingEvidenceSubmission({ facilityId }: { facilityId: 
 
   return <section className="my-6 rounded-xl border border-gray-200 p-4" onChange={event => event.stopPropagation()}>
     <h2 className="mb-3 text-lg font-bold">店舗確認書類の提出</h2>
-    <p className="mb-3 text-sm">運営が書類と管理権限を確認します。確認が済むと、店舗名・所在地・曜日ごとの営業時間が揃っていれば公開されます（運営から「書類は後から」と案内された店舗は、公開後の提出でも構いません）。</p>
+    <RegistrationFlow current="documents" className="mb-4" />
+    <p className="mb-3 text-sm">運営が確認し、店舗名・所在地・営業時間が揃っていれば公開されます。「書類は後から」と案内された店舗は、公開後の提出でも構いません。</p>
     <fieldset disabled={busy || !!attempt}>
       <ListingEvidencePicker key={pickerVersion} type={type} file={file} onTypeChange={setType} onFileChange={setFile} />
     </fieldset>

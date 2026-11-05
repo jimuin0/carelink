@@ -34,13 +34,13 @@ async function fill(v2Enabled = true) {
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
   await screen.findByLabelText(/^郵便番号/);
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-  await screen.findByRole('button', { name: '登録する' });
+  await screen.findByRole('button', { name: '申し込む' });
   screen.getAllByRole('checkbox').forEach(box => fireEvent.click(box));
 }
 async function submit() {
-  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
   const dialog = await screen.findByRole('dialog');
-  fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'この内容で申し込む' }));
 }
 test('v2 real form and coordinator use prepare then commit, with no legacy upload or PII redirect', async () => {
   request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } }))
@@ -108,7 +108,7 @@ test('lost outcome disables new submission, then readonly reconciliation navigat
     .mockResolvedValueOnce(response(200, { state: 'committed', receiptId }));
   await fill(); await submit();
   await screen.findByText(/送信結果を確認できませんでした。同じ申込/);
-  expect(screen.getByRole('button', { name: '登録する' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: '申し込む' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: '同じ申込の受付状況を確認' }));
   await waitFor(() => expect(mockRouter.push).toHaveBeenCalledTimes(1));
   expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons/prepare', '/api/salons/commit', '/api/salons/status']);
@@ -117,7 +117,7 @@ test('preparation failure preserves the form for a safe retry, without a commit'
   request.mockResolvedValueOnce(response(503, { state: 'unavailable' }));
   await fill(); await submit();
   await screen.findByText(/送信の準備が完了していません/);
-  expect(screen.getByRole('button', { name: '登録する' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: '申し込む' })).toBeEnabled();
   expect(request).toHaveBeenCalledTimes(1); expect(mockRouter.push).not.toHaveBeenCalled();
 });
 test('corrupt saved context fails closed before any request or user input', async () => {
@@ -142,7 +142,7 @@ test('commit400 preserves original input/photos and only replays the same payloa
   });
   await submit();
   await screen.findByText(/送信結果を確認できませんでした。同じ申込/);
-  expect(screen.getByRole('button', { name: '登録する' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: '申し込む' })).toBeDisabled();
   expect(screen.queryByText('PRIVATE')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '同じ申込の受付状況を確認' }));
   await waitFor(() => expect(mockRouter.push).toHaveBeenCalledTimes(1));
@@ -169,10 +169,10 @@ test.each(['prepared','attempted','confirmed'])('recruit %s selector never route
 // 「すぐに掲載を開始できます」と書いており、送信すれば公開されると誤解させていた。
 test('confirm dialog does not promise immediate publication', async () => {
   await fill();
-  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
   const dialog = await screen.findByRole('dialog');
   expect(dialog).not.toHaveTextContent('すぐに掲載を開始できます');
   expect(dialog).toHaveTextContent('送信しただけでは公開されません');
-  expect(dialog).toHaveTextContent('管理画面に引き継がれます');
+  expect(dialog).toHaveTextContent('書類の提出');
   expect(request).not.toHaveBeenCalled();
 });

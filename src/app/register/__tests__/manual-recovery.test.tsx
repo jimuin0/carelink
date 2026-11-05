@@ -35,15 +35,15 @@ async function mount(v2Enabled = false) {
 }
 async function toLastStep() {
   fireEvent.click(screen.getByRole('button', { name: '次へ' })); await screen.findByLabelText(/^郵便番号/);
-  fireEvent.click(screen.getByRole('button', { name: '次へ' })); await screen.findByRole('button', { name: '登録する' });
+  fireEvent.click(screen.getByRole('button', { name: '次へ' })); await screen.findByRole('button', { name: '申し込む' });
 }
 async function fill() {
   await mount(); for (const [label, value] of fields) fireEvent.change(screen.getByLabelText(label), { target: { value } });
   await toLastStep(); screen.getAllByRole('checkbox').forEach(box => fireEvent.click(box));
 }
 async function submit() {
-  fireEvent.click(screen.getByRole('button', { name: '登録する' })); const dialog = await screen.findByRole('dialog');
-  fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
+  fireEvent.click(screen.getByRole('button', { name: '申し込む' })); const dialog = await screen.findByRole('dialog');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'この内容で申し込む' }));
 }
 const download = () => screen.getByRole('button', { name: '入力と元の写真をバックアップ' });
 const restore = () => screen.getByLabelText('バックアップから入力を復元');
@@ -79,15 +79,15 @@ test('verified import restores full originals/order atomically, resets both cons
   await toLastStep(); expect(await screen.findByAltText('外観')).toBeVisible(); expect(await screen.findByAltText('メニュー 3')).toBeVisible();
   expect(screen.getAllByRole('checkbox').every(box => !(box as HTMLInputElement).checked)).toBe(true);
   // 未送信の確認・表明・規約の 3 つが揃うまで送信確認へ進まない（押せない理由は画面に出す）。
-  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
   expect(await screen.findByText('必須の同意にチェックしてください（残り3件）')).toBeInTheDocument();
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   const checks = screen.getAllByRole('checkbox'); fireEvent.click(checks[1]); fireEvent.click(checks[2]);
-  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
   expect(await screen.findByText('必須の同意にチェックしてください（残り1件）')).toBeInTheDocument();
   expect(checks[0]).toHaveAccessibleDescription('未送信であることの確認にチェックしてください');
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); fireEvent.click(checks[0]);
-  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
   fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '戻る' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   fireEvent.click(download()); await screen.findByText(/バックアップファイルを作成しました/);
@@ -156,7 +156,7 @@ test('signed photo-token issue failure after manual retry retains originals and 
 });
 test.each([{ statusCode: '403', message: 'generic forbidden' }, { statusCode: '500', message: 'row-level security' }, new Error('network failure')])('generic upload error never offers new signed intent %p', async error => {
   mockLegacyUpload.mockResolvedValue({ error }); await fill(); fireEvent.change(screen.getByLabelText('外観の写真を選択'), { target: { files: [new File(['original'], 'original.png', { type: 'image/png' })] } });
-  await submit(); await waitFor(() => expect(screen.getByRole('button', { name: '登録する' })).toBeEnabled());
+  await submit(); await waitFor(() => expect(screen.getByRole('button', { name: '申し込む' })).toBeEnabled());
   expect(screen.queryByRole('button', { name: '安全なアップロードで再試行' })).not.toBeInTheDocument(); expect(request).not.toHaveBeenCalled();
 });
 test('V1 unknown outcome blocks backup/import and any new signed intent', async () => {
@@ -191,7 +191,7 @@ test.each([false, true])('photo edits retain current originals across back/next 
   await screen.findByAltText('外観'); fireEvent.click(screen.getByRole('button', { name: '外観の写真を削除' }));
   fireEvent.change(screen.getByLabelText('外観の写真を選択'), { target: { files: [replacement] } });
   fireEvent.click(screen.getByRole('button', { name: '戻る' })); await screen.findByLabelText(/^郵便番号/);
-  fireEvent.click(screen.getByRole('button', { name: '次へ' })); await screen.findByRole('button', { name: '登録する' });
+  fireEvent.click(screen.getByRole('button', { name: '次へ' })); await screen.findByRole('button', { name: '申し込む' });
   expect(await screen.findByAltText('外観')).toHaveAttribute('src', 'data:image/webp;base64,cmVwbGFjZW1lbnQtYnl0ZXM=');
   expect(await screen.findByAltText('メニュー 3')).toBeVisible();
   fireEvent.click(download()); await screen.findByText(/バックアップファイルを作成しました/);
@@ -216,8 +216,8 @@ test('phase changed during backup serialization prevents download and locks cont
 test('known V1 acceptance latches until redirect and blocks backup/import/re-submit', async () => {
   await fill(); request.mockResolvedValue(response(200, { success: true, id: '22222222-2222-4222-8222-222222222222' }));
   await submit(); await waitFor(() => expect(mockRouter.push).toHaveBeenCalledTimes(1));
-  expect(download()).toBeDisabled(); expect(restore()).toBeDisabled(); expect(screen.getByRole('button', { name: '登録する' })).toBeDisabled();
-  fireEvent.click(download()); fireEvent.change(restore(), { target: { files: [draftFile] } }); fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  expect(download()).toBeDisabled(); expect(restore()).toBeDisabled(); expect(screen.getByRole('button', { name: '申し込む' })).toBeDisabled();
+  fireEvent.click(download()); fireEvent.change(restore(), { target: { files: [draftFile] } }); fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
   await act(async () => { await Promise.resolve(); });
   expect(mockExport).not.toHaveBeenCalled(); expect(mockImport).not.toHaveBeenCalled(); expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons']);
 });

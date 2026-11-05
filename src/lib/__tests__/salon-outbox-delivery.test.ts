@@ -127,7 +127,7 @@ test.each([
   const [email, options] = send.mock.calls[0];
   expect(email.to).toBe(row.email);
   expect(email.text).toContain(id);
-  expect(email.text).toContain('一般公開は');
+  expect(email.text).toContain('■ 一般公開までの4ステップ\n【1】申し込む（済）\n【2】アカウント作成　← 次はここ\n');
   // スマホのメールアプリからは申込時のタブに戻れない。タブに依存しない復旧導線（申込を選び直せる登録画面）を案内し、
   // 「申込時のタブに戻って」という実行不能な指示と、タブ依存の引き継ぎ URL を載せない。
   expect(email.text).toContain(`${SITE_URL}${salonRecoveryAuthPath('signup')}\n`);
@@ -219,24 +219,24 @@ test('approval email for a normal registration says documents come first and pub
   await deliver();
   const [email] = send.mock.calls[0];
   expect(deferralEq).toHaveBeenCalledWith('salon_id', id);
-  expect(email.text).toContain('【2】確認書類を提出する');
+  expect(email.text).toContain('【3】書類の提出\n');
   expect(email.text).toContain('運営が書類を確認すると、所在地・曜日ごとの営業時間（定休日を含む）などの設定が済んでいれば、そのまま公開されます');
-  expect(email.text).not.toContain('公開後に提出');
+  expect(email.text).not.toContain('公開後で構いません');
 });
 test.each([{ deferred: true }])('approval email for a deferred registration lets the shop publish first %#', async data => {
   deferralQuery.mockResolvedValue({ data, error: null });
   const deliver = await prepareSalonOutboxDelivery(db, approval, resend);
   await deliver();
   const [email] = send.mock.calls[0];
-  expect(email.text).toContain('【2】店舗情報を整えて公開する');
-  expect(email.text).toContain('【3】確認書類を公開後に提出する');
+  expect(email.text).toContain('【3】書類の提出（公開後で構いません）');
+  expect(email.text).toContain('【4】公開\n所在地・曜日ごとの営業時間（定休日を含む）などを設定すると、管理画面から公開できます');
   expect(email.text).not.toContain('運営が書類を確認すると');
 });
 test('a deferral explicitly turned off is treated as a normal registration', async () => {
   deferralQuery.mockResolvedValue({ data: { deferred: false }, error: null });
   const deliver = await prepareSalonOutboxDelivery(db, approval, resend);
   await deliver();
-  expect(send.mock.calls[0][0].text).toContain('【2】確認書類を提出する');
+  expect(send.mock.calls[0][0].text).toContain('【3】書類の提出\n');
 });
 test.each([
   { data: null, error: { message: 'private' } }, { data: { deferred: 'yes' }, error: null },
