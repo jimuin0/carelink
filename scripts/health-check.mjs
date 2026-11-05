@@ -52,7 +52,7 @@ async function postSlack(text) {
     const res = await fetch('https://slack.com/api/chat.postMessage', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ channel, text }),
+      body: JSON.stringify({ channel, text: `【監視・基盤】${text}` }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const body = await res.json().catch(() => ({}));
