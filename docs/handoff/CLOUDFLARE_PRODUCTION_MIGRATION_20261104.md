@@ -61,6 +61,26 @@ PR #873（`f678359`）の Cloudflare 部分だけを、新しいブランチへ�
 
 ## 手順
 
+## 試験配信の結果（2026-11-05・本番の A / CNAME は未変更）
+
+- 本人が Workers Paid に切り替え（`workers_paid` 有効を確認）、アカウント表示名を `carelink` に変更。
+- Worker `carelink` をルートなしで配信し、確認用ホスト `cf-check.carelink-jp.com`（Workers Custom Domain）だけにつないだ。
+- 秘密値 19 個を Vercel の Production から登録（すべて `secret_text`）。手元の一時ファイルは削除。
+  **Vercel で Sensitive 指定の 6 個は読み出せなかった**：`ADMIN_COOKIE_SECRET` は Worker 用に新しく生成（キャッシュの署名鍵なので Vercel と別でよい）。
+  `SLACK_BOT_TOKEN`・`SLACK_SIGNING_SECRET`・`SLACK_DEFAULT_CHANNEL`・`OPERATOR_NOTIFY_EMAIL`・`EMAIL_FROM` は**本人が Cloudflare の画面で入れる（切り替え前に必須）**。
+- 見つけて直したもの：
+  1. Node 版の Supabase 読み取りは undici の Agent を通す。Worker 用ビルドでは通常の fetch に差し替えた（`tools/cloudflare/public-read-transport.ts`）。
+  2. Vercel の `NEXT_PUBLIC_SUPABASE_ANON_KEY` は**値の末尾に改行**がある。シェルで読み込むと `\n` の 2 文字として画面側・サーバー側に埋め込まれ、
+     anon の読み取りが全滅した（検索・店舗ページがエラー画面、`/api/health` の supabase が NG）。以後の配信は `npm run deploy:cloudflare` だけを使う（値を trim してビルド）。
+  3. Vercel は `http://` を `https://` へ 308 転送していた。Worker の入口で同じ転送を入れた。
+- **応答コード 200 だけでは判断できない**（エラー画面も 200 で返る）。画面の中身で本番と比べること。
+- 本番（Vercel）と確認用ホストの比較：`/search` 4 件・店舗ページ・`/osaka` が一致。`/api/health` は `healthy`（supabase・rate_limit・resend・cron すべて OK）。
+  `http://` → 308、HSTS・CSP（応答ごとの nonce）・`X-Frame-Options: DENY`・`nosniff` あり。ブラウザのコンソールエラー 0。
+- **CPU 時間**（`wrangler tail`・各 3 回・ミリ秒）：`/` 96/40/21・`/search` 63/39/35・`/search?area=tokyo` 65/31/30・`/tokyo` 33/22/31・
+  `/osaka` 168/29/26・店舗ページ 115/67/68・`/register` 26/36/26・`/auth/login` 24/25/25・`/admin`（未ログインの転送）5/2/4。全件 `ok`・エラーログ 0。
+  1 回目（起動直後）が高く、2 回目以降は 20〜70 ミリ秒。有料プランの上限（30 秒）に対して十分小さい。
+- 確認用ホストでは、ログイン（Google・LINE・メールのリンク）は確かめられない（Supabase と各社に登録した戻り先が carelink-jp.com のため）。切り替え後に本人が確かめる。
+
 ### 段階 0（無料・本番に影響なし）
 1. 上の部品と修正を入れたブランチを作り、Unit/lint/型検査/通常の `next build`/`build:vinext` を通す。
 2. PR を作り CI を通す（本番には何も反映されない。main へのマージは本人の承認後）。
