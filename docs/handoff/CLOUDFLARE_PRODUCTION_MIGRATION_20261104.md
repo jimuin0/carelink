@@ -15,31 +15,12 @@
   - Supabase Auth：Site URL / Redirect URL（ドメイン基準）
   - Resend：送信のみ（送信元ドメインの DNS レコード＝SPF/DKIM 等は触らない）
 
-## Cloudflare アカウントの分離（2026-11-04 本人決定）
+## Cloudflare アカウント（2026-11-05 本人決定）
 
-本人の判断「今のアカウントで別プロジェクトも動いているので、carelink 専用アカウントを作る」により、
-Worker と carelink-jp.com を新しい `carelink` アカウントへ置く。carelink-jp.com は今のアカウント
-（tokuhal.jimuin0@gmail.com's Account・`d7cef176…`）の **Cloudflare Registrar で登録**され、DNS もそこにある。
-Worker のルートはゾーンと同じアカウントにしか付けられないので、**ドメインの移動が先**になる。
-
-公式手順（https://developers.cloudflare.com/registrar/account-options/inter-account-transfer/ ・2026-04-24 更新）の要点：
-- 移動先（carelink）にドメインを website として追加し、プランを選んでおく（ゾーンは自動では作られない）。
-- 移動元で DNSSEC を切る（現状は `disabled` で対応不要）。
-- 移動元の Manage Domain > Configuration から申請 → 移動先アカウントに届くメールで 5 日以内に承認。
-- **移動元の設定はすべて失われる**。DNS レコード・Email Routing・SSL 設定は移動先で作り直す。移動後 30 日は他社へ移管不可。
-
-### 移動前の控え（2026-11-04 取得・Git には入れない）
-DNS 11 本（A `@`→Vercel・CNAME `www`→Vercel・MX 3 本＝Cloudflare Email Routing・`send` の MX/SPF＝Resend(SES)・
-SPF・DKIM 2 本（Email Routing／Resend）・DMARC）、DNSSEC `disabled`、SSL `full`、
-Email Routing 有効（`support@carelink-jp.com` → 本人の Gmail へ転送）。値は作業者の手元の控えファイルに保存。
-
-### 移動の手順（当日・本人の承認後）
-1. carelink アカウントにドメインを追加（プラン Free）。追加時の自動取り込みは使わず、控えた 11 本を**DNS のみ（灰色）**で先に入れる。
-2. carelink アカウントで Email Routing を有効にし、転送先（本人の Gmail）を登録・確認する（確認メールのクリックは本人）。
-3. SSL を `full` に合わせる。
-4. 移動元で移動を申請 → 本人が承認メールで承認。
-5. 直後に確認：`dig` で A/CNAME/MX/TXT が控えと一致・https://carelink-jp.com が 200（まだ Vercel）・`support@` 宛のテストメールが届く・Resend の送信。
-戻し方：移動が成立する前なら申請を取り消す。成立後は移動元へ同じ手順で戻す（30 日ロックは他社移管のみで、Cloudflare アカウント間は要確認）。
+Worker と Workers Paid は、**carelink-jp.com を購入したアカウント**（Tokuhal.jimuin0@gmail.com's Account・`d7cef176…`）に置く。
+ドメインは同じアカウントの Cloudflare Registrar で登録され DNS もそこにあるので、**ドメインの移動は行わない**。
+（2026-11-04 に一度「carelink 専用アカウントを作ってドメインを移す」案になったが、移動元の DNS・メール転送がすべて消える危険があり、
+本人の判断で取りやめた。移動前の DNS 11 本・Email Routing・SSL の控えは作業者の手元に残してある。）
 
 ## 移行前に直す必要があるもの（コード）
 
