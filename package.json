@@ -30,7 +30,8 @@
     "postinstall": "node scripts/ensure-eslint-plugin-link.mjs",
     "lint:debt": "node scripts/check-react-compiler-debt.mjs",
     "build:vinext": "node tools/cloudflare/build-local.mjs",
-    "start:vinext": "vite preview --host 127.0.0.1"
+    "start:vinext": "vite preview --host 127.0.0.1",
+    "deploy:cloudflare": "node tools/cloudflare/deploy-production.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",

@@ -17,18 +17,22 @@ export function preferWebp(request: Request): Request {
   return new Request(request, { headers });
 }
 
-// Vercel used to answer www with a permanent redirect to the apex domain.
-// Keep the same canonical host so links, cookies and OAuth callbacks do not split.
-export function redirectToApex(request: Request): Response | null {
+// Vercel used to answer plain HTTP with 308 to HTTPS and www with a permanent
+// redirect to the apex domain. Keep the same canonical origin so links, cookies
+// and OAuth callbacks do not split.
+export function canonicalRedirect(request: Request): Response | null {
   const url = new URL(request.url);
-  if (url.hostname !== 'www.carelink-jp.com') return null;
-  url.hostname = 'carelink-jp.com';
-  return new Response(null, { status: 301, headers: { location: url.toString() } });
+  const toHttps = url.protocol === 'http:';
+  const toApex = url.hostname === 'www.carelink-jp.com';
+  if (!toHttps && !toApex) return null;
+  url.protocol = 'https:';
+  if (toApex) url.hostname = 'carelink-jp.com';
+  return new Response(null, { status: toApex ? 301 : 308, headers: { location: url.toString() } });
 }
 
 export default {
   ...app,
   async fetch(request: Request, env: unknown, ctx: unknown) {
-    return redirectToApex(request) ?? app.fetch(preferWebp(request), env, ctx);
+    return canonicalRedirect(request) ?? app.fetch(preferWebp(request), env, ctx);
   },
 };

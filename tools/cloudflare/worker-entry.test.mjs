@@ -24,9 +24,17 @@ test('other requests and browsers that cannot accept WebP retain their original 
     request('/_next/image', 'image/avif,image/webp', 'POST')]) assert.equal(exports.preferWebp(req), req);
 });
 test('www is permanently redirected to the apex domain with path and query', () => {
-  const response = exports.redirectToApex(new Request('https://www.carelink-jp.com/search?area=tokyo'));
+  const response = exports.canonicalRedirect(new Request('https://www.carelink-jp.com/search?area=tokyo'));
   assert.equal(response.status, 301);
   assert.equal(response.headers.get('location'), 'https://carelink-jp.com/search?area=tokyo');
-  assert.equal(exports.redirectToApex(new Request('https://carelink-jp.com/search')), null);
-  assert.equal(exports.redirectToApex(new Request('https://example.invalid/')), null);
+  assert.equal(exports.canonicalRedirect(new Request('http://www.carelink-jp.com/a')).headers.get('location'), 'https://carelink-jp.com/a');
+});
+test('plain HTTP is redirected to HTTPS with 308 like Vercel did', () => {
+  const response = exports.canonicalRedirect(new Request('http://carelink-jp.com/search?area=tokyo', { method: 'POST' }));
+  assert.equal(response.status, 308);
+  assert.equal(response.headers.get('location'), 'https://carelink-jp.com/search?area=tokyo');
+});
+test('the canonical HTTPS origin and other hosts pass through', () => {
+  assert.equal(exports.canonicalRedirect(new Request('https://carelink-jp.com/search')), null);
+  assert.equal(exports.canonicalRedirect(new Request('https://cf-check.carelink-jp.com/')), null);
 });
