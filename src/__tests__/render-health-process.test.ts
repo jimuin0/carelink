@@ -17,7 +17,8 @@ function runHealth(mode: string, slack: boolean | 'shared-group' = false) {
         return new Response(JSON.stringify({status}), {status: fixtureMode === 'http500' ? 500 : 200});
       }
       if (url === 'https://slack.com/api/chat.postMessage') {
-        console.log('fixture alert attempted to ' + JSON.parse(arguments[1].body).channel);
+        const { channel, text } = JSON.parse(arguments[1].body);
+        console.log('fixture alert attempted to ' + channel + ': ' + text);
         return new Response(JSON.stringify({ok: true}));
       }
       throw new Error('unexpected fixture request');
@@ -53,7 +54,7 @@ test.each(['degraded', 'http500', 'invalid', 'network', 'missing'])(
 test.each(['degraded', 'network'])('sending an alert does not turn %s into success', mode => {
   const result = runHealth(mode, true);
   expect(result.error).toBeUndefined();
-  expect(result.stdout).toContain('fixture alert attempted');
+  expect(result.stdout).toContain('fixture alert attempted to synthetic-fixture-channel: 【監視・基盤】🔴');
   expect(result.status).toBe(1);
 });
 test('the shared Slack group channel is used when SLACK_DEFAULT_CHANNEL is unset', () => {
