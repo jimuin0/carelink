@@ -78,6 +78,9 @@ test('テスト用の申込は、下書きの店舗・送信記録ごと消え�
   await classify(db, actor, target.id, 'test');
   await classify(db, actor, other.id, 'test');
   const shop = await facility(db, target.id);
+  // 店舗宛てのウェルカムメール（受付番号なし）の送信記録も一緒に消える。
+  const welcome = await db.from('webhook_retry_queue').insert({ webhook_type: 'facility_welcome', target_id: shop.id, payload: { user_id: shop.owner, template_version: 1 }, status: 'success' });
+  expect(welcome.error).toBeNull();
   const menu = await db.from('facility_menus').insert({ facility_id: shop.id, name: '合成メニュー', category: 'カット', price: 1000, duration_minutes: 30, is_published: true });
   expect(menu.error).toBeNull();
 
@@ -88,6 +91,7 @@ test('テスト用の申込は、下書きの店舗・送信記録ごと消え�
   expect(await exists(db, 'salons', target.id)).toBe(false);
   expect(await exists(db, 'facility_profiles', shop.id)).toBe(false);
   expect((await db.from('webhook_retry_queue').select('id').eq('registration_id', target.id)).data).toEqual([]);
+  expect((await db.from('webhook_retry_queue').select('id').eq('target_id', shop.id)).data).toEqual([]);
   expect((await db.from('salon_submission_intents').select('id').eq('salon_id', target.id)).data).toEqual([]);
   expect((await db.from('facility_menus').select('id').eq('facility_id', shop.id)).data).toEqual([]);
   expect(await exists(db, 'salons', other.id)).toBe(true);
@@ -145,6 +149,17 @@ test('下書き以外の店舗、予約・顧客のある店舗、送信待ち�
   await classify(db, actor, pending.id, 'test');
   expect((await remove(db, actor, pending.id, pending.name)).data).toEqual({ outcome: 'delivery_in_progress' });
   expect(await exists(db, 'salons', pending.id)).toBe(true);
+
+  // 送信待ちのウェルカムメールは、受付番号が無くても店舗宛てとして見つける。
+  const welcoming = await registration(db);
+  await classify(db, actor, welcoming.id, 'test');
+  const welcomingShop = await facility(db, welcoming.id);
+  const queued = await db.from('webhook_retry_queue').insert({ webhook_type: 'facility_welcome', target_id: welcomingShop.id, payload: { user_id: welcomingShop.owner, template_version: 1 } });
+  expect(queued.error).toBeNull();
+  expect((await remove(db, actor, welcoming.id, welcoming.name)).data).toEqual({ outcome: 'delivery_in_progress' });
+  expect(await exists(db, 'facility_profiles', welcomingShop.id)).toBe(true);
+  // 消せないまま残さないよう、この後の cron が拾わない状態にする。
+  expect((await db.from('webhook_retry_queue').update({ status: 'cancelled' }).eq('target_id', welcomingShop.id)).error).toBeNull();
 });
 
 test('ブラウザの権限からは関数を呼べない', async () => {

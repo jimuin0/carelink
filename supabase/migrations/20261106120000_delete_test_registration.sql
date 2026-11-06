@@ -49,7 +49,10 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM public.salon_duplicate_links WHERE canonical_receipt_id=s.id OR duplicate_receipt_id=s.id)
   THEN RETURN jsonb_build_object('outcome','has_activity'); END IF;
-  IF EXISTS (SELECT 1 FROM public.webhook_retry_queue WHERE registration_id=s.id AND status IN ('pending','processing'))
+  -- 店舗宛てのジョブ（ウェルカムメールは受付番号なしで target_id に店舗 ID を持つ）も同じように見る。
+  -- 見落とすと、消した店舗のオーナーへメールが送られたり、失敗し続けるジョブが残ったりする。
+  IF EXISTS (SELECT 1 FROM public.webhook_retry_queue q WHERE q.status IN ('pending','processing')
+    AND (q.registration_id=s.id OR (has_facility AND (q.target_id=f.id::text OR q.facility_id=f.id))))
   THEN RETURN jsonb_build_object('outcome','delivery_in_progress'); END IF;
 
   -- 他の申込が同じファイルを指しているときは、そのファイルを消さない。
@@ -66,7 +69,8 @@ BEGIN
   DELETE FROM public.salon_submission_photos ph USING public.salon_submission_intents i WHERE ph.intent_id=i.id AND i.salon_id=s.id;
   DELETE FROM public.salon_submission_intents WHERE salon_id=s.id;
   DELETE FROM public.salon_recovery_grants WHERE receipt_id=s.id;
-  DELETE FROM public.webhook_retry_queue WHERE registration_id=s.id;
+  DELETE FROM public.webhook_retry_queue q WHERE q.registration_id=s.id
+    OR (has_facility AND (q.target_id=f.id::text OR q.facility_id=f.id));
   DELETE FROM public.salons WHERE id=s.id;
   IF has_facility THEN DELETE FROM public.facility_profiles WHERE id=f.id; END IF;
 
