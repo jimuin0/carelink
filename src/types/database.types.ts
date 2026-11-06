@@ -6695,6 +6695,10 @@ export type Database = {
         Args: { p_actor: string; p_salon: string; p_deferred: boolean }
         Returns: Json
       }
+      delete_test_registration: {
+        Args: { p_actor: string; p_salon: string; p_expected_name: string }
+        Returns: Json
+      }
       facility_ready_for_auto_publication: {
         Args: { p_facility_id: string }
         Returns: boolean
