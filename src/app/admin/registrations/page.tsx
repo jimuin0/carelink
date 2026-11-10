@@ -23,6 +23,7 @@ export default function AdminRegistrationsPage() {
   const [confirmRejectSalon, setConfirmRejectSalon] = useState<Salon | null>(null);
   const [confirmApproveSalon, setConfirmApproveSalon] = useState<Salon | null>(null);
   const [confirmDeferSalon, setConfirmDeferSalon] = useState<Salon | null>(null);
+  const [confirmDeleteSalon, setConfirmDeleteSalon] = useState<Salon | null>(null);
   const [filters, setFilters] = useState<RegistrationListInput>({ field: 'facility', query: '', status: 'all', cursor: null, visibility: 'visible' });
   const [query, setQuery] = useState('');
   const [field, setField] = useState<RegistrationListInput['field']>('facility');
@@ -72,7 +73,7 @@ export default function AdminRegistrationsPage() {
 
   const invalidate = () => {
     ++generation.current; setLoading(true); setLoadError(false); setNextCursor(null);
-    setConfirmReject(false); setConfirmRejectSalon(null); setConfirmApproveSalon(null); setConfirmDeferSalon(null); setToast(null);
+    setConfirmReject(false); setConfirmRejectSalon(null); setConfirmApproveSalon(null); setConfirmDeferSalon(null); setConfirmDeleteSalon(null); setToast(null);
   };
   const applySearch = (event: React.FormEvent) => {
     event.preventDefault();
@@ -216,6 +217,37 @@ export default function AdminRegistrationsPage() {
       if (generation.current === ownGeneration) setProcessingId(null);
     }
   };
+  const deleteTestRegistration = async () => {
+    if (!confirmDeleteSalon || mutationLock.current) return;
+    const salon = confirmDeleteSalon;
+    setConfirmDeleteSalon(null);
+    mutationLock.current = true; setProcessingId(salon.id);
+    const ownGeneration = generation.current;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await fetch(`/api/admin/registrations/${salon.id}/test-deletion`, {
+        method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expected_name: salon.name }),
+      });
+      const result = await response.json();
+      if (generation.current !== ownGeneration) return;
+      if (response.status === 409 && typeof result?.error === 'string') { setToast({ type: 'error', message: result.error }); setReloadKey(key => key + 1); return; }
+      if (!response.ok || result?.success !== true) throw new Error('Unconfirmed deletion');
+      setToast(result.filesRemoved === true
+        ? { type: 'success', message: `${salon.name}を削除しました` }
+        : { type: 'error', message: `${salon.name}を削除しましたが、写真のファイルが一部残っています` });
+      setReloadKey(key => key + 1);
+    } catch {
+      if (generation.current === ownGeneration) {
+        uncertainRef.current = true; setMutationUncertain(true);
+        setToast({ type: 'error', message: '削除の結果を確認できません。一覧を再読み込みしてください。' });
+      }
+    } finally {
+      clearTimeout(timer); mutationLock.current = false;
+      if (generation.current === ownGeneration) setProcessingId(null);
+    }
+  };
   const doDefer = async () => {
     if (!confirmDeferSalon) return;
     const salon = confirmDeferSalon;
@@ -288,6 +320,7 @@ export default function AdminRegistrationsPage() {
         <p className="mt-2"><b>「書類は後から」</b>：すでにやりとりを進めていた店舗にだけ付けてください。付けた申込から作られた店舗は、書類の確認前でも公開でき、書類は公開後に提出してもらいます。</p>
         <p className="mt-2">「却下」すると、その申込からは店舗を作れなくなります（申込者への通知は送られません）。</p>
         <p className="mt-1">「一覧から隠す」は、この一覧の表示だけを変えます。申込・店舗・公開状態・通知は変わらず、データも削除しません。隠した申込は「表示する申込」で「一覧から隠した申込」を選ぶと確認でき、元に戻せます。</p>
+        <p className="mt-1">「削除」は、申込の種類を「テスト・検証用」にした申込にだけ出ます。申込と下書きの店舗を完全に消し、元に戻せません。公開中の店舗や、予約・顧客・口コミ・確認書類がある店舗は消せません。</p>
       </section>
       <RegistrationDuplicateLink />
       <ListingVerificationPending />
@@ -369,6 +402,7 @@ export default function AdminRegistrationsPage() {
                     onClick={() => salon.documents_deferred ? void updateDeferral(salon, false) : setConfirmDeferSalon(salon)}>
                     {salon.documents_deferred ? '書類を先に必須に戻す' : '書類は後からにする'}
                   </button>}
+                  {salon.classification === 'test' && <button type="button" className="underline text-red-700 disabled:opacity-50" disabled={processingId !== null || mutationUncertain} onClick={() => setConfirmDeleteSalon(salon)}>{`${salon.name}を削除`}</button>}
                 </div>
                 {salon.claimed_facility_id && <ListingVerificationReview key={salon.claimed_facility_id} facilityId={salon.claimed_facility_id} />}
               </div>
@@ -379,6 +413,15 @@ export default function AdminRegistrationsPage() {
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
+      <ConfirmDialog
+        open={confirmDeleteSalon !== null}
+        title="テスト用の申込を削除"
+        message={`${confirmDeleteSalon?.name}を完全に削除しますか？${confirmDeleteSalon?.claimed_facility_id ? 'この申込から作られた下書きの店舗と、その写真も一緒に消えます。' : ''}元に戻せません。ログインアカウントは消えません。`}
+        confirmLabel="削除する"
+        variant="danger"
+        onConfirm={deleteTestRegistration}
+        onCancel={() => setConfirmDeleteSalon(null)}
+      />
       <ConfirmDialog
         open={confirmDeferSalon !== null}
         title="書類は後からにする"
