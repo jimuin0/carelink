@@ -284,7 +284,7 @@ test.describe('/register 送信', () => {
       expect({ present: !!claim, secure: claim?.secure, httpOnly: claim?.httpOnly, sameSite: claim?.sameSite })
         .toEqual({ present: true, secure: true, httpOnly: true, sameSite: 'Lax' });
       await expect(page.getByRole('list', { name: '掲載までの4ステップ' }).locator('[aria-current="step"]')).toContainText('アカウント作成');
-      await expect(page.getByRole('heading', { name: '次にすること' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: '次は、アカウントの作成です' })).toBeVisible();
       await expect(page.getByRole('link', { name: '掲載までの流れ（図）' })).toHaveAttribute('href', '/register/guide');
       const guide = await page.context().newPage();
       await guide.goto('/register/guide');
