@@ -76,7 +76,7 @@ test.each([
   expect(await deliver()).toBe(outcome); expect(send).toHaveBeenCalledTimes(1);
   const [message, options] = send.mock.calls[0];
   expect(message.to).toBe(user.email); expect(message.html).toBeUndefined();
-  expect(message.text).toContain('一般公開の完了を意味しません');
+  expect(message.text).toContain('まだ一般公開されていません');
   expect(message.text).toContain('<script>synthetic</script>');
   expect(options.idempotencyKey).toBe('facility-welcome-v1-' + facilityId);
 });

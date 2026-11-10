@@ -80,7 +80,7 @@ test('empty confirmed list is different from retrieval failure',async()=>{
   expect(screen.queryByText('申込を選んでください')).not.toBeInTheDocument();
   const link=screen.getByRole('link',{name:'掲載申込ページを開く（新しいタブ）'});
   expect(link).toHaveAttribute('href','/register');expect(link).toHaveAttribute('target','_blank');
-  expect(screen.getByText(/すでに申し込んだ場合/)).toHaveTextContent('もう一度申し込む前に');
+  expect(screen.getByText(/申込済みの方は/)).toHaveTextContent('申し込み直す前に');
 });
 test('pagination sends only a keyset selector and no re-registration',async()=>{
   mockFetch.mockResolvedValue(response({...ready,next:receiptId}));render(<RecoverRegistrationPage/>);

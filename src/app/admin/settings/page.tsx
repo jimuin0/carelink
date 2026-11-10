@@ -329,7 +329,7 @@ function AdminSettingsContent() {
       const saved = autoPublished ? '施設情報を保存し、運営の確認が済んでいるため店舗を公開しました'
         // 書類の確認後に店舗名・所在地が変わった（または掲載申込が却下されている）ため、公開ゲートが止めた。
         : result?.publicationBlocked === true
-          ? '施設情報を保存しました。ただし、運営が書類を確認した後に店舗名・所在地が変わっているため、まだ公開できません。施設設定から確認書類を提出し直してください（掲載申込が却下されている場合は公開できません）'
+          ? '施設情報を保存しました。書類の確認後に店舗名・所在地が変わったため、まだ公開できません。施設設定から確認書類を提出し直してください（掲載申込が却下されている場合は公開できません）'
           : '施設情報を保存しました';
       setToast({
         type: hoursWarning || result?.publicationBlocked === true ? 'info' : 'success',
@@ -412,7 +412,7 @@ function AdminSettingsContent() {
   return (
     <div onChange={() => setDirty(true)}>
       <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/settings" dirty={dirty || specialDirty} busy={saving || publishToggling || specialBusy} />
-      <p className="mb-4 text-sm text-gray-600">無料掲載とネット予約は別です。{LISTING_PUBLISH_REQUIREMENT}ネット予約は、さらに公開メニュー・写真・勤務時間を保存したスタッフがそろうまで利用できません。予約管理表は引き続き利用できます。</p>
+      <p className="mb-4 text-sm text-gray-600">{LISTING_PUBLISH_REQUIREMENT}ネット予約には、さらに公開メニュー・写真・勤務時間を保存したスタッフが必要です。</p>
       <SbPageHeader
         title="施設設定"
         actions={
@@ -443,7 +443,7 @@ function AdminSettingsContent() {
       {facilityStatus === 'published' && slug && (
         <p className="mb-4 text-sm">
           <Link href={`/facility/${encodeURIComponent(slug)}`} target="_blank" rel="noopener noreferrer" className="font-bold text-sky-700 underline">掲載ページを見る</Link>
-          <span className="ml-2 text-gray-600">（お客様に表示されている内容を確認できます）</span>
+          <span className="ml-2 text-gray-600">（お客様が見る画面）</span>
         </p>
       )}
 
@@ -574,7 +574,7 @@ function AdminSettingsContent() {
         {submittedHoursText && <p className="text-sm whitespace-pre-wrap mb-3">申込時の営業時間：{submittedHoursText}</p>}
         {!hoursConfirmed && (
           <p className="text-sm text-amber-800 mb-3">
-            曜日別の営業時間はまだ保存されていません。営業する曜日の開店・閉店時間を入力し、休みの曜日は「営業」のチェックを外して保存してください。営業時間は無料掲載の公開に必要です。保存するとネット予約の空き枠とスタッフの勤務時間の下書きにも使われます。
+            営業時間の保存は公開に必要です。休みの曜日は「営業」のチェックを外して保存してください。
           </p>
         )}
         <FieldError id="fac-hours-error" message={fieldErrors.business_hours} />
@@ -588,8 +588,7 @@ function AdminSettingsContent() {
             <input type="checkbox" checked={showBusinessStatus} onChange={event => { setShowBusinessStatus(event.target.checked); setDirty(true); }} />
             公開ページに「営業中」などの自動表示を出す
           </label>
-          <p className="mt-1.5 text-sm leading-6 text-gray-600">非表示にもできます。</p>
-        </div>
+                  </div>
         <div className="mt-4">
           <label htmlFor="fac-holiday" className="form-label">定休日（補足）</label>
           <SbInput id="fac-holiday" value={regularHoliday} onChange={(e) => setRegularHoliday(e.target.value)} placeholder="例: 第2・4月曜、年末年始" maxLength={FACILITY_INPUT_LIMITS.regularHoliday} />
@@ -610,7 +609,7 @@ function AdminSettingsContent() {
           <div>
             <p className="text-sm font-medium text-gray-800">予約を即時確定する</p>
             <p className="text-xs text-gray-500 mt-0.5">
-              ONにすると、ユーザーが予約した際に自動で「確定」状態になります。OFFの場合は「確認待ち」として管理画面で手動確定が必要です。
+              OFFのときは「確認待ち」になり、管理画面で確定します。
             </p>
           </div>
         </label>
@@ -619,7 +618,7 @@ function AdminSettingsContent() {
             施術後の準備時間（次の予約までの空け時間）
           </label>
           <p className="text-xs text-gray-500 mb-2">
-            施術が終わってから次の予約を受けるまでに空けておく時間です。片付け・準備に使います。この時間はネット予約の空き枠として表示されません。
+            片付け・準備の時間です。この間はネット予約を受け付けません。
           </p>
           <div className="flex items-center gap-3">
             <select
@@ -639,7 +638,7 @@ function AdminSettingsContent() {
             予約表の時間の区切り
           </label>
           <p className="text-xs text-gray-500 mb-2">
-            予約表（スタッフごとの時間割）の目盛りの幅です。予約表の空いている時間を押して予約を入れるとき、開始時刻はこの間隔で選ばれます。
+            予約表の目盛りの幅です。予約を入れるときの開始時刻もこの間隔になります。
           </p>
           <div className="flex items-center gap-3">
             <select

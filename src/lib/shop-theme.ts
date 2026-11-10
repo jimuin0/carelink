@@ -1,5 +1,5 @@
 /** 利用者向けは青、店舗向けはエクリュ＋ローズブラウン。全ての外枠が同じ判定を使う。 */
-export const ECRU_SHOP_PATHS: readonly string[] = ['/register', '/register/complete', '/register/recover'];
+export const ECRU_SHOP_PATHS: readonly string[] = ['/register', '/register/guide', '/register/complete', '/register/recover'];
 const SHARED_AUTH_PATHS: readonly string[] = ['/auth/login', '/auth/signup', '/auth/forgot-password', '/auth/reset-password'];
 
 export function isEcruShopPath(pathname: string | null | undefined, redirect: string | null = null): boolean {

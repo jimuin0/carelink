@@ -82,10 +82,12 @@ describe('/register の訴求部分', () => {
     expect(within(table).getByRole('columnheader', { name: 'CareLink' })).toBeInTheDocument();
   });
 
-  it('掲載までの流れが 3 段で出ている', () => {
-    for (const step of ['基本情報を入力', 'アカウントを作成', '掲載を準備']) {
-      expect(screen.getByText(step)).toBeInTheDocument();
-    }
+  it('掲載までの流れが、他の画面と同じ 4 ステップの図で出ている', () => {
+    const flow = within(screen.getByRole('list', { name: '掲載までの4ステップ' })).getAllByRole('listitem');
+    expect(flow.map(item => item.textContent)).toEqual([
+      expect.stringContaining('申し込む'), expect.stringContaining('アカウント作成'),
+      expect.stringContaining('書類の提出'), expect.stringContaining('公開'),
+    ]);
   });
 
   it('フォームは同じページ内に残っている（訴求だけの別ページにしない）', () => {
@@ -93,12 +95,11 @@ describe('/register の訴求部分', () => {
   });
 
   it('無料掲載、受付と公開の違い、現行の複数店の制約と安全な再送を説明する', () => {
-    expect(screen.getByText(/この掲載申込で有料プランや決済契約を申し込むことはありません/)).toBeInTheDocument();
-    expect(screen.getByText(/受付完了と一般公開は別の手続き/)).toBeInTheDocument();
-    expect(screen.getByText(/運営が店舗情報と申請者の管理権限を確認した後/)).toBeInTheDocument();
-    expect(screen.getByText(/同じ確認済みメールアドレスのアカウントで各申込を引き継ぎ/)).toBeInTheDocument();
-    expect(screen.getByText(/重複を避けるため連続送信せず/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '施設掲載について運営に問い合わせる' })).toHaveAttribute('href', '/contact');
+    expect(screen.getByText(/この申込で有料プランの契約にはなりません/)).toBeInTheDocument();
+    expect(screen.getByText(/上の4ステップを終えると公開されます/)).toBeInTheDocument();
+    expect(screen.getByText(/1つのアカウントでまとめて管理できます/)).toBeInTheDocument();
+    expect(screen.getByText(/続けて送信せず、画面の案内に従ってください/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '運営に問い合わせる' })).toHaveAttribute('href', '/contact');
   });
 });
 
