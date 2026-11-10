@@ -139,3 +139,15 @@ DB は移行で変更しないので、DB の戻しは要らない。
 - **Vercel の後片付け**：切り替え後 2 週間は戻し先として残す。その後、Git 連携の停止・プロジェクト削除は本人の承認後。
 - **アカウント名の変更**：本人が後で表示名を変えたい（2026-11-05）。名前は表示だけで、Worker・ドメインはアカウント ID にひも付くため影響なし。
 - **CLAUDE.md・`docs/MANUAL.md` の記載（デプロイ＝Vercel）の更新**：切り替えが済んでから行う。
+
+## 残作業と完了条件（2026-11-11 時点）
+
+- 秘密値：`SLACK_DEFAULT_CHANNEL`（Render と同じチャンネル）・`OPERATOR_NOTIFY_EMAIL`（support@carelink-jp.com）は登録済み。
+  `EMAIL_FROM` は未設定（既定の noreply@carelink-jp.com）。**`SLACK_BOT_TOKEN`・`SLACK_SIGNING_SECRET` は未登録で、切り替え前に本人が貼る。**
+- このブランチは origin/main より遅れている。PR を出す前に main を取り込み、`npm run build:vinext` と Worker 側 node テストをやり直す。
+- 完了の定義：本人の操作・承認を必要としない項目がすべて証跡つきで完了し、残りは本人の操作・承認だけを待つ状態であること。
+  本番切り替え・DNS・main へのマージ・本番 DB・有料機能・Vercel の停止は、本人の明示の承認なしに行わない。
+- 残り：Slack の秘密値 2 個 → 切り替えの承認 → ルート 2 本と A / CNAME のプロキシ化 → 公開ページ・health・転送 →
+  Render cron（`cron_logs`）→ ログイン 3 方式と管理画面（本人）→ Stripe・LINE の webhook（本人）→ メール送受信 →
+  確認用ホストの撤去 → main マージ後の自動配信（方式は本人が決める）→ PR・マージ（承認制）→ 2 週間後に Vercel の後片付け（承認制）。
+- 切り替え後に CLAUDE.md・AGENTS.md・RESUME.md の「デプロイ＝Vercel」を実態に合わせて直す。Speed Insights の代わりは本人に確認する。
