@@ -196,7 +196,7 @@ test('保存できたが公開ゲートが止めたときは、書類の提出�
   render(<AdminSettingsPage />);
   await screen.findByDisplayValue('合成店舗B');
   fireEvent.click(screen.getAllByRole('button', { name: '保存する' })[0]);
-  await screen.findByText(/まだ公開できません。施設設定から確認書類を提出し直してください/);
+  await screen.findByText(/書類の確認後に店舗名・所在地が変わったため、まだ公開できません。施設設定から確認書類を提出し直してください/);
   expect(screen.queryAllByText('公開中')).toHaveLength(0);
 });
 
@@ -409,7 +409,7 @@ describe('公開には営業時間が要る', () => {
     render(<AdminSettingsPage />);
     await screen.findByDisplayValue('合成店舗B');
     expect(screen.getByText(/無料掲載の公開には、店舗名・所在地・曜日別の営業時間（定休日を含む）の設定が必要です。/)).toBeTruthy();
-    expect(screen.getByText(/営業時間は無料掲載の公開に必要です。/)).toBeTruthy();
+    expect(screen.getByText(/営業時間の保存は公開に必要です。/)).toBeTruthy();
   });
 });
 

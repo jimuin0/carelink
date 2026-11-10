@@ -58,7 +58,7 @@ describe('formatMegabytes', () => {
 describe('写真の要否の文言（単一ソース）', () => {
   test('掲載公開に写真は不要・ネット予約には1枚以上、という実際の判定と一致する', () => {
     expect(BOOKING_MIN_PHOTOS).toBe(1);
-    expect(REGISTER_PHOTO_REQUIREMENT).toContain('写真がなくても掲載公開できます');
+    expect(REGISTER_PHOTO_REQUIREMENT).toContain('写真なしでも掲載できます');
     expect(REGISTER_PHOTO_REQUIREMENT).toContain('ネット予約');
     expect(REGISTER_PHOTO_FIELD_NOTE).toContain(REGISTER_PHOTO_REQUIREMENT);
     // 旧文言「公開時には写真の設定が必要です」は FAQ・公開ゲートと矛盾していた。

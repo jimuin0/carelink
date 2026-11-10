@@ -507,7 +507,9 @@ describe('店舗アカウント作成（掲載申込の続き）', () => {
     render(<SignupPage />);
     expect(screen.getByRole('heading', { level: 1, name: '店舗アカウントの作成' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 1, name: '新規登録' })).not.toBeInTheDocument();
-    expect(screen.getByText('申込と同じメールアドレスで作成してください')).toBeVisible();
+    expect(screen.getByText('申込と同じメールアドレスで作ってください（申込内容を引き継ぎます）。')).toBeVisible();
+    expect(screen.getByRole('list', { name: '掲載までの4ステップ' })).toBeInTheDocument();
+    expect(screen.getByText('いまここ')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '施設を探す' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '店舗アカウントを作成' })).toBeInTheDocument();
     // バックエンドが使う必須項目（電話番号・都道府県）は残す
@@ -519,7 +521,8 @@ describe('店舗アカウント作成（掲載申込の続き）', () => {
     mockSearchParams = new URLSearchParams({ redirect: '/mypage/bookings' });
     render(<SignupPage />);
     expect(screen.getByRole('heading', { level: 1, name: '新規登録' })).toBeInTheDocument();
-    expect(screen.queryByText('申込と同じメールアドレスで作成してください')).not.toBeInTheDocument();
+    expect(screen.queryByText('申込と同じメールアドレスで作ってください（申込内容を引き継ぎます）。')).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: '掲載までの4ステップ' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: '施設を探す' })).toBeInTheDocument();
     await waitFor(() => expect(mockGetUser).toHaveBeenCalled());
   });
