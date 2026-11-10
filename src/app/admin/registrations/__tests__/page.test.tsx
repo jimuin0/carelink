@@ -383,3 +383,71 @@ test.each([
   render(<Page />); await screen.findByText('合成施設');
   expect(screen.getByText(new RegExp(text))).toBeVisible();
 });
+
+describe('テスト用の申込の削除', () => {
+  const testRow = { ...row, classification: 'test' };
+  const deleteButton = () => screen.findByRole('button', { name: '合成施設を削除' });
+  const confirm = async () => {
+    fireEvent.click(await deleteButton());
+    fireEvent.click(await screen.findByRole('button', { name: '削除する' }));
+  };
+  const withDeletion = (result: Response | Promise<Response>) => {
+    mockFetch.mockReset();
+    mockFetch.mockImplementation((url: string) => String(url).endsWith('/test-deletion') ? result : Promise.resolve(response({ salons: [testRow], nextCursor: null })));
+  };
+
+  test.each([[null], ['real'], ['unknown']])('種類が %s の申込には削除ボタンを出さない', async classification => {
+    mockFetch.mockResolvedValue(response({ salons: [{ ...row, classification }], nextCursor: null }));
+    render(<Page />);
+    expect(await screen.findByText('合成施設')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '合成施設を削除' })).toBeNull();
+  });
+  test('確認で取り消せば、何も送らない', async () => {
+    withDeletion(response({ success: true, filesRemoved: true }));
+    render(<Page />);
+    fireEvent.click(await deleteButton());
+    fireEvent.click(await screen.findByRole('button', { name: 'キャンセル' }));
+    expect(mockFetch.mock.calls.some(([url]) => String(url).endsWith('/test-deletion'))).toBe(false);
+  });
+  test('店舗がある申込は、店舗も消えることを確認に出す', async () => {
+    mockFetch.mockResolvedValue(response({ salons: [{ ...testRow, claimed_facility_id: '74000000-0000-4000-8000-000000000009' }], nextCursor: null }));
+    render(<Page />);
+    fireEvent.click(await deleteButton());
+    expect(await screen.findByText(/下書きの店舗と、その写真も一緒に消えます。元に戻せません。ログインアカウントは消えません。/)).toBeVisible();
+  });
+  test('削除できたら店舗名を送り、一覧を読み直す', async () => {
+    withDeletion(response({ success: true, filesRemoved: true }));
+    render(<Page />);
+    await confirm();
+    expect(await screen.findByText('合成施設を削除しました')).toBeVisible();
+    const call = mockFetch.mock.calls.find(([url]) => String(url).endsWith('/test-deletion'))!;
+    expect(call[0]).toBe(`/api/admin/registrations/${id}/test-deletion`);
+    expect(JSON.parse(call[1].body)).toEqual({ expected_name: '合成施設' });
+    await waitFor(() => expect(mockFetch.mock.calls.filter(([url]) => url === '/api/admin/registrations').length).toBeGreaterThan(1));
+  });
+  test('写真が残ったら、残ったことを伝える', async () => {
+    withDeletion(response({ success: true, filesRemoved: false }));
+    render(<Page />);
+    await confirm();
+    expect(await screen.findByText('合成施設を削除しましたが、写真のファイルが一部残っています')).toBeVisible();
+  });
+  test('断られたら理由を出す', async () => {
+    withDeletion({ ok: false, status: 409, json: async () => ({ error: '予約・顧客・口コミ・確認書類などがあるため削除できません。' }) } as Response);
+    render(<Page />);
+    await confirm();
+    expect(await screen.findByText('予約・顧客・口コミ・確認書類などがあるため削除できません。')).toBeVisible();
+  });
+  test('結果が分からないときは、削除できたと言わず操作を止める', async () => {
+    withDeletion(Promise.reject(new Error('network')));
+    render(<Page />);
+    await confirm();
+    expect(await screen.findByText('削除の結果を確認できません。一覧を再読み込みしてください。')).toBeVisible();
+    expect(screen.getByRole('button', { name: '合成施設を削除' })).toBeDisabled();
+  });
+  test('成功と言えない応答も、削除できたとは言わない', async () => {
+    withDeletion(response({ success: false }, false));
+    render(<Page />);
+    await confirm();
+    expect(await screen.findByText('削除の結果を確認できません。一覧を再読み込みしてください。')).toBeVisible();
+  });
+});
