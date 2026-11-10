@@ -201,6 +201,7 @@ describe('logCronRun', () => {
     await logCronRun('test-job', 'success', new Date());
     expect(pushAdminHeartbeat).toHaveBeenCalledWith('test-job', 'degraded');
     expect(alertWarning).toHaveBeenCalledWith(expect.any(String), {
+      category: '監視・基盤',
       route: '/api/cron/test-job',
       extra: { job_name: 'test-job', execution_status: 'success', log_persisted: false },
     });

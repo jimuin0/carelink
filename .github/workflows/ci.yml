@@ -104,7 +104,8 @@ jobs:
 
   e2e-test:
     name: E2E Tests (Playwright)
-    runs-on: ubuntu-latest
+    # Playwright 1.59.1 cannot install Chromium on Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     # 🔴 上限を明示する。GitHub の既定は 6 時間で、外部ダウンロードが停滞すると
     #   1 件のジョブがランナーを 6 時間占有する（2026年8月19日に E2E の
     #   "Install Playwright Browsers" が 5 時間 58 分ハングして実際に起きた）。
