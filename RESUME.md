@@ -42,8 +42,8 @@ Stripe/決済、キャンセル待ち、Google時差、LINE解除、実顧客返
 
 ## 外部環境・認証
 
-本番 https://carelink-jp.com はVercel、DB/Auth/StorageはSupabase project `xzafxiupbflvgbarrihe`。Renderはworkspace jimuin、既存carelink-cron-envと業務cron。GitHub Secretsはcloneされない。実行コード・デプロイ設定から抽出した変数名は [env索引](docs/handoff/environment-names.json)、テンプレートは.env.example。値は保存しない。
-Vercel projectのdeploy/env管理権限、Supabase project SQL/backup/Storage権限、Render workspace読取/必要時deploy権限、GitHub push権限を別アカウントに本人が許可する必要がある。公開repoのcloneは認証不要、push権限は未確認。本人OAuth同意は移転不可。Stripe/LINE/Google/Resend/Slack/Anthropic等は各サービス管理者が必要時に最小権限で再接続する。期限・プラン・各Secret設定有無は今回未確認であり既設定と推測しない。NEWSLETTER_UNSUBSCRIBE_SECRET/VAPIDの無計画な再発行は既存リンク/購読を壊すため避ける。
+本番 https://carelink-jp.com はCloudflare Workers（2026-11-11にVercelから切り替え・アカウント carelink・Worker 名 carelink。mainのCI成功後にGitHub Actionsが自動配信）、DB/Auth/StorageはSupabase project `xzafxiupbflvgbarrihe`。Renderはworkspace jimuin、既存carelink-cron-envと業務cron。GitHub Secretsはcloneされない。実行コード・デプロイ設定から抽出した変数名は [env索引](docs/handoff/environment-names.json)、テンプレートは.env.example。値は保存しない。
+Cloudflareアカウント carelink のWorkers deploy/secret管理権限（Vercelを片付けるまではVercel projectも）、Supabase project SQL/backup/Storage権限、Render workspace読取/必要時deploy権限、GitHub push権限を別アカウントに本人が許可する必要がある。公開repoのcloneは認証不要、push権限は未確認。本人OAuth同意は移転不可。Stripe/LINE/Google/Resend/Slack/Anthropic等は各サービス管理者が必要時に最小権限で再接続する。期限・プラン・各Secret設定有無は今回未確認であり既設定と推測しない。NEWSLETTER_UNSUBSCRIBE_SECRET/VAPIDの無計画な再発行は既存リンク/購読を壊すため避ける。
 DB業務データ・Auth・Storageは既存クラウド側に残る。新Mac開発のための本番DB複製は不要。災害復旧にはSupabase管理者によるbackup/PITRの可用性・Storage別バックアップと秘密管理庫を別途確認する。今回は取得・移行・復元実証していない。
 
 ## 競合と履歴
@@ -52,7 +52,7 @@ DB業務データ・Auth・Storageは既存クラウド側に残る。新Mac開�
 
 ## 配信・復旧
 
-コード変更時は現行CIのcoverage100%・型・lint・E2E/DB契約を維持し、対象commitを固定する。main更新だけで配信完了としない。Vercel READY/health/version、Render実行版と本番DBmigrationを個別に照合。以前の配信をpromote/rollbackする際は現行DBとの互換性を検証し、適用済みmigrationを安易に逆実行しない。cron rollbackは専用文書の所有権切替順を守る。今回の引継ぎ文書追加はアプリ挙動を変更しない。
+コード変更時は現行CIのcoverage100%・型・lint・E2E/DB契約を維持し、対象commitを固定する。main更新だけで配信完了としない。Deploy Cloudflare Worker の成功とhealth/version、Render実行版と本番DBmigrationを個別に照合。以前の配信をpromote/rollbackする際は現行DBとの互換性を検証し、適用済みmigrationを安易に逆実行しない。cron rollbackは専用文書の所有権切替順を守る。今回の引継ぎ文書追加はアプリ挙動を変更しない。
 
 ## 別Macでの再開についての確認範囲
 
@@ -64,7 +64,7 @@ DB業務データ・Auth・Storageは既存クラウド側に残る。新Mac開�
 2. **新GitHubアカウントで招待を承諾する。** 公開コードの取得だけなら招待不要ですが、元リポジトリへ変更を保存するには必要です。
 3. **新Macで、使用するアカウントのCodexと新GitHubアカウントへログインする。** Codexの利用契約・ログインと、GitHubのアクセス権は別です。旧MacのCookieや秘密鍵をコピーして渡す必要はありません。
 4. **新MacのCodexへ、末尾の依頼文を貼る。** リポジトリの取得、ファイル照合、必要な環境準備はAIに任せてください。
-5. **外部サービスの認証を求められた場合だけ対応する。** 最初はRenderのworkspace「jimuin」。VercelのCareLink、Supabaseのproject `xzafxiupbflvgbarrihe`は、必要な作業時に本人認証・アクセス許可を行ってください。GitHubへの招待だけでは、外部サービスの権限やSecretは移りません。課金が発生する変更は、その場で判断してください。
+5. **外部サービスの認証を求められた場合だけ対応する。** 最初はRenderのworkspace「jimuin」。CloudflareのアカウントcarelinkとVercelのCareLink、Supabaseのproject `xzafxiupbflvgbarrihe`は、必要な作業時に本人認証・アクセス許可を行ってください。GitHubへの招待だけでは、外部サービスの権限やSecretは移りません。課金が発生する変更は、その場で判断してください。
 6. **復号鍵は、今は渡さなくて大丈夫です。** 今回は暗号化した移送パッケージを作成しておらず、現行コードの再開に復号鍵は不要です。過去の機密資料を後から移す場合だけ、暗号化ファイルと鍵を別経路で渡します。鍵はパスワード管理庫などで個別共有し、GitHub・Issue・PR・チャットには記載しないでください。
 
 公開GitHubの非機密restart-evidence.tar.gzはgzip圧縮であり暗号化ではありません。元の私的資料は保持し、後日必要なら宛先と暗号方式を決め、暗号化ファイルとSHA256を承認済み経路へ、鍵を別経路へ渡し、受信側の照合・実復号成功まで移行済みとしません。本人以外への招待・権限拡大は勝手に実行しません。[GitHub公式の招待手順](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/repository-access-and-collaboration/inviting-collaborators-to-a-personal-repository)。
