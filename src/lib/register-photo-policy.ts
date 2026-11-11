@@ -27,7 +27,7 @@ export const LISTING_PUBLISH_ITEMS = '店舗名・所在地・曜日別の営業
 export const LISTING_PUBLISH_REQUIREMENT = `無料掲載の公開には、${LISTING_PUBLISH_ITEMS}の設定が必要です。`;
 
 /** 写真の要否を一文で。FAQ・フォームの両方がこれを使う。 */
-export const REGISTER_PHOTO_REQUIREMENT = `写真がなくても掲載公開できます。ネット予約を始めるには写真が${BOOKING_MIN_PHOTOS}枚以上必要です。`;
+export const REGISTER_PHOTO_REQUIREMENT = `写真なしでも掲載できます（ネット予約には${BOOKING_MIN_PHOTOS}枚以上）。`;
 
 /** 申込フォームの写真欄に添える注記。 */
 export const REGISTER_PHOTO_FIELD_NOTE = `任意・最大${REGISTER_MAX_PHOTOS}枚。${REGISTER_PHOTO_REQUIREMENT}`;

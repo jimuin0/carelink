@@ -13,8 +13,8 @@ type Props = {
 export default function ListingEvidencePicker({ type, file, onTypeChange, onFileChange }: Props) {
   return (
     <fieldset className="space-y-3">
-      <legend className="form-label">店舗を確認できる書類を１点ご提出ください</legend>
-      <p className="text-sm">開設届出済証、検査確認済証、店舗の契約書などが使えます。内容を確認できない場合や、申請者と運営者が異なる場合は、追加資料をお願いすることがあります。</p>
+      <legend className="form-label">店舗を確認できる書類（1点）</legend>
+      <p className="text-sm">開設届・営業許可、店舗の賃貸借契約書、公共料金の請求書など。追加の資料をお願いすることがあります。</p>
       <label htmlFor="listing-evidence-type" className="form-label">書類の種類</label>
       <select id="listing-evidence-type" className="form-input" value={type}
         onChange={event => {

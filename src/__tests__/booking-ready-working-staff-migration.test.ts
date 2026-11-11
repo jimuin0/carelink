@@ -127,7 +127,7 @@ describe('最後に適用される定義が「勤務時間のある在籍スタ�
   test('施設設定の注意書きも「勤務時間を保存したスタッフ」を条件として案内する', () => {
     const settings = readFileSync(join(ROOT, 'src/app/admin/settings/page.tsx'), 'utf8');
     // 全曜日の営業時間は 2026年10月23日から無料掲載の公開条件（LISTING_PUBLISH_REQUIREMENT）として先に案内する。
-    expect(settings).toContain('{LISTING_PUBLISH_REQUIREMENT}ネット予約は、さらに公開メニュー・写真・勤務時間を保存したスタッフがそろうまで利用できません。');
+    expect(settings).toContain('{LISTING_PUBLISH_REQUIREMENT}ネット予約には、さらに公開メニュー・写真・勤務時間を保存したスタッフが必要です。');
     expect(settings).not.toContain('有効スタッフ');
   });
 });

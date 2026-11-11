@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import RegistrationFlow from '@/components/register/RegistrationFlow';
 import Button from '@/components/ui/Button';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { z } from 'zod';
@@ -129,17 +130,17 @@ function RecoverRegistrationContent() {
     <h1 className="text-2xl font-bold mb-3">掲載申込の続き</h1>
     {fromHandoff && (!loaded || receipts.length > 0) && <div className="mb-6 rounded-xl bg-sky-50 p-4 text-sm leading-6 text-sky-900" data-testid="handoff-recovery-guide">
       <p className="font-bold">申込を選んでください</p>
-      <p className="mt-2">申込情報を引き継ぐため、下から選び直してください。再申込は不要です。</p>
+      <p className="mt-2">申し込み直す必要はありません。</p>
     </div>}
-    {(!loaded || receipts.length > 0) && <><p className="mb-2 text-base leading-7">続ける申込を選んでください。内容を確認してから、掲載設定に進みます。</p>
-    <p className="mb-6 text-sm text-(--ecru-muted)">選んだだけでは公開されません。</p></>}
+    <RegistrationFlow current="account" className="mb-8" />
+    {(!loaded || receipts.length > 0) && <p className="mb-6 text-base leading-7">続ける申込を選んでください。</p>}
     {busy && <p role="status">受付情報を確認しています…</p>}
     {error && <p role="alert" className="text-red-600 mb-4">{error}</p>}
     {loaded && !error && receipts.length === 0 && <div className="mb-6 space-y-4 leading-7">
       <p className="font-bold">引き継げる掲載申込が見つかりませんでした</p>
-      <p>まだ店舗の掲載を申し込んでいない場合は、掲載申込ページから店舗ごとにお申し込みください。アカウントと同じメールアドレスをご入力ください。</p>
+      <p>まだの方は、このアカウントと同じメールアドレスで申し込んでください。</p>
       <Link href="/register" target="_blank" rel="noopener noreferrer" className="inline-block underline underline-offset-4">掲載申込ページを開く（新しいタブ）</Link>
-      <p>すでに申し込んだ場合は、申込時のメールアドレスをご確認ください。重複を防ぐため、もう一度申し込む前に<Link href="/contact" className="underline">お問い合わせ</Link>ください。</p>
+      <p>申込済みの方は、申込時のメールアドレスをご確認のうえ、申し込み直す前に<Link href="/contact" className="underline">お問い合わせ</Link>ください。</p>
     </div>}
     <ul className="space-y-5 mb-6">{receipts.map(receipt => <li key={receipt.receipt_id} className="rounded-xl border border-(--ecru-line) bg-(--ecru-surface) p-5 sm:p-6">
       <p className="break-words text-lg font-bold leading-7">{receipt.facility_name}</p>
@@ -151,7 +152,7 @@ function RecoverRegistrationContent() {
     <Button variant="secondary" disabled={busy} onClick={() => void load()} className="mb-6">一覧を更新</Button>
     <details className="border-t border-(--ecru-line) pt-5 text-sm leading-6 text-(--ecru-muted)">
       <summary className="cursor-pointer">申込が見つからない・引き継げない場合</summary>
-      <p className="mt-3">確認済みのメールアドレスに一致する申込だけを表示しています。別のメールでの申込や、他の管理者が引き継いだ申込は自動で取り込めません。</p>
+      <p className="mt-3">このアカウントと同じメールアドレスの申込だけが表示されます。ほかの方が引き継いだ申込は表示されません。</p>
       <p className="mt-3">重複した店舗の統合は、<Link href="/contact" className="underline">お問い合わせ</Link>から受付番号をお知らせください。</p>
     </details>
   </div>;

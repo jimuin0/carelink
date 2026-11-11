@@ -31,28 +31,28 @@ async function fill(v2Enabled = true) {
  for (const [label, value] of [[/^店舗名/, 'Synthetic local fence'], [/^業種/, 'ヘアサロン'], [/^代表者名/, 'Synthetic'], [/^メールアドレス/, 'synthetic@example.invalid'], [/^電話番号/, '09012345678']] as const)
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
  fireEvent.click(screen.getByRole('button', { name: '次へ' })); await screen.findByLabelText(/^郵便番号/);
- fireEvent.click(screen.getByRole('button', { name: '次へ' })); await screen.findByRole('button', { name: '登録する' });
+ fireEvent.click(screen.getByRole('button', { name: '次へ' })); await screen.findByRole('button', { name: '申し込む' });
  screen.getAllByRole('checkbox').forEach(box => fireEvent.click(box));
 }
 async function submit() {
- fireEvent.click(screen.getByRole('button', { name: '登録する' }));
- const dialog = await screen.findByRole('dialog'); fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
+ fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
+ const dialog = await screen.findByRole('dialog'); fireEvent.click(within(dialog).getByRole('button', { name: 'この内容で申し込む' }));
 }
 test.each([true,false])('failed local pretransport fence blocks all V1/V2 requests: %s', async v2 => {
  mockFence.mockResolvedValue(false); await fill(v2); await submit(); await waitFor(() => expect(mockFence).toHaveBeenCalledTimes(1));
  expect(mockFetch).not.toHaveBeenCalled(); expect(mockUpload).not.toHaveBeenCalled(); expect(mockPush).not.toHaveBeenCalled();
- expect(screen.getByRole('button', { name: '登録する' })).toBeEnabled();
+ expect(screen.getByRole('button', { name: '申し込む' })).toBeEnabled();
 });
 test('unexpected fence exception is visible and never leaves submission spinner or starts transport', async () => {
  mockFence.mockRejectedValue(new Error('synthetic fence fault')); await fill(); await submit();
  await screen.findByText('端末の下書きを確認できませんでした。送信せず、入力と元の写真を保持しています。');
- expect(mockFetch).not.toHaveBeenCalled(); expect(screen.getByRole('button', { name: '登録する' })).toBeEnabled();
+ expect(mockFetch).not.toHaveBeenCalled(); expect(screen.getByRole('button', { name: '申し込む' })).toBeEnabled();
 });
 test('verified receipt survives local delete failure with explicit receipt link and no resend', async () => {
  mockConfirmed.mockRejectedValue(new Error('synthetic quota')); mockFetch.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(response(201, { state: 'committed', receiptId }));
  await fill(); await submit(); await screen.findByText(/掲載申込の受付は確認済みです/);
  expect(screen.getByRole('link', { name: '受付内容を確認する' })).toHaveAttribute('href', '/register/complete?handoff=registration');
- expect(mockPush).not.toHaveBeenCalled(); expect(screen.getByRole('button', { name: '登録する' })).toBeDisabled();
+ expect(mockPush).not.toHaveBeenCalled(); expect(screen.getByRole('button', { name: '申し込む' })).toBeDisabled();
  expect(JSON.parse(sessionStorage.getItem(SALON_BROWSER_CONTEXT_KEY)!).phase).toBe('confirmed');
  expect(screen.queryByText(/送信結果を確認できませんでした/)).not.toBeInTheDocument();
  // 案内文が指す「端末の下書きを削除」は畳んだ操作欄の中にあるので、自動で開いて見せる。

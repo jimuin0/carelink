@@ -97,10 +97,10 @@ test('確認ダイアログの確定ボタンを連打しても /api/salons/comm
   // Step3
   await screen.findByRole('textbox', { name: /^PR文/ });
   checkAllConsents();
-  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
 
   const dialog = await screen.findByRole('dialog');
-  const confirmButton = within(dialog).getByRole('button', { name: '送信する' });
+  const confirmButton = within(dialog).getByRole('button', { name: 'この内容で申し込む' });
   // 同一tick内での連打を再現（1つの act() にまとめ、1クリック目のReact再レンダーが
   // コミットされる前に2クリック目のハンドラが実行される race window を突く）
   act(() => {
@@ -132,10 +132,10 @@ test('/api/salons/commit への送信ボディに source: "register" が含ま�
 
   await screen.findByRole('textbox', { name: /^PR文/ });
   checkAllConsents();
-  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
 
   const dialog = await screen.findByRole('dialog');
-  fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'この内容で申し込む' }));
 
   await waitFor(() => expect(pushMock).toHaveBeenCalled());
   const [, options] = fetchMock.mock.calls.find(([url]) => url === '/api/salons/commit')!;
@@ -169,7 +169,7 @@ describe('許認可・届出の表明保証チェック', () => {
   async function pressRegisterAndExpectBlocked(remaining: number) {
     const fetchMock = jest.fn((url: string) => submissionResponse(url));
     global.fetch = fetchMock as unknown as typeof fetch;
-    const button = screen.getByRole('button', { name: '登録する' });
+    const button = screen.getByRole('button', { name: '申し込む' });
     expect(button).toBeEnabled();
     fireEvent.click(button);
     expect(await screen.findByRole('alert')).toHaveTextContent(`必須の同意にチェックしてください（残り${remaining}件）`);
@@ -221,6 +221,6 @@ describe('許認可・届出の表明保証チェック', () => {
   test('両方チェック → 登録ボタンが押せる', async () => {
     await advanceToStep3();
     checkAllConsents();
-    expect(screen.getByRole('button', { name: '登録する' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '申し込む' })).toBeEnabled();
   });
 });
