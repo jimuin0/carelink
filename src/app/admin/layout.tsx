@@ -156,7 +156,7 @@ const navGroups: NavGroup[] = [
   {
     key: 'settings', label: '設定',
     items: [
-      { href: '/admin/settings', label: '基本設定' },
+      { href: '/admin/settings', label: '店舗設定' },
       { href: '/admin/staff', label: 'スタッフ' },
       { href: '/admin/manual', label: '操作マニュアル' },
       { href: '/admin/tutorials', label: 'チュートリアル' },

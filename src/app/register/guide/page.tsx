@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import DocumentMaskIllustration from '@/components/register/DocumentMaskIllustration';
 import RegistrationFlow from '@/components/register/RegistrationFlow';
 
 /**
@@ -58,11 +59,11 @@ export default function RegistrationGuidePage() {
           ))}
         </ul>
         <ul aria-label="ファイルの条件" className="mt-4 flex flex-wrap gap-2 text-sm">
-          {['PDF・JPEG・PNG', '10MBまで', '金額や口座番号は隠してOK'].map(item => (
+          {['PDF・JPEG・PNG', '10MBまで'].map(item => (
             <li key={item} className="rounded-full border border-(--ecru-line) bg-(--ecru-surface) px-3 py-1">{item}</li>
           ))}
         </ul>
-        <p className="mt-3 text-sm text-(--ecru-muted)">店舗名・所在地・運営者が分かる書類なら使えます。</p>
+        <DocumentMaskIllustration className="mt-6 rounded-xl border border-(--ecru-line) bg-(--ecru-bg) p-4" />
       </section>
 
       <section className="mt-12" aria-labelledby="listing-only">

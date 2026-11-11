@@ -329,7 +329,7 @@ function AdminSettingsContent() {
       const saved = autoPublished ? '施設情報を保存し、運営の確認が済んでいるため店舗を公開しました'
         // 書類の確認後に店舗名・所在地が変わった（または掲載申込が却下されている）ため、公開ゲートが止めた。
         : result?.publicationBlocked === true
-          ? '施設情報を保存しました。書類の確認後に店舗名・所在地が変わったため、まだ公開できません。施設設定から確認書類を提出し直してください（掲載申込が却下されている場合は公開できません）'
+          ? '施設情報を保存しました。書類の確認後に店舗名・所在地が変わったため、まだ公開できません。店舗設定から確認書類を提出し直してください（掲載申込が却下されている場合は公開できません）'
           : '施設情報を保存しました';
       setToast({
         type: hoursWarning || result?.publicationBlocked === true ? 'info' : 'success',
@@ -401,7 +401,7 @@ function AdminSettingsContent() {
   if (loadError) {
     return (
       <div>
-        <SbPageHeader title="施設設定" />
+        <SbPageHeader title="店舗設定" />
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="施設情報の読み込みに失敗しました" />
       </div>
     );
@@ -414,7 +414,7 @@ function AdminSettingsContent() {
       <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/settings" dirty={dirty || specialDirty} busy={saving || publishToggling || specialBusy} />
       <p className="mb-4 text-sm text-gray-600">{LISTING_PUBLISH_REQUIREMENT}ネット予約には、さらに公開メニュー・写真・勤務時間を保存したスタッフが必要です。</p>
       <SbPageHeader
-        title="施設設定"
+        title="店舗設定"
         actions={
           <>
             <SbBadge tone={facilityStatus === 'published' ? 'success' : 'neutral'}>
