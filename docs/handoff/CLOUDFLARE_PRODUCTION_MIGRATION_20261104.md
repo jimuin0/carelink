@@ -161,3 +161,14 @@ DB は移行で変更しないので、DB の戻しは要らない。
 - 確認：応答は `server: cloudflare`・`x-vercel-id` なし。公開ページの中身（`/search` 4 件・`/osaka` 3 件・店舗ページ）・health healthy・http→308・www→301（パスとクエリを保持）・CSP/HSTS・コンソールエラー 0。
 - 切り替え前のゾーン設定：ssl=full・security_level=medium・browser_check=on・Bot Fight Mode off。確認用ホストで、UA なしの要求・cron（401）・Stripe webhook（400）がアプリまで届くことを確かめてから切り替えた。
 - **戻し方**：上記ルート 2 本を削除し、A・CNAME を proxied=false に戻す（Vercel は 2 週間残す）。
+
+## main マージ後の自動配信（2026-11-11・本人決定「GitHub Actions」）
+
+- `.github/workflows/deploy-cloudflare.yml`：main への push で CI が成功したコミットだけを配信する（CI が赤なら配信しない）。
+  main の先頭でないコミットは配信しない（古い CI の完了が新しい配信を上書きしないため）。配信後、`/api/health` の version が配信したコミットになるまで確認する。
+  手動実行（workflow_dispatch）は main の先頭を配信する。
+- 公開設定はリポジトリ変数：`NEXT_PUBLIC_SUPABASE_URL`・`NEXT_PUBLIC_SUPABASE_ANON_KEY`・`NEXT_PUBLIC_BASE_URL`・`NEXT_PUBLIC_CLARITY_ID`・`NEXT_PUBLIC_GA_ID`・
+  `NEXT_PUBLIC_LINE_CHANNEL_ID`・`NEXT_PUBLIC_RECRUIT_URL`・`NEXT_PUBLIC_VAPID_PUBLIC_KEY`・`CLOUDFLARE_ACCOUNT_ID`（Vercel の Production から値を写した。どれもブラウザに出る値）。
+  公開設定を変えるときは、この変数と Worker の両方を直す（Vercel は撤去予定）。
+- secret `CLOUDFLARE_API_TOKEN`：Cloudflare の「Edit Cloudflare Workers」テンプレートで本人が作り、本人が登録する。
+- ワークフローは main に入ってから有効になる（workflow_run は既定ブランチの定義を使う）。それまでは `npm run deploy:cloudflare` で手動配信する。

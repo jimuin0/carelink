@@ -1,0 +1,87 @@
+name: Deploy Cloudflare Worker
+
+# 本番（carelink-jp.com）は Cloudflare Workers から配信している（2026-11-11 切り替え）。
+# main への push で CI が成功したコミットだけを配信する。CI が赤のコミットは配信しない。
+# 公開設定（NEXT_PUBLIC_*）はリポジトリ変数、Cloudflare の API トークンは secret に置く。
+# サーバー側の秘密値は Worker に登録済みで、ここでは扱わない。
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 配信は 1 本ずつ。途中で打ち切ると半端な状態になるので取り消さない。
+concurrency:
+  group: deploy-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Resolve the commit to deploy
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          latest="$(gh api "repos/${REPO}/commits/main" --jq .sha)"
+          sha="${RUN_SHA:-$latest}"
+          # 古い CI の完了が新しい配信を上書きしないよう、main の先頭以外は配信しない。
+          if [ "$sha" != "$latest" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "main は ${latest} まで進んでいるため ${sha} は配信しない"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+      - if: steps.target.outputs.skip == 'false'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.sha }}
+      - if: steps.target.outputs.skip == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - if: steps.target.outputs.skip == 'false'
+        run: npm ci
+      - name: Build and deploy
+        if: steps.target.outputs.skip == 'false'
+        run: node tools/cloudflare/deploy-production.mjs
+        env:
+          CARELINK_PUBLIC_ENV_SOURCE: environment
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_BASE_URL: ${{ vars.NEXT_PUBLIC_BASE_URL }}
+          NEXT_PUBLIC_CLARITY_ID: ${{ vars.NEXT_PUBLIC_CLARITY_ID }}
+          NEXT_PUBLIC_GA_ID: ${{ vars.NEXT_PUBLIC_GA_ID }}
+          NEXT_PUBLIC_LINE_CHANNEL_ID: ${{ vars.NEXT_PUBLIC_LINE_CHANNEL_ID }}
+          NEXT_PUBLIC_RECRUIT_URL: ${{ vars.NEXT_PUBLIC_RECRUIT_URL }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ vars.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+      # 応答コードだけでなく、配信したコミットが実際に応答しているかを見る。
+      - name: Verify the live version
+        if: steps.target.outputs.skip == 'false'
+        env:
+          SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          want="${SHA:0:7}"
+          for i in $(seq 1 12); do
+            got="$(curl -fsS https://carelink-jp.com/api/health | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.version)})' || true)"
+            echo "attempt ${i}: ${got}"
+            if [ "$got" = "$want" ]; then exit 0; fi
+            sleep 10
+          done
+          echo "本番の version が ${want} にならない"
+          exit 1
