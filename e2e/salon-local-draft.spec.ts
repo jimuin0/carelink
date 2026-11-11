@@ -45,7 +45,7 @@ async function openTools(page: Page) {
   }).toPass({ timeout: 10_000 });
 }
 const section = (page: Page) => page.getByRole('region', { name: 'この端末の下書き' });
-const optIn = (page: Page) => section(page).getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' });
+const optIn = (page: Page) => section(page).getByRole('button', { name: 'この端末で下書きを自動保存する' });
 async function ready(page: Page, hasSavedDraft = false) {
   await page.goto('/register');
   // SSR inputs are enabled before hydration; wait for the form's isReady gate
@@ -53,12 +53,12 @@ async function ready(page: Page, hasSavedDraft = false) {
   await expect(page.getByRole('button', { name: '次へ', exact: true })).toBeEnabled();
   await expect(page.locator('#reg-facility-name')).toBeEnabled(); await openTools(page);
   if (hasSavedDraft) {
-    await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeEnabled();
+    await expect(section(page).getByRole('button', { name: '下書きを復元' })).toBeEnabled();
     await expect(optIn(page)).toBeDisabled();
   } else await expect(optIn(page)).toBeEnabled();
 }
 async function save(page: Page) {
-  await optIn(page).click(); await expect(section(page).getByText('入力と元の写真を保存し、読み戻して確認しました。')).toBeVisible();
+  await optIn(page).click(); await expect(section(page).getByText('保存しました。')).toBeVisible();
   return (await raw(page))!;
 }
 async function step3(page: Page) {
@@ -87,9 +87,9 @@ test('opt-in retains original photo bytes and partial input across a real Indexe
   expect(saved.keys).toEqual(['backup', 'expiresAt', 'id', 'revision', 'sha256', 'state', 'updatedAt']);
   expect(JSON.stringify(saved.backup)).not.toMatch(/intentId|proof|receiptId|recaptcha_token|agreed|licenseWarranted/);
   page.once('dialog', dialog => dialog.accept()); await page.reload(); await openTools(page);
-  await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeEnabled();
+  await expect(section(page).getByRole('button', { name: '下書きを復元' })).toBeEnabled();
   await expect(page.locator('#reg-facility-name')).toHaveValue('');
-  await section(page).getByRole('button', { name: '端末の下書きを復元' }).click();
+  await section(page).getByRole('button', { name: '下書きを復元' }).click();
   await expect(page.locator('#reg-facility-name')).toHaveValue('端末下書きの合成店舗');
   await page.getByRole('button', { name: '次へ' }).click(); await page.getByRole('button', { name: '次へ' }).click();
   await expect(page.getByRole('img', { name: 'メニュー 1', exact: true })).toBeVisible();
@@ -101,12 +101,12 @@ test('two actual browser tabs cannot overwrite an already advanced draft revisio
   const other = await context.newPage(); await ready(other, true);
   await expect(other.locator('#reg-facility-name')).toHaveValue('');
   expect((await raw(other))!.revision).toBe(first.revision);
-  await section(other).getByRole('button', { name: '端末の下書きを復元' }).click();
+  await section(other).getByRole('button', { name: '下書きを復元' }).click();
   await expect(other.locator('#reg-facility-name')).toHaveValue('先の入力');
   await expect(optIn(other)).toBeEnabled();
   await page.fill('#reg-facility-name', '先のタブの新しい入力');
   await expect.poll(async () => (await raw(page))?.revision).toBeGreaterThan(first.revision);
-  await optIn(other).click(); await expect(section(other).getByText(/別のタブで下書きが変更されました/)).toBeVisible();
+  await optIn(other).click(); await expect(section(other).getByText(/別のタブで下書きが変わった/)).toBeVisible();
   expect((await raw(page))!.backup.payload.values.facility_name).toBe('先のタブの新しい入力');
 });
 test('transport sees a committed fence; lost session context and failed clearing cannot make it restorable', async ({ page, context }) => {
@@ -125,22 +125,22 @@ test('transport sees a committed fence; lost session context and failed clearing
   await submit(page); await expect.poll(() => attempted).toBe(true);
   await expect(page.getByText(/受付状況|送信結果/).first()).toBeVisible();
   await page.evaluate(() => sessionStorage.clear()); page.once('dialog', dialog => dialog.accept()); await page.reload(); await openTools(page);
-  await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeDisabled();
-  await expect(section(page).getByText(/別のタブやブラウザー再起動後も復元できません/)).toBeVisible();
+  await expect(section(page).getByRole('button', { name: '下書きを復元' })).toBeDisabled();
+  await expect(section(page).getByText(/送信に使った下書きのため、復元できません/)).toBeVisible();
   // Losing sessionStorage must not make the same manual file a fresh intent.
-  await page.getByLabel('バックアップから入力を復元').setInputFiles({ name: 'synthetic-backup.json', mimeType: 'application/json',
+  await page.getByLabel('保存ファイルから復元').setInputFiles({ name: 'synthetic-backup.json', mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(beforeTransport.backup)) });
-  await expect(page.getByText('下書きを復元できませんでした。入力と元の写真は変更されていません。')).toBeVisible();
+  await expect(page.getByText('復元できませんでした。入力はそのままです。')).toBeVisible();
   await expect(page.locator('#reg-facility-name')).toHaveValue('');
   expect(await raw(page)).toMatchObject({ state: 'locked', hasBackup: true });
   await page.evaluate(() => { const original = IDBObjectStore.prototype.put;
     (window as unknown as { restoreIDBPut: () => void }).restoreIDBPut = () => { IDBObjectStore.prototype.put = original; };
     IDBObjectStore.prototype.put = () => { throw new DOMException('synthetic quota', 'QuotaExceededError'); }; });
-  await section(page).getByRole('button', { name: '端末の下書きを削除' }).click();
-  await expect(section(page).getByText(/端末の下書きを保存・確認できませんでした/)).toBeVisible();
+  await section(page).getByRole('button', { name: '下書きを削除' }).click();
+  await expect(section(page).getByText(/下書きを保存できませんでした/)).toBeVisible();
   expect(await raw(page)).toMatchObject({ state: 'locked', hasBackup: true });
   await page.evaluate(() => (window as unknown as { restoreIDBPut: () => void }).restoreIDBPut());
-  await section(page).getByRole('button', { name: '端末の下書きを削除' }).click();
+  await section(page).getByRole('button', { name: '下書きを削除' }).click();
   await expect.poll(async () => (await raw(page))?.hasBackup).toBe(false);
   expect((await raw(page))?.state).toBe('locked');
 });
@@ -148,14 +148,14 @@ test('manual import of the same saved original input adopts its revision and fen
   await isolated(context); await ready(page); await step3(page); const saved = await save(page);
   page.once('dialog', dialog => dialog.accept()); await page.reload(); await openTools(page);
   await expect(optIn(page)).toBeDisabled();
-  await page.getByLabel('バックアップから入力を復元').setInputFiles({ name: 'synthetic-backup.json', mimeType: 'application/json',
+  await page.getByLabel('保存ファイルから復元').setInputFiles({ name: 'synthetic-backup.json', mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(saved.backup)) });
   await expect(page.locator('#reg-facility-name')).toHaveValue('端末下書きの合成店舗');
   await expect(optIn(page)).toBeEnabled();
   expect((await raw(page))?.revision).toBe(saved.revision);
   await page.getByRole('button', { name: '次へ' }).click(); await page.getByRole('button', { name: '次へ' }).click();
   // 未送信の確認は同意と同じく、送信ボタンの直前（ステップ3）で求める。
-  await page.locator('label', { hasText: 'この下書きはまだ送信していません' }).locator('input').check();
+  await page.locator('label', { hasText: 'この下書きはまだ送信していない' }).locator('input').check();
   let attempted = false;
   await page.route('**/api/salons**', async route => {
     if (route.request().method() === 'POST') {
@@ -172,15 +172,15 @@ test('different manual input cannot replace a saved draft; explicit clearing per
   const latest = await raw(page); page.once('dialog', dialog => dialog.accept()); await page.reload(); await openTools(page);
   await expect(optIn(page)).toBeDisabled();
   const file = { name: 'synthetic-earlier.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(earlier.backup)) };
-  await page.getByLabel('バックアップから入力を復元').setInputFiles(file);
-  await expect(section(page).getByText(/他の下書きがこの端末に保存されています/)).toBeVisible();
+  await page.getByLabel('保存ファイルから復元').setInputFiles(file);
+  await expect(section(page).getByText(/この端末に別の下書きがあります/)).toBeVisible();
   await expect(page.locator('#reg-facility-name')).toHaveValue('');
   expect((await raw(page))?.revision).toBe(latest!.revision);
   expect((await raw(page))?.backup.payload.values.facility_name).toBe('端末に残す別の入力');
-  await section(page).getByRole('button', { name: '端末の下書きを削除' }).click();
+  await section(page).getByRole('button', { name: '下書きを削除' }).click();
   await expect.poll(async () => (await raw(page))?.hasBackup).toBe(false);
   const cleared = await raw(page);
-  await page.getByLabel('バックアップから入力を復元').setInputFiles(file);
+  await page.getByLabel('保存ファイルから復元').setInputFiles(file);
   await expect(page.locator('#reg-facility-name')).toHaveValue('手動ファイルの元入力');
   expect(await raw(page)).toMatchObject({ state: 'cleared', hasBackup: false, revision: cleared!.revision });
 });
@@ -190,12 +190,12 @@ test('expired personal content is removed on next access, keeping a revision tom
   page.once('dialog', dialog => dialog.accept()); await page.reload(); await openTools(page);
   await expect(optIn(page)).toBeEnabled();
   expect(await raw(page)).toMatchObject({ state: 'cleared', hasBackup: false, revision: saved.revision + 1 });
-  await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeDisabled();
+  await expect(section(page).getByRole('button', { name: '下書きを復元' })).toBeDisabled();
 });
 test('actual IndexedDB quota failure never shows a saved confirmation', async ({ page, context }) => {
   await isolated(context); await ready(page); await page.fill('#reg-facility-name', '失われない画面の入力');
   await page.evaluate(() => { IDBObjectStore.prototype.put = () => { throw new DOMException('synthetic quota', 'QuotaExceededError'); }; });
-  await optIn(page).click(); await expect(section(page).getByText(/端末の下書きを保存・確認できませんでした/)).toBeVisible();
+  await optIn(page).click(); await expect(section(page).getByText(/下書きを保存できませんでした/)).toBeVisible();
   await expect(page.locator('#reg-facility-name')).toHaveValue('失われない画面の入力');
   expect(await raw(page)).toBeNull();
 });
@@ -214,22 +214,22 @@ test('an old retirement-tab cookie blocks restoration until real boot cleanup an
   page.once('dialog', dialog => dialog.accept()); await page.reload(); await openTools(page);
   const cleanupBanner = page.getByRole('alert', { name: '端末の下書き削除' });
   await expect(cleanupBanner.getByText(/削除を確認できませんでした/)).toBeVisible();
-  await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeDisabled();
+  await expect(section(page).getByRole('button', { name: '下書きを復元' })).toBeDisabled();
   await expect(optIn(page)).toBeDisabled();
   expect(await page.evaluate(() => document.cookie.includes('carelink_client_cleanup=1'))).toBe(true);
   expect(await page.evaluate(() => sessionStorage.getItem('booking-draft:synthetic'))).toBeNull();
   expect(await raw(page)).toMatchObject({ state: 'saved', hasBackup: true, revision: saved.revision });
-  await page.getByLabel('バックアップから入力を復元').setInputFiles({ name: 'retired-synthetic.json', mimeType: 'application/json',
+  await page.getByLabel('保存ファイルから復元').setInputFiles({ name: 'retired-synthetic.json', mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(saved.backup)) });
-  await expect(page.getByText('下書きを復元できませんでした。入力と元の写真は変更されていません。')).toBeVisible();
+  await expect(page.getByText('復元できませんでした。入力はそのままです。')).toBeVisible();
   await expect(page.locator('#reg-facility-name')).toHaveValue('');
   await page.evaluate(() => (window as unknown as { restoreIDBPut: () => void }).restoreIDBPut());
   await cleanupBanner.getByRole('button', { name: '端末の下書き削除を再試行' }).click();
   await expect(cleanupBanner).toBeHidden(); await expect(optIn(page)).toBeEnabled();
   expect(await page.evaluate(() => document.cookie.includes('carelink_client_cleanup=1'))).toBe(false);
   expect(await raw(page)).toMatchObject({ state: 'cleared', hasBackup: false });
-  await oldForm.getByRole('button', { name: '端末の下書きを復元' }).click();
-  await expect(section(oldForm).getByText(/別のタブで下書きが変更されました/)).toBeVisible();
+  await oldForm.getByRole('button', { name: '下書きを復元' }).click();
+  await expect(section(oldForm).getByText(/別のタブで下書きが変わった/)).toBeVisible();
   await expect(oldForm.locator('#reg-facility-name')).toHaveValue('');
 });
 test('an explicit synthetic SIGNED_OUT broadcast wipes personal drafts; normal guest initialization retains them', async ({ page, context }) => {
@@ -253,7 +253,7 @@ test('an explicit synthetic SIGNED_OUT broadcast wipes personal drafts; normal g
   await expect.poll(async () => (await raw(page))?.hasBackup).toBe(false);
   // The IndexedDB wipe precedes the separate sessionStorage wipe; verify both.
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem('booking-draft:synthetic'))).toBeNull();
-  await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeDisabled();
+  await expect(section(page).getByRole('button', { name: '下書きを復元' })).toBeDisabled();
   await expect(optIn(page)).toBeEnabled();
   expect(await page.evaluate(() => document.cookie.includes('carelink_client_cleanup=1'))).toBe(false);
 });

@@ -157,7 +157,7 @@ test.describe('/register 送信', () => {
       await page.goto('/register', { waitUntil: 'commit' });
       await expect(page.locator('#reg-facility-name')).toBeEnabled();
       await expect(page.getByRole('button', { name: '次へ' })).toBeDisabled();
-      await expect(page.locator('#register-ready-status')).toContainText('入力はそのまま続けられます');
+      await expect(page.locator('#register-ready-status')).toContainText('入力は続けられます');
       await page.fill('#reg-facility-name', 'JS前に入力した店舗');
       await page.fill('#reg-email', 'before-js@example.invalid');
       releaseScripts();

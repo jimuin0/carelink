@@ -65,9 +65,9 @@ describe('下書き・バックアップ欄', () => {
     expect(details.open).toBe(false);
     expect(details.querySelector('summary')).toHaveTextContent('入力途中の内容を保存する（任意）');
     // 説明文と操作はすべて details の中に入っている。
-    expect(details).toContainElement(screen.getByRole('button', { name: '端末の下書きを削除' }));
-    expect(details).toContainElement(screen.getByRole('button', { name: '入力と元の写真をバックアップ' }));
-    expect(details).toContainElement(screen.getByLabelText('バックアップから入力を復元'));
+    expect(details).toContainElement(screen.getByRole('button', { name: '下書きを削除' }));
+    expect(details).toContainElement(screen.getByRole('button', { name: '保存ファイルを作る' }));
+    expect(details).toContainElement(screen.getByLabelText('保存ファイルから復元'));
     // フォームより前に置いた要素は details だけ（ステップ表示を除く）。
     const form = document.querySelector('form:not([action])')!;
     expect(details.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -75,15 +75,15 @@ describe('下書き・バックアップ欄', () => {
 
   test('ブラウザー既定のファイル選択欄（Choose File）を見せず、日本語のボタンの裏に隠す', async () => {
     await mount();
-    const input = screen.getByLabelText('バックアップから入力を復元');
+    const input = screen.getByLabelText('保存ファイルから復元');
     expect(input).toHaveClass('sr-only');
-    expect(input.closest('label')).toHaveTextContent('バックアップから入力を復元');
+    expect(input.closest('label')).toHaveTextContent('保存ファイルから復元');
   });
 
   test('操作は押せる大きさのボタンで、取り消せない「削除」だけ見た目を分ける', async () => {
     await mount();
-    const remove = screen.getByRole('button', { name: '端末の下書きを削除' });
-    const backup = screen.getByRole('button', { name: '入力と元の写真をバックアップ' });
+    const remove = screen.getByRole('button', { name: '下書きを削除' });
+    const backup = screen.getByRole('button', { name: '保存ファイルを作る' });
     expect(remove.className).toMatch(/min-h-11/);
     expect(backup.className).toMatch(/min-h-11/);
     expect(remove.className).toMatch(/text-red-700/);

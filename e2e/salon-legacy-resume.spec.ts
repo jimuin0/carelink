@@ -137,7 +137,7 @@ test('frozen V1 configuration reaches real denied legacy upload, preserves input
   const response = await denied;
   const rejection = await response.json();
   expect(response.status() === 403 || String(rejection.statusCode) === '403').toBe(true);
-  const recover = page.getByRole('button', { name: '安全なアップロードで再試行', exact: true });
+  const recover = page.getByRole('button', { name: '写真を送り直す', exact: true });
   await expect(recover).toBeVisible();
   expect(legacyPosts).toBe(0); expect(commits).toBe(0);
   await assertOriginalPreviews(page, files);
@@ -202,7 +202,7 @@ type DraftBackup = { format: string; version: number; payload: { values: Record<
 async function downloadBackup(page: Page): Promise<DraftBackup> {
   await openTools(page);
   const pending = page.waitForEvent('download');
-  await page.getByRole('button', { name: '入力と元の写真をバックアップ', exact: true }).click();
+  await page.getByRole('button', { name: '保存ファイルを作る', exact: true }).click();
   const download = await pending;
   expect(await download.failure()).toBeNull();
   const path = await download.path();
@@ -250,7 +250,7 @@ test('manual original-photo backup survives reload beyond capability lifetime, r
   await page.reload();
   await expect(page.locator('#reg-facility-name')).toBeEnabled();
   await expect(page.locator('#reg-facility-name')).toHaveValue('');
-  await page.getByLabel('バックアップから入力を復元', { exact: true }).setInputFiles({
+  await page.getByLabel('保存ファイルから復元', { exact: true }).setInputFiles({
     name: 'synthetic-carelink-draft.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)),
   });
   await expect(page.locator('#reg-facility-name')).toHaveValue(name);
@@ -286,7 +286,7 @@ test('manual original-photo backup survives reload beyond capability lifetime, r
   assertBackup(editedBackup, changedFiles);
   expect(editedBackup.payload.values).toEqual(backup.payload.values);
   expect(transport).toBe(0);
-  await page.getByRole('checkbox', { name: /この下書きはまだ送信していません/ }).check();
+  await page.getByRole('checkbox', { name: /この下書きはまだ送信していない/ }).check();
   const committed = page.waitForResponse(response => response.request().method() === 'POST'
     && new URL(response.url()).pathname === '/api/salons/commit');
   await consentAndSubmit(page);
