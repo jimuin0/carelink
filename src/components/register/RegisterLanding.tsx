@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import RegisterForm from '@/components/register/RegisterForm';
+import ListingPreviewIllustration from '@/components/register/ListingPreviewIllustration';
 import RegistrationFlow from '@/components/register/RegistrationFlow';
 import { SHOW_JOBS } from '@/lib/feature-toggles';
 import { LISTING_PUBLISH_REQUIREMENT, REGISTER_PHOTO_REQUIREMENT } from '@/lib/register-photo-policy';
@@ -196,6 +197,16 @@ export default function RegisterLanding() {
                 </article>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* ===== 掲載後の見え方（模式図。実在の店舗の画面は載せない） ===== */}
+        <section className="mt-16 px-7 sm:mt-24 sm:px-12">
+          <div className="mx-auto max-w-3xl">
+            <h2 className="text-center font-(family-name:--font-serif-jp) text-lg tracking-[0.12em] sm:text-2xl">
+              掲載すると、こう見えます
+            </h2>
+            <ListingPreviewIllustration className="mt-8" />
           </div>
         </section>
 

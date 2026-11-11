@@ -134,7 +134,7 @@ test.each([
   expect(email.text).toContain(`${SITE_URL}${salonRecoveryAuthPath('login')}\n`);
   expect(email.text).not.toContain(`${SITE_URL}${SALON_ONBOARDING_PATH}`);
   expect(email.text).not.toContain('タブに戻');
-  expect(email.text).toMatch(/このメールを受け取ったメールアドレス（[^）]+）で店舗アカウントを作成/);
+  expect(email.text).toMatch(/このメールアドレス（[^）]+）で店舗アカウントを作成/);
   expect(email.html).toBeUndefined();
   expect(email.subject).not.toContain(row.facility_name);
   // 用語は受付画面と同じ（registration-glossary.ts）：掲載申込・店舗名・店舗アカウント。
@@ -220,7 +220,7 @@ test('approval email for a normal registration says documents come first and pub
   const [email] = send.mock.calls[0];
   expect(deferralEq).toHaveBeenCalledWith('salon_id', id);
   expect(email.text).toContain('【3】書類の提出\n');
-  expect(email.text).toContain('運営が書類を確認すると、所在地・曜日ごとの営業時間（定休日を含む）などの設定が済んでいれば、そのまま公開されます');
+  expect(email.text).toContain('運営が書類を確認し、所在地・曜日ごとの営業時間（定休日を含む）の設定が済んでいれば公開されます');
   expect(email.text).not.toContain('公開後で構いません');
 });
 test.each([{ deferred: true }])('approval email for a deferred registration lets the shop publish first %#', async data => {

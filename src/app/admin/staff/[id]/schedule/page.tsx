@@ -349,7 +349,7 @@ function StaffSchedulePageForm() {
           ) : (
             <p>
               店舗の営業時間がまだ保存されていないため、下書きを用意できませんでした。勤務する曜日にチェックを入れ、時間を入力して保存してください。
-              <Link href={`/admin/settings?facility_id=${encodeURIComponent(facilityId)}`} className="ml-1 font-bold text-amber-900 underline">施設設定で営業時間を保存する</Link>
+              <Link href={`/admin/settings?facility_id=${encodeURIComponent(facilityId)}`} className="ml-1 font-bold text-amber-900 underline">店舗設定で営業時間を保存する</Link>
             </p>
           )}
         </div>

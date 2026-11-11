@@ -196,7 +196,7 @@ async function patchSettings(request: NextRequest) {
     if (error?.message.includes('FACILITY_OWNER_REQUIRED')) return NextResponse.json({ error:'店舗所有者の確認が必要です。公開変更は保存されていません' },{ status:409 });
 
     if (isListingRegistrationRejectedConflict(error)) return NextResponse.json({ error: '掲載申込が却下されているため公開できません。お問い合わせください。' }, { status: 409 });
-    if (isListingVerificationConflict(error)) return NextResponse.json({ error: '掲載前に、店舗を確認できる書類と管理権限の確認が必要です。施設設定から書類を提出してください。運営が確認すると、店舗名・所在地・曜日ごとの営業時間が揃っていれば自動で公開されます。' }, { status: 409 });
+    if (isListingVerificationConflict(error)) return NextResponse.json({ error: '掲載前に、店舗を確認できる書類と管理権限の確認が必要です。店舗設定から書類を提出してください。運営が確認すると、店舗名・所在地・曜日ごとの営業時間が揃っていれば自動で公開されます。' }, { status: 409 });
     if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '所在地が変更されています。都道府県・市区町村・住所を確認して、再度公開してください。' }, { status: 409 });
     // 公開ゲートを通った後に営業時間が変わった（別タブでの保存など）。DB が同じ規則で最終確認している。
     if (isPublishedHoursConflict(error)) return NextResponse.json({ error: '営業時間が変更されています。営業時間を確認して保存してから、再度公開してください。', missing: [LISTING_HOURS_MESSAGE] }, { status: 409 });

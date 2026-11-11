@@ -196,7 +196,7 @@ test('保存できたが公開ゲートが止めたときは、書類の提出�
   render(<AdminSettingsPage />);
   await screen.findByDisplayValue('合成店舗B');
   fireEvent.click(screen.getAllByRole('button', { name: '保存する' })[0]);
-  await screen.findByText(/書類の確認後に店舗名・所在地が変わったため、まだ公開できません。施設設定から確認書類を提出し直してください/);
+  await screen.findByText(/書類の確認後に店舗名・所在地が変わったため、まだ公開できません。店舗設定から確認書類を提出し直してください/);
   expect(screen.queryAllByText('公開中')).toHaveLength(0);
 });
 
