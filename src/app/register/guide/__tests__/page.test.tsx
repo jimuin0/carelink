@@ -16,3 +16,10 @@ test('掲載までの流れを 4 ステップの図で見せ、書類・無料�
   expect(screen.getByRole('figure', { name: '1つのアカウントで複数店舗を管理' })).toBeVisible();
   expect(screen.getByRole('link', { name: '運営に問い合わせる' })).toHaveAttribute('href', '/contact');
 });
+
+test('<main> はレイアウトに任せて二重にせず、ページ名を持つ', async () => {
+  const { metadata } = await import('../page');
+  render(<RegistrationGuidePage />);
+  expect(screen.queryByRole('main')).toBeNull();
+  expect(metadata.title).toBe('掲載までの流れ');
+});

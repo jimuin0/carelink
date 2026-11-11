@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import RegistrationFlow from '@/components/register/RegistrationFlow';
 
@@ -28,8 +29,16 @@ function Icon({ d, className = 'h-7 w-7' }: { d: string; className?: string }) {
 const SHOP_ICON = 'M3 10h18M5 10v10h14V10M3 10l2-6h14l2 6M10 20v-5h4v5';
 const ACCOUNT_ICON = 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21a8 8 0 0 1 16 0';
 
+export const metadata: Metadata = {
+  // ルート layout の title.template が「| CareLink」を付ける。
+  title: '掲載までの流れ',
+  description: '申込・アカウント作成・書類の提出・公開の4ステップと、提出できる書類の例。',
+  alternates: { canonical: '/register/guide' },
+};
+
+/** <main> はレイアウト（LayoutSwitch）が持つので、ここでは置かない（二重になると landmark 違反）。 */
 export default function RegistrationGuidePage() {
-  return <main className="theme-ecru min-h-screen bg-(--ecru-bg) text-(--ecru-text)">
+  return <div className="theme-ecru min-h-screen bg-(--ecru-bg) text-(--ecru-text)">
     <div className="section-container mx-auto max-w-3xl py-10 sm:py-14">
       <Link href="/register" className="text-sm underline underline-offset-4">掲載申込に戻る</Link>
       <h1 className="mt-6 font-(family-name:--font-serif-jp) text-2xl sm:text-3xl">掲載までの流れ</h1>
@@ -96,5 +105,5 @@ export default function RegistrationGuidePage() {
       <p className="mt-12 text-sm">受付が分からないときは、申し込み直さずにご連絡ください。</p>
       <Link href="/contact" className="mt-2 inline-block underline underline-offset-4">運営に問い合わせる</Link>
     </div>
-  </main>;
+  </div>;
 }
