@@ -64,6 +64,11 @@ async function fillStep1(page: Page, email: string, detailed = false) {
     await page.selectOption('#reg-business-type', { value:'その他の医療機関' });
     await page.getByLabel('内科', { exact:true }).check();
     await page.getByLabel('耳鼻咽喉科', { exact:true }).check();
+    // 診療科を選んでも、業種欄は「医療機関」1 行のまま選択が保たれる（iPhone で行が並ばない形）。
+    const businessType = page.locator('#reg-business-type');
+    await expect(businessType).toHaveValue('内科');
+    await expect(businessType.locator('option:checked')).toHaveText('医療機関');
+    await expect(businessType.locator('option', { hasText:'医療機関' })).toHaveCount(1);
   } else await page.selectOption('#reg-business-type', { label: 'ヘアサロン' });
   await page.fill('#reg-rep-name', '代表 太郎');
   // 既定は「担当者も代表者と同じ」。別の担当者を入れる経路をここで通す。

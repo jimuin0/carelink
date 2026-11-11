@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm, useWatch, type FieldErrors } from 'react-hook-form';
@@ -29,7 +29,7 @@ import { readLocalSalonDraft } from '@/lib/salon-local-draft';
 import { normalizePostalCodeInput, normalizeWebsiteInput } from '@/lib/register-input-normalize';
 import { LISTING_PUBLISH_ITEMS, REGISTER_PHOTO_FIELD_NOTE } from '@/lib/register-photo-policy';
 import { businessTypeLabel } from '@/lib/business-type-label';
-import { medicalBusinessTypes } from '@/lib/medical-business-types';
+import { medicalBusinessTypes, medicalBusinessTypeOptionValue, MEDICAL_BUSINESS_TYPE_DEFAULT } from '@/lib/medical-business-types';
 import MedicalSpecialtyPicker from '@/components/register/MedicalSpecialtyPicker';
 import { LICENSE_WARRANTY_TEXT } from '@/lib/registration-consent';
 import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
@@ -187,6 +187,13 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
 
   const prText = useWatch({ control, name: 'pr_text' }) || '';
   const selectedBusinessType = useWatch({ control, name: 'business_type' }) || '';
+  // 診療科を選ぶと business_type が「内科」等に変わり、react-hook-form はその値を先に DOM の select へ書く。
+  // その瞬間は「医療機関」の行の value がまだ古いので一致する行が無く、欄が空に見える。
+  // 行の value が追いついた後（描画直後・表示前）に選択を合わせ直す。
+  useLayoutEffect(() => {
+    const select = document.getElementById('reg-business-type') as HTMLSelectElement | null;
+    if (select && selectedBusinessType && select.value !== selectedBusinessType) select.value = selectedBusinessType;
+  }, [selectedBusinessType, step]);
   const selectedSpecialties = useWatch({ control, name: 'medical_specialties' }) || [];
   const postalCode = useWatch({ control, name: 'postal_code' }) || '';
   const selectedFeatures = useWatch({ control, name: 'features' }) || [];
@@ -846,9 +853,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                     }}>
                     <option value="">選択してください</option>
                     {nonMedicalBusinessTypes.map(t => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
-                    <option value="その他の医療機関">医療機関</option>
-                    {medicalBusinessTypes.filter(type => type !== 'その他の医療機関').map(type =>
-                      <option key={type} value={type} hidden>医療機関</option>)}
+                    <option value={medicalBusinessTypeOptionValue(selectedBusinessType)}>医療機関</option>
                     <option value="その他">その他</option>
                   </select>
                   {chevron}
@@ -857,7 +862,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                 {medicalBusinessTypes.includes(selectedBusinessType) && <div className="mt-3">
                   <MedicalSpecialtyPicker value={selectedSpecialties} onChange={values => {
                     setValue('medical_specialties', values, { shouldDirty:true,shouldValidate:true });
-                    setValue('business_type', values[0] || 'その他の医療機関', { shouldDirty:true,shouldValidate:true });
+                    setValue('business_type', values[0] || MEDICAL_BUSINESS_TYPE_DEFAULT, { shouldDirty:true,shouldValidate:true });
                   }} />
                 </div>}
               </div>

@@ -28,7 +28,7 @@ import BusinessHoursEditor from '@/components/admin/BusinessHoursEditor';
 import SpecialHoursSettings from '@/components/admin/SpecialHoursSettings';
 import ListingEvidenceSubmission from '@/components/admin/ListingEvidenceSubmission';
 import MedicalSpecialtyPicker from '@/components/register/MedicalSpecialtyPicker';
-import { medicalBusinessTypes } from '@/lib/medical-business-types';
+import { medicalBusinessTypes, medicalBusinessTypeOptionValue, MEDICAL_BUSINESS_TYPE_DEFAULT } from '@/lib/medical-business-types';
 import { medicalSpecialtiesSchema } from '@/lib/medical-specialties';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
@@ -484,12 +484,11 @@ function AdminSettingsContent() {
             }} className="form-input">
               <option value="">選択してください</option>
               {businessTypes.filter(t => !medicalBusinessTypes.includes(t) && t !== 'その他').map((t) => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
-              <option value="その他の医療機関">医療機関</option>
-              {medicalBusinessTypes.filter(type => type !== 'その他の医療機関').map(type => <option key={type} value={type} hidden>医療機関</option>)}
+              <option value={medicalBusinessTypeOptionValue(businessType)}>医療機関</option>
               <option value="その他">その他</option>
             </select>
             {medicalBusinessTypes.includes(businessType) && <div className="mt-3"><MedicalSpecialtyPicker value={medicalSpecialties} onChange={values => {
-              setMedicalSpecialties(values); setBusinessType(values[0] || 'その他の医療機関'); setDirty(true);
+              setMedicalSpecialties(values); setBusinessType(values[0] || MEDICAL_BUSINESS_TYPE_DEFAULT); setDirty(true);
             }} /></div>}
           </div>
           <div>

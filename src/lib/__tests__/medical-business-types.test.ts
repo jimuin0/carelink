@@ -1,6 +1,6 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { readFileSync } from 'node:fs';
-import { medicalBusinessTypeSlugs, medicalBusinessTypes } from '../medical-business-types';
+import { medicalBusinessTypeSlugs, medicalBusinessTypes, medicalBusinessTypeOptionValue, MEDICAL_BUSINESS_TYPE_DEFAULT } from '../medical-business-types';
 import { businessTypes } from '../constants';
 import { businessTypeLabel } from '../business-type-label';
 import { businessTypeCopy } from '../business-type-copy';
@@ -45,4 +45,20 @@ test('SQLの許可値は画面・APIと同一で、変更は最新RPCの分類�
     .toBe(previous.slice(previous.indexOf(marker)).replace(list, 'CATEGORY_LIST'));
   const fixture = readFileSync('supabase/shadow/facility-setup-fixtures.sql', 'utf8');
   for (const category of medicalBusinessTypes) expect(fixture).toContain(`'${category}'`);
+});
+
+test('業種欄の「医療機関」1行は、医療の区分ならその値・それ以外は既定値を持つ', () => {
+  expect(MEDICAL_BUSINESS_TYPE_DEFAULT).toBe('その他の医療機関');
+  expect(medicalBusinessTypes).toContain(MEDICAL_BUSINESS_TYPE_DEFAULT);
+  expect(medicalBusinessTypeOptionValue('内科')).toBe('内科');
+  expect(medicalBusinessTypeOptionValue('ヘアサロン')).toBe(MEDICAL_BUSINESS_TYPE_DEFAULT);
+  expect(medicalBusinessTypeOptionValue('')).toBe(MEDICAL_BUSINESS_TYPE_DEFAULT);
+});
+
+test('業種欄は区分ごとの <option hidden> を並べない（iPhone の Safari は hidden を無視して行が並ぶ）', () => {
+  for (const file of ['src/components/register/RegisterForm.tsx', 'src/app/admin/settings/page.tsx']) {
+    const source = readFileSync(file, 'utf8');
+    expect(source).not.toMatch(/<option[^>]*\bhidden\b/);
+    expect(source).toContain('medicalBusinessTypeOptionValue(');
+  }
 });
