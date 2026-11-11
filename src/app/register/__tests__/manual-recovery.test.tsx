@@ -45,8 +45,8 @@ async function submit() {
   fireEvent.click(screen.getByRole('button', { name: '申し込む' })); const dialog = await screen.findByRole('dialog');
   fireEvent.click(within(dialog).getByRole('button', { name: 'この内容で申し込む' }));
 }
-const download = () => screen.getByRole('button', { name: '入力と元の写真をバックアップ' });
-const restore = () => screen.getByLabelText('バックアップから入力を復元');
+const download = () => screen.getByRole('button', { name: '保存ファイルを作る' });
+const restore = () => screen.getByLabelText('保存ファイルから復元');
 
 test('manual backup contains current values and the original sparse files, never auto POST/persistence', async () => {
   await fill(); const first = new File(['first-original'], 'first.png', { type: 'image/png', lastModified: 1 });
@@ -54,7 +54,7 @@ test('manual backup contains current values and the original sparse files, never
   fireEvent.change(screen.getByLabelText('外観の写真を選択'), { target: { files: [first] } });
   fireEvent.change(screen.getByLabelText('メニュー 3の写真を選択'), { target: { files: [seventh] } });
   expect(mockExport).not.toHaveBeenCalled(); expect(sessionStorage.length).toBe(0);
-  fireEvent.click(download()); await screen.findByText(/バックアップファイルを作成しました/);
+  fireEvent.click(download()); await screen.findByText(/保存ファイルを作りました/);
   expect(mockExport).toHaveBeenCalledWith(expect.objectContaining({ facility_name: '合成施設' }), [first, null, null, null, null, null, seventh]);
   expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:fixture'), { timeout: 2000 });
@@ -65,7 +65,7 @@ test.each(['serialization', 'download'])('%s failure leaves typed values/photos 
   fireEvent.change(screen.getByLabelText('外観の写真を選択'), { target: { files: [original] } });
   if (failure === 'serialization') mockExport.mockRejectedValue(new Error('quota exceeded'));
   else (URL.createObjectURL as jest.Mock).mockImplementation(() => { throw new Error('download unavailable'); });
-  fireEvent.click(download()); await screen.findByText('バックアップを保存できませんでした。入力と元の写真はこの画面に保持されています。');
+  fireEvent.click(download()); await screen.findByText('ファイルに保存できませんでした。入力はそのままです。');
   expect(await screen.findByAltText('外観')).toBeVisible(); expect(request).not.toHaveBeenCalled();
   expect(mockExport.mock.calls[0][0].facility_name).toBe('合成施設'); expect(mockExport.mock.calls[0][1][0]).toBe(original);
   expect(download()).toBeEnabled();
@@ -74,7 +74,7 @@ test('verified import restores full originals/order atomically, resets both cons
   await fill(); const first = new File(['first-original'], 'first.png', { type: 'image/png', lastModified: 2 });
   const last = new File(['last-original'], 'last.gif', { type: 'image/gif', lastModified: 9 });
   mockImport.mockResolvedValue({ values: validValues, photos: [first, null, null, null, null, null, last] });
-  fireEvent.change(restore(), { target: { files: [draftFile] } }); await screen.findByText(/入力と元の写真を復元しました/);
+  fireEvent.change(restore(), { target: { files: [draftFile] } }); await screen.findByText(/復元しました。内容を確認し/);
   expect(screen.getByLabelText(/^店舗名/)).toHaveValue('復元施設'); expect(screen.getByLabelText(/^メールアドレス/)).toHaveValue('restore@example.invalid');
   await toLastStep(); expect(await screen.findByAltText('外観')).toBeVisible(); expect(await screen.findByAltText('メニュー 3')).toBeVisible();
   expect(screen.getAllByRole('checkbox').every(box => !(box as HTMLInputElement).checked)).toBe(true);
@@ -90,36 +90,36 @@ test('verified import restores full originals/order atomically, resets both cons
   fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
   fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '戻る' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-  fireEvent.click(download()); await screen.findByText(/バックアップファイルを作成しました/);
+  fireEvent.click(download()); await screen.findByText(/保存ファイルを作りました/);
   expect(mockExport).toHaveBeenLastCalledWith(expect.objectContaining({ facility_name: '復元施設', pr_text: '復元PR' }), [first, null, null, null, null, null, last]);
   expect(request).not.toHaveBeenCalled(); expect(mockCaptcha).not.toHaveBeenCalled();
 });
 test('restoring a draft keeps a separate contact person and the old parking chip consistent with the new form', async () => {
   await mount();
   mockImport.mockResolvedValue({ values: { ...validValues, features: ['駐車場あり', '個室あり'] }, photos: Array(7).fill(null) });
-  fireEvent.change(restore(), { target: { files: [draftFile] } }); await screen.findByText(/入力と元の写真を復元しました/);
+  fireEvent.change(restore(), { target: { files: [draftFile] } }); await screen.findByText(/復元しました。内容を確認し/);
   // 代表者と違う担当者が保存されていれば「代表者と同じ」を外し、担当者名の欄を出す。
   expect(screen.getByRole('checkbox', { name: '担当者も代表者と同じ' })).not.toBeChecked();
   expect(screen.getByLabelText(/^担当者名/)).toHaveValue('復元担当');
   // 旧画面で「駐車場あり」をチップでだけ選んでいた下書きは、チェックボックス側にも反映する。
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
   expect(await screen.findByRole('checkbox', { name: '駐車場あり' })).toBeChecked();
-  fireEvent.click(download()); await screen.findByText(/バックアップファイルを作成しました/);
+  fireEvent.click(download()); await screen.findByText(/保存ファイルを作りました/);
   expect(mockExport).toHaveBeenLastCalledWith(expect.objectContaining({ contact_name: '復元担当', has_parking: true,
     features: expect.arrayContaining(['駐車場あり', '個室あり']) }), Array(7).fill(null));
 });
 test('invalid import does not replace any current field, file, or consent', async () => {
   await fill(); const original = new File(['original'], 'original.png', { type: 'image/png' });
   fireEvent.change(screen.getByLabelText('外観の写真を選択'), { target: { files: [original] } }); mockImport.mockRejectedValue(new Error('bad SHA'));
-  fireEvent.change(restore(), { target: { files: [draftFile] } }); await screen.findByText(/下書きを復元できませんでした/);
+  fireEvent.change(restore(), { target: { files: [draftFile] } }); await screen.findByText(/復元できませんでした。入力はそのまま/);
   expect(await screen.findByAltText('外観')).toBeVisible(); expect(screen.getAllByRole('checkbox').every(box => (box as HTMLInputElement).checked)).toBe(true);
-  fireEvent.click(download()); await screen.findByText(/バックアップファイルを作成しました/);
+  fireEvent.click(download()); await screen.findByText(/保存ファイルを作りました/);
   expect(mockExport).toHaveBeenLastCalledWith(expect.objectContaining({ facility_name: '合成施設' }), [original, null, null, null, null, null, null]); expect(request).not.toHaveBeenCalled();
 });
 test.each(['prepared', 'attempted', 'confirmed'])('existing %s context cannot be replaced by import even if introduced after mounting', async phase => {
   await mount(); fireEvent.change(screen.getByLabelText(/^店舗名/), { target: { value: '既存の入力' } });
   const current = JSON.stringify({ version: 1, intentId, phase }); sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, current);
-  fireEvent.change(restore(), { target: { files: [draftFile] } }); await screen.findByText(/既存の申込または送信状況を確認するまで復元できません/);
+  fireEvent.change(restore(), { target: { files: [draftFile] } }); await screen.findByText(/送信状況が分かるまで復元できません/);
   expect(mockImport).not.toHaveBeenCalled(); expect(screen.getByLabelText(/^店舗名/)).toHaveValue('既存の入力');
   expect(sessionStorage.getItem(SALON_BROWSER_CONTEXT_KEY)).toBe(current); expect(request).not.toHaveBeenCalled();
   expect(restore()).toBeDisabled();
@@ -131,39 +131,39 @@ test('context changed while decoding prevents partial restore', async () => {
   fireEvent.change(restore(), { target: { files: [draftFile] } }); await waitFor(() => expect(mockImport).toHaveBeenCalledTimes(1));
   sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, JSON.stringify({ version: 1, intentId, phase: 'attempted' }));
   await act(async () => { resolveImport({ values: validValues, photos: Array(7).fill(null) }); });
-  await screen.findByText(/下書きを復元できませんでした/); expect(screen.getByLabelText(/^店舗名/)).toHaveValue('既存の入力'); expect(request).not.toHaveBeenCalled();
+  await screen.findByText(/復元できませんでした。入力はそのまま/); expect(screen.getByLabelText(/^店舗名/)).toHaveValue('既存の入力'); expect(request).not.toHaveBeenCalled();
 });
 test.each([{ statusCode: '403', message: 'new row violates row-level security policy' }, { code: '42501', message: 'permission denied' }])('only explicit pre-POST Storage policy rejection permits signed retry %p', async error => {
   mockLegacyUpload.mockResolvedValue({ error }); await fill(); const original = new File(['original'], 'original.png', { type: 'image/png' });
   fireEvent.change(screen.getByLabelText('外観の写真を選択'), { target: { files: [original] } }); await submit();
-  const retry = await screen.findByRole('button', { name: '安全なアップロードで再試行' }); expect(request).not.toHaveBeenCalled(); expect(mockCaptcha).not.toHaveBeenCalled();
+  const retry = await screen.findByRole('button', { name: '写真を送り直す' }); expect(request).not.toHaveBeenCalled(); expect(mockCaptcha).not.toHaveBeenCalled();
   request.mockResolvedValue(response(503, { state: 'unavailable' })); fireEvent.click(retry);
   await screen.findByText(/送信の準備が完了していません/); expect(mockCaptcha).toHaveBeenCalledTimes(1);
   expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons/prepare']);
   expect(JSON.parse(request.mock.calls[0][1].body)).toEqual({ recaptcha_token: 'fresh-captcha' });
   expect(await screen.findByAltText('外観')).toBeVisible(); expect(mockLegacyUpload).toHaveBeenCalledTimes(1); expect(mockSignedUpload).not.toHaveBeenCalled();
-  fireEvent.click(download()); await screen.findByText(/バックアップファイルを作成しました/);
+  fireEvent.click(download()); await screen.findByText(/保存ファイルを作りました/);
   expect(mockExport).toHaveBeenCalledWith(expect.objectContaining({ facility_name: '合成施設' }), [original, null, null, null, null, null, null]);
 });
 test('signed photo-token issue failure after manual retry retains originals and never commits', async () => {
   mockLegacyUpload.mockResolvedValue({ error: { code: '42501' } }); await fill(); const original = new File(['original'], 'original.png', { type: 'image/png' });
   fireEvent.change(screen.getByLabelText('外観の写真を選択'), { target: { files: [original] } }); await submit();
   request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } })).mockResolvedValueOnce(response(503, { state: 'unavailable' }));
-  fireEvent.click(await screen.findByRole('button', { name: '安全なアップロードで再試行' })); await screen.findByText(/送信の準備が完了していません/);
+  fireEvent.click(await screen.findByRole('button', { name: '写真を送り直す' })); await screen.findByText(/送信の準備が完了していません/);
   expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons/prepare', '/api/salons/photos']); expect(mockSignedUpload).not.toHaveBeenCalled();
   expect(await screen.findByAltText('外観')).toBeVisible(); expect(restore()).toBeDisabled(); expect(download()).toBeEnabled();
-  fireEvent.click(download()); await screen.findByText(/バックアップファイルを作成しました/); expect(mockExport.mock.calls[0][1][0]).toBe(original);
+  fireEvent.click(download()); await screen.findByText(/保存ファイルを作りました/); expect(mockExport.mock.calls[0][1][0]).toBe(original);
 });
 test.each([{ statusCode: '403', message: 'generic forbidden' }, { statusCode: '500', message: 'row-level security' }, new Error('network failure')])('generic upload error never offers new signed intent %p', async error => {
   mockLegacyUpload.mockResolvedValue({ error }); await fill(); fireEvent.change(screen.getByLabelText('外観の写真を選択'), { target: { files: [new File(['original'], 'original.png', { type: 'image/png' })] } });
   await submit(); await waitFor(() => expect(screen.getByRole('button', { name: '申し込む' })).toBeEnabled());
-  expect(screen.queryByRole('button', { name: '安全なアップロードで再試行' })).not.toBeInTheDocument(); expect(request).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: '写真を送り直す' })).not.toBeInTheDocument(); expect(request).not.toHaveBeenCalled();
 });
 test('V1 unknown outcome blocks backup/import and any new signed intent', async () => {
   mockLegacyUpload.mockResolvedValue({ error: null }); request.mockRejectedValue(new Error('lost POST response')); await fill(); await submit();
   await screen.findByText(/受付済みの可能性があります/); expect(download()).toBeDisabled(); expect(restore()).toBeDisabled();
   fireEvent.change(restore(), { target: { files: [draftFile] } }); expect(mockImport).not.toHaveBeenCalled();
-  expect(screen.queryByRole('button', { name: '安全なアップロードで再試行' })).not.toBeInTheDocument(); expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons']);
+  expect(screen.queryByRole('button', { name: '写真を送り直す' })).not.toBeInTheDocument(); expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons']);
 });
 
 test('two distinct parallel RLS photo errors still expose the explicit signed retry without a POST', async () => {
@@ -172,7 +172,7 @@ test('two distinct parallel RLS photo errors still expose the explicit signed re
   await fill();
   fireEvent.change(screen.getByLabelText('外観の写真を選択'), { target: { files: [new File(['first'], 'first.png', { type: 'image/png' })] } });
   fireEvent.change(screen.getByLabelText('内観 1の写真を選択'), { target: { files: [new File(['second'], 'second.png', { type: 'image/png' })] } });
-  await submit(); expect(await screen.findByRole('button', { name: '安全なアップロードで再試行' })).toBeEnabled();
+  await submit(); expect(await screen.findByRole('button', { name: '写真を送り直す' })).toBeEnabled();
   expect(mockLegacyUpload).toHaveBeenCalledTimes(2); expect(request).not.toHaveBeenCalled();
 });
 test.each([false, true])('photo edits retain current originals across back/next and final upload (restored=%s)', async restored => {
@@ -182,7 +182,7 @@ test.each([false, true])('photo edits retain current originals across back/next 
   await fill();
   if (restored) {
     mockImport.mockResolvedValue({ values: validValues, photos: [original, null, null, null, null, null, last] });
-    fireEvent.change(restore(), { target: { files: [draftFile] } }); await screen.findByText(/入力と元の写真を復元しました/); await toLastStep();
+    fireEvent.change(restore(), { target: { files: [draftFile] } }); await screen.findByText(/復元しました。内容を確認し/); await toLastStep();
     screen.getAllByRole('checkbox').forEach(box => fireEvent.click(box));
   } else {
     fireEvent.change(screen.getByLabelText('外観の写真を選択'), { target: { files: [original] } });
@@ -194,7 +194,7 @@ test.each([false, true])('photo edits retain current originals across back/next 
   fireEvent.click(screen.getByRole('button', { name: '次へ' })); await screen.findByRole('button', { name: '申し込む' });
   expect(await screen.findByAltText('外観')).toHaveAttribute('src', 'data:image/webp;base64,cmVwbGFjZW1lbnQtYnl0ZXM=');
   expect(await screen.findByAltText('メニュー 3')).toBeVisible();
-  fireEvent.click(download()); await screen.findByText(/バックアップファイルを作成しました/);
+  fireEvent.click(download()); await screen.findByText(/保存ファイルを作りました/);
   expect(mockExport.mock.calls.at(-1)[1]).toEqual([replacement, null, null, null, null, null, last]);
   mockLegacyUpload.mockResolvedValue({ error: null }); request.mockResolvedValue(response(200, { success: true, id: '22222222-2222-4222-8222-222222222222' }));
   await submit(); await waitFor(() => expect(mockRouter.push).toHaveBeenCalledTimes(1));
@@ -208,7 +208,7 @@ test('phase changed during backup serialization prevents download and locks cont
   fireEvent.click(download()); await waitFor(() => expect(mockExport).toHaveBeenCalledTimes(1));
   sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, JSON.stringify({ version: 1, intentId, phase: 'attempted' }));
   await act(async () => { resolveBackup(new Blob(['backup'])); });
-  await screen.findByText('バックアップを保存できませんでした。入力と元の写真はこの画面に保持されています。');
+  await screen.findByText('ファイルに保存できませんでした。入力はそのままです。');
   expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled(); expect(download()).toBeDisabled(); expect(restore()).toBeDisabled();
   expect(screen.getByLabelText(/^店舗名/)).toHaveValue('保持する入力'); expect(request).not.toHaveBeenCalled();
 });
@@ -226,7 +226,7 @@ test.each(['locked','unavailable'])('manual file restoration cannot bypass a dur
  await mount(); fireEvent.change(screen.getByLabelText(/^店舗名/), { target: { value: 'Unchanged unsent input' } });
  mockReadLocal.mockImplementation(async () => { if (kind === 'unavailable') throw new Error('unknown local state'); return { state: 'locked' }; });
  fireEvent.change(restore(), { target: { files: [draftFile] } });
- await screen.findByText(/下書きを復元できませんでした/);
+ await screen.findByText(/復元できませんでした。入力はそのまま/);
  expect(mockImport).not.toHaveBeenCalled(); expect(screen.getByLabelText(/^店舗名/)).toHaveValue('Unchanged unsent input');
  expect(request).not.toHaveBeenCalled(); expect(mockCaptcha).not.toHaveBeenCalled();
 });
@@ -236,6 +236,6 @@ test('a durable fence acquired while a portable backup is decoded prevents all i
  mockReadLocal.mockResolvedValueOnce(null).mockResolvedValueOnce({ state: 'locked' });
  mockImport.mockResolvedValue({ values: validValues, photos: Array(7).fill(null) });
  fireEvent.change(restore(), { target: { files: [draftFile] } });
- await screen.findByText(/下書きを復元できませんでした/);
+ await screen.findByText(/復元できませんでした。入力はそのまま/);
  expect(screen.getByLabelText(/^店舗名/)).toHaveValue('Original input'); expect(request).not.toHaveBeenCalled();
 });

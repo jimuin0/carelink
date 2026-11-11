@@ -35,7 +35,7 @@ test('SSRの時点で入力欄は使え、「次へ」だけが準備完了ま�
     const next = view.getByRole('button', { name: '次へ' });
     expect(next).toBeDisabled();
     const status = view.getByRole('status');
-    expect(status).toHaveTextContent('入力はそのまま続けられます');
+    expect(status).toHaveTextContent('入力は続けられます');
     expect(status).toHaveTextContent('JavaScript');
     expect(next).toHaveAttribute('aria-describedby', status.id);
     // 3 ページ目は hidden のまま常に描かれる。案内は表示中のページにだけ出し、id を重複させない。
