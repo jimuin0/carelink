@@ -286,7 +286,7 @@ test('manual original-photo backup survives reload beyond capability lifetime, r
   assertBackup(editedBackup, changedFiles);
   expect(editedBackup.payload.values).toEqual(backup.payload.values);
   expect(transport).toBe(0);
-  await page.getByRole('checkbox', { name: /この下書きはまだ送信していません/ }).check();
+  await page.getByRole('checkbox', { name: /この下書きはまだ送信していない/ }).check();
   const committed = page.waitForResponse(response => response.request().method() === 'POST'
     && new URL(response.url()).pathname === '/api/salons/commit');
   await consentAndSubmit(page);

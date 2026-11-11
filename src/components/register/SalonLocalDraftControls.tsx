@@ -108,8 +108,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
     void serial(async () => {
       try {
         const value = await readLocalSalonDraft(); remember(value);
-        if (mounted.current && value?.state === 'locked') setMessage('送信に使った下書きです。受付状況が分かるまで復元できません。');
-        else if (mounted.current && value?.state === 'saved') setMessage('この端末に送信前の下書きがあります。「下書きを復元」で戻せます。');
+        if (mounted.current && value?.state === 'saved') setMessage('この端末に送信前の下書きがあります。「下書きを復元」で戻せます。');
         if (value?.state === 'locked' || value?.state === 'saved') attention();
         if (mounted.current) setReady(true);
       } catch (error) { failed(error); }
@@ -270,5 +269,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
     </div>
     <p aria-live="polite" className="mt-2">{busy ? '確認しています…' : message}</p>
     {saved?.backup && <p className="mt-2">保存期限: {new Date(saved.expiresAt).toLocaleString('ja-JP')}</p>}
+    {/* 送信に使った下書きは、タブを閉じても再起動しても復元できないことを常に示す（状態の文言は上書きされるため別に出す）。 */}
+    {saved?.state === 'locked' && <p className="mt-2">送信に使った下書きのため、復元できません。受付状況をご確認ください。</p>}
       </section>;
 });

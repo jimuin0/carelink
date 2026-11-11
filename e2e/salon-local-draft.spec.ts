@@ -126,7 +126,7 @@ test('transport sees a committed fence; lost session context and failed clearing
   await expect(page.getByText(/受付状況|送信結果/).first()).toBeVisible();
   await page.evaluate(() => sessionStorage.clear()); page.once('dialog', dialog => dialog.accept()); await page.reload(); await openTools(page);
   await expect(section(page).getByRole('button', { name: '下書きを復元' })).toBeDisabled();
-  await expect(section(page).getByText(/別のタブやブラウザー再起動後も復元できません/)).toBeVisible();
+  await expect(section(page).getByText(/送信に使った下書きのため、復元できません/)).toBeVisible();
   // Losing sessionStorage must not make the same manual file a fresh intent.
   await page.getByLabel('保存ファイルから復元').setInputFiles({ name: 'synthetic-backup.json', mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(beforeTransport.backup)) });
@@ -137,7 +137,7 @@ test('transport sees a committed fence; lost session context and failed clearing
     (window as unknown as { restoreIDBPut: () => void }).restoreIDBPut = () => { IDBObjectStore.prototype.put = original; };
     IDBObjectStore.prototype.put = () => { throw new DOMException('synthetic quota', 'QuotaExceededError'); }; });
   await section(page).getByRole('button', { name: '下書きを削除' }).click();
-  await expect(section(page).getByText(/端末の下書きを保存・確認できませんでした/)).toBeVisible();
+  await expect(section(page).getByText(/下書きを保存できませんでした/)).toBeVisible();
   expect(await raw(page)).toMatchObject({ state: 'locked', hasBackup: true });
   await page.evaluate(() => (window as unknown as { restoreIDBPut: () => void }).restoreIDBPut());
   await section(page).getByRole('button', { name: '下書きを削除' }).click();
@@ -155,7 +155,7 @@ test('manual import of the same saved original input adopts its revision and fen
   expect((await raw(page))?.revision).toBe(saved.revision);
   await page.getByRole('button', { name: '次へ' }).click(); await page.getByRole('button', { name: '次へ' }).click();
   // 未送信の確認は同意と同じく、送信ボタンの直前（ステップ3）で求める。
-  await page.locator('label', { hasText: 'この下書きはまだ送信していません' }).locator('input').check();
+  await page.locator('label', { hasText: 'この下書きはまだ送信していない' }).locator('input').check();
   let attempted = false;
   await page.route('**/api/salons**', async route => {
     if (route.request().method() === 'POST') {
@@ -195,7 +195,7 @@ test('expired personal content is removed on next access, keeping a revision tom
 test('actual IndexedDB quota failure never shows a saved confirmation', async ({ page, context }) => {
   await isolated(context); await ready(page); await page.fill('#reg-facility-name', '失われない画面の入力');
   await page.evaluate(() => { IDBObjectStore.prototype.put = () => { throw new DOMException('synthetic quota', 'QuotaExceededError'); }; });
-  await optIn(page).click(); await expect(section(page).getByText(/端末の下書きを保存・確認できませんでした/)).toBeVisible();
+  await optIn(page).click(); await expect(section(page).getByText(/下書きを保存できませんでした/)).toBeVisible();
   await expect(page.locator('#reg-facility-name')).toHaveValue('失われない画面の入力');
   expect(await raw(page)).toBeNull();
 });

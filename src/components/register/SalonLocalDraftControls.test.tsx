@@ -111,7 +111,7 @@ test('explicitly clearing an unrestored saved original permits a new autosave', 
 });
 test('a locked draft after reopening cannot restore, opt in or be unlocked by deleting its photos', async () => {
   current = sample(6, 'locked'); const view = mount();
-  await waitFor(() => expect(screen.getByText(/送信に使った下書きです/)).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText(/送信に使った下書きのため/)).toBeInTheDocument());
   expect(screen.getByRole('button', { name: '下書きを復元' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'この端末で下書きを自動保存する' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: '下書きを削除' }));
