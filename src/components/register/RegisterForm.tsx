@@ -44,7 +44,7 @@ const nonMedicalBusinessTypes = businessTypes.filter(type => !medicalBusinessTyp
 const PARKING_FEATURE = '駐車場あり';
 const featureChoices = facilityFeatures.filter(feature => feature !== PARKING_FEATURE);
 
-const LEAVE_CONFIRM_MESSAGE = '入力中の内容は送信されていません。このページを離れると入力が失われます。';
+const LEAVE_CONFIRM_MESSAGE = '送信前の入力は、このページを離れると消えます。';
 
 // 入力欄にフォーカスが移ったとき（エラー箇所へ移すときなど）、固定ヘッダー（4rem）の下に
 // 隠れないよう余白を取る。
@@ -234,7 +234,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     void initialize().catch(() => {
       if (cancelled) return;
       submissionUnknownRef.current = true; setSubmissionUnknown(true);
-      setV2Message('申込の確認情報を保存できません。ブラウザーの設定をご確認ください。新たに送信せず、お問い合わせください。');
+      setV2Message('申込の確認情報を保存できません。送信せず、お問い合わせください。');
     });
     return () => { cancelled = true; };
   }, [v2Enabled, completeConfirmedRegistration]);
@@ -461,7 +461,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     try {
       if (!(await localDraft.current?.beforeSubmit(data, photoFiles))) { setSubmitting(false); return; }
     } catch {
-      setSubmitting(false); setToast({ type: 'error', message: '端末の下書きを確認できませんでした。送信せず、入力と元の写真を保持しています。' }); return;
+      setSubmitting(false); setToast({ type: 'error', message: '下書きを確認できないため、送信を止めました。入力はそのままです。' }); return;
     }
     if (useV2) {
       try {
@@ -616,7 +616,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   };
 
   const downloadDraft = async () => {
-    if (!draftAllowed(false)) { setToast({ type: 'error', message: '送信状況を確認するまでバックアップできません。受付状況をお問い合わせください。' }); return; }
+    if (!draftAllowed(false)) { setToast({ type: 'error', message: '送信状況が分かるまで保存できません。受付状況をお問い合わせください。' }); return; }
     draftLockRef.current = true; setDraftBusy(true);
     let url: string | null = null;
     let anchor: HTMLAnchorElement | null = null;
@@ -631,9 +631,9 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       url = URL.createObjectURL(backup);
       anchor = document.createElement('a'); anchor.href = url; anchor.download = 'carelink-draft.json';
       document.body.appendChild(anchor); anchor.click();
-      setToast({ type: 'success', message: 'バックアップファイルを作成しました。保存先をご確認ください。' });
+      setToast({ type: 'success', message: '保存ファイルを作りました。' });
     } catch {
-      setToast({ type: 'error', message: 'バックアップを保存できませんでした。入力と元の写真はこの画面に保持されています。' });
+      setToast({ type: 'error', message: 'ファイルに保存できませんでした。入力はそのままです。' });
     } finally {
       anchor?.remove();
       if (url) {
@@ -645,7 +645,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   };
 
   const restoreDraft = async (file: File, fromLocal = false) => {
-    if (!draftAllowed(true)) { setToast({ type: 'error', message: '既存の申込または送信状況を確認するまで復元できません。受付状況をお問い合わせください。' }); return false; }
+    if (!draftAllowed(true)) { setToast({ type: 'error', message: '送信状況が分かるまで復元できません。受付状況をお問い合わせください。' }); return false; }
     draftLockRef.current = true; setDraftBusy(true);
     try {
       const local = await readLocalSalonDraft();
@@ -679,10 +679,10 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       setPhotoFiles(draft.photos); setRestoreGeneration(value => value + 1);
       setAgreed(false); setLicenseWarranted(false); setRestoredNeedsReview(true); setRestoredUnsentAcknowledged(false);
       setLegacyStorageBlocked(false); setShowConfirm(false); setPhotoError(null); setIsDirty(true); setStep(1);
-      setToast({ type: 'success', message: '入力と元の写真を復元しました。内容と未送信であることを確認し、規約と表明に改めて同意してください。' });
+      setToast({ type: 'success', message: '復元しました。内容を確認し、もう一度同意にチェックしてください。' });
       return true;
     } catch {
-      setToast({ type: 'error', message: '下書きを復元できませんでした。入力と元の写真は変更されていません。' });
+      setToast({ type: 'error', message: '復元できませんでした。入力はそのままです。' });
       return false;
     } finally { draftLockRef.current = false; setDraftBusy(false); }
   };
@@ -727,7 +727,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   /** 送信ボタンの横に出す「準備中」の案内。入力は続けられることと、待っている理由を書く。 */
   const readyStatus = !formReady && !submissionUnknown
     ? <p role="status" id="register-ready-status" className="mt-2 text-sm text-(--ecru-muted)">
-      送信の準備中です。入力はそのまま続けられます（押せないままのときは、JavaScriptの設定と通信状況をご確認ください）。
+      送信の準備中です（入力は続けられます）。押せないままなら、JavaScriptと通信をご確認ください。
     </p>
     : null;
   const readyDescription = !formReady && !submissionUnknown ? { 'aria-describedby': 'register-ready-status' } : {};
@@ -782,29 +782,29 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               onRestore={async blob => { if (!(await restoreDraft(new File([blob], 'carelink-local-draft.json', { type: 'application/json' }), true))) throw new Error('Local draft restoration not confirmed'); }} />
             <section aria-label="入力の手動バックアップ" className="border-t border-(--ecru-line) pt-5 text-sm">
               <h3 className="font-medium">ファイルに保存</h3>
-              <p className="mt-1 text-(--ecru-muted)">別の端末で続けるときに使います。氏名・連絡先・写真が入るので、共有の端末には保存しないでください。</p>
+              <p className="mt-1 text-(--ecru-muted)">別の端末で続けるときに使います。</p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <button type="button" onClick={() => void downloadDraft()} disabled={backupDisabled} className={DRAFT_BUTTON}>入力と元の写真をバックアップ</button>
+                <button type="button" onClick={() => void downloadDraft()} disabled={backupDisabled} className={DRAFT_BUTTON}>保存ファイルを作る</button>
                 {/* ファイル選択欄は sr-only（「Choose File」等のブラウザー既定の英語表示を出さない）。
                     キーボードではこの欄にフォーカスが入るので、枠に focus-within でリングを出す。 */}
                 <label className={`${DRAFT_BUTTON} focus-within:ring-2 focus-within:ring-(--primary) focus-within:ring-offset-2 ${restoreDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
-                  バックアップから入力を復元
-                  <input type="file" accept="application/json,.json" aria-label="バックアップから入力を復元" disabled={restoreDisabled} className="sr-only"
+                  保存ファイルから復元
+                  <input type="file" accept="application/json,.json" aria-label="保存ファイルから復元" disabled={restoreDisabled} className="sr-only"
                     onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void restoreDraft(file); }} />
                 </label>
               </div>
-              {draftContext !== 'empty' && <p className="mt-2">既存の申込確認情報があるため復元できません。送信済み・結果不明の場合は、受付状況を先に確認してください。</p>}
+              {draftContext !== 'empty' && <p className="mt-2">申込の確認中のため復元できません。先に受付状況を確認してください。</p>}
             </section>
           </div>
         </details>
         {confirmedCleanupPath && <div role="alert" className="mb-4 rounded-sm border p-4 text-sm">
-          <p>掲載申込の受付は確認済みです。この端末の下書き削除を確認できませんでした。下書きの復元はロックされています。「端末の下書きを削除」をお試しください。</p>
+          <p>受付は完了しています。この端末の下書きを消せなかったため、「下書きを削除」を押してください。</p>
           <Link href={confirmedCleanupPath} className="mt-2 inline-block underline">受付内容を確認する</Link>
         </div>}
         {legacyStorageBlocked && !submissionUnknown && <div role="alert" className="mb-4 rounded-sm border border-amber-300 p-4 text-sm">
-          <p>写真の旧アップロード方法が利用できません。申込はまだ送信していません。入力と元の写真を保持したまま、安全なアップロードで明示的に再試行できます。</p>
+          <p>写真を送れませんでした（申込はまだ送信していません）。入力はそのままで、下のボタンから送り直せます。</p>
           <button type="button" onClick={retrySignedUpload} disabled={submitting || draftBusy || !agreed || !licenseWarranted || (restoredNeedsReview && !restoredUnsentAcknowledged)}
-            className="mt-3 underline">安全なアップロードで再試行</button>
+            className="mt-3 underline">写真を送り直す</button>
         </div>}
 
         {submissionUnknown && (
@@ -1050,7 +1050,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                     disabled={submitting || submissionUnknown || submissionConfirmed || draftBusy}
                     aria-required="true" {...(checkError('unsent') ? { 'aria-invalid': true, 'aria-describedby': 'reg-unsent-error' } : {})}
                     onChange={event => setRestoredUnsentAcknowledged(event.target.checked)} className={CHECKBOX} />
-                  <span>この下書きはまだ送信していません。送信済み・結果不明の場合は受付状況を確認します</span>
+                  <span>この下書きはまだ送信していない（送信したか分からないときは、先に受付状況を確認する）</span>
                 </label>
                 {checkError('unsent') && <p id="reg-unsent-error" className="form-error">{checkError('unsent')}</p>}
               </div>}
@@ -1112,7 +1112,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
         title="この内容で申し込みますか？"
         // 受付と一般公開は別の手続き（/register の FAQ・受付メールと同じ事実を書く）。以前は
         // 「すぐに掲載を開始できます」と書いており、送信すれば公開されると誤解させていた。
-        message={`送信しただけでは公開されません。このあとアカウント作成・書類の提出・運営の確認を経て公開されます（${LISTING_PUBLISH_ITEMS}の設定も必要です）。`}
+        message={`まだ公開されません。アカウント作成・書類の提出・${LISTING_PUBLISH_ITEMS}の設定を終え、運営が確認すると公開されます。`}
         confirmLabel="この内容で申し込む"
         cancelLabel="戻る"
         confirmDisabled={submitting || submissionUnknown || submissionConfirmed || draftBusy || (restoredNeedsReview && !restoredUnsentAcknowledged)}

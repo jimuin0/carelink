@@ -172,7 +172,7 @@ test('confirm dialog does not promise immediate publication', async () => {
   fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
   const dialog = await screen.findByRole('dialog');
   expect(dialog).not.toHaveTextContent('すぐに掲載を開始できます');
-  expect(dialog).toHaveTextContent('送信しただけでは公開されません');
+  expect(dialog).toHaveTextContent('まだ公開されません');
   expect(dialog).toHaveTextContent('書類の提出');
   expect(request).not.toHaveBeenCalled();
 });

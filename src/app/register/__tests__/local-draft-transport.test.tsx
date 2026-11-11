@@ -45,17 +45,17 @@ test.each([true,false])('failed local pretransport fence blocks all V1/V2 reques
 });
 test('unexpected fence exception is visible and never leaves submission spinner or starts transport', async () => {
  mockFence.mockRejectedValue(new Error('synthetic fence fault')); await fill(); await submit();
- await screen.findByText('端末の下書きを確認できませんでした。送信せず、入力と元の写真を保持しています。');
+ await screen.findByText('下書きを確認できないため、送信を止めました。入力はそのままです。');
  expect(mockFetch).not.toHaveBeenCalled(); expect(screen.getByRole('button', { name: '申し込む' })).toBeEnabled();
 });
 test('verified receipt survives local delete failure with explicit receipt link and no resend', async () => {
  mockConfirmed.mockRejectedValue(new Error('synthetic quota')); mockFetch.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(response(201, { state: 'committed', receiptId }));
- await fill(); await submit(); await screen.findByText(/掲載申込の受付は確認済みです/);
+ await fill(); await submit(); await screen.findByText(/受付は完了しています/);
  expect(screen.getByRole('link', { name: '受付内容を確認する' })).toHaveAttribute('href', '/register/complete?handoff=registration');
  expect(mockPush).not.toHaveBeenCalled(); expect(screen.getByRole('button', { name: '申し込む' })).toBeDisabled();
  expect(JSON.parse(sessionStorage.getItem(SALON_BROWSER_CONTEXT_KEY)!).phase).toBe('confirmed');
  expect(screen.queryByText(/送信結果を確認できませんでした/)).not.toBeInTheDocument();
- // 案内文が指す「端末の下書きを削除」は畳んだ操作欄の中にあるので、自動で開いて見せる。
+ // 案内文が指す「下書きを削除」は畳んだ操作欄の中にあるので、自動で開いて見せる。
  expect(document.getElementById('register-draft-tools')).toHaveAttribute('open');
 });
 test('a known prepare failure before any commit may release only the same owned input fence', async () => {

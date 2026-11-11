@@ -57,8 +57,8 @@ test('unpatched V1 retains mounted inputs/files after policy denial but cannot s
   expect(mockUpload.mock.calls[0][1]).toBe(original);
   expect(screen.getByAltText('外観')).toBeVisible();
   expect(screen.getByLabelText(/^PR文/)).toHaveValue('合成未送信の内容');
-  expect(screen.queryByRole('button', { name: '安全なアップロードで再試行' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: '入力と元の写真をバックアップ' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '写真を送り直す' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '保存ファイルを作る' })).not.toBeInTheDocument();
   await submit();
   await waitFor(() => expect(mockUpload).toHaveBeenCalledTimes(2));
   expect(mockUpload.mock.calls[1][1]).toBe(original);
