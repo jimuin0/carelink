@@ -38,3 +38,16 @@ export const medicalBusinessTypeSlugs: Readonly<Record<string, string>> = {
 };
 
 export const medicalBusinessTypes: readonly string[] = Object.values(medicalBusinessTypeSlugs);
+
+/** 業種の選択欄で、医療の区分をまとめて出す 1 行の値（医療を選んだ直後の既定値も兼ねる）。 */
+export const MEDICAL_BUSINESS_TYPE_DEFAULT = 'その他の医療機関';
+
+/**
+ * 業種の選択欄に出す「医療機関」1 行の value。いま医療の区分が選ばれていればその値、無ければ既定値。
+ *
+ * 🔴 区分ごとに <option hidden> を並べて選択値を保つ作りは、iPhone の Safari が hidden を無視して
+ * 「医療機関」が区分の数だけ並ぶ（2026年11月11日）。行は常に 1 つにし、value だけを今の区分に合わせる。
+ */
+export function medicalBusinessTypeOptionValue(current: string): string {
+  return medicalBusinessTypes.includes(current) ? current : MEDICAL_BUSINESS_TYPE_DEFAULT;
+}
