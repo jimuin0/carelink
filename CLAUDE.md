@@ -3,7 +3,7 @@
 ## プロジェクト概要
 医療・福祉・美容 施設向けの【予約管理・集客・採用】を統合したマルチテナント SaaS（旧 LP から予約管理プラットフォームへ移行済み）。施設オーナーが予約枠・メニュー・スタッフ・クーポンを管理し、来院者は施設検索・予約・問診・レビューを行う。決済は Stripe、メッセージングは LINE / LIFF、メールは Resend を使う。
 
-- フロント／API＝Next.js 15（App Router・Route Handler）/ デプロイ＝Vercel（本番 `https://carelink-jp.com`・`www.` はアペックスへ 301）
+- フロント／API＝Next.js 15（App Router・Route Handler）/ デプロイ＝Cloudflare Workers（2026年11月11日に Vercel から切り替え。本番 `https://carelink-jp.com`・`www.` はアペックスへ 301）。main で CI が成功したコミットだけを `.github/workflows/deploy-cloudflare.yml` が自動配信し、配信後に `/api/health` の version を照合する。手動配信は `npm run deploy:cloudflare` だけを使う。切り替え・戻し方は `docs/handoff/CLOUDFLARE_PRODUCTION_MIGRATION_20261104.md`。Vercel は戻し先として 2026年11月25日ごろまで残す（Preview と Vercel Build Dry-Run の検査は残っている）
 - DB／認証＝Supabase（Postgres・Auth・Storage・RLS・RPC）
 - 定期実行＝【Render Cron Jobs が唯一の本番スケジューラ】（`render.yaml`＝`services:` に cron 16 本＋`envVarGroups:` に `carelink-cron-env` 1 本）。GitHub Actions cron（`.github/workflows/cron.yml`）はファイルとしては残っているが【GitHub 上で無効化（`disabled_manually`）されており発火しない】（下記「cron の現状」参照）。`/api/cron/*` を Bearer 認証で叩く。オーナーニュースレターの自動月次配信は廃止（神原さん確定 2026年7月2日「お知らせがある時のみ」）＝digest エンドポイント・専用ワークフロー・発火監視をすべて削除。配信は管理画面 `/admin/newsletters` からの手動送信のみ
 - 本番 Supabase project ref＝`xzafxiupbflvgbarrihe`。middleware の CSP `connect-src` は `NEXT_PUBLIC_SUPABASE_URL` から導出し、**env 欠落時のみ**この ref にハードコードでフォールバックする（`getSupabaseConnectSrc()`）
@@ -76,7 +76,7 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 `runAfterResponse(task)` が唯一の登録口。**新しく「応答後に走らせたい副作用」を足すときは
 `void doSomething()` と書かず必ずこれを通す。**
 
-🔴 **なぜ必要か（本番の実害）**：サーバーレス（Vercel）は【レスポンスを返した時点でインスタンスを
+🔴 **なぜ必要か（本番の実害）**：サーバーレス（当時の Vercel・現在の Cloudflare Workers とも）は【レスポンスを返した時点でインスタンスを
 凍結・終了してよい】ため、浮いた Promise（`void ...`）の完了は保証されない。実際に本番の
 `audit_logs` は全期間 5 行しかなく、うち 4 行は DB トリガ由来で、アプリの `void writeAuditLog(...)`
 83 箇所に由来する行は 1 行だけだった。
@@ -464,6 +464,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
   - ⚠️ `next.config.mjs` の `partialPrefetching: true` でも同種の効果が得られるが、**`cacheComponents: true`（PPR/`use cache` への全面移行）が前提**なので採らなかった。
   - 機械強制＝`e2e/home-prefetch-fanout.spec.ts`。個々のリンクに `prefetch={false}` が書いてあるかは**見ない**（列挙は次に足される一覧を守らない）。**トップ全体で何本のページ先読みが出たか**という外形だけを見るので、新しい一覧を足して先読みが復活すれば何であっても赤くなる。空振り防止として「計測機構が要求を観測したか」と「一覧リンクが実際に描画されたか」を併設してある。
   - ⚠️ **ローカル計測の偽陰性に 2 回踏んだ。** `.next` を消して再ビルドしても**古い `next start` が生き残っている**と、消えたチャンクを配って 500 になり、`ssr:false` の `HomeBelowFold` が描画されないまま「先読み 0 本」に見える。`pkill -f "next start"` は**自分のシェルにもマッチして落ちる**ので使わない。`/proc` の cmdline で `next-server` を特定して落とし、`お役立ちコラム` 等が描画されていることを確認してから数えること。
+- 【Vercel 配信時代の記録・2026年11月11日に本番は Cloudflare へ移行済み】
 - 【🔴 Vercel Hobby の配信イメージ上限（1 リポジトリ 50 個）に達すると、ビルドは通るのに本番へ出せなくなる】2026年10月28日、`dockerfile` リポジトリ（Container Runtime の配信ごとに 1 個積まれる・1日 約10個）がちょうど 50 個に達し、push が `repository has reached the maximum allowed number of images` で拒否されて本番配信が失敗した（課金ではなく上限。日次ビルド枠とは別物）。同日に本人承認のうえ古い 25 個を削除して復旧。再発防止は `.github/workflows/vcr-image-retention.yml` → `scripts/prune-vcr-images.mjs` で、直近 20 個・作成から 24 時間未満・稼働中の本番（`/api/health` の version）・直近 10 回分の本番配信を残して古いものを消す。本番の版が確認できなければ何も消さずに失敗する。長期の鍵は置かず、GitHub の OIDC を Vercel の短命トークンへ交換して終了時に失効させる（前提＝Vercel の team 設定に VCR 用 OIDC ポリシー、repo variable `VERCEL_TEAM_ID`）。🔴 **2026年11月2日 本人決定で自動実行（main への push・毎日）を止めた**（OIDC ポリシーは作らない。Cloudflare へ移ると Vercel を使わなくなるため）。今は、配信イメージが 40 個に近づいたら `scripts/prune-vcr-images.mjs` の選定で候補を出し、本人の承認を得てから `vercel vcr image rm` で手で消す（記録は `docs/handoff/DB_EXTENSIONS_AND_VCR_REVIEW_20261029.md`）。配信失敗のログに上記の文言が出たら、まず配信イメージの数を数える。
 - 【🔴 Vercel Hobby の日次ビルド枠を実際に使い切ると24時間デプロイ不能になる】2026年7月29日、1日に9マージ＋7PR起票を行った結果 `Deployment rate limited — retry in 24 hours` が発生した。本番は既存デプロイで動き続けるが、この間は【緊急修正を出せない】。神原さんの判断で【Hobby を継続】（同日）。恒久対策として `vercel.json` の `ignoreCommand` に `scripts/vercel-should-build.sh` を配線し、配信物に影響しない変更（`supabase/migrations/` ・`.github/` ・`docs/` ・`e2e/` ・ルート直下の `.md` ・テストファイル・判定スクリプト自身と CI 専用の PostgREST 検査）だけならビルドをスキップする。比較元は【最後に成功した配信】（`VERCEL_GIT_PREVIOUS_SHA`。Preview の初回は稼働中の本番の版）なので、途中で配信に失敗したアプリ変更を後続の文書変更で隠さない。本番は、その最後に成功した配信が `/api/health` の稼働中の版と一致するときだけ省略する（昇格・未昇格の成功配信のアプリ変更を隠さないため。2026年10月31日の敵対レビューで追加）。本番は止まっていることが多く起動に5〜6秒かかるため、`/api/health` は1回15秒・2回まで待つ（2026年11月1日。5秒では #879 の文書だけの配信でも時間切れでビルドしていた）。省略しても GitHub では緑の success になるので、判定の中身はビルドログの `判定情報:` 行で確認する。文書だけの push では設定変更が反映されない（手順は `docs/MANUAL.md` 5.1）。🔴 **Vercel では `.vercelignore` が `.git` を取り除くため、判定に git は使えない**（2026年10月30日に実測。#851 の導入以来、git に頼った判定は一度も働かず、本番・Preview とも毎回ビルドしていた）。変更ファイルは GitHub の比較 API（比較元…`VERCEL_GIT_COMMIT_SHA`）から取り、取得失敗・別系統・途切れた一覧などは必ずビルドに倒す。判定が緩む改変と git 依存の復活は `src/__tests__/vercel-build-skip.test.ts`（`.git` の無い場所で実行する）が CI で止める。作業時は【1日のマージ数を意識し、複数の修正はできるだけ1本のPRにまとめる】。
 - 【`src/app/**/route.ts` は HTTP メソッド（GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS）と一部 config 以外を export できない】。共有ヘルパー関数を route.ts に足すと `tsc --noEmit`・`jest`・lint は通るのに `next build`（＝Vercel デプロイ・E2E も内部で依存）だけ `"xxx" is not a valid Route export field` で Failed to compile する。Unit/Lint/Contract/Security 全 pass なのに Vercel/E2E だけ fail する場合は、まず `npx next build` をローカル実行してこれを疑う。共有関数は `src/lib/*.ts` に置き route.ts はメソッドのみ import して使う。
@@ -708,6 +709,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 <!-- END:nextjs-agent-rules -->
 
 ### Vercelの固定Node.jsランタイム
+
+⚠️ 2026年11月11日以降、本番はこの経路では配信していない（Cloudflare Workers へ移行）。Vercel を片付けるまでの戻し先・Preview 用として残している。
 
 `Dockerfile.vercel` はビルド・配信とも公式Node.js 24.22.1のdigestに固定し、standaloneを非root・PORT3000で実行する。CIと同じ `npm run build`（Webpack）を維持する。Vercel Container Runtimeのbuild ARG引き渡し不具合を回避するため、ビルド段だけ同一プロジェクトの `node24-public-config` イメージをdigest固定で使う。このベースにはNode本体と既存のブラウザ向け公開設定だけが入り、アプリコード・service-role・メール・決済・通知等の秘密値は入れない。アプリのソースは毎回COPYして再ビルドするため、Gitのコード更新が古いイメージで配信される構成ではない。
 
