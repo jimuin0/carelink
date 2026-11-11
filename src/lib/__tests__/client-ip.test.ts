@@ -52,4 +52,35 @@ describe('getClientIp', () => {
   test('ヘッダ無し → unknown', () => {
     expect(getClientIp(req({}))).toBe('unknown');
   });
+
+  describe('Cloudflare Workers で配信するとき', () => {
+    const original = process.env.CARELINK_EDGE;
+    beforeEach(() => { process.env.CARELINK_EDGE = 'cloudflare'; });
+    afterEach(() => {
+      if (original === undefined) delete process.env.CARELINK_EDGE;
+      else process.env.CARELINK_EDGE = original;
+    });
+
+    test('cf-connecting-ip を最優先し、利用者が送れる x-real-ip は信じない', () => {
+      expect(
+        getClientIp(req({ 'cf-connecting-ip': ' 198.51.100.9 ', 'x-real-ip': '203.0.113.7' }))
+      ).toBe('198.51.100.9');
+    });
+
+    test('cf-connecting-ip が無ければ x-real-ip ではなく XFF の末尾を使う', () => {
+      expect(
+        getClientIp(req({ 'x-real-ip': '203.0.113.7', 'x-forwarded-for': '10.0.0.1, 198.51.100.2' }))
+      ).toBe('198.51.100.2');
+    });
+
+    test('どちらも無ければ unknown', () => {
+      expect(getClientIp(req({ 'x-real-ip': '203.0.113.7' }))).toBe('unknown');
+    });
+  });
+
+  test('Cloudflare 以外では cf-connecting-ip を信じない', () => {
+    expect(
+      getClientIp(req({ 'cf-connecting-ip': '198.51.100.9', 'x-forwarded-for': '192.0.2.4' }))
+    ).toBe('192.0.2.4');
+  });
 });

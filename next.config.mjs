@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
+  ...(process.env.CARELINK_CLOUDFLARE_BUILD === '1' ? {} : { output: 'standalone' }),
   // Scale-to-zero containers should load the requested route, not every page
   // and API on each cold start. Bytecode is still prepared at image build time.
   experimental: { preloadEntriesOnStart: false },

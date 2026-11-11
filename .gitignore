@@ -58,3 +58,12 @@ e2e/.auth/
 # CareLink private recovery evidence / nested working copies (never bulk-publish)
 /work/
 /.local-consolidation*/
+/dist/
+.vinext/
+.wrangler/
+
+# Generated local Cloudflare image assets
+/public/__carelink_og/
+
+# Local Worker secrets
+.dev.vars*
