@@ -151,3 +151,13 @@ DB は移行で変更しないので、DB の戻しは要らない。
   Render cron（`cron_logs`）→ ログイン 3 方式と管理画面（本人）→ Stripe・LINE の webhook（本人）→ メール送受信 →
   確認用ホストの撤去 → main マージ後の自動配信（方式は本人が決める）→ PR・マージ（承認制）→ 2 週間後に Vercel の後片付け（承認制）。
 - 切り替え後に CLAUDE.md・AGENTS.md・RESUME.md の「デプロイ＝Vercel」を実態に合わせて直す。Speed Insights の代わりは本人に確認する。
+
+## 本番切り替えの記録（2026-11-11・本人承認「切り替えてよい」）
+
+- 切り替え前に、本番の稼働版（origin/main `30eb206`）をこのブランチへ取り込んだ（衝突なし）。取り込まずに切り替えると、Vercel で動いていた直近 9 コミット分の改修が本番から消えるところだった。
+  lint・型検査・単体テスト 842 ファイル / 17,555 件・Worker 側 node テスト 19 件はすべて成功。`npm run deploy:cloudflare` で配信（Worker 版 `8cf65730`・health の version `3becce0`）。
+- 02:22 UTC：ゾーンに Worker ルート `carelink-jp.com/*`（id `31b5d32d…`）と `www.carelink-jp.com/*`（id `3dc44552…`）を追加し、A @（`216.198.79.1`）と CNAME www（`cname.vercel-dns.com`）を proxied に変更。
+  wrangler のトークンにはゾーン権限が無いため、本人がログインしたダッシュボードのセッションで操作した。MX・TXT（Email Routing・Resend）は触っていない。
+- 確認：応答は `server: cloudflare`・`x-vercel-id` なし。公開ページの中身（`/search` 4 件・`/osaka` 3 件・店舗ページ）・health healthy・http→308・www→301（パスとクエリを保持）・CSP/HSTS・コンソールエラー 0。
+- 切り替え前のゾーン設定：ssl=full・security_level=medium・browser_check=on・Bot Fight Mode off。確認用ホストで、UA なしの要求・cron（401）・Stripe webhook（400）がアプリまで届くことを確かめてから切り替えた。
+- **戻し方**：上記ルート 2 本を削除し、A・CNAME を proxied=false に戻す（Vercel は 2 週間残す）。
