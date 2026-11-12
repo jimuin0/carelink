@@ -63,11 +63,14 @@ export default function AiSupportWidget() {
 
   return (
     <>
-      {/* フローティングボタン */}
+      {/* フローティングボタン。
+          🔴 lg 未満は管理画面の下部メニュー（AdminMobileNav・高さ約60px＋セーフエリア）が画面下に固定で出る。
+          bottom-6 のままだと右端の「その他」の真上に重なり、「その他」を押すとこのボタンに当たって
+          メニューが開かなかった（2026年11月12日・本番 375px で実測）。下部メニューの上へ逃がす。 */}
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-sky-600 hover:bg-sky-700 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+        className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] lg:bottom-6 right-6 z-50 w-14 h-14 bg-sky-600 hover:bg-sky-700 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
         aria-label="AIサポート"
       >
         {open ? (
@@ -83,7 +86,7 @@ export default function AiSupportWidget() {
 
       {/* チャットウィンドウ */}
       {open && (
-        <div className="fixed bottom-24 right-6 z-50 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col max-h-[500px]">
+        <div className="fixed bottom-[calc(9.5rem+env(safe-area-inset-bottom))] lg:bottom-24 right-6 z-50 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col max-h-[500px]">
           {/* ヘッダー */}
           <div className="flex items-center gap-3 px-4 py-3 bg-sky-500 rounded-t-2xl">
             <div className="w-8 h-8 bg-primary-dark rounded-full flex items-center justify-center text-sm font-bold text-white">AI</div>
