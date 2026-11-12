@@ -97,6 +97,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       - name: Report a failed deploy
         if: failure() && steps.deploy.outcome != 'success'
-        run: node tools/cloudflare/notify-slack.mjs ":warning: 本番への配信に失敗しました（本番は変わっていません）。${RUN_URL}"
+        run: |
+          node tools/cloudflare/notify-slack.mjs ":warning: 本番への配信に失敗しました（本番は変わっていません）。${RUN_URL}"
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
