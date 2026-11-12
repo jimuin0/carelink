@@ -1,0 +1,3 @@
+# Cloudflare Web Analytics のビーコン設定トークン（ブラウザに配られる公開値で、秘密ではない）。
+# generic-api-key ルールの誤検知。この 1 件の指紋だけを除外する（2026-11-12 本人承認）。
+acb421baf780233b1d891e59889d4110c4a7de42:src/app/layout.tsx:generic-api-key:142
