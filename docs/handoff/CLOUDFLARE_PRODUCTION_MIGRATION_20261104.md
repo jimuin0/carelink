@@ -110,19 +110,25 @@ PR #873（`f678359`）の Cloudflare 部分だけを、新しいブランチへ�
 - Resend：本人のアドレスへのパスワード再設定メールが届く。
 - `wrangler tail` で 5xx と CPU 時間を見る。
 
-## 戻し方（いつでも 1〜2 分）
+## 戻し方
 
-1. Cloudflare の Workers のルート 2 本を消す。
+### Worker の版を戻す（コードの不具合・1 分）
+- 自動配信は、配信後の確認（`tools/cloudflare/verify-live.mjs`）に失敗すると `wrangler rollback` で直前の版へ戻し、Slack に知らせる。
+  戻したコミットは artifact `bad-deploy-<sha>` として 90 日記録され、以後の自動配信では選ばれない。
+- 直したうえでそのコミットを配信し直すときだけ、Actions の「Deploy Cloudflare Worker」を手動実行し、`retry_sha` に 40 桁のコミット id を入れる。
+  CI が成功していないコミットは、手動実行でも配信されない。
+- 手で戻すとき：`npx wrangler deployments list` で版を確かめ、`npx wrangler rollback <版 id> --message "<理由>"`。
+
+### 配信先を Vercel へ戻す（Cloudflare 自体の問題・1〜2 分。Vercel を削除するまで）
+1. Cloudflare の Workers のルート 2 本（`carelink-jp.com/*`・`www.carelink-jp.com/*`）を消す。
 2. A `@` と CNAME `www` を「DNS のみ（灰色）」に戻す（値は `216.198.79.1` / `cname.vercel-dns.com` のまま）。
-→ Vercel が引き続き配信している前提。**移行後 2 週間は Vercel のプロジェクトと配信を消さない**。
-DB は移行で変更しないので、DB の戻しは要らない。
+→ Vercel に残してある最後の本番デプロイが応答する。2026-11-12 に Vercel の GitHub 連携は停止済みのため、戻した後の修正は Vercel では自動配信されない。
+DB は移行で変更していないので、DB の戻しは要らない。
 
-## 本人にお願いすること（順に）
+## 本人にお願いすること
 
-- PR #873 の Cloudflare 部分を使ってよいか。
-- Workers Paid（月 5 ドル）への切り替え。
-- wrangler にゾーンの権限を足すための再ログイン（またはダッシュボードでのルート設定）。
-- 確認用ホストの追加・本番の DNS 切り替え・main へのマージの、それぞれの承認。
+- 2026-11-25 ごろ：Vercel プロジェクト carelink の削除と、リポジトリの Vercel 用ファイルの整理の承認（リマインダー設定済み）。
+  削除すると上の「配信先を Vercel へ戻す」は使えなくなる。
 
 ## 費用で注意すること（判断は本人）
 
@@ -130,27 +136,28 @@ DB は移行で変更しないので、DB の戻しは要らない。
 - 画像の変換（`/_next/image`）は Cloudflare Images の binding を使う。無料枠を超えた変換は失敗し、`safe-image-optimizer` が元画像を返す
   （枠の大きさ・超過時の料金は切り替え前に公式の料金表で確かめる）。Images の有料プランは本人の判断なしに申し込まない。
 
-## 未決事項（切り替え前に本人と決める）
+## 決まったこと（旧・未決事項）
 
-- **main へマージした後の自動配信**：今は Vercel が Git 連携で自動配信している。切り替え後は
-  (a) GitHub Actions から `wrangler deploy`（Cloudflare の API トークンを GitHub の secret に登録）か、
-  (b) Cloudflare Workers Builds（Git 連携）のどちらかを用意する。用意するまでは手元から `wrangler deploy` する。
-- **Vercel Speed Insights の代わり**：Worker では空の部品に差し替えている。Cloudflare 側の計測（Web Analytics 等）を使うかは別途。
-- **Vercel の後片付け**：切り替え後 2 週間は戻し先として残す。その後、Git 連携の停止・プロジェクト削除は本人の承認後。
-- **アカウント名の変更**：本人が後で表示名を変えたい（2026-11-05）。名前は表示だけで、Worker・ドメインはアカウント ID にひも付くため影響なし。
-- **CLAUDE.md・`docs/MANUAL.md` の記載（デプロイ＝Vercel）の更新**：切り替えが済んでから行う。
+- main マージ後の自動配信：GitHub Actions（2026-11-11 本人決定）。下の「自動配信」を参照。
+- Speed Insights の代わり：Cloudflare Web Analytics（2026-11-12 本人決定・#918）。計測値は Cloudflare ダッシュボードの「Web 分析」で見る。
+- Vercel の後片付け：GitHub 連携は 2026-11-12 に停止。プロジェクトの削除は 2026-11-25 ごろ本人承認のうえで行う。
+- アカウント名：carelink に変更済み（2026-11-05）。
+- CLAUDE.md・RESUME.md の「デプロイ＝Vercel」：#916 で更新済み。
+- GitHub の自動マージ（Allow auto-merge）：有効化（2026-11-12 本人決定）。
 
-## 残作業と完了条件（2026-11-11 時点）
+## 切り替え後の確認（2026-11-12）
 
-- 秘密値：`SLACK_DEFAULT_CHANNEL`（Render と同じチャンネル）・`OPERATOR_NOTIFY_EMAIL`（support@carelink-jp.com）は登録済み。
-  `EMAIL_FROM` は未設定（既定の noreply@carelink-jp.com）。**`SLACK_BOT_TOKEN`・`SLACK_SIGNING_SECRET` は未登録で、切り替え前に本人が貼る。**
-- このブランチは origin/main より遅れている。PR を出す前に main を取り込み、`npm run build:vinext` と Worker 側 node テストをやり直す。
-- 完了の定義：本人の操作・承認を必要としない項目がすべて証跡つきで完了し、残りは本人の操作・承認だけを待つ状態であること。
-  本番切り替え・DNS・main へのマージ・本番 DB・有料機能・Vercel の停止は、本人の明示の承認なしに行わない。
-- 残り：Slack の秘密値 2 個 → 切り替えの承認 → ルート 2 本と A / CNAME のプロキシ化 → 公開ページ・health・転送 →
-  Render cron（`cron_logs`）→ ログイン 3 方式と管理画面（本人）→ Stripe・LINE の webhook（本人）→ メール送受信 →
-  確認用ホストの撤去 → main マージ後の自動配信（方式は本人が決める）→ PR・マージ（承認制）→ 2 週間後に Vercel の後片付け（承認制）。
-- 切り替え後に CLAUDE.md・AGENTS.md・RESUME.md の「デプロイ＝Vercel」を実態に合わせて直す。Speed Insights の代わりは本人に確認する。
+- ログイン：既存セッション有効・ログアウト・Google ログイン・メールログイン（本人入力）のいずれも本番で管理画面まで到達。
+  LINE ログインは Vercel 時代から `NEXT_PUBLIC_LIFF_ID` 未設定でボタンを出していない（方針どおり）。
+- Webhook：署名なしの POST で `/api/line/webhook`＝401・`/api/stripe/webhook`＝400（Worker まで届き署名検証で拒否）。
+  LINE Messaging API の Webhook URL は Render（`carelink-j4cg.onrender.com/webhook`）で carelink-jp.com を通らないため影響なし。Stripe は決済保留で未設定。
+- メール：本番からパスワード再設定メールを送り本人が受信。support@ は Cloudflare Email Routing で運営の Gmail へ転送され、別アドレスから送って届くことを確認。
+- 計測：Cloudflare Web Analytics のビーコン読込と送信（204）・CSP 違反なし。
+
+## 残作業（2026-11-12 時点）
+
+- Vercel プロジェクトの削除と、リポジトリの Vercel 用ファイル（`vercel.json`・`.vercelignore`・`Dockerfile.vercel`・`vercel-preview-build.yml`・`vcr-image-retention.yml`・`prune-vcr-images`・`vercel-should-build.sh`・`build-runtime-config-base`・関連テスト・`HANDOFF_MANIFEST.json`・CLAUDE.md の記述）の整理。2026-11-25 ごろ、本人承認のうえで 1 本の PR にする。
+- それ以外の移行作業は完了（確認日と証跡は各節）。
 
 ## 本番切り替えの記録（2026-11-11・本人承認「切り替えてよい」）
 
@@ -162,13 +169,18 @@ DB は移行で変更しないので、DB の戻しは要らない。
 - 切り替え前のゾーン設定：ssl=full・security_level=medium・browser_check=on・Bot Fight Mode off。確認用ホストで、UA なしの要求・cron（401）・Stripe webhook（400）がアプリまで届くことを確かめてから切り替えた。
 - **戻し方**：上記ルート 2 本を削除し、A・CNAME を proxied=false に戻す（Vercel は 2 週間残す）。
 
-## main マージ後の自動配信（2026-11-11・本人決定「GitHub Actions」）
+## main マージ後の自動配信（2026-11-11 導入・2026-11-12 強化 #921・#922）
 
-- `.github/workflows/deploy-cloudflare.yml`：main への push で CI が成功したコミットだけを配信する（CI が赤なら配信しない）。
-  main の先頭でないコミットは配信しない（古い CI の完了が新しい配信を上書きしないため）。配信後、`/api/health` の version が配信したコミットになるまで確認する。
-  手動実行（workflow_dispatch）は main の先頭を配信する。
-- 公開設定はリポジトリ変数：`NEXT_PUBLIC_SUPABASE_URL`・`NEXT_PUBLIC_SUPABASE_ANON_KEY`・`NEXT_PUBLIC_BASE_URL`・`NEXT_PUBLIC_CLARITY_ID`・`NEXT_PUBLIC_GA_ID`・
-  `NEXT_PUBLIC_LINE_CHANNEL_ID`・`NEXT_PUBLIC_RECRUIT_URL`・`NEXT_PUBLIC_VAPID_PUBLIC_KEY`・`CLOUDFLARE_ACCOUNT_ID`（Vercel の Production から値を写した。どれもブラウザに出る値）。
-  公開設定を変えるときは、この変数と Worker の両方を直す（Vercel は撤去予定）。
-- secret `CLOUDFLARE_API_TOKEN`：Cloudflare の「Edit Cloudflare Workers」テンプレートで本人が作り、本人が登録する。
-- ワークフローは main に入ってから有効になる（workflow_run は既定ブランチの定義を使う）。それまでは `npm run deploy:cloudflare` で手動配信する。
+- `.github/workflows/deploy-cloudflare.yml`。CI の完了ごと（成功・失敗・取り消しとも）と手動実行で動く。
+- 配信対象は `tools/cloudflare/deploy-target.mjs` が決める：main 上で CI（push）が成功した最新のコミット。
+  main の先頭の CI が赤・実行中・取り消しでも、それより前の成功コミットが本番より新しければ配信する。本番より古い版・戻した版（`bad-deploy-<sha>`）は選ばない。
+  手動実行も同じ判定を通る（2026-11-12 に本番で確認：最新が配信済みのため見送り）。
+- 配信用の補助スクリプトは main のものを `$RUNNER_TEMP/deploy-tools` に退避して使う（古いコミットを選んでも動くように）。
+- 配信前：`tools/cloudflare/check-worker-secrets.mjs` が Worker の秘密値の名前を `tools/cloudflare/required-worker-secrets.json` と照合し、不足なら止める。
+  サーバーに秘密値を足したら、この JSON にも名前を足す。
+- 配信後：`tools/cloudflare/verify-live.mjs` が `/api/health` の version（応答コードは見ない）と、`/`・`/search`・`/register` の本文の目印とエラー画面の文言を確かめる。
+  失敗したら直前の版へ戻し Slack に通知する。main の CI が赤のときも Slack に通知する（`tools/cloudflare/notify-slack.mjs`・secret `SLACK_BOT_TOKEN`・`SLACK_DEFAULT_CHANNEL`）。
+  通知の疎通は手動実行で `slack_test` を選ぶと 1 通だけ送って確かめられる。
+- 本番での実績（2026-11-12）：`8dcb5cb` の配信で確認が誤判定（見出しの `<br/>`）→ 自動で `fe7c4d7` へ戻った。#922 で判定を直し、`18d6583` の配信が全ステップ成功。
+- 公開設定（`NEXT_PUBLIC_*`・`CLOUDFLARE_ACCOUNT_ID`）はリポジトリ変数が唯一の置き場。手動配信（`npm run deploy:cloudflare`）も `gh variable list` で同じ値を読む。
+- secret `CLOUDFLARE_API_TOKEN`：本人が作成・登録（2026-11-11）。控えは Render の環境グループ `carelink-cloudflare-deploy`。
