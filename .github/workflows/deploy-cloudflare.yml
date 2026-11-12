@@ -18,6 +18,10 @@ on:
         description: '確認に失敗して戻したコミットを、直したうえで明示的に配信し直すときだけ指定（40桁）'
         required: false
         default: ''
+      slack_test:
+        description: 'Slack 通知の疎通だけを確かめる（テストのメッセージを 1 通送る。配信の判定もいつもどおり行う）'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -48,6 +52,10 @@ jobs:
       # 配信用の補助スクリプトは main のものを使う。古いコミットへ切り替えても消えないよう、先に退避する。
       - name: Keep the deploy helpers from main
         run: cp -R tools/cloudflare "$RUNNER_TEMP/deploy-tools"
+      - name: Send a Slack test message
+        if: inputs.slack_test
+        run: |
+          node "$RUNNER_TEMP/deploy-tools/notify-slack.mjs" ":white_check_mark: 本番配信ワークフローからの通知テストです（対応は不要です）。"
       - name: Report a red CI on main
         if: github.event.workflow_run.conclusion == 'failure'
         run: >-
