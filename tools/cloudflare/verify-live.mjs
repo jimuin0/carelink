@@ -20,7 +20,10 @@ export function pageProblem(page, status, html) {
   if (status !== 200) return `${page.path} が ${status}`;
   const marker = ERROR_MARKERS.find((m) => html.includes(m));
   if (marker) return `${page.path} にエラー表示（${marker}）`;
-  if (!html.includes(page.expect)) return `${page.path} に期待する中身（${page.expect}）が無い`;
+  // Headings carry markup such as <br/> inside the text, so the marker is matched against
+  // the visible text with tags removed as well as against the raw HTML (for attributes).
+  const text = html.replace(/<[^>]*>/g, '');
+  if (!html.includes(page.expect) && !text.includes(page.expect)) return `${page.path} に期待する中身（${page.expect}）が無い`;
   return '';
 }
 
