@@ -37,6 +37,17 @@ test('an unknown live version still deploys the newest green commit', () => {
   assert.equal(chooseTarget({ greenShas: [C], head: C, liveSha: '', isAncestor }).sha, C);
 });
 
+test('a commit that was rolled back is not picked again unless retried explicitly', () => {
+  assert.equal(chooseTarget({ greenShas: [B, A], head: C, liveSha: A, isAncestor, badShas: [B] }).skip, true);
+  assert.equal(chooseTarget({ greenShas: [B, A], head: C, liveSha: A, isAncestor, badShas: [B], retrySha: B }).sha, B);
+});
+
+test('the shared layout alone does not pass, and the app error screen fails', () => {
+  const home = PAGES.find((p) => p.path === '/');
+  assert.match(pageProblem(home, 200, '<title>CareLink</title>'), /期待する中身/);
+  assert.match(pageProblem(home, 200, '業種から探す エラーが発生しました'), /エラー表示/);
+});
+
 test('pages fail on a non-200, an error screen, or missing content', () => {
   const search = PAGES.find((p) => p.path === '/search');
   assert.equal(pageProblem(search, 200, '<a href="/facility/x">'), '');

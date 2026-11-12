@@ -6,12 +6,14 @@
 // (an error page also answers 200), so the main pages are fetched and their content
 // is checked. Exits 1 on failure; the workflow then rolls the Worker back.
 const BASE = 'https://carelink-jp.com';
-const ERROR_MARKERS = ['Application error', 'Internal Server Error', 'This page could not be found'];
+// The repository's own error boundaries (src/app/error.tsx etc.) show 「エラーが発生しました」.
+const ERROR_MARKERS = ['エラーが発生しました', 'Application error', 'Internal Server Error', 'This page could not be found'];
 
 export const PAGES = [
-  { path: '/', expect: 'CareLink' },
+  // Each marker is rendered by the page body itself, never by the shared layout or metadata.
+  { path: '/', expect: '業種から探す' },
   { path: '/search', expect: 'href="/facility/' },
-  { path: '/register', expect: 'CareLink' },
+  { path: '/register', expect: '予約も、集客も、ひとつに。' },
 ];
 
 export function pageProblem(page, status, html) {

@@ -6,14 +6,20 @@
 // on an older version. A manual run goes through the same rule and can never deploy a
 // commit whose CI has not passed. Nothing older than what is live is ever deployed.
 //
+// A commit that already failed live verification and was rolled back is never picked
+// again automatically (the workflow records it as an artifact named
+// bad-deploy-<sha>); otherwise every later red CI run would redeploy the same broken
+// version. A manual run can retry one explicitly with RETRY_SHA.
+//
 // Writes sha / skip / reason to GITHUB_OUTPUT.
 import { spawnSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 
 const SHA = /^[0-9a-f]{40}$/;
 
-export function chooseTarget({ greenShas, head, liveSha, isAncestor }) {
-  const candidates = greenShas.filter((sha) => SHA.test(sha) && isAncestor(sha, head));
+export function chooseTarget({ greenShas, head, liveSha, isAncestor, badShas = [], retrySha = '' }) {
+  const bad = new Set(badShas.filter((sha) => sha !== retrySha));
+  const candidates = greenShas.filter((sha) => SHA.test(sha) && !bad.has(sha) && isAncestor(sha, head));
   const target = candidates[0];
   if (!target) return { skip: true, reason: 'main に CI が成功したコミットが無い' };
   if (liveSha && target === liveSha) return { skip: true, sha: target, reason: '本番は既にこのコミット' };
@@ -46,10 +52,12 @@ async function main() {
   const head = gh(`repos/${repo}/commits/main`).sha;
   const runs = gh(`repos/${repo}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=30`).workflow_runs;
   const greenShas = runs.map((run) => run.head_sha);
+  const artifacts = gh(`repos/${repo}/actions/artifacts?name_prefix=bad-deploy-&per_page=100`).artifacts ?? [];
+  const badShas = artifacts.filter((a) => !a.expired && a.name.startsWith('bad-deploy-')).map((a) => a.name.slice('bad-deploy-'.length));
   const short = await liveVersion('https://carelink-jp.com/api/health');
   const resolved = short ? git(['rev-parse', '--verify', '--quiet', `${short}^{commit}`]).stdout.trim() : '';
   const isAncestor = (a, b) => git(['merge-base', '--is-ancestor', a, b]).status === 0;
-  const decision = chooseTarget({ greenShas, head, liveSha: SHA.test(resolved) ? resolved : '', isAncestor });
+  const decision = chooseTarget({ greenShas, head, liveSha: SHA.test(resolved) ? resolved : '', isAncestor, badShas, retrySha: process.env.RETRY_SHA ?? '' });
   console.log(`本番 ${short || '不明'} / main ${head.slice(0, 7)} / 判定: ${decision.reason}`);
   const out = process.env.GITHUB_OUTPUT;
   if (out) appendFileSync(out, `skip=${decision.skip}\nsha=${decision.sha ?? ''}\nhead=${head}\nlive=${short}\n`);
