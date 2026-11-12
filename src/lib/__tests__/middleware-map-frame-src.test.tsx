@@ -104,13 +104,13 @@ test('地図以外のディレクティブは変えていない（自サイト�
   expect(csp.get('default-src')).toEqual(["'self'"]);
   expect(csp.get('object-src')).toEqual(["'none'"]);
   expect(csp.get('script-src')!.filter((v) => !v.startsWith("'nonce-"))).toEqual([
-    "'self'", "'strict-dynamic'", 'https://www.googletagmanager.com', 'https://www.google-analytics.com', 'https://www.clarity.ms', 'https://va.vercel-scripts.com',
+    "'self'", "'strict-dynamic'", 'https://www.googletagmanager.com', 'https://www.google-analytics.com', 'https://www.clarity.ms', 'https://static.cloudflareinsights.com',
   ]);
   expect(csp.get('connect-src')).toEqual([
     "'self'", 'https://test.supabase.co', 'wss://test.supabase.co', 'https://*.google-analytics.com', 'https://www.clarity.ms',
     // Clarity の送信先（2026年10月22日追加・middleware-clarity-csp.test.ts が詳細を固定）。
     'https://*.clarity.ms',
-    'https://va.vercel-scripts.com', 'https://vitals.vercel-insights.com', 'https://access.line.me', 'https://api.line.me', 'https://zipcloud.ibsnet.co.jp',
+    'https://cloudflareinsights.com', 'https://access.line.me', 'https://api.line.me', 'https://zipcloud.ibsnet.co.jp',
   ]);
 });
 

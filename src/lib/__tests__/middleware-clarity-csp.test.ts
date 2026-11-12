@@ -82,7 +82,7 @@ test('許可は clarity.ms のサブドメインに限る（似た名前の別�
 test('script-src は変えていない（nonce＋strict-dynamic のまま）', async () => {
   const script = await directive('script-src');
   expect(script.filter((v) => !v.startsWith("'nonce-"))).toEqual([
-    "'self'", "'strict-dynamic'", 'https://www.googletagmanager.com', 'https://www.google-analytics.com', 'https://www.clarity.ms', 'https://va.vercel-scripts.com',
+    "'self'", "'strict-dynamic'", 'https://www.googletagmanager.com', 'https://www.google-analytics.com', 'https://www.clarity.ms', 'https://static.cloudflareinsights.com',
   ]);
   expect(script.some((v) => /^'nonce-[0-9a-f]{32}'$/.test(v))).toBe(true);
   expect(script).not.toContain("'unsafe-inline'");
