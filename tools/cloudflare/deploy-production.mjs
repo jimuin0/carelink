@@ -1,34 +1,32 @@
 // Build and deploy the production Worker.
 //
 // NEXT_PUBLIC_* values are inlined into the browser and server bundles at build
-// time. On the operator's machine they are read from Vercel's Production
-// environment; in GitHub Actions (CARELINK_PUBLIC_ENV_SOURCE=environment) they
-// come from repository variables already in the process environment. Either way
-// they are trimmed (the Vercel values carry a trailing newline that a shell
-// `source` turns into a literal "\n" and breaks the Supabase key) and only
-// NEXT_PUBLIC_* names are passed to the build.
+// time. Their single source is the GitHub repository variables: GitHub Actions
+// (CARELINK_PUBLIC_ENV_SOURCE=environment) receives them in the process
+// environment, and the operator's machine reads the same variables with `gh`.
+// Either way they are trimmed (a trailing newline once turned into a literal "\n"
+// and broke the Supabase key) and only NEXT_PUBLIC_* names are passed to the build.
 // Server secrets are not read here: they stay registered on the Worker.
 // The temporary env file is private (0600) and removed even on failure.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync, existsSync } from 'node:fs';
 
 const REQUIRED_PUBLIC = ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY'];
+const REPO = process.env.CARELINK_GITHUB_REPO ?? 'jimuin0/carelink';
 
-export function parsePublicEnv(text) {
-  const out = {};
-  for (const line of text.split('\n')) {
-    const match = line.match(/^(NEXT_PUBLIC_[A-Z0-9_]+)=(.*)$/);
-    if (!match) continue;
-    const value = match[2].startsWith('"') ? JSON.parse(match[2]) : match[2];
-    out[match[1]] = value.trim();
-  }
-  return out;
+export function parseGithubVariables(json) {
+  return publicEnvFromProcess(Object.fromEntries(JSON.parse(json).map(({ name, value }) => [name, value])));
+}
+
+// The deployed version is reported by /api/health and checked after the deploy, so
+// an empty or malformed commit id must stop the deploy instead of shipping silently.
+export function assertCommitSha(sha) {
+  if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error(`Not a commit id: "${sha}"`);
+  return sha;
 }
 
 // Unset repository variables reach the job as empty strings; drop them so the
-// build sees the same "not configured" state as on Vercel.
+// build sees the same "not configured" state as a variable that was never set.
 export function publicEnvFromProcess(env) {
   const out = {};
   for (const [key, value] of Object.entries(env)) {
@@ -48,22 +46,17 @@ function run(command, args, env = process.env) {
   if (result.status !== 0) throw new Error(`${command} ${args[0]} failed`);
 }
 
-function readVercelPublicEnv() {
-  const dir = mkdtempSync(join(tmpdir(), 'carelink-public-env-'));
-  const file = join(dir, 'production.env');
-  try {
-    run('npx', ['-y', 'vercel@latest', 'env', 'pull', file, '--environment=production', '--yes']);
-    return parsePublicEnv(readFileSync(file, 'utf8'));
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+function readGithubPublicEnv() {
+  const result = spawnSync('gh', ['variable', 'list', '--repo', REPO, '--json', 'name,value'], { encoding: 'utf8' });
+  if (result.status !== 0) throw new Error('gh variable list failed');
+  return parseGithubVariables(result.stdout);
 }
 
 function main() {
   if (existsSync('.dev.vars')) throw new Error('Remove .dev.vars before a production build');
   const env = process.env.CARELINK_PUBLIC_ENV_SOURCE === 'environment'
     ? publicEnvFromProcess(process.env)
-    : readVercelPublicEnv();
+    : readGithubPublicEnv();
   const missing = missingPublicEnv(env);
   if (missing.length) throw new Error(`${missing.join(', ')} missing from the public build settings`);
   const buildEnv = { ...process.env };
@@ -71,7 +64,8 @@ function main() {
   rmSync('dist', { recursive: true, force: true });
   run('npm', ['run', 'build:vinext'], { ...buildEnv, ...env });
   rmSync('dist/server/.dev.vars', { force: true });
-  const sha = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
+  const sha = assertCommitSha(head.status === 0 ? head.stdout.trim() : '');
   run('npx', ['wrangler', 'deploy', '--var', `VERCEL_GIT_COMMIT_SHA:${sha}`]);
 }
 

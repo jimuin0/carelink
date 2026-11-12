@@ -54,6 +54,10 @@ export const metadata: Metadata = {
   },
 };
 
+// Cloudflare Web Analytics のビーコン設定。トークンはブラウザに配る公開値で秘密ではない。
+// gitleaks が汎用 API キーと誤検知するため、この行だけ許可する（行番号に依存しない形）。
+const CLOUDFLARE_WEB_ANALYTICS_BEACON = '{"token":"9cdd2e03689d4354aedbdd7e6156ce04"}'; // gitleaks:allow
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -139,7 +143,7 @@ export default async function RootLayout({
             src="https://static.cloudflareinsights.com/beacon.min.js"
             strategy="afterInteractive"
             nonce={nonce}
-            data-cf-beacon='{"token":"9cdd2e03689d4354aedbdd7e6156ce04"}'
+            data-cf-beacon={CLOUDFLARE_WEB_ANALYTICS_BEACON}
           />
         )}
         {/* GA4・Microsoft Clarity は Cookie バナーで分析 Cookie に同意した来訪者にだけ読み込む
