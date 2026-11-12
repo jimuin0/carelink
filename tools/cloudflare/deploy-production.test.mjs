@@ -1,19 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePublicEnv } from './deploy-production.mjs';
+import { parseGithubVariables, assertCommitSha } from './deploy-production.mjs';
 
-test('only public values are taken and the trailing newline from Vercel is removed', () => {
-  const env = parsePublicEnv([
-    'NEXT_PUBLIC_SUPABASE_ANON_KEY="eyJ.a.b\\n"',
-    'NEXT_PUBLIC_SUPABASE_URL="https://x.supabase.co"',
-    'SUPABASE_SERVICE_ROLE_KEY="secret\\n"',
-    'NEXT_PUBLIC_PLAIN=value',
-  ].join('\n'));
-  assert.deepEqual(env, {
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: 'eyJ.a.b',
-    NEXT_PUBLIC_SUPABASE_URL: 'https://x.supabase.co',
-    NEXT_PUBLIC_PLAIN: 'value',
-  });
+test('the operator reads the same public values from the GitHub repository variables', () => {
+  assert.deepEqual(parseGithubVariables(JSON.stringify([
+    { name: 'NEXT_PUBLIC_SUPABASE_ANON_KEY', value: 'eyJ.a.b\n' },
+    { name: 'CLOUDFLARE_ACCOUNT_ID', value: 'acct' },
+    { name: 'NEXT_PUBLIC_GA_ID', value: '' },
+  ])), { NEXT_PUBLIC_SUPABASE_ANON_KEY: 'eyJ.a.b' });
+});
+
+test('an empty or malformed commit id stops the deploy', () => {
+  assert.throws(() => assertCommitSha(''), /Not a commit id/);
+  assert.throws(() => assertCommitSha('abc1234'), /Not a commit id/);
+  assert.equal(assertCommitSha('a'.repeat(40)), 'a'.repeat(40));
 });
 
 test('in GitHub Actions only non-empty public variables are taken, trimmed', async () => {
