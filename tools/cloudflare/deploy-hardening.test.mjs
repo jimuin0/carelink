@@ -48,6 +48,11 @@ test('the shared layout alone does not pass, and the app error screen fails', ()
   assert.match(pageProblem(home, 200, '業種から探す エラーが発生しました'), /エラー表示/);
 });
 
+test('a heading split by <br/> still matches its marker (2026-11-12 false rollback)', () => {
+  const register = PAGES.find((p) => p.path === '/register');
+  assert.equal(pageProblem(register, 200, '<h1>予約も、集客も、<br/>ひとつに。</h1>'), '');
+});
+
 test('pages fail on a non-200, an error screen, or missing content', () => {
   const search = PAGES.find((p) => p.path === '/search');
   assert.equal(pageProblem(search, 200, '<a href="/facility/x">'), '');
