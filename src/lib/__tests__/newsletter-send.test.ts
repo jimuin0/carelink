@@ -82,7 +82,7 @@ test('no recipients is a visible pre-publication rejection', async () => {
   await expect(publish(c)).rejects.toMatchObject({ status: 409 });
   expect(c.operationRpc).not.toHaveBeenCalled();
 });
-test.each([['42501', 403], ['40001', 409], ['23514', 409], ['PGRST202', 503]])('RPC %s refuses phantom receipt', async (code, status) => {
+test.each([['42501', 403], ['40001', 409], ['PT409', 409], ['23514', 409], ['PGRST202', 503]])('RPC %s refuses phantom receipt', async (code, status) => {
   const c = client(); c.operationRpc.mockResolvedValue({ data: receipt, error: { code } });
   await expect(inspectNewsletterOperation(c as never, actor, id)).rejects.toMatchObject({ status });
 });

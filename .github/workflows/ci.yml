@@ -350,9 +350,13 @@ jobs:
           echo "✅ Critical 脆弱性なし"
       - name: Secrets スキャン（ハードコードされた認証情報を検出）
         run: |
-          # 一般的なシークレットパターンをチェック
-          if grep -rE "(sk_live_|pk_live_|AKIA[0-9A-Z]{16}|eyJhbGciOiJIUzI1NiJ9)" \
-            src/ --include="*.ts" --include="*.tsx" --exclude-dir=node_modules; then
+          # 追跡中の全ファイル（src 以外の scripts・supabase・docs・設定・workflow も含む）を対象にする。
+          # 以前は src/ の .ts/.tsx だけ・JWT はヘッダ 1 種（HS256）だけで、service_role の JWT や
+          # scripts/ に貼られた鍵を素通りしていた。placeholder（xoxb-your-... 等）に当たらない形に絞ってある。
+          PATTERN='(sk_live_[0-9A-Za-z]{10,}|rk_live_[0-9A-Za-z]{10,}|whsec_[0-9A-Za-z]{20,}|AKIA[0-9A-Z]{16}|eyJhbGciOi[0-9A-Za-z_-]{10,}\.eyJ[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}|ghp_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{40,}|xox[bpa]-[0-9]{8,}-[0-9A-Za-z-]{10,}|sk-ant-(api|admin)[0-9]{2}-[0-9A-Za-z_-]{20,}|PRIVATE KEY-----(\\n)?[A-Za-z0-9+/]{64})'
+          # 検出器自身が空振りしていないことを先に確かめる（負の対照）
+          printf 'probe sk_live_%s\n' 'abcdefghijklmn' | grep -qE "$PATTERN" || { echo "❌ 検出パターンが機能していません"; exit 1; }
+          if git grep -nIE "$PATTERN" -- . ':!package-lock.json'; then
             echo "❌ ハードコードされたシークレットを検出"
             exit 1
           fi

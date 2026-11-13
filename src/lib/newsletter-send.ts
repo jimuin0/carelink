@@ -59,7 +59,7 @@ function parseReceipt(data: unknown, campaignId: string): NewsletterReceipt {
 function rpcError(error: unknown): never {
   const code = (error as { code?: unknown } | undefined)?.code;
   if (code === '42501') throw new NewsletterSendError(403, '配信権限を確認できません。');
-  if (code === '40001') throw new NewsletterSendError(409, '本文・宛先・配信停止の状態が変わりました。一覧を更新して確認してください。');
+  if (code === '40001' || code === 'PT409') throw new NewsletterSendError(409, '本文・宛先・配信停止の状態が変わりました。一覧を更新して確認してください。');
   if (code === '23514') throw new NewsletterSendError(409, 'キャンペーンの状態または配信内容を確認してください。結果不明の旧配信は再送しません。');
   throw dependency();
 }

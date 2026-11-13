@@ -55,12 +55,19 @@ SELECT
           WHERE table_schema='public' AND table_name='salons'
             AND column_name='claimed_by_user_id')   AS salons_claimed_applied,
 
-  -- (3) 期待値は src/lib/schema-fingerprint.expected.json の
-  --     function|handle_new_user()|...|body_md5=e3ae46eb087aac2936d94b84b7c0638a
-  --     一致しなければ 20260805000001 が本番へ未適用（＝phone/prefecture が入らない）。
+  -- (3) 20260805000001 の適用判定は本文の内容（phone / prefecture の取込）で見る。
+  --     md5 を直書きすると後続 migration で handle_new_user が変わるたびに腐り、
+  --     適用済みの本番を「未適用」と誤判定させる（実際に起きた）。
+  --     md5 は参考表示のみ。比べるなら最新の src/lib/schema-fingerprint.expected.json の
+  --     function|handle_new_user()|...|body_md5= と照合すること（値はここに書かない）。
   (SELECT md5(p.prosrc) FROM pg_proc p
      JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname='public' AND p.proname='handle_new_user') AS handle_new_user_body_md5,
+  COALESCE((SELECT p.prosrc LIKE '%phone%' AND p.prosrc LIKE '%prefecture%'
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname='public' AND p.proname='handle_new_user'), false)
+                                                   AS handle_new_user_imports_phone_prefecture,
 
   -- auth.users に UPDATE トリガが在るか（在るべきものが無いことの確認）。
   (SELECT count(*) FROM pg_trigger t

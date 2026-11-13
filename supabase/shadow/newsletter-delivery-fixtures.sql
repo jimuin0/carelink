@@ -11,8 +11,7 @@ BEGIN
  PERFORM pg_temp.assert_newsletter((SELECT status='processing' AND claimed_at=stamp FROM public.webhook_retry_queue WHERE id=q),'version-compatible queue claim');
 END $$;
 SELECT pg_temp.assert_newsletter(current_setting('server_version_num')::int BETWEEN 170000 AND 179999,'PG17');
-SELECT pg_temp.assert_newsletter(current_database() LIKE 'carelink_shadow%' OR
- (current_database()='postgres' AND current_setting('application_name')='carelink-batch2-newsletter'),'isolated target');
+SELECT pg_temp.assert_newsletter(current_database() LIKE 'carelink_shadow%','isolated target');
 INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
  ('ed110000-0000-4000-8000-000000000001','newsletter-admin@example.invalid',now()),
  ('ed110000-0000-4000-8000-000000000002','newsletter-account@example.invalid',now());

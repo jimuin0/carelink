@@ -1,8 +1,7 @@
 -- Read/write policy proof in the disposable database; no physical objects.
 BEGIN;
 DO $$ BEGIN
-  IF current_database() NOT LIKE 'carelink_shadow%' AND NOT (current_database()='postgres'
-    AND EXISTS(SELECT 1 FROM pg_roles WHERE rolname='supabase_admin')) THEN
+  IF current_database() NOT LIKE 'carelink_shadow%' THEN
     RAISE EXCEPTION 'isolated Supabase/PG17 shadow required';
   END IF;
   IF EXISTS(SELECT 1 FROM auth.users WHERE id='f8700000-0000-4000-8000-000000000001') THEN
