@@ -59,13 +59,21 @@ export async function getPublishedFeatures(limit = 10): Promise<Feature[]> {
   }
 }
 
+/**
+ * 公開中の特集を slug で 1 件引く。見つからなければ null。
+ * DB 障害は null（→ notFound で 404）に化けさせず例外にする（公開中の特集が 404 になり、通知も出ないため・中 A52）。
+ * getFacilityBySlug と同じく、slug になり得ない入力は問い合わせずに「見つからない」にする
+ * （そのまま渡すと DB が入力の誤りとして弾き、誰でも 5xx と障害通知を出せてしまう）。
+ */
 export async function getFeatureBySlug(slug: string): Promise<Feature | null> {
+  if (slug.length === 0 || slug.length > 200 || /[\u0000-\u001f\u007f]/.test(slug)) return null;
   const supabase = createServerSupabaseClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('features')
     .select('*')
     .eq('slug', slug)
     .eq('is_published', true)
     .maybeSingle();
+  if (error) throw new Error('FEATURE_LOOKUP_FAILED', { cause: error });
   return data as Feature | null;
 }

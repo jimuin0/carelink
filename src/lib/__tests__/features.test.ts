@@ -206,3 +206,20 @@ describe('getFeatureBySlug()', () => {
     expect(result).toBeNull();
   });
 });
+// 中 A52：DB 障害を「見つからない」（→ 公開中の特集が 404）に化けさせない。
+describe('getFeatureBySlug() 障害時', () => {
+  test('DB 障害 → 例外（null にしない）', async () => {
+    mockFrom.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { code: '57014', message: 'timeout' } })),
+    });
+    await expect(getFeatureBySlug('feature-1')).rejects.toThrow('FEATURE_LOOKUP_FAILED');
+  });
+
+  test.each(['', 'x'.repeat(201), 'bad\u0000slug'])('slug になり得ない入力は問い合わせずに null %#', async (slug) => {
+    mockFrom.mockClear();
+    await expect(getFeatureBySlug(slug)).resolves.toBeNull();
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+});

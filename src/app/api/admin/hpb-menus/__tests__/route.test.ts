@@ -145,6 +145,12 @@ test('POST: hpb_sln_id 未設定 → 400', async () => {
   expect((await POST(makeReq('POST'))).status).toBe(400);
 });
 
+test('POST: 店舗IDの読み取り障害 → 500（未設定の 400 にしない・中 A53）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  (scrapeAndSaveFacility as jest.Mock).mockRejectedValue(new Error('HPB_SLN_ID_LOOKUP_FAILED'));
+  expect((await POST(makeReq('POST'))).status).toBe(500);
+});
+
 test('POST: 取得成功 → 200 with counts', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   (scrapeAndSaveFacility as jest.Mock).mockResolvedValue({

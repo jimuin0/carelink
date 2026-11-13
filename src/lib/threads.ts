@@ -217,9 +217,10 @@ export async function refreshThreadsToken(): Promise<{
       { method: 'GET', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }
     );
 
+    // reason は Slack 警報と cron_logs に載るので、上流の応答本文・例外文字列は入れない
+    // （トークンやアカウント情報が含まれ得る・中 A48）。HTTP ステータス・コード・例外の種類だけを残す。
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      return { ok: false, reason: `refresh failed: ${res.status} ${body}` };
+      return { ok: false, reason: `refresh failed: HTTP ${res.status}` };
     }
 
     const json = (await res.json()) as { access_token?: string; expires_in?: number };
@@ -241,12 +242,13 @@ export async function refreshThreadsToken(): Promise<{
       .eq('id', credential.id);
 
     if (error) {
-      return { ok: false, reason: `db update failed: ${error.message}` };
+      return { ok: false, reason: `db update failed: ${typeof error.code === 'string' && /^[A-Z0-9]{1,10}$/.test(error.code) ? error.code : 'unknown'}` };
     }
 
     return { ok: true, expiresAt: newExpiresAt };
   } catch (e) {
-    return { ok: false, reason: `refresh error: ${String(e)}` };
+    const kind = e instanceof Error && /^[A-Za-z]{1,40}$/.test(e.name) ? e.name : 'unknown';
+    return { ok: false, reason: `refresh error: ${kind}` };
   }
 }
 
