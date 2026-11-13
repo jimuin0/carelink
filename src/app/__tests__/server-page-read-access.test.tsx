@@ -52,7 +52,7 @@ function dataFor(table:string){
 function query(table:string){
  const finish=(single=false)=>{if(table===mockFaultTable&&mockFault==='throw')return Promise.reject(new Error('private-db-diagnostic'));const data=dataFor(table);return Promise.resolve({data:table===mockFaultTable&&mockFault==='null-error'?null:single?data[0]??null:data,count:mockCount,error:table===mockFaultTable?{code:'08006',message:'private-db-diagnostic'}:null});};
  const q:Record<string,unknown>={then:(resolve:unknown,reject:unknown)=>finish().then(resolve as never,reject as never),single:()=>finish(true),maybeSingle:()=>finish(true)};
- for(const method of ['select','eq','in','order','limit','gte','range'])q[method]=jest.fn(()=>q);return q;
+ for(const method of ['select','eq','in','order','limit','gte','lt','lte','or','range'])q[method]=jest.fn(()=>q);return q;
 }
 beforeEach(()=>{jest.clearAllMocks();mockFaultTable='';mockFault='';mockCount=1;mockNoMembership=false;mockPlatformDenied=false;mockAuth.mockResolvedValue({data:{user},error:null});mockFrom.mockImplementation(query);mockService.mockReturnValue({from:mockFrom});mockCatalog.mockResolvedValue([]);});
 describe.each(cases)('$name page',testCase=>{
@@ -93,4 +93,29 @@ test('booking history rebook links carry the staff member only for a nominated b
  expect(html).toContain('href="/facility/synthetic/booking?menu_id=m1"');
  expect(html).toContain(`href="/facility/synthetic/booking?menu_id=m1&amp;staff_id=${staff}"`);
  expect(html.match(/staff_id=/g)).toHaveLength(1);
+});
+
+// クーポン手帳は /api/liff/coupons と同じく、期限切れ・開始前のクーポンを出さない（JST 営業日で判定）。
+test('coupon notebook excludes expired and not-yet-valid coupons', async () => {
+  mockPage = 'coupons';
+  const calls: { table: string; q: Record<string, jest.Mock> }[] = [];
+  mockFrom.mockImplementation((table: string) => { const q = query(table) as Record<string, jest.Mock>; calls.push({ table, q }); return q; });
+  await Coupons();
+  const coupon = calls.find(c => c.table === 'coupons');
+  const filters = coupon!.q.or.mock.calls.map(args => args[0] as string);
+  expect(filters).toEqual([
+    expect.stringMatching(/^valid_from\.is\.null,valid_from\.lte\.\d{4}-\d{2}-\d{2}$/),
+    expect.stringMatching(/^valid_until\.is\.null,valid_until\.gte\.\d{4}-\d{2}-\d{2}$/),
+  ]);
+});
+
+// 監査 A83: 月別推移を行の取り寄せ（max-rows で黙って切れる）ではなく、月ごとの件数で数える。
+test('funnel monthly trend counts per month instead of fetching capped rows', async () => {
+  mockPage = 'funnel';
+  const selects: unknown[][] = [];
+  mockFrom.mockImplementation((table: string) => { const q = query(table) as Record<string, jest.Mock>; const sel = q.select; q.select = jest.fn((...a: unknown[]) => { selects.push([table, ...a]); return sel(...a); }); return q; });
+  await Funnel({ searchParams: Promise.resolve({ facility_id: id }) });
+  const bookingSelects = selects.filter(s => s[0] === 'bookings');
+  expect(bookingSelects.length).toBe(2 + 12);
+  expect(bookingSelects.every(s => s[1] === 'id' && (s[2] as { head?: boolean })?.head === true)).toBe(true);
 });

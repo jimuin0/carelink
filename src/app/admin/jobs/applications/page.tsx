@@ -194,6 +194,8 @@ export default function JobApplicationsPage() {
                   <div className="text-xs font-medium text-gray-500 mb-1">紹介手数料（円）</div>
                   <div className="flex gap-2">
                     <input
+                      // 応募者ごとに作り直す（前の応募者の金額を残したまま別の応募者へ保存しない）。
+                      key={selected.id}
                       type="number"
                       defaultValue={selected.referral_fee_yen || ''}
                       placeholder="例: 300000"
@@ -202,6 +204,7 @@ export default function JobApplicationsPage() {
                         const raw = e.target.value.trim();
                         if (raw === '') return; // 空欄でフォーカスアウトは無操作（保存しない）
                         const val = parseInt(raw, 10);
+                        if (val === selected.referral_fee_yen) return; // 変えていなければ保存しない
                         if (!isNaN(val) && val >= 0) {
                           updateStatus(selected.id, 'hired', val);
                         } else {

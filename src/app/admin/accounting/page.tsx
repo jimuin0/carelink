@@ -23,11 +23,36 @@ function AccountingExport({ facilityId, choices }: AdminFacilityScopeValue) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   });
 
-  const handleExport = () => {
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  // 応答を確かめてから保存する。リンクを直接開くと、期間エラー・権限・障害のときに JSON が
+  // ダウンロードされるか何も起きず、失敗が画面に出なかった（監査 B7-11）。
+  const handleExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    setExportError(null);
     const url = `/api/admin/accounting-export?facility_id=${facilityId}&format=${format}&from=${from}&to=${to}`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.click();
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setExportError(body?.error || 'CSVの出力に失敗しました。時間をおいて再度お試しください');
+        return;
+      }
+      const blob = await res.blob();
+      const match = /filename\*=UTF-8''([^;]+)/i.exec(res.headers.get('Content-Disposition') ?? '');
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = match ? decodeURIComponent(match[1]) : 'carelink_export.csv';
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      setExportError('通信に失敗しました。通信状況を確認して再度お試しください');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const FORMAT_INFO = {
@@ -88,7 +113,10 @@ function AccountingExport({ facilityId, choices }: AdminFacilityScopeValue) {
         </div>
 
         {/* エクスポートボタン */}
-        <button type="button" onClick={handleExport}
+        {exportError && (
+          <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{exportError}</p>
+        )}
+        <button type="button" onClick={handleExport} disabled={exporting}
           className="btn-primary w-full py-3! gap-2">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />

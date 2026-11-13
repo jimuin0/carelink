@@ -7,6 +7,7 @@ import Button from '@/components/ui/Button';
 import type { Metadata } from 'next';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { discountText } from '@/lib/coupon-display';
+import { todayJst } from '@/lib/admin-date';
 
 export const metadata: Metadata = {
   // mypage/layout の title.template '%s | マイページ | CareLink' が自動付与するため、ここではページ名のみ（二重化防止）。
@@ -32,11 +33,15 @@ export default async function CouponNotebookPage() {
   let coupons: { id: string; name: string; discount_type: string; discount_value: number | null; special_price: number | null; valid_until: string | null; facility_name: string; facility_slug: string }[] = [];
 
   if (facilityIds.length > 0) {
+    const businessDate = todayJst();
     const { data } = await readPageResult(() => supabase
       .from('coupons')
       .select('id, name, discount_type, discount_value, special_price, valid_until, facility_id')
       .in('facility_id', facilityIds)
       .eq('is_active', true)
+      // 期限切れ・開始前は出さない（/api/liff/coupons と同じ JST の営業日で判定）。
+      .or(`valid_from.is.null,valid_from.lte.${businessDate}`)
+      .or(`valid_until.is.null,valid_until.gte.${businessDate}`)
       .order('created_at', { ascending: false })
       .limit(50), '/mypage/coupons');
 

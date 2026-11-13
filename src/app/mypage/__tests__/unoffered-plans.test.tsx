@@ -23,15 +23,15 @@ jest.mock('@/lib/supabase-server-auth', () => ({
     }),
   }),
 }));
-jest.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({
+const mockServiceError = jest.fn();
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: () => ({
     from: (table: string) => ({
       // service role は RLS が効かないため、本人の user_id で絞っているかを実際に評価する（点検 A86）。
-      // 絞り方が違えば行を返さない＝「持っている回数券が表示される」系のテストが落ちる。
       select: () => ({ eq: (col: string, val: unknown) => ({ order: () => {
         serviceFilters.push([table, col, val]);
         const own = col === 'user_id' && val === 'synthetic-user';
-        return Promise.resolve({ data: own ? mockServiceRows(table) : [], error: null });
+        return Promise.resolve({ data: own ? mockServiceRows(table) : [], error: mockServiceError(table) ?? null });
       } }) }),
     }),
   }),
@@ -51,6 +51,7 @@ beforeEach(() => {
   mockGetUser.mockReset().mockResolvedValue({ data: { user: { id: 'synthetic-user' } }, error: null });
   mockHeldCount.mockReset().mockResolvedValue({ count: 0, error: null });
   mockServiceRows.mockReset().mockReturnValue([]);
+  mockServiceError.mockReset().mockReturnValue(null);
 });
 
 describe('マイページのナビ', () => {
@@ -129,5 +130,17 @@ describe('本人の行だけを読む（service role・RLS 不適用）', () => 
   ] as const)('%s は user_id = 本人 で絞る', async (table, render) => {
     renderToStaticMarkup(await render());
     expect(serviceFilters).toEqual([[table, 'user_id', 'synthetic-user']]);
+  });
+});
+
+// 取得失敗を「持っていない」の空状態に偽装しない（加入者に障害時「加入していません」と見せない）。
+describe('取得失敗', () => {
+  test.each([
+    ['回数券', MyPackagesPage, 'user_packages'],
+    ['月額プラン', MySubscriptionsPage, 'user_subscriptions'],
+  ] as const)('%s は空状態を出さず例外にする', async (_n, Page, table) => {
+    mockServiceRows.mockReturnValue(null);
+    mockServiceError.mockImplementation((t: string) => (t === table ? { message: 'db down' } : null));
+    await expect(Page()).rejects.toThrow('取得に失敗しました');
   });
 });

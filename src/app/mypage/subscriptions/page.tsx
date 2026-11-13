@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { SHOW_SUBSCRIPTIONS } from '@/lib/feature-toggles';
 
 export const metadata: Metadata = {
@@ -43,16 +43,15 @@ export default async function MySubscriptionsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 
-  const admin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceRoleClient();
 
-  const { data } = await admin
+  const { data, error } = await admin
     .from('user_subscriptions')
     .select('id, status, sessions_used_this_month, month_reset_at, ends_at, created_at, subscription_plans(name, price, sessions_per_month, description), facility_profiles(name, slug)')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
+  // 取得失敗を「加入していません」に偽装しない（error.tsx に委ねる）。
+  if (error) throw new Error('マイページの月額プランの取得に失敗しました');
 
   const subscriptions = (data ?? []) as unknown as UserSubscription[];
   const active = subscriptions.filter((s) => s.status === 'active' || s.status === 'paused');

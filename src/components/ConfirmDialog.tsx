@@ -61,11 +61,15 @@ export default function ConfirmDialog({
   const titleId = useId();
   const messageId = useId();
   const noticeId = useId();
+  // 親の再描画で onCancel が作り直されても、開いている間の effect を張り直さない（張り直すと
+  // 戻すフォーカス先がダイアログ内のボタンで上書きされ、先頭ボタンへフォーカスが奪われる）。
+  const onCancelRef = useRef(onCancel);
+  useEffect(() => { onCancelRef.current = onCancel; }, [onCancel]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onCancel();
+        onCancelRef.current();
         return;
       }
       // Focus trap
@@ -85,7 +89,7 @@ export default function ConfirmDialog({
         }
       }
     },
-    [onCancel]
+    []
   );
 
   useEffect(() => {

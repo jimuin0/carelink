@@ -83,6 +83,9 @@ test('一覧・詳細リンク・メニュー名の取得を同じ店舗へ固�
   expect(screen.getByRole('link', { name: /2026-10-01/ }).getAttribute('href'))
     .toBe(`/admin/bookings/synthetic-booking?facility_id=${second}`);
   expect(mockQueries.find(q => q.table === 'facility_menus')?.filters).toContainEqual(['eq', 'facility_id', second]);
+  // 監査 B7-19: 同じ日時の予約でページの境目が揺れないよう、最後に一意の id で並べる。
+  const listOrders = mockQueries.filter(q => q.table === 'bookings').flatMap(q => q.filters).filter(f => f[0] === 'order');
+  expect(listOrders.at(-1)).toEqual(['order', 'id', { ascending: false }]);
 });
 // おまかせ予約も予約 RPC が担当者を割り当てて staff_id に保存する。指名と見分けられるよう、
 // 一覧は「指名なし（担当: X）」、予約表のチップは autoAssigned を渡す（回帰防止）。

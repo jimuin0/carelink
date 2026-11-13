@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import Button from '@/components/ui/Button';
 import { notFound } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 import FacilityCard from '@/components/search/FacilityCard';
 import { getSymptomSeo } from '@/data/symptom-seo';
 import { SITE_URL } from '@/lib/constants';
@@ -11,14 +11,11 @@ import { safeJsonLd } from '@/lib/json-ld';
 import { readPageResult } from '@/lib/page-read-verification';
 import { SYMPTOM_FALLBACK_HREF, SYMPTOM_FALLBACK_TYPE_NAME } from '@/lib/symptom-fallback';
 
-// 遅延初期化: モジュールスコープで createClient を呼ぶとビルド時の
-// page data 収集フェーズで env 未設定環境（Vercel preview 等）が
-// "supabaseUrl is required" で落ちるため、関数として定義し利用時に生成する。
+// 公開データの読み取りなので anon クライアント（RLS が効く）を使う。service_role は使わない（監査 A88）。
+// symptoms / facility_symptoms は公開読み、facility_profiles は status='published' だけが anon に見える。
+// 遅延初期化: ビルド時の page data 収集で env 未設定でも落ちないよう、利用時に生成する。
 function getSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  return createServerSupabaseClient();
 }
 
 // 【2026年7月8日 恒久根治】revalidate/dynamic の明示指定が無く、generateStaticParams も無いため

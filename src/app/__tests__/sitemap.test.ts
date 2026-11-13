@@ -378,3 +378,54 @@ describe('sitemap は公開施設の店舗ブログを載せる', () => {
     });
   });
 });
+
+/**
+ * 施設一覧は全 URL の根拠。失敗を「施設0件」にせず、max-rows（1000行）で黙って切らない。
+ */
+describe('sitemap の施設一覧の読み取り', () => {
+  function pagedMock(facilityPage: (from: number) => { data: unknown; error?: unknown }, featureError?: unknown) {
+    jest.doMock('@/lib/supabase-server', () => ({
+      createServerSupabaseClient: jest.fn(() => ({
+        from: jest.fn((table: string) => {
+          if (table === 'facility_profiles') {
+            let from = 0;
+            const b = makeQueryBuilder({ data: [] });
+            b.range = jest.fn((f: number) => { from = f; return b; });
+            b.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ error: null, ...facilityPage(from) }).then(resolve);
+            return b;
+          }
+          if (table === 'features') return makeQueryBuilder({ data: null, error: featureError ?? null });
+          return makeQueryBuilder({ data: [] });
+        }),
+      })),
+    }));
+  }
+  async function run() {
+    let fn!: () => Promise<{ url: string }[]>;
+    jest.isolateModules(() => { jest.doMock('@/lib/feature-toggles', () => ({ SHOW_JOBS: false })); fn = require('../sitemap').default; });
+    return fn();
+  }
+  const row = (i: number) => ({ slug: `f${i}`, updated_at: null, prefecture: '大阪府', business_type: 'ネイル・まつげサロン', city: '豊中市', rating_count: 0 });
+
+  test('1000行を超える施設も全て載せる', async () => {
+    jest.isolateModules(() => pagedMock((from) => ({ data: from === 0 ? Array.from({ length: 1000 }, (_, i) => row(i)) : [row(1000), row(1001)] })));
+    const urls = (await run()).map((r) => r.url);
+    expect(urls).toContain('https://carelink-jp.com/facility/f1001');
+    expect(urls.filter((u) => /\/facility\/f\d+$/.test(u))).toHaveLength(1002);
+  });
+
+  test('読み取り失敗は施設0件の sitemap にせず失敗させる', async () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.isolateModules(() => pagedMock(() => ({ data: null, error: { code: '08006' } })));
+    await expect(run()).rejects.toThrow('facility_profiles lookup failed');
+    spy.mockRestore();
+  });
+
+  test('特集の読み取り失敗は記録する（無言にしない）', async () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.isolateModules(() => pagedMock(() => ({ data: [row(1)] }), { code: 'PGRST003' }));
+    await run();
+    expect(spy).toHaveBeenCalledWith('[sitemap] features lookup failed', { code: 'PGRST003' });
+    spy.mockRestore();
+  });
+});

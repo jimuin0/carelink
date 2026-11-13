@@ -131,3 +131,30 @@ describe('ConfirmDialog', () => {
     raf.mockRestore();
   });
 });
+
+// 監査 A96: 親の再描画で onCancel が作り直されても、フォーカスを奪い直さず、閉じたら開いた元へ戻す。
+describe('親の再描画とフォーカス', () => {
+  test('再描画で先頭ボタンへ戻されず、閉じると開いた元のボタンへフォーカスが戻り、最新の onCancel を呼ぶ', async () => {
+    const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(0); return 0; });
+    const opener = document.createElement('button');
+    opener.textContent = 'opener';
+    document.body.appendChild(opener);
+    opener.focus();
+    const first = jest.fn();
+    const latest = jest.fn();
+    const ui = (open: boolean, onCancel: () => void) => (
+      <ConfirmDialog open={open} title="t" message="m" confirmLabel="削除する" onConfirm={jest.fn()} onCancel={onCancel} />
+    );
+    const { rerender } = render(ui(true, first));
+    screen.getByRole('button', { name: '削除する' }).focus();
+    rerender(ui(true, () => latest())); // 新しい関数＝親の再描画
+    expect(screen.getByRole('button', { name: '削除する' })).toHaveFocus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(latest).toHaveBeenCalledTimes(1);
+    expect(first).not.toHaveBeenCalled();
+    rerender(ui(false, latest));
+    expect(opener).toHaveFocus();
+    opener.remove();
+    raf.mockRestore();
+  });
+});

@@ -67,3 +67,15 @@ describe('SafeHtmlContent: href サニタイズ', () => {
     expect(out).toContain('href="/facility/abc"');
   });
 });
+
+// 監査 A64: コロンを含まない外部リンク（プロトコル相対・バックスラッシュ）をサイト内リンクとして残さない。
+describe('SafeHtmlContent: コロンを含まない外部リンク', () => {
+  test.each(['//evil.example/login', '/\\evil.example', '\\\\evil.example', ' //evil.example', '&#x2F;&#x2F;evil.example'])('%s → href 属性ごと除去', (href) => {
+    const out = renderHtml(`<a href="${href}">click</a>`);
+    expect(out).not.toContain('evil.example');
+    expect(out).toContain('<a rel="noopener noreferrer">');
+  });
+  test('通常のサイト内リンクは残す', () => {
+    expect(renderHtml('<a href="/search?type=a">x</a>')).toContain('href="/search?type=a"');
+  });
+});

@@ -20,20 +20,16 @@ export default function RepeatRateCard({ facilityId }: { facilityId: string }) {
     (async () => {
       const supabase = createBrowserSupabaseClient();
       setLoadError(false);
-      const { data: segments, error } = await supabase
-        .from('customer_segments')
-        .select('total_visits')
-        .eq('facility_id', facilityId);
+      // 行を取り寄せて数えると max-rows（既定1000行）で並び順不定の一部だけになるため、件数（count）で数える。
+      // total_visits は NOT NULL 制約が無く DEFAULT 0。null は「未集計」＝リピーターではない側に数える（gte に当たらない）。
+      const base = () => supabase.from('customer_segments').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId);
+      const [all, repeat] = await Promise.all([base(), base().gte('total_visits', 2)]);
 
       if (cancelled) return;
-      if (error) { setLoadError(true); setLoading(false); return; }
-      if (segments && segments.length > 0) {
-        // customer_segments.total_visits は migration 上 NOT NULL 制約が無く DEFAULT 0
-        // （supabase/migrations/20260404000002_dashboard_enhancement.sql）。null は
-        // 「来店回数が未集計」を意味し得るため、DB の既定値と同じ 0（＝リピーターではない）に倒す。
-        const repeaters = segments.filter(s => (s.total_visits ?? 0) >= 2).length;
-        setRate(Math.round((repeaters / segments.length) * 100));
+      if (all.error || repeat.error || typeof all.count !== 'number' || typeof repeat.count !== 'number') {
+        setLoadError(true); setLoading(false); return;
       }
+      setRate(all.count > 0 ? Math.round((repeat.count / all.count) * 100) : null);
       setLoading(false);
     })().catch(() => {
       if (!cancelled) { setLoadError(true); setLoading(false); }

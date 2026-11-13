@@ -296,13 +296,10 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
         const meta = user.user_metadata ?? {};
-        setCustomerName(
-          meta.display_name ||
-          meta.full_name ||
-          meta.name ||
-          ''
-        );
-        setEmail(user.email || '');
+        const profileName: string = meta.display_name || meta.full_name || meta.name || '';
+        // 空欄のときだけ補う。復元した下書き・入力し直した名前（家族名義など）を上書きしない。
+        setCustomerName((current) => current || profileName);
+        setEmail((current) => current || user.email || '');
       }
     }).catch(() => {});
   }, []);

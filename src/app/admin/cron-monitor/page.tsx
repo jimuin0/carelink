@@ -100,6 +100,9 @@ export default function CronMonitorPage() {
   const [summary, setSummary] = useState<Summary>({ total: 0, errors: 0, successes: 0, skipped: 0 });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  // サマリー・ジョブ別最新の取得失敗。0件や「—」に見せて健全と誤認させないため明示する。
+  const [summaryFailed, setSummaryFailed] = useState(false);
+  const [failedJobs, setFailedJobs] = useState<string[]>([]);
   const [selectedJob, setSelectedJob] = useState<string>('');
   // 「更新」ボタンは実行ログとサイドデータ両方を再取得するが、フィルタ変更(selectedJob)は
   // 実行ログのみを再取得する（元の loadLogs/loadSideData の分離基準を維持）。effect を
@@ -130,7 +133,9 @@ export default function CronMonitorPage() {
       supabase.from('cron_logs').select('id', { count: 'exact', head: true }).gte('started_at', since).eq('status', 'success'),
       supabase.from('cron_logs').select('id', { count: 'exact', head: true }).gte('started_at', since).eq('status', 'skipped'),
     ]);
-    if (gen === sideGenRef.current && !totalRes.error && !errorRes.error && !successRes.error && !skippedRes.error) {
+    const summaryOk = !totalRes.error && !errorRes.error && !successRes.error && !skippedRes.error;
+    if (gen === sideGenRef.current) setSummaryFailed(!summaryOk);
+    if (gen === sideGenRef.current && summaryOk) {
       setSummary({
         total: totalRes.count ?? 0,
         errors: errorRes.count ?? 0,
@@ -161,13 +166,14 @@ export default function CronMonitorPage() {
           .eq('job_name', job)
           .order('started_at', { ascending: false })
           .limit(1);
-        // 個別ジョブの取得失敗はそのジョブを除外（他ジョブの表示は継続）。
-        if (rErr) return null;
-        return (r && r.length ? (r[0] as CronLog) : null);
+        // 個別ジョブの取得失敗は他ジョブの表示を止めないが、黙って消さず失敗として示す。
+        if (rErr) return { job, failed: true as const };
+        return { job, log: (r && r.length ? (r[0] as CronLog) : null) };
       })
     );
     if (gen !== sideGenRef.current) return; // 古いレスポンスは無視
-    const latest = (latestResults.filter(Boolean) as CronLog[])
+    setFailedJobs(latestResults.filter((x) => 'failed' in x).map((x) => x.job));
+    const latest = (latestResults.map((x) => ('log' in x ? x.log : null)).filter(Boolean) as CronLog[])
       .sort((a, b) => (a.started_at === b.started_at ? 0 : b.started_at.localeCompare(a.started_at)));
     setJobsLatest(latest);
   }, []);
@@ -209,14 +215,14 @@ export default function CronMonitorPage() {
   }, [selectedJob, logsReloadKey]);
 
   useEffect(() => {
-    loadSideData().catch(() => { /* サマリー/ジョブ一覧の失敗は実行ログ一覧の表示を妨げない */ });
+    loadSideData().catch(() => { setSummaryFailed(true); /* 実行ログ一覧の表示は妨げない */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleRefresh = useCallback(() => {
     setLoading(true);
     setLogsReloadKey((k) => k + 1);
-    loadSideData().catch(() => {});
+    loadSideData().catch(() => { setSummaryFailed(true); });
   }, [loadSideData]);
 
   const latestByJob: [string, CronLog][] = jobsLatest.map((log) => [log.job_name, log]);
@@ -238,11 +244,22 @@ export default function CronMonitorPage() {
         }
       />
 
+      {summaryFailed && (
+        <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">
+          直近30日の集計を取得できませんでした。下の数値は最新ではない可能性があります。「更新」で再取得してください。
+        </p>
+      )}
+      {failedJobs.length > 0 && (
+        <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">
+          次のジョブの最新実行を取得できませんでした: {failedJobs.join('、')}
+        </p>
+      )}
+
       {/* サマリーカード（常に全体・selectedJob の絞り込みに関わらず一定） */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <SbStatCard label="総実行数（30日）" value={summary.total} />
+        <SbStatCard label="総実行数（30日）" value={summaryFailed ? '—' : summary.total} />
         <SbStatCard label="成功率（30日）" value={successRate === null ? '—' : `${successRate}%`} accent={cronHealthyRateAccent(successRate)} />
-        <SbStatCard label="エラー数（30日）" value={summary.errors} accent={summary.errors > 0 ? 'rose' : 'gray'} />
+        <SbStatCard label="エラー数（30日）" value={summaryFailed ? '取得失敗' : summary.errors} accent={summaryFailed || summary.errors > 0 ? 'rose' : 'gray'} />
         <SbStatCard label="ジョブ種類" value={latestByJob.length} />
       </div>
       <p className="text-xs text-gray-600 -mt-3">

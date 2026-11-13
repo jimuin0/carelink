@@ -44,13 +44,15 @@ export default async function BookingPage(props: Props) {
   if (preparation.error) throw new Error('Online booking preparation lookup failed');
   if (!preparation.readiness.ready) return <BookingNotReady slug={params.slug} name={facility.name} phone={facility.phone} />;
 
-  const [staff, { menus }, coupons, cancelPolicy] = await Promise.all([
+  const [staff, { menus, error: menusError }, coupons, cancelPolicy] = await Promise.all([
     // 指名候補は勤務時間のあるスタッフだけ（勤務の無い人を選ぶと毎日「満枠」になる）。
     getBookableStaffByFacility(facility.id),
     getFacilityMenus(facility.id),
     getActiveCouponsByFacility(facility.id),
     getFacilityCancelPolicy(facility.id),
   ]);
+  // readiness 失敗と同じ扱い。メニュー無しの予約画面を出さず error.tsx へ委ねる。
+  if (menusError) throw new Error('Online booking menu lookup failed');
 
   // クーポン×メニュー適合制約（2026年7月15日追加）。coupon_menus に行があるクーポンIDのみ
   // キーを持つマップにして BookingFlow へ渡す（行が無い＝全メニュー適用のため未使用データを

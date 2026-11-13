@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { firstSearchParams } from '@/lib/search-params';
 import Link from '@/components/BrowseLink';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
@@ -26,7 +27,8 @@ interface Props {
 }
 
 export async function generateMetadata(props: Props): Promise<Metadata> {
-  const searchParams = await props.searchParams;
+  const rawSearchParams = await props.searchParams;
+  const searchParams = firstSearchParams(rawSearchParams);
   const parts: string[] = [];
   if (searchParams.area) parts.push(searchParams.area);
   if (searchParams.type) parts.push(businessTypeLabel(searchParams.type));
@@ -39,7 +41,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
     ? `${titlePrefix}の一覧。メニュー・料金・口コミを比較して予約できます。`
     : '美容サロン・鍼灸院・整骨院・介護施設・病院を検索。エリア・業種で簡単に探せます。メニュー・料金・口コミもチェック。';
 
-  const hasAnySearchState = Object.values(searchParams).some((value) =>
+  const hasAnySearchState = Object.values(rawSearchParams).some((value) =>
     Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.length > 0,
   );
 
@@ -53,7 +55,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 }
 
 export default async function SearchPage(props: Props) {
-  const searchParams = await props.searchParams;
+  const searchParams = firstSearchParams(await props.searchParams);
   const validSorts = ['rating', 'newest', 'popular'] as const;
   const sort = validSorts.includes(searchParams.sort as typeof validSorts[number])
     ? (searchParams.sort as typeof validSorts[number])
