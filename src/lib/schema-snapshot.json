@@ -919,6 +919,7 @@
     "linked_at",
     "picture_url",
     "proof_version",
+    "unfollowed_at",
     "user_id",
     "verified_at"
   ],

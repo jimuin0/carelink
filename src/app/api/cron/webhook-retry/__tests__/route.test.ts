@@ -41,6 +41,8 @@ jest.mock('@/lib/cron-logger', () => {
 });
 jest.mock('@/lib/webhook-queue');
 jest.mock('@/lib/line');
+const mockLineUnfollowed = jest.fn(async (..._args: unknown[]) => false);
+jest.mock('@/lib/line-unfollow', () => ({ isLineRecipientUnfollowed: (...a: unknown[]) => mockLineUnfollowed(...a) }));
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/alert', () => ({
   alertDeliveryFailures: jest.fn(),
@@ -1072,6 +1074,18 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(res.status).not.toBe(503);
     expect(scheduleRetry).toHaveBeenCalledTimes(1);
     expect(sendLinePushWithOutcome).toHaveBeenCalledWith(expect.any(String), [{ type: 'text', text: expect.any(String) }], 3);
+  });
+
+  test('line_push の宛先がフォロー解除済みなら LINE へ出さず恒久失敗として通常の再試行へ回す（B3-12）', async () => {
+    setupDefaultMocks(1);
+    mockLineUnfollowed.mockResolvedValueOnce(true);
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).not.toBe(503);
+    expect(mockLineUnfollowed).toHaveBeenCalled();
+    expect(sendLinePushWithOutcome).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledTimes(1);
   });
 
   test('送信開始前の失敗はerror messageとattempt_count++で再試行する', async () => {

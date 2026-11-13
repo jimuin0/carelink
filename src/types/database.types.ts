@@ -3637,6 +3637,7 @@ export type Database = {
           linked_at: string | null
           picture_url: string | null
           proof_version: number | null
+          unfollowed_at: string | null
           user_id: string | null
           verified_at: string | null
         }
@@ -3647,6 +3648,7 @@ export type Database = {
           linked_at?: string | null
           picture_url?: string | null
           proof_version?: number | null
+          unfollowed_at?: string | null
           user_id?: string | null
           verified_at?: string | null
         }
@@ -3657,6 +3659,7 @@ export type Database = {
           linked_at?: string | null
           picture_url?: string | null
           proof_version?: number | null
+          unfollowed_at?: string | null
           user_id?: string | null
           verified_at?: string | null
         }

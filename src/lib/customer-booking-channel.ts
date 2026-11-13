@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { isExpiredPushStatus, prepareCapturedPushDelivery, removeExpiredPushSubscription } from './push';
 import { prepareSingleLineDelivery } from './line';
+import { isLineRecipientUnfollowed } from './line-unfollow';
+import { createServiceRoleClient } from './supabase-server';
 import { prepareSingleLineWorksDelivery } from './integrations/line-works';
 import type { ChannelDeliveryResult } from './channel-delivery-result';
 
@@ -56,6 +58,8 @@ export async function prepareCustomerBookingChannel(input: unknown): Promise<() 
     };
   }
   if (job.webhook_type==='customer_booking_line') {
+    // フォロー解除（ブロック）を記録した宛先には送らない（点検 B3-12）。LINE へは 1 通も出さず「受け付けられなかった」で閉じる。
+    if (await isLineRecipientUnfollowed(createServiceRoleClient(), job.target_id)) return async () => ({ outcome: 'rejected', status: null });
     return prepareSingleLineDelivery(job.target_id,[ '❌ 予約キャンセル', '', `📍 ${s.facilityName}`,
       `📋 ${s.menuName}`, `📅 ${s.bookingDate} ${s.startTime.slice(0,5)}`, '', 'またのご来店をお待ちしております。' ].join('\n'));
   }

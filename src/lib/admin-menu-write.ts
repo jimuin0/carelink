@@ -38,7 +38,7 @@ export async function saveAdminMenu(input: {
     if (result.error.code === '42501' && result.error.message === 'MENU_ACCESS_DENIED') return NextResponse.json({ error: '店舗の管理権限を確認してください' }, { status: 403 });
     if (result.error.code === 'P0002') return NextResponse.json({ error: '店舗またはメニューが見つかりません' }, { status: 404 });
     if (result.error.code === '23505') return NextResponse.json({ error: 'メニューが競合しました。一覧を確認してから、もう一度お試しください。' }, { status: 409 });
-    if (result.error.code === '40001') return NextResponse.json({ error: 'メニューが変更されました。一覧を再読み込みしてください' }, { status: 409 });
+    if (result.error.code === '40001' || result.error.code === 'PT409') return NextResponse.json({ error: 'メニューが変更されました。一覧を再読み込みしてください' }, { status: 409 });
     if (result.error.code === '22023') return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
     if (isLastPublishedMenuRefusal(result.error)) return NextResponse.json({ error: LAST_PUBLISHED_MENU_MESSAGE }, { status: 400 });
     return serverError(label, databaseDiagnostic(result.error), '/api/admin/menus');

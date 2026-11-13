@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   if (error) {
     if (error.code === '42501') return NextResponse.json({ error: '店舗の管理権限を確認してください' }, { status: 403 });
     if (error.code === 'P0002') return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
-    if (error.code === '40001') return NextResponse.json({ error: '一覧が更新されています。もう一度並び替えてください' }, { status: 409 });
+    if (error.code === '40001' || error.code === 'PT409') return NextResponse.json({ error: '一覧が更新されています。もう一度並び替えてください' }, { status: 409 });
     if (error.code === '22023') return NextResponse.json({ error: '並び順が不正です' }, { status: 400 });
     return serverError('admin-menus-reorder', databaseDiagnostic(error), '/api/admin/menus/reorder');
   }

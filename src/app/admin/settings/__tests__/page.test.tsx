@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import AdminSettingsPage from '../page';
+import { FACILITY_PROFILE_READABLE_COLUMNS } from '@/lib/facility-profile-columns';
 
 const first = '71000000-0000-4000-8000-000000000001';
 const second = '71000000-0000-4000-8000-000000000002';
@@ -42,10 +43,10 @@ beforeEach(() => {
         return chain;
       }
       if (table === 'facility_profiles') {
-        // 編集フォームの読み込み（select('*')）だけを数える。準備状況の読み込みも同じ表を読む。
+        // 編集フォームの読み込み（FACILITY_PROFILE_READABLE_COLUMNS の明示列・B9-1）だけを数える。準備状況の読み込みも同じ表を読む。
         let columns = '';
         const chain = { select: (c: string) => { columns = c; return chain; },
-          eq: (_key: string, value: string) => { if (columns === '*') mockReads.push(value); return chain; },
+          eq: (_key: string, value: string) => { if (columns === FACILITY_PROFILE_READABLE_COLUMNS) mockReads.push(value); return chain; },
           single: async () => ({ data: mockProfile, error: null }) };
         return chain;
       }

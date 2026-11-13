@@ -20,7 +20,7 @@ export async function writePlatformEditor<T extends keyof Rows>(actor:string,rec
  if(error?.code==='42501')return NextResponse.json({error:'Forbidden'},{status:403});
  if(error?.code==='P0002')return NextResponse.json({error:'Not found'},{status:404});
  if(error?.code==='22023')return NextResponse.json({error:'Invalid request'},{status:400});
- if(error?.code==='23505'||error?.code==='40001')return NextResponse.json({error:'状態が変更されています。再読み込みしてください'},{status:409});
+ if(error?.code==='23505'||error?.code==='40001'||error?.code==='PT409')return NextResponse.json({error:'状態が変更されています。再読み込みしてください'},{status:409});
  if(error)return serverError('platform-editor-write',databaseDiagnostic(error),path);
  const parsed=schemas[target].safeParse(data);
  if(!parsed.success||(record!==null&&parsed.data.id.toLowerCase()!==record.toLowerCase()))return serverError('platform-editor-receipt',new Error('PLATFORM_EDITOR_UNCONFIRMED'),path);

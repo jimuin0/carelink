@@ -71,10 +71,10 @@ export async function buildBookingCreateNotifications(db: SupabaseClient, input:
   }
   if (actor) plan.push({ kind: 'push', role: 'customer', target: actor,
     payload: { title: '予約を受け付けました', body: `${input.booking_date} ${input.start_time}〜のご予約を承りました`, url: '/mypage' } });
-  const lineLink = line.data?.line_user_id && actor ? await db.from('line_user_links').select('user_id,proof_version,verified_at').eq('line_user_id',line.data.line_user_id).eq('user_id',actor).maybeSingle() : { data:null,error:null };
+  const lineLink = line.data?.line_user_id && actor ? await db.from('line_user_links').select('user_id,proof_version,verified_at,unfollowed_at').eq('line_user_id',line.data.line_user_id).eq('user_id',actor).maybeSingle() : { data:null,error:null };
   if (lineLink.error) throw new BookingNotificationPlanError();
   if (lineLink.data?.user_id === actor && lineLink.data.proof_version === 1
-    && typeof lineLink.data.verified_at === 'string' && Number.isFinite(Date.parse(lineLink.data.verified_at)) && line.data?.line_user_id) plan.push({ kind: 'line', role: 'customer', target: line.data.line_user_id,
+    && typeof lineLink.data.verified_at === 'string' && Number.isFinite(Date.parse(lineLink.data.verified_at)) && !lineLink.data.unfollowed_at && line.data?.line_user_id) plan.push({ kind: 'line', role: 'customer', target: line.data.line_user_id,
     payload: { message: `✅ 予約を受け付けました\n\n📍 ${data.facilityName}\n📋 ${data.menuName}\n📅 ${input.booking_date} ${input.start_time}${data.staffName ? `\n担当: ${data.staffName}` : ''}\n\nご来店をお待ちしております。` } });
   const channels = new Set<string>();
   for (const row of works.data) if (row.line_works_channel_id && (row.id === input.staff_id || row.line_works_notify_all) && !channels.has(row.line_works_channel_id)) {

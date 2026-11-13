@@ -14,7 +14,7 @@ test('patch binds expected ID and legacy-photo observation',async()=>{
  expect(await saveAdminMenu({...input,menuId:id,checkPhoto:true,expectedPhoto:'https://images.unsplash.com/existing'})).not.toBeInstanceOf(NextResponse);
  expect(mockRpc.mock.calls[0][1]).toMatchObject({p_menu_id:id,p_check_photo:true,p_expected_photo:'https://images.unsplash.com/existing'});
 });
-test.each([['42501',403],['P0002',404],['23505',409],['40001',409],['22023',400],['57014',500]])('SQL failure %s is bounded and cannot be accepted as success',async(code,status)=>{
+test.each([['42501',403],['P0002',404],['23505',409],['40001',409],['PT409',409],['22023',400],['57014',500]])('SQL failure %s is bounded and cannot be accepted as success',async(code,status)=>{
  mockRpc.mockResolvedValue({data:{id,facility_id:facility},error:{code,message:code==='42501'?'MENU_ACCESS_DENIED':'private detail'}});
  const res=await saveAdminMenu(input) as NextResponse;expect(res.status).toBe(status);expect(JSON.stringify(await res.json())).not.toContain('private detail');
 });
