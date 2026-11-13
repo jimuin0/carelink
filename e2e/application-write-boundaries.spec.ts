@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { approveSyntheticListing } from './listing-verification-fixture';
 
 test('simultaneous general applications save one isolated candidate record', async ({ request, baseURL }) => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -17,6 +18,10 @@ test('simultaneous general applications save one isolated candidate record', asy
       name: 'Isolated application fixture', business_type: 'ヘアサロン', prefecture: '東京都', city: 'テスト市', address: 'テスト1', status: 'draft' });
     expect(facility.error).toBeNull();
     const data = { facility_id: facilityId, applicant_name: 'Isolated candidate', applicant_email: `candidate-${facilityId}@example.invalid` };
+    // 非公開（draft）の施設には応募できない（点検 A10）
+    const draftApply = await request.post('/api/admin/job-applications', { headers: { Origin: new URL(baseURL).origin }, data });
+    expect(draftApply.status()).toBe(400);
+    await approveSyntheticListing(db, facilityId);
     const responses = await Promise.all([1, 2].map(() => request.post('/api/admin/job-applications', { headers: { Origin: new URL(baseURL).origin }, data })));
     expect(responses.map(response => response.status()).sort()).toEqual([201, 409]);
     const accepted = responses.find(response => response.status() === 201)!;
