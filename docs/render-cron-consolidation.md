@@ -5,15 +5,27 @@ The canonical 17 business job schedules, endpoints, authentication, request time
 GitHub's existing backup cron workflow is unchanged. The consolidation runs on Render,
 not ChatGPT scheduled tasks.
 
-## Five retained services
+## Retained services (four since 2026-11-13)
 
 | Service | Runner ticks (UTC) | Business jobs |
 | --- | --- | --- |
 | carelink-webhook-retry | */15 * * * * | webhook-retry, flag-reviews, waitlist-notify |
 | carelink-booking-reminder | 5,50 * * * * | booking-reminder, threads-backfill |
 | carelink-daily-summary | 0,10,20,25,40 * * * * | 11 daily/weekly jobs, filtered by canonical hour and weekday |
-| carelink-cron-heartbeat | 7,37 * * * * | unchanged |
-| carelink-health-check | */5 * * * * | unchanged |
+| carelink-health-check | 2,7,12,…,57 * * * * (every 5 min) | health probe every tick + cron-heartbeat at its canonical 7,37 slots |
+
+### Monitor merge (2026-11-13)
+
+`carelink-cron-heartbeat` was folded into `carelink-health-check` to reduce the
+Render service count. `MONITOR_RUNNER` in `src/lib/cron-dispatch.mjs` is the single
+source: the runner ticks are `*/5` shifted by two minutes so both canonical
+heartbeat minutes (7, 37) are ticks; the heartbeat business schedule in
+`cron-jobs.data.json` is unchanged. The health probe and the heartbeat run
+independently in one run, and either failure makes the Render run fail. The
+monitors stay separate from the three business runners they watch. After the
+Blueprint sync, delete the old `carelink-cron-heartbeat` service (it is no longer
+defined, so the Blueprint will not recreate it; until deleted it only sends a
+duplicate, harmless heartbeat).
 
 Runner ticks do not change business schedules. All jobs due at a tick start
 concurrently; a failure cannot block another due job, and any failure makes the

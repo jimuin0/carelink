@@ -364,7 +364,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | waitlist-notify | `30 * * * *` | 毎時30分 |
 | webhook-retry | `*/15 * * * *` | 15分毎 |
 | hpb-menu-scrape | `20 17 * * *` | 毎日 02:20 |
-| cron-heartbeat | `7,37 * * * *` | 毎時07分・37分（監視系の生存確認・`/api/health` の cron 鮮度判定に使う） |
+| cron-heartbeat | `7,37 * * * *` | 毎時07分・37分（監視系の生存確認・`/api/health` の cron 鮮度判定に使う）。2026年11月13日から専用サービスは無く、`carelink-health-check`（5分おき・2,7,12…57分）の中で 7・37分の回だけ実行する（`MONITOR_RUNNER`・`src/lib/cron-dispatch.mjs`） |
 | threads-backfill | `50 * * * *` | 毎時50分（記事公開時のインライン Threads 投稿が transient 失敗した場合の自己修復） |
 | threads-token-refresh | `25 5 * * 3` | 水曜 14:25（Threads 長期トークン更新・60日失効に対し週次で更新） |
 | schema-drift-check | `40 17 * * *` | 毎日 02:40 |
