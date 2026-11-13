@@ -307,6 +307,16 @@ describe('POST/DELETE /api/liff/link', () => {
   });
 
   describe('DELETE', () => {
+    test('Auth data plus error fails closed (503) before unlink write', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: { id: 'user-123' } }, error: { status: 503 } });
+      const res = await DELETE(makeDeleteRequest() as any);
+      expect(res.status).toBe(503); expect(mockProfilesUpdate).not.toHaveBeenCalled();
+    });
+    test('getUser throws → 503 (not 500), no unlink write', async () => {
+      mockGetUser.mockRejectedValue(new Error('network'));
+      const res = await DELETE(makeDeleteRequest() as any);
+      expect(res.status).toBe(503); expect(mockProfilesUpdate).not.toHaveBeenCalled();
+    });
     test('rate limiting → 429', async () => {
       (checkRateLimit as jest.Mock).mockResolvedValue(true);
 
@@ -372,8 +382,8 @@ describe('POST/DELETE /api/liff/link', () => {
       expect(call[4]).toBe('liff-link-delete');
     });
 
-    test('profile transport failure → 503', async () => {
-      mockGetUser.mockRejectedValue(new Error('Auth error'));
+    test('unexpected exception after auth → 500', async () => {
+      mockProfilesUpdate.mockImplementation(() => { throw new Error('boom'); });
 
       const res = await DELETE(makeDeleteRequest() as any);
 

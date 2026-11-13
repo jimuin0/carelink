@@ -56,8 +56,10 @@ export async function DELETE(req: NextRequest) {
   }
   try {
     const supabase = await createServerSupabaseAuthClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return NextResponse.json(AUTH_UNAVAILABLE_BODY, { status: 503 });
+    if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = verification.user;
 
     const admin = createServiceRoleClient();
     const { error: unlinkErr } = await admin

@@ -14,6 +14,10 @@ const operationSchema = z.object({
   calendar_id: z.string().min(1).nullable(), google_event_id: z.string().min(1).nullable(),
   payload: z.record(z.string(),z.unknown()), dispatch: z.boolean().optional(),
 });
+/** 再連携（再認証）が必要なだけの状態。障害ではないので警報せず、利用者に再連携を促す。 */
+export class CalendarReauthenticationRequired extends Error {
+  constructor() { super('CALENDAR_REAUTHENTICATION_REQUIRED'); }
+}
 type Operation = z.infer<typeof operationSchema>;
 export interface CalendarCredentials { accessToken: string; tokenId: string; updatedAt: string }
 interface Input {
@@ -128,6 +132,9 @@ export async function runCalendarOperation(admin: Pick<SupabaseClient,'rpc'>, in
     const finalBlocked=boundary(finished,input);if(finalBlocked)return finalBlocked;
     const saved=operation(finished,input);return saved.state==='succeeded'?complete(saved):unavailable(input.operationId);
   } catch(error) {
+    if(error instanceof CalendarReauthenticationRequired) {
+      return response({code:'CALENDAR_REAUTHENTICATION_REQUIRED',error:'Google カレンダーの再連携が必要です。連携し直してください。'},409);
+    }
     const diagnostic=error instanceof CalendarDatabaseFailure?error:new Error('CALENDAR_OPERATION_UNCONFIRMED');
     safeCaptureException(diagnostic,'calendar-operation');
     alertCaughtError('calendar-operation',diagnostic,'/api/google-calendar/sync',503);

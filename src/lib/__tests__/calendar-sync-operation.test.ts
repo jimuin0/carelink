@@ -1,5 +1,5 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
-import { runCalendarOperation } from '../calendar-sync-operation';
+import { CalendarReauthenticationRequired, runCalendarOperation } from '../calendar-sync-operation';
 import { safeCaptureException } from '../safe';
 import { alertCaughtError } from '../alert';
 jest.mock('../safe',()=>({safeCaptureException:jest.fn()}));
@@ -131,4 +131,10 @@ test('transport errors never expose credentials or repeat a mutation',async()=>{
 
 test.each([204,404,410,403])('delete recovery HTTP %s accepts only explicit deletion evidence',async status=>{
  const s=setup({doc:{kind:'delete',action:'delete'}});s.responses.start_calendar_operation.dispatch=false;s.fetcher.mockResolvedValueOnce(Response.json({id:CALENDAR})).mockResolvedValueOnce(new Response(status===204?null:JSON.stringify({error:{errors:[{reason:'deleted'}]}}),{status}));expect((await s.run()).status).toBe(status===410?200:503);
+});
+
+test('reauthentication required is 409 without alert (not an outage)',async()=>{
+ const s=setup();s.credentials.mockRejectedValue(new CalendarReauthenticationRequired());const res=await s.run();
+ expect(res.status).toBe(409);expect((await res.json()).code).toBe('CALENDAR_REAUTHENTICATION_REQUIRED');
+ expect(alertCaughtError).not.toHaveBeenCalled();expect(safeCaptureException).not.toHaveBeenCalled();
 });
