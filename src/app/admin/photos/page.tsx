@@ -16,6 +16,8 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import { businessTypeCopy } from '@/lib/business-type-copy';
 import { ADMIN_PHOTO_MAX_BYTES, ADMIN_PHOTO_TYPES, describePhotoRejections, preparePhotoBatch } from '@/lib/admin-photo-batch';
 import { compressImage } from '@/lib/image-compress';
+import { ADMIN_LIST_FETCH, capAdminList } from '@/lib/admin-list-cap';
+import AdminListCapNotice from '@/components/admin/AdminListCapNotice';
 
 const photoTypes: { value: FacilityPhoto['photo_type']; label: string }[] = [
   { value: 'main', label: 'メイン' },
@@ -51,6 +53,7 @@ function AdminPhotosContent() {
   const requestedFacility = useSearchParams().get('facility_id');
   const [facilityChoices, setFacilityChoices] = useState<AdminFacilityChoice[]>([]);
   const [photos, setPhotos] = useState<FacilityPhoto[]>([]);
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
@@ -83,9 +86,11 @@ function AdminPhotosContent() {
       .select('*')
       .eq('facility_id', fId)
       .order('sort_order', { ascending: true })
-      .limit(100);
+      .limit(ADMIN_LIST_FETCH);
     if (error) { setLoadError(true); return; }
-    setPhotos((data ?? []) as FacilityPhoto[]);
+    const capped = capAdminList(data as FacilityPhoto[] | null);
+    setPhotos(capped.rows);
+    setTruncated(capped.truncated);
     const main = await supabase.from('facility_profiles').select('main_photo_url, business_type').eq('id', fId).maybeSingle();
     setMainPhotoUrl(main.error || !main.data ? undefined : main.data.main_photo_url ?? null);
     setBusinessType(main.error || !main.data ? null : main.data.business_type ?? null);
@@ -260,6 +265,7 @@ function AdminPhotosContent() {
     <div>
       <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/photos" busy={uploading || Boolean(deleting) || Boolean(settingMain)} />
       <SbPageHeader title="写真管理" />
+      <AdminListCapNotice truncated={!loadError && truncated} />
 
       {/* 医療広告ガイドライン注意書き。対象の業種（医療機関・鍼灸・整骨等）と、業種が分からない店舗にだけ出す。 */}
       {businessTypeCopy(businessType).medicalAdNotice && (

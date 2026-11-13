@@ -8,6 +8,8 @@ import LoadError from '@/components/admin/LoadError';
 import Image from 'next/image';
 import { moderationReviewSnapshotSchema, type ModerationReviewSnapshot } from '@/lib/moderation-review-snapshot';
 import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
+import { ADMIN_LIST_FETCH, capAdminList } from '@/lib/admin-list-cap';
+import AdminListCapNotice from '@/components/admin/AdminListCapNotice';
 
 interface ModerationItem {
   id: string;
@@ -59,6 +61,7 @@ function toStringArray(v: unknown): string[] {
 
 export default function ModerationPage() {
   const [items, setItems] = useState<ModerationItem[]>([]);
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('pending');
@@ -76,14 +79,16 @@ export default function ModerationPage() {
       .from('moderation_queue')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(100);
+      .limit(ADMIN_LIST_FETCH);
     if (statusFilter) query = query.eq('status', statusFilter);
     setLoadError(false);
     const { data, error } = await query;
     if (error) { setLoadError(true); setLoading(false); return; }
     // select('*') の生の行は status が string・auto_flags が Json のため、画面が期待する
     // ModerationItem 型へランタイム検証しつつ詰め替える（上記コメント参照）。
-    setItems((data ?? []).map((row) => ({
+    const capped = capAdminList(data);
+    setTruncated(capped.truncated);
+    setItems(capped.rows.map((row) => ({
       id: row.id,
       content_type: row.content_type,
       content_id: row.content_id,
@@ -110,7 +115,7 @@ export default function ModerationPage() {
         .from('moderation_queue')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(100);
+        .limit(ADMIN_LIST_FETCH);
       if (statusFilter) query = query.eq('status', statusFilter);
       setLoadError(false);
       const { data, error } = await query;
@@ -118,7 +123,9 @@ export default function ModerationPage() {
       if (error) { setLoadError(true); setLoading(false); return; }
       // select('*') の生の行は status が string・auto_flags が Json のため、画面が期待する
       // ModerationItem 型へランタイム検証しつつ詰め替える（上記コメント参照）。
-      setItems((data ?? []).map((row) => ({
+      const capped = capAdminList(data);
+      setTruncated(capped.truncated);
+      setItems(capped.rows.map((row) => ({
         id: row.id,
         content_type: row.content_type,
         content_id: row.content_id,
@@ -202,6 +209,7 @@ export default function ModerationPage() {
       {pendingCount > 0 && statusFilter === 'pending' && (
         <p className="text-sm text-amber-600 -mt-4">{pendingCount}件の未審査コンテンツがあります</p>
       )}
+      <AdminListCapNotice truncated={!loadError && truncated} />
 
       {/* フィルター */}
       <div className="flex gap-2">
