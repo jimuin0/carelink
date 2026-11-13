@@ -261,6 +261,31 @@ describe('GET /api/cron/waitlist-notify', () => {
     expect(res.status).toBe(200);
   });
 
+  test('claim の DB エラー → 他 run に取られた扱いにせず error・503 で記録（中 A17）', async () => {
+    let call = 0;
+    const errorChain: any = {};
+    Object.assign(errorChain, {
+      eq: jest.fn().mockReturnValue(errorChain),
+      lt: jest.fn().mockReturnValue(errorChain),
+      select: jest.fn().mockResolvedValue({ data: null, error: { code: '08006', message: 'down' } }),
+    });
+    const okChain: any = {};
+    Object.assign(okChain, {
+      eq: jest.fn().mockReturnValue(okChain),
+      lt: jest.fn().mockReturnValue(okChain),
+      select: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
+    });
+    // 1 回目＝期限切れの更新（成功）、2 回目以降＝claim（DB エラー）
+    mockUpdateWaitlist.mockImplementation(() => (++call === 1 ? okChain : errorChain));
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(503);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+    const { logCronRun } = jest.requireMock('@/lib/cron-logger');
+    expect(logCronRun).toHaveBeenCalledWith('waitlist-notify', 'error', expect.anything(), expect.objectContaining({ meta: expect.objectContaining({ dependency_failures: expect.any(Number) }) }));
+  });
+
   test('sends email to notified waiter', async () => {
     process.env.RESEND_API_KEY = 'test-key';
 
@@ -407,7 +432,7 @@ describe('GET /api/cron/waitlist-notify', () => {
     });
 
     const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     expect(mockSendEmail).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(
       '[waitlist-notify] waiters query failed',
@@ -434,7 +459,7 @@ describe('GET /api/cron/waitlist-notify', () => {
     });
 
     const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     expect(mockSendEmail).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(
       '[waitlist-notify] facility query failed',
@@ -474,7 +499,7 @@ describe('GET /api/cron/waitlist-notify', () => {
 
     const res = await GET(makeRequest() as any);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     expect(errSpy).toHaveBeenCalledWith('[waitlist-notify] claim release failed', expect.anything());
     errSpy.mockRestore();
   });

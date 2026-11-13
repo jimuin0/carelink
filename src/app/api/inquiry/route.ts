@@ -89,14 +89,21 @@ export const POST = withRoute(async (request) => {
   // push.ts(sendPushToFacilityOwners) と揃え owner に加え admin も対象にする
   // （2026年7月17日 恒久根治：admin ロールは Push は受け取るがメール通知は owner 限定のため
   // 受け取れない非対称があった）。
-  const { data: ownerRows } = await supabase
+  // 宛先の取得失敗は「宛先 0 件」と区別して通知する（保存は済んでいるので応答は止めない・中 A20）。
+  const reportRecipientLookupFailure = (cause: unknown) => {
+    safeCaptureException(cause, 'inquiry-email-recipients');
+    alertCaughtError('inquiry-email-recipients', cause, '/api/inquiry');
+  };
+  const { data: ownerRows, error: ownerRowsError } = await supabase
     .from('facility_members')
     .select('user_id')
     .eq('facility_id', facility.id)
     .in('role', ['owner', 'admin']);
+  if (ownerRowsError) reportRecipientLookupFailure(ownerRowsError);
   const ownerUserIds = Array.from(new Set(((ownerRows ?? []) as { user_id: string }[]).map((o) => o.user_id).filter(Boolean)));
   if (ownerUserIds.length > 0) {
-    const { data: ownerProfiles } = await supabase.from('profiles').select('email').in('id', ownerUserIds);
+    const { data: ownerProfiles, error: ownerProfilesError } = await supabase.from('profiles').select('email').in('id', ownerUserIds);
+    if (ownerProfilesError) reportRecipientLookupFailure(ownerProfilesError);
     const ownerEmails = Array.from(new Set(
       ((ownerProfiles ?? []) as { email: string | null }[]).map((p) => p.email).filter(Boolean) as string[]
     ));

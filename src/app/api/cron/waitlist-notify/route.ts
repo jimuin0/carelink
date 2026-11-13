@@ -8,7 +8,7 @@
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import { logCronRun, cronError } from '@/lib/cron-logger';
-import { alertDeliveryFailures } from '@/lib/alert';
+import { alertDeliveryFailures, alertWarning } from '@/lib/alert';
 import { errorMessage } from '@/lib/err';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
@@ -76,6 +76,8 @@ export async function GET(request: Request) {
     let notified = 0;
     let skippedNoContact = 0; // 通知手段なし（email未登録 or Resend未設定）でclaimせずskipした件数
     let deliveryFailures = 0; // メール送達失敗（run 単位で集約 Slack 通報）
+    // 待ち客・施設・claim の DB 障害。run を success にせず error として記録し警報する（中 A17）。
+    let dependencyFailures = 0;
     let budgetExceeded = false;
     const loopStart = Date.now();
 
@@ -107,6 +109,7 @@ export async function GET(request: Request) {
           console.error('[waitlist-notify] waiters query failed', {
             facilityId: cancel.facility_id, date: cancel.booking_date, err: errorMessage(waitersError),
           });
+          dependencyFailures++;
           continue; // 次 run(2h 窓内)で再試行される
         }
         if (!waiters || waiters.length === 0) continue;
@@ -122,6 +125,7 @@ export async function GET(request: Request) {
           console.error('[waitlist-notify] facility query failed', {
             facilityId: cancel.facility_id, err: errorMessage(facilityError),
           });
+          dependencyFailures++;
           continue; // 次 run(2h 窓内)で再試行される
         }
         if (!facility) continue;
@@ -140,7 +144,7 @@ export async function GET(request: Request) {
           // Two concurrent invocations seeing the same cancellation window will
           // each try to claim; only the first UPDATE matching .eq('status','waiting')
           // will return a row — the second finds status already 'notified' and skips.
-          const { data: claimed } = await supabase
+          const { data: claimed, error: claimError } = await supabase
             .from('booking_waitlist')
             .update({
               status: 'notified',
@@ -151,6 +155,12 @@ export async function GET(request: Request) {
             .eq('status', 'waiting')
             .select('id');
 
+          // DB エラーは「他 run に取られた」と区別して数える（無音でスキップしない）。
+          if (claimError) {
+            console.error('[waitlist-notify] claim failed', { waiterId: waiter.id, err: errorMessage(claimError) });
+            dependencyFailures++;
+            continue;
+          }
           if (!claimed || claimed.length === 0) continue;
 
           // メール通知（claim 後に到達する時点で waiter.email/resend は確定で存在する）
@@ -179,7 +189,10 @@ export async function GET(request: Request) {
                 .from('booking_waitlist')
                 .update({ status: 'waiting', notified_at: null, expires_at: null })
                 .eq('id', waiter.id);
-              if (releaseErr) console.error('[waitlist-notify] claim release failed', { waiterId: waiter.id, err: releaseErr });
+              if (releaseErr) {
+                console.error('[waitlist-notify] claim release failed', { waiterId: waiter.id, err: releaseErr });
+                dependencyFailures++;
+              }
               continue; // 再送対象として残すため notified にはカウントしない
             }
           }
@@ -189,12 +202,26 @@ export async function GET(request: Request) {
       }
     }
 
+    // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
+    alertDeliveryFailures('waitlist-notify', deliveryFailures, { notified });
+
+    if (dependencyFailures > 0) {
+      alertWarning(
+        `[waitlist-notify] キャンセル待ちの通知処理で DB 障害が${dependencyFailures}件ありました（待ち客・施設の取得または通知の確保に失敗）`,
+        { route: '/api/cron/waitlist-notify', extra: { notified, dependencyFailures } },
+      );
+      await logCronRun('waitlist-notify', 'error', startedAt, {
+        processed: notified,
+        error_msg: `キャンセル待ちの通知処理で DB 障害が${dependencyFailures}件ありました`,
+        meta: { expired: expiredCount ?? 0, budgetExceeded, skipped: skippedNoContact, dependency_failures: dependencyFailures },
+      });
+      return NextResponse.json({ processed: notified, skipped: skippedNoContact, expired: expiredCount ?? 0, dependency_failures: dependencyFailures }, { status: 503 });
+    }
+
     await logCronRun('waitlist-notify', 'success', startedAt, {
       processed: notified,
       meta: { expired: expiredCount ?? 0, budgetExceeded, skipped: skippedNoContact },
     });
-    // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
-    alertDeliveryFailures('waitlist-notify', deliveryFailures, { notified });
 
     return NextResponse.json({ processed: notified, skipped: skippedNoContact, expired: expiredCount ?? 0 });
   } catch (e) {

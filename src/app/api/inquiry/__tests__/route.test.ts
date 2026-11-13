@@ -46,7 +46,7 @@ function setupDefaultMocks(
   opts: {
     insertError?: boolean; noData?: boolean; noFacility?: boolean;
     ownerUserIds?: string[]; ownerEmails?: (string | null)[];
-    ownerRowsDataNull?: boolean; ownerProfilesDataNull?: boolean;
+    ownerRowsDataNull?: boolean; ownerProfilesDataNull?: boolean; ownerRowsError?: unknown; ownerProfilesError?: unknown;
   } = {}
 ) {
   (checkCsrf as jest.Mock).mockReturnValue(null);
@@ -72,10 +72,10 @@ function setupDefaultMocks(
   // admin ロールへのメール通知統一）、.eq/.in どちらで終端されても同じ結果に解決する共有モックにし、
   // かつ呼び出し引数を検証できるよう外に返す。
   const ownerRows = opts.ownerRowsDataNull ? null : (opts.ownerUserIds ?? []).map((id) => ({ user_id: id }));
-  const membersRoleFilter = jest.fn().mockResolvedValue({ data: ownerRows });
+  const membersRoleFilter = jest.fn().mockResolvedValue({ data: ownerRows, error: opts.ownerRowsError ?? null });
   const ownersChain = { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: membersRoleFilter, in: membersRoleFilter }) }) };
   const profileRows = opts.ownerProfilesDataNull ? null : (opts.ownerEmails ?? []).map((email) => ({ email }));
-  const profilesChain = { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: profileRows }) }) };
+  const profilesChain = { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: profileRows, error: opts.ownerProfilesError ?? null }) }) };
 
   (createServiceRoleClient as jest.Mock).mockReturnValue({
     from: jest.fn((table: string) => {
@@ -344,6 +344,20 @@ describe('オーナー通知（施設への問い合わせがオーナーに届�
     const res = await POST(makeRequest(validInquiry) as any);
     expect(res.status).toBe(200);
     expect(sendNewInquiryNotification).not.toHaveBeenCalled();
+  });
+
+  test('facility_members の取得失敗 → 保存は200のまま、宛先 0 件と区別して通知する（中 A20）', async () => {
+    setupDefaultMocks({ ownerRowsDataNull: true, ownerRowsError: { code: '08006', message: 'down' } });
+    const res = await POST(makeRequest(validInquiry) as any);
+    expect(res.status).toBe(200);
+    expect(alertCaughtError).toHaveBeenCalledWith('inquiry-email-recipients', expect.anything(), '/api/inquiry');
+  });
+
+  test('profiles の取得失敗 → 保存は200のまま、宛先 0 件と区別して通知する（中 A20）', async () => {
+    setupDefaultMocks({ ownerUserIds: ['owner-1'], ownerProfilesDataNull: true, ownerProfilesError: { code: '08006', message: 'down' } });
+    const res = await POST(makeRequest(validInquiry) as any);
+    expect(res.status).toBe(200);
+    expect(alertCaughtError).toHaveBeenCalledWith('inquiry-email-recipients', expect.anything(), '/api/inquiry');
   });
 
   test('profiles クエリが data:null を返しても例外にならず通知スキップ（?? [] フォールバック）', async () => {

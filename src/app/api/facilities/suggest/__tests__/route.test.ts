@@ -262,3 +262,36 @@ describe('GET /api/facilities/suggest', () => {
     expect(json.areas).toContain('Shibuya');
   });
 });
+
+// 中 A19：DB 障害を「候補 0 件」の 200 にしない。
+describe('DB 障害', () => {
+  function mockWithError(which: 'name' | 'city' | 'station') {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    const down = { code: '08006', message: 'down' };
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn(() => ({
+        select: jest.fn((cols: string) => ({
+          eq: jest.fn(() => ({
+            ilike: jest.fn(() => ({
+              limit: jest.fn().mockResolvedValue(
+                (which === 'name' && cols.startsWith('id')) || (which === 'city' && cols === 'city')
+                  ? { data: null, error: down }
+                  : { data: [], error: null },
+              ),
+            })),
+            not: jest.fn(() => ({
+              ilike: jest.fn(() => ({
+                limit: jest.fn().mockResolvedValue(which === 'station' ? { data: null, error: down } : { data: [], error: null }),
+              })),
+            })),
+          })),
+        })),
+      })),
+    });
+  }
+  test.each(['name', 'city', 'station'] as const)('%s の取得失敗 → 500', async (which) => {
+    mockWithError(which);
+    const res = await GET(makeRequest('?q=tokyo') as any);
+    expect(res.status).toBe(500);
+  });
+});
