@@ -178,7 +178,8 @@ const IDENTITY_PATTERNS: RegExp[] = [
   /\bcheckCronAuth\s*\(/,             // cron の Bearer シークレット
   /\brequirePlatformAdmin\s*\(/,      // プラットフォーム管理者
   /\bis_platform_admin\b/,
-  /\bfacility_members\b/,             // 施設メンバーシップ
+  // facility_members は「参照しているだけ」（本人と無関係な全件 select 等）でも合格になるため外した（点検 A95）。
+  // 施設メンバーの確認は getAdminApiContext・auth.getUser 等の本人確認と組で行われ、それで検出できる。
   /\bresolveLiffUserId\s*\(/,         // LIFF
   /\bverifyLineSignature\s*\(/,       // LINE 署名（Messaging API webhook）
   /\bverifyLineAccessToken\s*\(/,     // LINE アクセストークン（自社チャネル一致を検証）
@@ -197,11 +198,116 @@ export function hasIdentityGate(masked: string): boolean {
   return IDENTITY_PATTERNS.some((re) => re.test(masked));
 }
 
+// ── 変更系ハンドラごとの検査範囲（点検 A95）─────────────────────────────
+// 以前はファイル全体の文字列で判定していたため、同じファイルの GET がレート制限や getUser を
+// 呼んでいれば、新しく足した POST/DELETE に何も無くても合格していた。
+// 変更系ハンドラごとに「そのハンドラ本体＋そこから名前で参照される同一ファイル内の宣言
+// （推移的に）」だけを見る。他の HTTP メソッドの export は参照されても辿らない。
+
+const HTTP_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE']);
+const OPEN = '([{';
+const CLOSE = ')]}';
+
+/** pos から括弧の対応を取りながら進み、深さ 0 で終わる位置を返す。 */
+function matchBracket(src: string, pos: number): number {
+  let depth = 0;
+  for (let i = pos; i < src.length; i++) {
+    if (OPEN.includes(src[i])) depth++;
+    else if (CLOSE.includes(src[i])) {
+      depth--;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return src.length;
+}
+
+/**
+ * 引数の後ろから関数本体の `{` を探す。戻り値の型注釈（`Promise<{ a: string } | null>` 等）の
+ * `{` を本体と取り違えないよう、型の中（<> や括弧の内側・`:` `|` `&` `<` `,` `(` の直後）は飛ばす。
+ */
+function functionBodyStart(src: string, from: number): number {
+  let depth = 0;
+  let angle = 0;
+  let prev = '';
+  for (let i = from; i < src.length; i++) {
+    const c = src[i];
+    if (c === '<') angle++;
+    else if (c === '>' && src[i - 1] !== '=') angle--;
+    else if (c === '{' && depth === 0 && angle === 0 && !':|&<,('.includes(prev)) return i;
+    else if (OPEN.includes(c)) depth++;
+    else if (CLOSE.includes(c)) depth--;
+    if (!/\s/.test(c)) prev = c;
+  }
+  return src.length;
+}
+
+/** start から始まるトップレベル宣言（function / const）の終わりまでを切り出す。 */
+export function extractDeclaration(src: string, start: number): string {
+  const head = src.slice(start, start + 200);
+  if (/^(?:export\s+)?(?:async\s+)?function\b/.test(head)) {
+    const params = src.indexOf('(', start);
+    const afterParams = matchBracket(src, params);
+    return src.slice(start, matchBracket(src, functionBodyStart(src, afterParams)));
+  }
+  // const X = ...; 深さ 0 の ; か、深さ 0 で改行の次行が新しい宣言になるところまで。
+  let depth = 0;
+  for (let i = start; i < src.length; i++) {
+    const c = src[i];
+    if (OPEN.includes(c)) depth++;
+    else if (CLOSE.includes(c)) depth--;
+    else if (depth === 0 && c === ';') return src.slice(start, i + 1);
+    else if (depth === 0 && c === '\n' && /^\S/.test(src.slice(i + 1, i + 2)) && !/^[.?:)\]}]/.test(src.slice(i + 1, i + 2))) {
+      return src.slice(start, i);
+    }
+  }
+  return src.slice(start);
+}
+
+/** 行頭から始まるトップレベル宣言（名前 → 本文）。 */
+export function topLevelDeclarations(masked: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const re = /^(?:export\s+)?(?:async\s+)?(?:function\s*\*?\s*([A-Za-z_$][\w$]*)|(?:const|let|var)\s+([A-Za-z_$][\w$]*))/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(masked)) !== null) {
+    const name = (m[1] ?? m[2]) as string;
+    out.set(name, extractDeclaration(masked, m.index));
+  }
+  return out;
+}
+
+/** 変更系ハンドラごとの検査範囲（本体＋参照先の同一ファイル内宣言）。 */
+export function mutatingHandlerScopes(masked: string): Array<{ method: string; scope: string }> {
+  const decls = topLevelDeclarations(masked);
+  // export された HTTP メソッドだけを辿らない（`const OPTIONS = {...}` のような同名の設定は辿る）。
+  const exportedMethods = new Set(
+    [...HTTP_METHODS].filter((m) => new RegExp(`export\\s+(?:async\\s+function|const|function)\\s+${m}\\b`).test(masked)),
+  );
+  const result: Array<{ method: string; scope: string }> = [];
+  for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+    const own = decls.get(method);
+    if (own === undefined || !new RegExp(`export\\s+(?:async\\s+function|const|function)\\s+${method}\\b`).test(masked)) continue;
+    const seen = new Set<string>([method]);
+    const queue = [own];
+    const parts: string[] = [];
+    while (queue.length > 0) {
+      const text = queue.shift() as string;
+      parts.push(text);
+      for (const id of text.match(/[A-Za-z_$][\w$]*/g) ?? []) {
+        if (seen.has(id) || exportedMethods.has(id) || !decls.has(id)) continue;
+        seen.add(id);
+        queue.push(decls.get(id) as string);
+      }
+    }
+    result.push({ method, scope: parts.join('\n') });
+  }
+  return result;
+}
+
 const files = walk(API_ROOT);
 const scanned = files.map((full) => {
   const rel = relative(API_ROOT, full).split(sep).join('/');
   const masked = maskNonCode(readFileSync(full, 'utf8'));
-  return { rel, masked, mutating: hasMutatingMethod(masked) };
+  return { rel, masked, mutating: hasMutatingMethod(masked), handlers: mutatingHandlerScopes(masked) };
 });
 const mutating = scanned.filter((f) => f.mutating);
 
@@ -229,27 +335,88 @@ describe('route.ts の CSRF / レート制限 / 本人確認を機械強制す�
   // ── 本体 ────────────────────────────────────────────────────
   test('変更系メソッドを持つ route.ts は CSRF 検証を通る', () => {
     const violations = mutating
-      .filter((f) => !hasCsrfGuard(f.masked) && !ALLOW[f.rel]?.csrf)
-      .map((f) => f.rel);
+      .filter((f) => !ALLOW[f.rel]?.csrf)
+      .flatMap((f) => f.handlers.filter((h) => !hasCsrfGuard(h.scope)).map((h) => `${f.rel}#${h.method}`));
     expect(violations).toEqual([]);
   });
 
   test('変更系メソッドを持つ route.ts はレート制限を通る', () => {
     const violations = mutating
-      .filter((f) => !hasRateLimitGuard(f.masked) && !ALLOW[f.rel]?.rateLimit)
-      .map((f) => f.rel);
+      .filter((f) => !ALLOW[f.rel]?.rateLimit)
+      .flatMap((f) => f.handlers.filter((h) => !hasRateLimitGuard(h.scope)).map((h) => `${f.rel}#${h.method}`));
     expect(violations).toEqual([]);
   });
 
   test('変更系メソッドを持つ route.ts は呼び出し元を identify する', () => {
     const violations = mutating
-      .filter((f) => !hasIdentityGate(f.masked) && !ALLOW[f.rel]?.auth)
-      .map((f) => f.rel);
+      .filter((f) => !ALLOW[f.rel]?.auth)
+      .flatMap((f) => f.handlers.filter((h) => !hasIdentityGate(h.scope)).map((h) => `${f.rel}#${h.method}`));
     expect(violations).toEqual([]);
+  });
+
+  test('変更系メソッドを持つファイルは、ハンドラごとの検査範囲を1つ以上切り出せている（空振り防止）', () => {
+    const empty = mutating.filter((f) => f.handlers.length === 0).map((f) => f.rel);
+    expect(empty).toEqual([]);
   });
 
   // ── 負の対照（検出関数が本当に効いているか合成コードで確かめる）──────
   describe('負の対照', () => {
+    test('GET のガードは POST の合格に数えない（ハンドラごとに判定する）', () => {
+      const src = maskNonCode([
+        'export async function GET(req) {',
+        '  if (await checkRateLimit(l, ip, 5, 60, "x")) return r;',
+        '  const { data } = await supabase.auth.getUser();',
+        '}',
+        'export async function POST(req) {',
+        '  return ok();',
+        '}',
+      ].join('\n'));
+      const [post] = mutatingHandlerScopes(src);
+      expect(post.method).toBe('POST');
+      expect(hasRateLimitGuard(post.scope)).toBe(false);
+      expect(hasIdentityGate(post.scope)).toBe(false);
+      expect(hasRateLimitGuard(src)).toBe(true); // 旧判定（ファイル全体）は通ってしまう
+    });
+
+    test('facility_members を参照しているだけでは本人確認に数えない', () => {
+      expect(hasIdentityGate("const { data } = await admin.from(facility_members).select('*')")).toBe(false);
+    });
+
+    test('戻り値の型注釈に { } を持つ補助関数も本体まで辿る', () => {
+      const src = maskNonCode([
+        'async function ctx(req): Promise<{ userId: string } | null> {',
+        '  const { data } = await supabase.auth.getUser();',
+        '  return data;',
+        '}',
+        'export async function POST(req) {',
+        '  const a = await ctx(req);',
+        '}',
+      ].join('\n'));
+      expect(hasIdentityGate(mutatingHandlerScopes(src)[0].scope)).toBe(true);
+    });
+
+    test('POST から呼ぶ同一ファイル内の補助関数・設定のガードは数える', () => {
+      const src = maskNonCode([
+        'const OPTS = { rateLimit: { limit: 5 }, requireAuth: true };',
+        'async function guard(req) {',
+        '  return checkCsrf(req);',
+        '}',
+        'export const POST = withRoute(async (req) => {',
+        '  const e = await guard(req);',
+        '  return ok();',
+        '}, OPTS);',
+        'export const DELETE = withRoute(async () => ok(), { csrf: false });',
+      ].join('\n'));
+      const scopes = mutatingHandlerScopes(src);
+      expect(scopes.map((h) => h.method)).toEqual(['POST', 'DELETE']);
+      const [post, del] = scopes;
+      expect(hasCsrfGuard(post.scope)).toBe(true);
+      expect(hasRateLimitGuard(post.scope)).toBe(true);
+      expect(hasIdentityGate(post.scope)).toBe(true);
+      expect(hasCsrfGuard(del.scope)).toBe(false);
+      expect(hasRateLimitGuard(del.scope)).toBe(false);
+    });
+
     test('変更系メソッドの検出', () => {
       expect(hasMutatingMethod('export async function POST() {}')).toBe(true);
       expect(hasMutatingMethod('export const PATCH = withRoute(h)')).toBe(true);

@@ -79,6 +79,50 @@ describe(`${FILE} の形`, () => {
   });
 });
 
+// pg_get_functiondef → replace → EXECUTE で既存定義を「書き換える」migration は
+// `FUNCTION change_booking_atomic(` を含まないため、上の検出では拾えない（点検 A59）。
+// 関数名を文字列で指す migration を別に洗い出し、置換で消える文字列（replace の第2引数）が
+// 期限の判定・担当可能スタッフの判定に触れないことを確かめる。
+describe('change_booking_atomic を動的に書き換える後続 migration も期限の判定を消さない', () => {
+  const own = definition(WINDOW, 'change_booking_atomic');
+  const check = own.slice(own.indexOf('  -- 2026-10-23 BOOKING_CHANGE_WINDOW_CLOSED'), own.indexOf('  v_nominated :='));
+  const rewriters = readdirSync(MIGRATIONS)
+    .filter((f) => /^\d{14}_/.test(f) && f > FILE)
+    .filter((f) => /'change_booking_atomic'/.test(read(f)));
+
+  /** `replace(definition, <消す文字列>, ...)` の <消す文字列> を全部取り出す。 */
+  function replacedTargets(text: string): string[] {
+    const re = /replace\(\s*definition\s*,\s*(\$old\$([\s\S]*?)\$old\$|'((?:[^']|'')*)')/g;
+    const out: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) out.push(m[2] ?? m[3].replace(/''/g, "'"));
+    return out;
+  }
+
+  test('書き換え migration を漏れなく検出している（新しく増えたら中身を確認してここへ足す）', () => {
+    expect(rewriters).toEqual([
+      '20261026040703_facility_business_periods.sql',
+      '20261028014835_booking_end_date.sql',
+    ]);
+  });
+
+  test.each(rewriters)('%s の置換対象は期限の判定・BOOKING_NO_CAPABLE_STAFF を含まず、判定ブロックの一部でもない', (f) => {
+    const targets = replacedTargets(read(f));
+    expect(targets.length).toBeGreaterThan(0); // 空振り防止
+    for (const t of targets) {
+      expect(t).not.toMatch(/BOOKING_CHANGE_WINDOW_CLOSED|BOOKING_NO_CAPABLE_STAFF/);
+      expect(check.includes(t)).toBe(false);
+    }
+  });
+
+  test('検出器の負の対照: 判定ブロックを置換する書き換えは検出される', () => {
+    const line = check.split('\n').find((l) => l.includes('BOOKING_CHANGE_WINDOW_CLOSED:')) as string;
+    const [t] = replacedTargets(`replace(definition,$old$${line}$old$,$new$x$new$)`);
+    expect(check.includes(t)).toBe(true);
+    expect(t).toMatch(/BOOKING_CHANGE_WINDOW_CLOSED/);
+  });
+});
+
 describe('change_booking_atomic: 無料キャンセルの期限を過ぎたら公開経路の変更を断る', () => {
   const next = definition(WINDOW, 'change_booking_atomic');
   const check = next.slice(next.indexOf('  -- 2026-10-23 BOOKING_CHANGE_WINDOW_CLOSED'), next.indexOf('  v_nominated :='));

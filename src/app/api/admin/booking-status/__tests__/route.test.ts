@@ -1072,7 +1072,7 @@ describe('POST /api/admin/booking-status - ポイント返還（cancelled）', (
     return pointsInsert;
   }
 
-  test('ポイント利用予約を cancelled に → 控除済みポイントを返還する', async () => {
+  test('ポイント利用予約を cancelled に → route は直接返還せず、返還トリガを持つ RPC に委ねる', async () => {
     const spy = setupCancelRefund(300, 'customer-1', { error: null });
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
     expect(res.status).toBe(200);
@@ -1086,6 +1086,29 @@ describe('POST /api/admin/booking-status - ポイント返還（cancelled）', (
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
     expect(res.status).toBe(500);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  // route 側のモックだけでは「返還が RPC 側から消えた」退行を検知できない（点検 A69）。
+  // 返還の実体は bookings の trigger 関数 sync_booking_points（status→cancelled で 'refund' 行を入れる）。
+  // 最新定義に返還の INSERT が残っていること、実 DB で返還を確かめる shadow fixture が CI に配線されていることを固定する。
+  test('返還の実体（sync_booking_points の最新定義）が cancelled 進入時に refund 行を入れる', () => {
+    const { readdirSync, readFileSync } = jest.requireActual('fs') as typeof import('fs');
+    const { join } = jest.requireActual('path') as typeof import('path');
+    const dir = join(process.cwd(), 'supabase/migrations');
+    const latest = readdirSync(dir)
+      .filter((f) => /^\d{14}_.*\.sql$/.test(f))
+      .filter((f) => readFileSync(join(dir, f), 'utf8').includes('CREATE OR REPLACE FUNCTION public.sync_booking_points()'))
+      .sort()
+      .pop() as string;
+    expect(latest).toBeDefined();
+    const sql = readFileSync(join(dir, latest), 'utf8');
+    const body = sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION public.sync_booking_points()'));
+    const start = body.indexOf("IF NEW.status='cancelled'");
+    const cancelBranch = body.slice(start, body.indexOf('RETURN NEW;', start));
+    expect(cancelBranch).toContain("IF NEW.status='cancelled'");
+    expect(cancelBranch).toMatch(/INSERT INTO public\.user_points\([^)]*\)\s*VALUES\(NEW\.user_id,NEW\.points_used,'キャンセル返還',NEW\.id,'refund'\)/);
+    const ci = readFileSync(join(process.cwd(), '.github/workflows/schema-fingerprint.yml'), 'utf8');
+    expect(ci).toContain('supabase/shadow/booking-points-fixtures.sql');
   });
 
   test('ゲスト予約(user_id=null)はポイント返還しない（&& booking.user_id false 分岐）', async () => {

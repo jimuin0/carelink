@@ -22,6 +22,27 @@ const SRC = join(process.cwd(), 'src');
 const SSOT = 'src/lib/email-from.ts';
 const BANNED = ['process.env.EMAIL_FROM', 'process.env.NEWSLETTER_EMAIL_FROM'];
 
+/**
+ * 「表示名 <ローカル部@ドメイン>」形式のアドレス直書きを検出する。
+ * 以前は `CareLink <noreply|newsletter@` だけを見ていたため、support@・info@ や
+ * 表示名を変えた直書き（`Foo <noreply@...>`）を素通ししていた（点検 A49）。
+ * 説明文中の RFC 予約例（example.com 等）は送信元ではないので除く。
+ */
+function hasHardcodedMailbox(line: string): boolean {
+  const re = /<([^<>\s'"`]+)@([^<>\s'"`]+)>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line)) !== null) {
+    if (!/^example\.(com|org|net)$/i.test(m[2])) return true;
+  }
+  return false;
+}
+
+/**
+ * email-from.ts 以外で送信元の直書きを許すファイル（理由必須）。
+ * platform-mail-contract.ts: 運営メール画面の From は support@ に固定する設計（CLAUDE.md「運営メール画面」）。
+ */
+const ADDRESS_ALLOWED = new Set(['src/lib/platform-mail-contract.ts']);
+
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
@@ -57,14 +78,28 @@ describe('送信元 env の直読み禁止（email-from.ts が唯一の入口）
    */
   it('送信元アドレスのハードコードが email-from.ts 以外に無い', () => {
     const offenders = files.filter((f) => {
-      if (f === SSOT) return false;
+      if (f === SSOT || ADDRESS_ALLOWED.has(f)) return false;
       const src = readFileSync(join(process.cwd(), f), 'utf8');
       // コメント行での言及（経緯の説明）は許す。実コードでの使用のみ検出する。
       return src
         .split('\n')
         .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
-        .some((line) => /['"`]CareLink <(noreply|newsletter)@/.test(line));
+        .some((line) => hasHardcodedMailbox(line));
     });
     expect(offenders).toEqual([]);
   });
+});
+
+describe('hasHardcodedMailbox（直書き検出器そのものの検証）', () => {
+  it.each([
+    "'CareLink <noreply@carelink-jp.com>'",
+    "'CareLink <support@carelink-jp.com>'",
+    '"Shop <info@carelink-jp.com>"',
+    '`CareLink <noreply@${domain}>`',
+    "'X <a@resend.dev>'",
+  ])('検出する: %s', (line) => expect(hasHardcodedMailbox(line)).toBe(true));
+  it.each(["'形式（Name <email@example.com>）で設定'", "const a = '<div>'", "'a@b.com'"])(
+    '検出しない: %s',
+    (line) => expect(hasHardcodedMailbox(line)).toBe(false),
+  );
 });

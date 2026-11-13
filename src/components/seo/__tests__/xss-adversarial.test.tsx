@@ -41,20 +41,39 @@ const ATTACKS: Array<[string, string]> = [
   ['script 直書き', '<script>alert(1)</script>'],
   ['iframe', '<iframe src="javascript:alert(1)"></iframe>'],
   ['svg onload', '<svg onload="alert(1)"></svg>'],
-  ['プロトコル相対URL', '<a href="//evil.example/phish">x</a>'],
 ];
+
+/**
+ * 本体（SafeHtmlContent）がまだ塞いでいない外部ホスト相対URL（点検 A65・本体側の修正待ち）。
+ * test.failing で「今は残ってしまう」ことを固定し、本体が直ると failing が緑→赤に反転して
+ * 知らせる。そのときはこの配列の中身を ATTACKS へ移すこと。
+ */
+const KNOWN_OPEN: Array<[string, string]> = [
+  ['プロトコル相対URL', '<a href="//evil.example/phish">x</a>'],
+  ['バックスラッシュ相対URL', '<a href="/\\evil.example/phish">x</a>'],
+  ['前置空白つきプロトコル相対URL', '<a href=" //evil.example/phish">x</a>'],
+];
+
+function expectHarmless(out: string) {
+  expect(out).not.toMatch(/href="[^"]*javascript/i);
+  expect(out).not.toMatch(/href="[^"]*vbscript/i);
+  expect(out).not.toMatch(/href="[^"]*data:/i);
+  // 外部ホストへ飛ぶ相対形式（//host・/\\host）が残らないこと（点検 A65：以前は見ていなかった）
+  expect(out).not.toMatch(/href="\s*[\/\\]{2}/);
+  // イベントハンドラ属性が一切残らないこと
+  expect(out).not.toMatch(/\son[a-z]+\s*=/i);
+  expect(out).not.toContain('<script');
+  expect(out).not.toContain('<iframe');
+  expect(out).not.toContain('<svg');
+}
 
 describe('SafeHtmlContent 敵対検証（XSS回避手法の総当たり）', () => {
   test.each(ATTACKS)('%s は無害化される', (_name, payload) => {
-    const out = renderHtml(payload);
-    expect(out).not.toMatch(/href="[^"]*javascript/i);
-    expect(out).not.toMatch(/href="[^"]*vbscript/i);
-    expect(out).not.toMatch(/href="[^"]*data:/i);
-    // イベントハンドラ属性が一切残らないこと
-    expect(out).not.toMatch(/\son[a-z]+\s*=/i);
-    expect(out).not.toContain('<script');
-    expect(out).not.toContain('<iframe');
-    expect(out).not.toContain('<svg');
+    expectHarmless(renderHtml(payload));
+  });
+
+  test.failing.each(KNOWN_OPEN)('【本体未修正】%s は無害化される', (_name, payload) => {
+    expectHarmless(renderHtml(payload));
   });
 
   test('正当な https リンクは壊れない（過剰防御の回帰防止）', () => {
