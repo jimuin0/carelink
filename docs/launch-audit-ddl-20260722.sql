@@ -1,4 +1,15 @@
 -- =============================================================================
+-- 🔴 実行禁止（2026年11月13日 封印）
+-- このファイルは 2026年7月22日に一度だけ適用した記録です。中身は当時の定義で、
+-- 後続の migration（例: update_facility_rating を SECURITY DEFINER・search_path 固定に
+-- した 20260822000001、ビューに列を足した 20261021060000 など）で置き換え済みです。
+-- 再実行すると、それらを当時の古い定義へ巻き戻し、途中のビュー作成で止まって
+-- 中途半端な状態を残します。トランザクションも接続先の確認もありません。
+-- 誤って SQL Editor に貼っても何も実行されないよう、本文全体をブロックコメントに入れました。
+-- 現在の定義は supabase/migrations/ が正です。変更が必要なら新しい migration を作ってください。
+-- =============================================================================
+/*
+-- =============================================================================
 -- CareLink ローンチ品質監査 DDL バンドル（2026年7月22日）
 -- 適用者：神原さん（Supabase SQL Editor）。適用後に schema-snapshot.json を再取得すること。
 -- 各ブロックは現行定義（該当 migration）を根拠に、監査で判明した欠落のみを最小変更したもの。
@@ -179,3 +190,4 @@ GRANT SELECT ON facility_card_view TO anon, authenticated;
 --     Claude にコード側の同時対応を指示すること（DDL単独適用は非推奨）。
 -- CREATE UNIQUE INDEX IF NOT EXISTS uq_moderation_pending_content
 --   ON moderation_queue (content_type, content_id) WHERE status = 'pending';
+*/

@@ -47,6 +47,27 @@ describe('safeRedirect', () => {
     });
   });
 
+  describe('🔴 ドット区間の除去後に // で始まるパス（2026年11月13日 点検で判明）', () => {
+    // origin 比較は通るが、返した pathname が `//evil...` になり router.push が外部へ出る。
+    it.each([
+      ['/.//evil.example.com'],
+      ['/%2e//evil.example.com'],
+      ['/a/..//evil.example.com'],
+      ['/./\\evil.example.com'],
+    ])('%s : 既定へ倒す', (raw) => {
+      // 負の対照 — 解決後の origin は同一なので、origin 比較だけでは止まらない
+      const resolved = new URL(raw, ORIGIN);
+      expect(resolved.origin).toBe(ORIGIN);
+      expect(resolved.pathname.startsWith('//')).toBe(true);
+      expect(new URL(resolved.pathname, ORIGIN).origin).not.toBe(ORIGIN);
+      expect(safeRedirect(raw, ORIGIN)).toBe(DEFAULT_REDIRECT);
+    });
+
+    it('通常のドット区間は同一オリジン内のパスとして残す', () => {
+      expect(safeRedirect('/a/./b/../c?x=1#h', ORIGIN)).toBe('/a/c?x=1#h');
+    });
+  });
+
   describe('🔴 旧ガードが素通りさせていた値（この検査が本体）', () => {
     // URL パーサはバックスラッシュを / に正規化するため、先頭2文字だけを見る
     // 判定では外部オリジンへの脱出を止められない。
