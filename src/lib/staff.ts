@@ -4,12 +4,14 @@ import type { StaffProfile, StaffPhoto, MenuStaff } from '@/types';
 
 export async function getStaffByFacility(facilityId: string): Promise<StaffProfile[]> {
   const supabase = createServerSupabaseClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('staff_profiles')
     .select('*')
     .eq('facility_id', facilityId)
     .eq('is_active', true)
     .order('sort_order');
+  // 読み取り失敗を「スタッフ0人」に化けさせない（呼び出し側が失敗として扱う）。
+  if (error) throw error;
   return (data ?? []) as StaffProfile[];
 }
 
@@ -29,23 +31,26 @@ export async function getBookableStaffByFacility(facilityId: string): Promise<St
 
 export async function getStaffBySlug(facilityId: string, staffSlug: string): Promise<StaffProfile | null> {
   const supabase = createServerSupabaseClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('staff_profiles')
     .select('*')
     .eq('facility_id', facilityId)
     .eq('slug', staffSlug)
     .eq('is_active', true)
-    .single();
+    .maybeSingle();
+  // 障害を 404（存在しない）に化けさせない。
+  if (error) throw error;
   return data as StaffProfile | null;
 }
 
 export async function getStaffPhotos(staffId: string): Promise<StaffPhoto[]> {
   const supabase = createServerSupabaseClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('staff_photos')
     .select('*')
     .eq('staff_id', staffId)
     .order('sort_order');
+  if (error) throw error;
   return (data ?? []) as StaffPhoto[];
 }
 
@@ -58,9 +63,11 @@ export async function getStaffPhotos(staffId: string): Promise<StaffPhoto[]> {
 export async function getMenuStaffByMenuIds(menuIds: string[]): Promise<MenuStaff[]> {
   if (menuIds.length === 0) return [];
   const supabase = createServerSupabaseClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('menu_staff')
     .select('*')
     .in('menu_id', menuIds);
+  // 担当の読み取り失敗を「全員が担当できる（制限なし）」に化けさせない。
+  if (error) throw error;
   return (data ?? []) as MenuStaff[];
 }

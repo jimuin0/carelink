@@ -193,6 +193,23 @@ export async function PATCH(request: NextRequest) {
   // 「1回使用」ボタンの連打/リトライで顧客の前払い分が二重に減るのを防ぐ（逐次再呼び出し対策）。
   // ここでの TOCTOU（事前SELECTと呼び出しの間の競合）は RPC 側の already_consumed で必ず捕捉される。
   if (parsed.data.booking_id) {
+    if (!facilityId) {
+      return NextResponse.json({ error: 'この予約にはこの回数券を使えません' }, { status: 400 });
+    }
+    // 予約の所属を確かめる：回数券の施設の予約で、回数券の持ち主の予約であること。
+    // 確かめないと、無関係な（他施設・他人の）予約 ID で消費記録を作れ、その予約の冪等チェックも汚せた。
+    const { data: booking, error: bookingErr } = await admin
+      .from('bookings')
+      .select('id')
+      .eq('id', parsed.data.booking_id)
+      .eq('facility_id', facilityId)
+      .eq('user_id', userPkg.user_id)
+      .maybeSingle();
+    if (bookingErr) return serverError('admin-user-packages-booking-read', bookingErr, '/api/admin/user-packages');
+    if (!booking) {
+      return NextResponse.json({ error: 'この予約にはこの回数券を使えません' }, { status: 400 });
+    }
+
     const { data: existingLog } = await admin
       .from('package_usage_logs')
       .select('id')

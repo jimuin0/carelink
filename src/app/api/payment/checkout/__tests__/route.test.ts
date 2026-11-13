@@ -159,6 +159,12 @@ test('支払い済み予約 → 400 (二重請求防止)', async () => {
   expect(res.status).toBe(400);
 });
 
+test.each(['cancelled', 'no_show', 'cancel_fee_paid'])('%s の予約には決済を開かない → 409', async (status) => {
+  mockFrom.mockReturnValue(singleChain({ ...BOOKING_ROW, status }));
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(409);
+});
+
 test('金額 0 → 400', async () => {
   mockFrom.mockReturnValue(singleChain({ ...BOOKING_ROW, total_price: 0, menu: null }));
   const res = await POST(makeRequest());

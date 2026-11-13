@@ -25,7 +25,9 @@ const WaitlistSchema = z.object({
   end_time:      z.string().regex(/^\d{2}:\d{2}$/),
   // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
   customer_name: z.string().trim().min(1).max(50),
-  email:         z.string().email().optional(),
+  // 空き通知の手段はメールだけ（waitlist-notify）。未入力で登録させると「ご連絡します」と
+  // 約束したまま一度も通知できないため必須にする。
+  email:         z.string().email(),
   phone:         z.string().optional(),
   notes:         z.string().max(200).optional(),
 });

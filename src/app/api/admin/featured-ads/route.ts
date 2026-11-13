@@ -122,17 +122,20 @@ export async function POST(req: NextRequest) {
 
   if (error) return serverError('admin-featured-ads-create', error, '/api/admin/featured-ads');
 
-  const { ua } = getRequestContext(req);
-  void writeAuditLog({
-    userId: user.id,
-    facilityId,
-    action: 'create',
-    tableName: 'featured_slots',
-    recordId: slot.id,
-    newValues: { slot_type, area: area || null, business_type: business_type || null, starts_at, ends_at },
-    ipAddress: ip,
-    userAgent: ua,
-  });
+  // 監査ログは枠が実際に使える状態（決済ページ発行済み・開発時は有効化済み）になってから残す。
+  const recordCreated = () => {
+    const { ua } = getRequestContext(req);
+    void writeAuditLog({
+      userId: user.id,
+      facilityId,
+      action: 'create',
+      tableName: 'featured_slots',
+      recordId: slot.id,
+      newValues: { slot_type, area: area || null, business_type: business_type || null, starts_at, ends_at },
+      ipAddress: ip,
+      userAgent: ua,
+    });
+  };
 
   // Create Stripe Checkout session for payment
   const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -154,6 +157,7 @@ export async function POST(req: NextRequest) {
     if (activateErr) {
       return serverError('admin-featured-ads-dev-activate', activateErr, '/api/admin/featured-ads', 'スロットの有効化に失敗しました');
     }
+    recordCreated();
     return NextResponse.json({ slot, checkout_url: null }, { status: 201 });
   }
 
@@ -164,21 +168,31 @@ export async function POST(req: NextRequest) {
     category_top: 'カテゴリトップ表示（月額）',
   };
 
-  const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    line_items: [{
-      quantity: 1,
-      price_data: {
-        currency: 'jpy',
-        unit_amount: PLAN_PRICES[slot_type],
-        product_data: { name: planLabels[slot_type] || /* istanbul ignore next */ '広告プラン' },
-      },
-    }],
-    success_url: `${SITE_URL}/admin/featured-ads?payment=success&slot=${slot.id}`,
-    cancel_url: `${SITE_URL}/admin/featured-ads?payment=cancel`,
-    metadata: { slot_id: slot.id, facility_id: facilityId },
-  });
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      line_items: [{
+        quantity: 1,
+        price_data: {
+          currency: 'jpy',
+          unit_amount: PLAN_PRICES[slot_type],
+          product_data: { name: planLabels[slot_type] || /* istanbul ignore next */ '広告プラン' },
+        },
+      }],
+      success_url: `${SITE_URL}/admin/featured-ads?payment=success&slot=${slot.id}`,
+      cancel_url: `${SITE_URL}/admin/featured-ads?payment=cancel`,
+      metadata: { slot_id: slot.id, facility_id: facilityId },
+    });
+  } catch (stripeErr) {
+    // 決済ページを作れなかった枠は誰も支払えない。未有効の孤児として残さず消す
+    // （消せなかった場合も is_active=false のままなので表示には出ない）。
+    const { error: cleanupErr } = await admin.from('featured_slots').delete().eq('id', slot.id).eq('is_active', false);
+    if (cleanupErr) console.error('[featured-ads] orphan slot cleanup failed', { slotId: slot.id });
+    return serverError('admin-featured-ads-checkout', stripeErr, '/api/admin/featured-ads', '決済ページを作成できませんでした。時間をおいて再度お試しください。');
+  }
 
+  recordCreated();
   return NextResponse.json({ slot, checkout_url: session.url }, { status: 201 });
   } catch (e) {
     return serverError('admin-featured-ads-post', e, '/api/admin/featured-ads', 'Internal Server Error');

@@ -180,7 +180,7 @@ test.each([
  {name:''},{name:'x'.repeat(101)},{category:''},{category:'x'.repeat(51)},
  {price:-1},{price:10000000},{price:0.5},{duration_minutes:-1},{duration_minutes:1441},{duration_minutes:0},{duration_minutes:14},{duration_minutes:481},{duration_minutes:30.5},{duration_minutes:null},{duration_minutes:'60'},
  {sort_order:-1},{description:'x'.repeat(501)},{price_note:'x'.repeat(101)},
- {photo_url:'not-a-url'},{photo_url:'https://images.unsplash.com/new'},
+ {photo_url:'not-a-url'},{photo_url:'https://images.unsplash.com/new'},{photo_url:'javascript:alert(1)'},{photo_url:'http://example.invalid/p.jpg'},{photo_url:'data:image/png;base64,AAAA'},
 ])('POST rejects invalid fields before RPC: %p',async body=>{
  expect((await POST(makePostRequest(validBody(body)))).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
 });

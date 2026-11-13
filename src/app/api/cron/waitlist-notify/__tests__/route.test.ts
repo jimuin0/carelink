@@ -83,7 +83,7 @@ function setupDefaultMocks(
     eq: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
+          in: jest.fn().mockReturnValue({
             order: jest.fn().mockReturnValue({
               limit: jest.fn().mockResolvedValue({
                 data: waiters,
@@ -222,8 +222,28 @@ describe('GET /api/cron/waitlist-notify', () => {
     await GET(makeRequest() as any);
 
     // Verify .limit(3) was applied
-    const limitCall = mockSelectWaiters().eq().eq().eq().eq().order().limit;
+    const limitCall = mockSelectWaiters().eq().eq().eq().in().order().limit;
     expect(limitCall).toHaveBeenCalledWith(3);
+  });
+
+  test('先頭3人に通知済みが含まれる場合は残りの waiting だけに送る（重なり窓で6人に送らない）', async () => {
+    const limit = mockSelectWaiters().eq().eq().eq().in().order().limit as jest.Mock;
+    limit.mockResolvedValue({ data: [
+      { id: 'w-n1', customer_name: 'A', email: 'a@example.invalid', date: '2026-05-15', start_time: '10:00', status: 'notified' },
+      { id: 'w-n2', customer_name: 'B', email: 'b@example.invalid', date: '2026-05-15', start_time: '10:00', status: 'notified' },
+      { id: 'w-w3', customer_name: 'C', email: 'c@example.invalid', date: '2026-05-15', start_time: '10:00', status: 'waiting' },
+    ] });
+    await GET(makeRequest() as any);
+    expect(mockSelectWaiters().eq().eq().eq().in).toHaveBeenCalledWith('status', ['waiting', 'notified']);
+    expect(mockSendEmail).toHaveBeenCalledTimes(1);
+    expect(mockSendEmail.mock.calls[0][0].to).toBe('c@example.invalid');
+  });
+
+  test('先頭3人が全員通知済みなら誰にも送らない', async () => {
+    const limit = mockSelectWaiters().eq().eq().eq().in().order().limit as jest.Mock;
+    limit.mockResolvedValue({ data: [1, 2, 3].map((n) => ({ id: `w${n}`, customer_name: 'X', email: `x${n}@example.invalid`, date: '2026-05-15', start_time: '10:00', status: 'notified' })) });
+    await GET(makeRequest() as any);
+    expect(mockSendEmail).not.toHaveBeenCalled();
   });
 
   test('uses atomic claim pattern (CAS guard)', async () => {
@@ -340,7 +360,7 @@ describe('GET /api/cron/waitlist-notify', () => {
       eq: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
+            in: jest.fn().mockReturnValue({
               order: jest.fn().mockReturnValue({
                 limit: jest.fn().mockResolvedValue({
                   data: [],
@@ -383,7 +403,7 @@ describe('GET /api/cron/waitlist-notify', () => {
   test('orders by created_at ascending (FIFO)', async () => {
     await GET(makeRequest() as any);
 
-    const orderCall = mockSelectWaiters().eq().eq().eq().eq().order;
+    const orderCall = mockSelectWaiters().eq().eq().eq().in().order;
     expect(orderCall).toHaveBeenCalledWith('created_at', { ascending: true });
   });
 
@@ -421,7 +441,7 @@ describe('GET /api/cron/waitlist-notify', () => {
       eq: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
+            in: jest.fn().mockReturnValue({
               order: jest.fn().mockReturnValue({
                 limit: jest.fn().mockResolvedValue({ data: null, error: { message: 'waiters db down' } }),
               }),
@@ -509,7 +529,7 @@ describe('GET /api/cron/waitlist-notify', () => {
       eq: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
+            in: jest.fn().mockReturnValue({
               order: jest.fn().mockReturnValue({
                 limit: jest.fn().mockResolvedValue({
                   data: [{

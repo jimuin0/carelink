@@ -8,6 +8,8 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { BlogPost } from '@/types';
 import { SbPageHeader } from '@/components/admin/SbUi';
+import { ADMIN_LIST_FETCH, capAdminList } from '@/lib/admin-list-cap';
+import AdminListCapNotice from '@/components/admin/AdminListCapNotice';
 
 export default async function AdminBlogPage(props: { searchParams: Promise<{ facility_id?: string }> }) {
   const supabase = await createServerSupabaseAuthClient();
@@ -29,9 +31,9 @@ export default async function AdminBlogPage(props: { searchParams: Promise<{ fac
     .select('*')
     .eq('facility_id', facilityId)
     .order('created_at', { ascending: false })
-    .limit(100), '/admin/blog');
+    .limit(ADMIN_LIST_FETCH), '/admin/blog');
 
-  const posts = (data ?? []) as BlogPost[];
+  const { rows: posts, truncated } = capAdminList(data as BlogPost[] | null);
   const newHref = `/admin/blog/new?facility_id=${facilityId}`;
 
   return (
@@ -42,6 +44,7 @@ export default async function AdminBlogPage(props: { searchParams: Promise<{ fac
           新規作成
         </Link>
       } />
+      <AdminListCapNotice truncated={truncated} />
 
       {posts.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">

@@ -13,6 +13,7 @@ import { readPageResult } from './page-read-verification';
 import { bookingDurationForMenus, MENU_DURATION_FALLBACK_MINUTES } from './booking-slot-rules';
 import { isPublicReadOnlyPreview } from './preview-capabilities';
 import { medicalSpecialties } from './medical-specialties';
+import { fetchAllPaged } from './paginate';
 
 const PER_PAGE = 20;
 
@@ -906,17 +907,25 @@ export async function getMonthlyBookingCounts(facilityIds: string[]): Promise<Re
   const next = jstMonthInfo(1);
   const nextMonth = `${next.year}-${String(next.month).padStart(2, '0')}-01`;
 
-  const { data } = await supabase
-    .from('bookings')
-    .select('facility_id')
-    .in('facility_id', facilityIds)
-    // 占有集合（pending/confirmed/arrived/completed）。arrived の取りこぼしで月間予約数を過少集計しない。
-    .in('status', SLOT_OCCUPYING_STATUSES)
-    .gte('booking_date', monthStart)
-    .lt('booking_date', nextMonth);
+  // 1 回の応答は max-rows（1000）で黙って切られ、繁忙店が並ぶと件数が過少になる。id 順に全件読み、
+  // 読めない・打ち切られたときはバッジを出さない（誤った件数を見せない）。
+  const { rows: data, error } = await fetchAllPaged<{ facility_id: string }>(async (offset, limit) => {
+    const page = await supabase
+      .from('bookings')
+      .select('facility_id')
+      .in('facility_id', facilityIds)
+      // 占有集合（pending/confirmed/arrived/completed）。arrived の取りこぼしで月間予約数を過少集計しない。
+      .in('status', SLOT_OCCUPYING_STATUSES)
+      .gte('booking_date', monthStart)
+      .lt('booking_date', nextMonth)
+      .order('id', { ascending: true })
+      .range(offset, offset + limit - 1);
+    return { data: page.data as { facility_id: string }[] | null, error: page.error };
+  }, { failOnTruncation: true });
+  if (error) return {};
 
   const counts: Record<string, number> = {};
-  for (const row of data || []) {
+  for (const row of data) {
     counts[row.facility_id] = (counts[row.facility_id] || 0) + 1;
   }
   return counts;

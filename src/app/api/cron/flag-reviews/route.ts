@@ -34,6 +34,9 @@ async function flagReviewsAtomically(supabase:SupabaseClient,items:{id:string;fa
   return returned.size;
 }
 
+/** 同一IP・同一施設の重複投稿を数える期間（30日）。 */
+const DUPLICATE_FACILITY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
 export async function GET(request: Request) {
   const cronAuthError = checkCronAuth(request);
   if (cronAuthError) return cronAuthError;
@@ -51,6 +54,7 @@ export async function GET(request: Request) {
     );
     // 1. 同一IPから24時間以内に3件以上 → スパム疑い
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const sinceDuplicateWindow = new Date(Date.now() - DUPLICATE_FACILITY_WINDOW_MS).toISOString();
 
     const { data: bulkSpam, error: rpcError } = await retryTransientSupabaseRead(() =>
       supabase.rpc('find_bulk_review_ips', {
@@ -109,6 +113,9 @@ export async function GET(request: Request) {
           .not('reviewer_ip', 'is', null)
           .eq('is_flagged', false)
           .eq('status', 'published')
+          // 期間を区切る。全期間で見ると、同じ回線（家族・職場）から年に一度ずつ来店して書いた
+          // 正当な口コミまで「自作自演疑い」として非公開に隔離していた。
+          .gte('created_at', sinceDuplicateWindow)
           .order('id', { ascending: true })
           .range(offset, offset + limit - 1);
         return { data: data as { id: string; reviewer_ip: string; facility_id: string }[] | null, error };

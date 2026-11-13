@@ -117,12 +117,18 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
 
   const webpush = getWebPush();
   const supabase = createServiceRoleClient();
-  const { data: sub } = await supabase
+  const { data: sub, error: subError } = await supabase
     .from('push_subscriptions')
     .select('endpoint, p256dh, auth')
     .eq('user_id', userId)
     .maybeSingle();
 
+  // 読み取り失敗を「購読なし」と区別する（無音で送らないと、障害中の通知欠落に誰も気づけない）。
+  if (subError) {
+    safeCaptureException(subError, 'push-subscription-read');
+    alertCaughtError('push-subscription-read', subError, `push:user:${userId}`);
+    return false;
+  }
   if (!sub) return false;
 
   const pushSubscription = {
@@ -131,7 +137,8 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
   };
 
   try {
-    await webpush.sendNotification(pushSubscription, JSON.stringify(payload));
+    // 既定は無期限待ち。応答の来ない push サービスで呼び出し元を止めない。
+    await webpush.sendNotification(pushSubscription, JSON.stringify(payload), { timeout: 10000 });
     return true;
   } catch (err: unknown) {
     const statusCode = (err as { statusCode?: number })?.statusCode;

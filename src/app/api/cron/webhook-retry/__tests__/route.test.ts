@@ -58,7 +58,7 @@ jest.mock('@/lib/booking-create-notifications',()=>({prepareBookingCreationChann
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { scheduleRetry } from '@/lib/webhook-queue';
-import { sendLineText } from '@/lib/line';
+import { sendLinePushWithOutcome } from '@/lib/line';
 import { alertDeliveryFailures, alertWarning } from '@/lib/alert';
 import { GET } from '../route';
 import { prepareSalonOutboxDelivery } from '@/lib/salon-outbox-delivery';
@@ -185,7 +185,12 @@ function setupDefaultMocks(
   (alertDeliveryFailures as jest.Mock).mockReset();
   // sendLineText は成功時 true / 失敗時 false を返す契約（route 側が戻り値で成否判定）。
   mockSendLineText = jest.fn().mockResolvedValue(true);
-  (sendLineText as jest.Mock).mockImplementation(mockSendLineText);
+  // route は sendLinePushWithOutcome を使う。既存テストの boolean 契約（true=届いた / false=不明）を
+  // outcome へ写す（文字列はそのまま outcome として返す）。
+  (sendLinePushWithOutcome as jest.Mock).mockImplementation(async (target: string, msgs: { text: string }[]) => {
+    const r = await mockSendLineText(target, msgs[0].text);
+    return typeof r === 'string' ? r : r ? 'delivered' : 'transient';
+  });
 
   if (sendFails) {
     mockSendLineText.mockRejectedValue(new Error('Send failed'));
@@ -1058,6 +1063,17 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(scheduleRetry).not.toHaveBeenCalled();
   });
 
+  test('line_push が恒久エラー（4xx）なら保留せず通常の再試行へ回す（503 を出し続けない）', async () => {
+    setupDefaultMocks(1);
+    mockSendLineText.mockResolvedValue('permanent');
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).not.toBe(503);
+    expect(scheduleRetry).toHaveBeenCalledTimes(1);
+    expect(sendLinePushWithOutcome).toHaveBeenCalledWith(expect.any(String), [{ type: 'text', text: expect.any(String) }], 3);
+  });
+
   test('送信開始前の失敗はerror messageとattempt_count++で再試行する', async () => {
     setupDefaultMocks(1);
     mockDeliveryStartUpdate.mockResolvedValueOnce({ error: new Error('delivery marker failed') });
@@ -1485,7 +1501,7 @@ describe('GET /api/cron/webhook-retry', () => {
   });
 
   test('送信中の非Error例外も自動再送せず照合へ上げる', async () => {
-    (sendLineText as jest.Mock).mockImplementationOnce(() => { throw 'string-err'; });
+    (sendLinePushWithOutcome as jest.Mock).mockImplementationOnce(() => { throw 'string-err'; });
     setupDefaultMocks(1, false, false);
 
     const res = await GET(makeRequest() as any);
@@ -1607,7 +1623,7 @@ test.each(['booking_creation_push','booking_creation_lineworks','line_push'])('b
  mockJobsSelect.mockResolvedValue({data:[{id,webhook_type,target_id:'synthetic',payload:{booking_create_operation:'e4000000-0000-4000-8000-000000000001',message:'Synthetic'},attempt_count:0,status:'pending'}],error:null});
  await GET(makeRequest());expect(mockBookingFence).toHaveBeenCalledWith('start_booking_create_notification',expect.objectContaining({p_queue_id:id}));
  const channel=jest.requireMock('@/lib/booking-create-notifications');
- if(webhook_type==='line_push'){expect(channel.sendBookingCreationLine).toHaveBeenCalledWith('synthetic','Synthetic');expect(sendLineText).not.toHaveBeenCalled();}
+ if(webhook_type==='line_push'){expect(sendLinePushWithOutcome).toHaveBeenCalledWith('synthetic',[{type:'text',text:'Synthetic'}],1);void channel;}
  else expect(channel.prepareBookingCreationChannel).toHaveBeenCalled();
 });
 describe('新規予約の Push / LINE WORKS：宛先が消えた送信は保留せず 1 回で閉じる（E19）',()=>{

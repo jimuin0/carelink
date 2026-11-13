@@ -22,6 +22,7 @@ export const dynamic = 'force-dynamic';
 
 /** option_catalog.key の許容形式（英小文字・数字・アンダースコア） */
 const OPTION_KEY_REGEX = /^[a-z0-9_]{1,64}$/;
+const CHECKOUT_IDEMPOTENCY_WINDOW_MS = 10 * 60 * 1000;
 
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
@@ -127,6 +128,10 @@ export async function POST(request: NextRequest) {
         },
       },
       locale: 'ja',
+    }, {
+      // 連打・再送で別々の Checkout Session（＝別々の月額契約）が作られないよう、
+      // 同じ施設・オプション・操作者の 10 分枠では同じセッションを返す。
+      idempotencyKey: `options-checkout:${facilityId}:${optionKey}:${user.id}:${Math.floor(Date.now() / CHECKOUT_IDEMPOTENCY_WINDOW_MS)}`,
     });
 
     return NextResponse.json({ url: session.url });

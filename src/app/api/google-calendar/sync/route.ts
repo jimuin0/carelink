@@ -8,7 +8,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { authUnavailable, serverError } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
-import { runCalendarOperation, type CalendarCredentials } from '@/lib/calendar-sync-operation';
+import { CalendarReauthenticationRequired, runCalendarOperation, type CalendarCredentials } from '@/lib/calendar-sync-operation';
 import { z } from 'zod';
 import { bookingCalendarTimes } from '@/lib/booking-calendar-time';
 
@@ -50,7 +50,7 @@ async function calendarCredentials(admin: SupabaseClient, userId: string): Promi
   if(!UUID_REGEX.test(token.id) || typeof token.access_token!=='string' || !token.access_token || !Number.isFinite(Date.parse(token.updated_at)))throw new Error('CALENDAR_CREDENTIAL_INVALID');
   let accessToken=token.access_token;let updatedAt=token.updated_at;
   if(!Number.isFinite(Date.parse(token.expires_at)) || Date.parse(token.expires_at)<=Date.now()) {
-    if(typeof token.refresh_token!=='string'||!token.refresh_token)throw new Error('CALENDAR_REAUTHENTICATION_REQUIRED');
+    if(typeof token.refresh_token!=='string'||!token.refresh_token)throw new CalendarReauthenticationRequired();
     const refreshed=await refreshAccessToken(token.refresh_token);
     accessToken=refreshed.access_token;updatedAt=new Date().toISOString();
     const expiresAt=new Date(Date.now()+refreshed.expires_in*1000).toISOString();

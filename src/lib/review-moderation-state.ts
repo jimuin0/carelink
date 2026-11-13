@@ -1,3 +1,4 @@
+import { fetchAllPaged } from './paginate';
 import type { createServiceRoleClient } from './supabase-server';
 
 /**
@@ -54,11 +55,21 @@ export async function readReviewModeration(
 ): Promise<{ states: ReviewModeration[]; error: unknown }> {
   const flagged = reviews.filter((review) => review.is_flagged !== false).map((review) => review.id);
   if (flagged.length === 0) return { states: reviews.map(() => 'none' as const), error: null };
-  const { data, error } = await db.from('moderation_queue')
-    .select('content_id, status, created_at')
-    .eq('content_type', 'review')
-    .in('content_id', flagged);
-  if (error || !Array.isArray(data)) return { states: [], error: error ?? new Error('MODERATION_STATE_UNCONFIRMED') };
+  // 1 回の応答は max-rows（1000）で黙って切られる。審査行が多いと未決の行が落ちて状態を誤るので、
+  // id 順に全件を読み、上限で打ち切られたら推測せず error にする。
+  const { rows: data, error } = await fetchAllPaged<ModerationQueueRow>(async (offset, limit) => {
+    const page = await db.from('moderation_queue')
+      .select('content_id, status, created_at')
+      .eq('content_type', 'review')
+      .in('content_id', flagged)
+      .order('id', { ascending: true })
+      .range(offset, offset + limit - 1);
+    return {
+      data: Array.isArray(page.data) ? page.data as ModerationQueueRow[] : null,
+      error: page.error ?? (Array.isArray(page.data) ? null : new Error('MODERATION_STATE_UNCONFIRMED')),
+    };
+  }, { failOnTruncation: true });
+  if (error) return { states: [], error };
   return {
     states: reviews.map((review) => reviewModeration(review.is_flagged, data.filter((row) => row.content_id === review.id))),
     error: null,

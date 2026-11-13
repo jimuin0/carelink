@@ -7,6 +7,8 @@ import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
+import { ADMIN_LIST_FETCH, capAdminList } from '@/lib/admin-list-cap';
+import AdminListCapNotice from '@/components/admin/AdminListCapNotice';
 
 interface FacilityInquiry {
   id: string;
@@ -30,6 +32,7 @@ function AdminFacilityInquiriesContent() {
   const [facilityChoices, setFacilityChoices] = useState<AdminFacilityChoice[]>([]);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [inquiries, setInquiries] = useState<FacilityInquiry[]>([]);
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -63,10 +66,12 @@ function AdminFacilityInquiriesContent() {
           .select('id, created_at, name, email, phone, message')
           .eq('facility_id', selection.selectedId)
           .order('created_at', { ascending: false })
-          .limit(100);
+          .limit(ADMIN_LIST_FETCH);
         if (error) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
         if (cancelled) return;
-        setInquiries((data ?? []) as FacilityInquiry[]);
+        const capped = capAdminList(data as FacilityInquiry[] | null);
+        setInquiries(capped.rows);
+        setTruncated(capped.truncated);
         setLoading(false);
       } catch {
         if (!cancelled) { setLoadError(true); setLoading(false); }
@@ -85,6 +90,7 @@ function AdminFacilityInquiriesContent() {
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/facility-inquiries" />
       <SbPageHeader title="問い合わせ" />
+      <AdminListCapNotice truncated={!!facilityId && !loadError && truncated} />
       {!facilityId ? null : loadError ? (
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="問い合わせの読み込みに失敗しました" />
       ) : inquiries.length === 0 ? (

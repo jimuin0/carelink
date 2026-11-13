@@ -71,3 +71,13 @@ test('clearPopularFacilitiesCache でキャッシュを強制無効化できる'
   const result = await getPopularFacilitiesCached(admin2, 6);
   expect(result).toEqual([{ id: 'fac-2' }]);
 });
+
+test('取得エラーは投げ、空配列をキャッシュしない（回復後すぐ正しい結果を返す）', async () => {
+  const order = jest.fn().mockReturnThis();
+  const limit = jest.fn().mockResolvedValue({ data: null, error: { message: 'down' } });
+  const eq = jest.fn(() => ({ order, limit }));
+  const failing = { from: jest.fn(() => ({ select: jest.fn(() => ({ eq })) })) } as unknown as import('@supabase/supabase-js').SupabaseClient;
+  await expect(getPopularFacilitiesCached(failing, 6)).rejects.toEqual({ message: 'down' });
+  const recovered = makeAdmin([{ id: 'fac-ok' }]);
+  await expect(getPopularFacilitiesCached(recovered, 6)).resolves.toEqual([{ id: 'fac-ok' }]);
+});

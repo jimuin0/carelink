@@ -11,6 +11,10 @@ jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn() }));
 // Lazy wrapper: `mockCreate` is assigned in beforeEach; the closure captures the
 // variable slot so the singleton `client` (created at route module scope) always
 // calls whatever `mockCreate` currently is.
+jest.mock('@/lib/chat-rate-limit', () => ({
+  ...jest.requireActual('@/lib/chat-rate-limit'),
+  checkChatLimit: jest.fn(async () => 'allowed'),
+}));
 let mockCreate: jest.Mock;
 jest.mock('@anthropic-ai/sdk', () => ({
   __esModule: true,
@@ -22,7 +26,10 @@ jest.mock('@anthropic-ai/sdk', () => ({
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 import { verifyRecaptcha } from '@/lib/recaptcha';
+import { checkChatLimit } from '@/lib/chat-rate-limit';
+import Anthropic from '@anthropic-ai/sdk';
 import { POST } from '../route';
+const anthropicCtorArgs = (Anthropic as unknown as jest.Mock).mock.calls[0]?.[0];
 
 const VALID_AI_RESPONSE = {
   content: [{ type: 'text', text: '{"summary":"腰痛","recommended_treatments":[{"name":"鍼灸","description":"効果的","icon":"🎯"}],"search_keywords":["腰痛 鍼灸"],"caution":null,"tips":["温める"]}' }],
@@ -32,6 +39,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
+  (checkChatLimit as jest.Mock).mockResolvedValue('allowed');
+  delete process.env.AI_CHAT_DAILY_REQUEST_LIMIT;
   (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true, score: 0.9 });
   mockCreate = jest.fn().mockResolvedValue(VALID_AI_RESPONSE);
   process.env.ANTHROPIC_API_KEY = 'test-key';
@@ -54,6 +63,36 @@ const validRequest = {
 };
 
 describe('POST /api/symptoms/suggest', () => {
+  test('Anthropic クライアントは timeout と再試行なしで作られる', () => {
+    expect(anthropicCtorArgs).toMatchObject({ timeout: 10_000, maxRetries: 0 });
+  });
+  test('共有24時間上限に達したら AI を呼ばず 429', async () => {
+    (checkChatLimit as jest.Mock).mockResolvedValue('limited');
+    const res = await POST(makeRequest(validRequest) as any);
+    expect(res.status).toBe(429); expect(mockCreate).not.toHaveBeenCalled();
+    expect(checkChatLimit).toHaveBeenCalledWith('chat-daily:global', 100, 24 * 60 * 60 * 1000);
+  });
+  test('上限の確認不能は AI を呼ばず 503', async () => {
+    (checkChatLimit as jest.Mock).mockResolvedValue('unavailable');
+    const res = await POST(makeRequest(validRequest) as any);
+    expect(res.status).toBe(503); expect(mockCreate).not.toHaveBeenCalled();
+  });
+  test('上限設定が無効、または API キー未設定なら 503', async () => {
+    process.env.AI_CHAT_DAILY_REQUEST_LIMIT = 'abc';
+    expect((await POST(makeRequest(validRequest) as any)).status).toBe(503);
+    delete process.env.AI_CHAT_DAILY_REQUEST_LIMIT;
+    delete process.env.ANTHROPIC_API_KEY;
+    expect((await POST(makeRequest(validRequest) as any)).status).toBe(503);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+  test('本番で reCAPTCHA 未設定なら AI を呼ばず 503', async () => {
+    const env = process.env as Record<string, string | undefined>;
+    const prev = env.NODE_ENV; env.NODE_ENV = 'production'; delete process.env.RECAPTCHA_SECRET_KEY;
+    try {
+      expect((await POST(makeRequest(validRequest) as any)).status).toBe(503);
+      expect(mockCreate).not.toHaveBeenCalled();
+    } finally { env.NODE_ENV = prev; }
+  });
   test('CSRF check failed → 403', async () => {
     (checkCsrf as jest.Mock).mockReturnValue(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
     const res = await POST(makeRequest(validRequest) as any);

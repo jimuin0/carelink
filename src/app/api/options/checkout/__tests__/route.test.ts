@@ -213,3 +213,12 @@ describe('障害時の応答', () => {
     expect(mockStripeCreate).not.toHaveBeenCalled();
   });
 });
+
+test('Checkout Session は施設・オプション・操作者で決まる冪等キー付きで作る（連打で同じキー）', async () => {
+  await POST(makeRequest());
+  await POST(makeRequest());
+  const k1 = mockStripeCreate.mock.calls[0][1]?.idempotencyKey;
+  const k2 = mockStripeCreate.mock.calls[1][1]?.idempotencyKey;
+  expect(k1).toMatch(new RegExp(`^options-checkout:${FACILITY_UUID}:reminder_line:${USER_ID}:\\d+$`));
+  expect(k2).toBe(k1);
+});

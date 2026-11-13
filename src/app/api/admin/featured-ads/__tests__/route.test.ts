@@ -13,6 +13,7 @@
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('@/lib/audit-logger', () => ({ ...jest.requireActual('@/lib/audit-logger'), writeAuditLog: jest.fn() }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 jest.mock('@/lib/constants', () => ({ SITE_URL: 'http://localhost', UUID_REGEX: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i }));
 
@@ -469,6 +470,7 @@ test('POST: Stripe設定あり → checkout URL を返す (line 135)', async () 
   expect(res.status).toBe(201);
   expect(json.checkout_url).toBe('https://checkout.stripe.com/pay/cs_test_abc');
   expect(json.slot).toBeDefined();
+  expect((jest.requireMock('@/lib/audit-logger') as { writeAuditLog: jest.Mock }).writeAuditLog).toHaveBeenCalledTimes(1);
 
   delete process.env.STRIPE_SECRET_KEY;
 });
@@ -515,4 +517,52 @@ describe('障害時の応答', () => {
     mockAdminFrom.mockReturnValue(failingMembership());
     expect((await POST(makePostRequest(validPostBody()))).status).toBe(500);
   });
+});
+
+test('POST: Stripe の決済ページ作成に失敗 → 未有効の枠を消して 500・監査ログは残さない', async () => {
+  process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+  const StripeMock = jest.requireMock('stripe') as jest.Mock;
+  StripeMock.mockImplementationOnce(() => ({
+    checkout: { sessions: { create: jest.fn().mockRejectedValue(new Error('stripe down')) } },
+  }));
+  const audit = (jest.requireMock('@/lib/audit-logger') as { writeAuditLog: jest.Mock }).writeAuditLog;
+  const deleteEqActive = jest.fn(() => Promise.resolve({ error: null }));
+  const deleteEqId = jest.fn(() => ({ eq: deleteEqActive }));
+  const del = jest.fn(() => ({ eq: deleteEqId }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (callNum === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
+    return { delete: del };
+  });
+
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(500);
+  expect(del).toHaveBeenCalled();
+  expect(deleteEqId).toHaveBeenCalledWith('id', SLOT_UUID);
+  expect(deleteEqActive).toHaveBeenCalledWith('is_active', false);
+  expect(audit).not.toHaveBeenCalled();
+  delete process.env.STRIPE_SECRET_KEY;
+});
+
+test('POST: Stripe 失敗後の枠削除にも失敗 → それでも 500（is_active=false のまま）', async () => {
+  process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+  const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const StripeMock = jest.requireMock('stripe') as jest.Mock;
+  StripeMock.mockImplementationOnce(() => ({
+    checkout: { sessions: { create: jest.fn().mockRejectedValue(new Error('stripe down')) } },
+  }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (callNum === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
+    return { delete: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: { message: 'x' } }) }) }) };
+  });
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(500);
+  expect(errSpy).toHaveBeenCalledWith('[featured-ads] orphan slot cleanup failed', { slotId: SLOT_UUID });
+  errSpy.mockRestore();
+  delete process.env.STRIPE_SECRET_KEY;
 });

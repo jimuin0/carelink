@@ -90,10 +90,24 @@ describe('publishThreadsText', () => {
     expect(result.outcome).toBe('skipped');
   });
 
-  test('skipped when threads_credentials query errors', async () => {
+  test('transient (not skipped) when threads_credentials query errors', async () => {
     maybeSingleResult = { data: null, error: { message: 'boom' } };
     const result = await publishThreadsText('hello');
-    expect(result.outcome).toBe('skipped');
+    expect(result.outcome).toBe('transient');
+  });
+
+  test('transient when threads_credentials query throws', async () => {
+    mockMaybeSingle.mockImplementationOnce(() => Promise.reject(new Error('network')));
+    const result = await publishThreadsText('hello');
+    expect(result.outcome).toBe('transient');
+  });
+
+  test('container status read and token refresh do not proceed when credentials are unreadable', async () => {
+    maybeSingleResult = { data: null, error: { message: 'boom' } };
+    global.fetch = jest.fn() as unknown as typeof fetch;
+    expect(await readThreadsContainerStatus('123')).toBeNull();
+    expect(await refreshThreadsToken()).toEqual({ ok: false, reason: 'threads_credentials read unavailable' });
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   test('skipped when createServiceRoleClient throws (e.g. env missing)', async () => {

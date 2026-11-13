@@ -33,13 +33,15 @@ export async function getPopularFacilitiesCached(
     return cached.data;
   }
 
-  const { data } = await admin
+  const { data, error } = await admin
     .from('facility_card_view')
     .select('*')
     .eq('status', 'published')
     .order('rating_count', { ascending: false })
     .limit(limit);
 
+  // 取得失敗を「0件」としてキャッシュしない（回復後も最大5分間空のまま返り続けるため）。
+  if (error) throw error;
   const result = data ?? [];
   cache.set(limit, { data: result, cachedAt: now });
   return result;
