@@ -47,7 +47,8 @@ describe('readReviewModeration', () => {
     const calls: unknown[][] = [];
     const chain: Record<string, (...args: unknown[]) => unknown> = {};
     for (const name of ['select', 'eq']) chain[name] = (...args: unknown[]) => { calls.push([name, ...args]); return chain; };
-    chain.in = (...args: unknown[]) => { calls.push(['in', ...args]); return Promise.resolve(result); };
+    for (const name of ['in', 'order']) chain[name] = (...args: unknown[]) => { calls.push([name, ...args]); return chain; };
+    chain.range = (...args: unknown[]) => { calls.push(['range', ...args]); return Promise.resolve(result); };
     const from = jest.fn(() => chain);
     return { db: { from } as unknown as ReturnType<typeof createServiceRoleClient>, from, calls };
   }
@@ -73,6 +74,8 @@ describe('readReviewModeration', () => {
       ['select', 'content_id, status, created_at'],
       ['eq', 'content_type', 'review'],
       ['in', 'content_id', ['b', 'c']],
+      ['order', 'id', { ascending: true }],
+      ['range', 0, 999],
     ]);
   });
 
@@ -80,6 +83,18 @@ describe('readReviewModeration', () => {
     const failure = { message: 'synthetic' };
     const { db } = client({ data: null, error: failure });
     expect(await readReviewModeration(db, [{ id: 'b', is_flagged: true }])).toEqual({ states: [], error: failure });
+  });
+
+  test('1000 行を超える審査行も全ページ読む（max-rows で黙って切らない）', async () => {
+    const pages = [
+      Array.from({ length: 1000 }, (_, i) => row('approved', `2026-01-01T00:00:${String(i % 60).padStart(2, '0')}Z`, 'b')),
+      [row('pending', '2026-10-01T00:00:00Z', 'b')],
+    ];
+    const chain: Record<string, (...args: unknown[]) => unknown> = {};
+    for (const name of ['select', 'eq', 'in', 'order']) chain[name] = () => chain;
+    chain.range = (from: unknown) => Promise.resolve({ data: pages[(from as number) / 1000] ?? [], error: null });
+    const db = { from: () => chain } as unknown as ReturnType<typeof createServiceRoleClient>;
+    expect(await readReviewModeration(db, [{ id: 'b', is_flagged: true }])).toEqual({ states: ['pending'], error: null });
   });
 
   test('応答の形が違っても error を返す', async () => {

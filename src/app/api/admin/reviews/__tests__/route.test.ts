@@ -67,7 +67,7 @@ beforeEach(() => {
     return chain;
   });
   mockServiceFrom.mockImplementation(() => {
-    const chain = { select: () => chain, eq: () => chain, in: () => Promise.resolve(queue) };
+    const chain: Record<string, () => unknown> = { select: () => chain, eq: () => chain, in: () => chain, order: () => chain, range: () => Promise.resolve(queue) };
     return chain;
   });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
