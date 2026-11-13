@@ -205,6 +205,7 @@ export async function GET(request: Request) {
     // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
     alertDeliveryFailures('waitlist-notify', deliveryFailures, { notified });
 
+    const expired = expiredCount ?? 0;
     if (dependencyFailures > 0) {
       alertWarning(
         `[waitlist-notify] キャンセル待ちの通知処理で DB 障害が${dependencyFailures}件ありました（待ち客・施設の取得または通知の確保に失敗）`,
@@ -213,17 +214,17 @@ export async function GET(request: Request) {
       await logCronRun('waitlist-notify', 'error', startedAt, {
         processed: notified,
         error_msg: `キャンセル待ちの通知処理で DB 障害が${dependencyFailures}件ありました`,
-        meta: { expired: expiredCount ?? 0, budgetExceeded, skipped: skippedNoContact, dependency_failures: dependencyFailures },
+        meta: { expired, budgetExceeded, skipped: skippedNoContact, dependency_failures: dependencyFailures },
       });
-      return NextResponse.json({ processed: notified, skipped: skippedNoContact, expired: expiredCount ?? 0, dependency_failures: dependencyFailures }, { status: 503 });
+      return NextResponse.json({ processed: notified, skipped: skippedNoContact, expired, dependency_failures: dependencyFailures }, { status: 503 });
     }
 
     await logCronRun('waitlist-notify', 'success', startedAt, {
       processed: notified,
-      meta: { expired: expiredCount ?? 0, budgetExceeded, skipped: skippedNoContact },
+      meta: { expired: expired, budgetExceeded, skipped: skippedNoContact },
     });
 
-    return NextResponse.json({ processed: notified, skipped: skippedNoContact, expired: expiredCount ?? 0 });
+    return NextResponse.json({ processed: notified, skipped: skippedNoContact, expired: expired });
   } catch (e) {
     return cronError('waitlist-notify', startedAt, e);
   }

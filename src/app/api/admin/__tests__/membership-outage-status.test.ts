@@ -55,6 +55,9 @@ const params = { params: Promise.resolve({ id: ID }) };
 type Case = [string, () => Promise<Response>];
 const cases: Case[] = [
   ['packages/[id] PATCH', () => packagesId.PATCH(req(`/api/admin/packages/${ID}`, 'PATCH', { name: 'x' }), params)],
+  ['packages/[id] DELETE', () => packagesId.DELETE(req(`/api/admin/packages/${ID}`, 'DELETE'), params)],
+  ['subscription-plans POST', () => plans.POST(req(`/api/admin/subscription-plans?facility_id=${ID}`, 'POST', { name: 'x', price: 1, sessions_per_month: 1, valid_months: 1 }))],
+  ['subscription-plans/[id] DELETE', () => plansId.DELETE(req(`/api/admin/subscription-plans/${ID}`, 'DELETE'), params)],
   ['subscription-plans GET', () => plans.GET(req(`/api/admin/subscription-plans?facility_id=${ID}`, 'GET'))],
   ['subscription-plans/[id] PATCH', () => plansId.PATCH(req(`/api/admin/subscription-plans/${ID}`, 'PATCH', { name: 'x' }), params)],
   ['user-packages POST', () => userPackages.POST(req('/api/admin/user-packages', 'POST', { facility_id: ID, user_id: ID, package_id: ID }))],
@@ -103,4 +106,14 @@ test('user-subscriptions: 所属確認以外の例外はそのまま投げる', 
   const { createServerSupabaseAuthClient } = jest.requireMock('@/lib/supabase-server-auth');
   createServerSupabaseAuthClient.mockImplementationOnce(() => Promise.resolve({ auth: { getUser: mockGetUser }, from: () => { throw new Error('boom'); } }));
   await expect(userSubs.GET(req(`/api/admin/user-subscriptions?facility_id=${ID}`, 'GET'))).rejects.toThrow('boom');
+});
+
+test.each([
+  ['packages/[id]', () => packagesId.PATCH(req(`/api/admin/packages/${ID}`, 'PATCH', { name: 'x' }), params)],
+  ['subscription-plans/[id]', () => plansId.PATCH(req(`/api/admin/subscription-plans/${ID}`, 'PATCH', { name: 'x' }), params)],
+] as Case[])('%s: 対象は読めたが所属確認が DB 障害 → 500、所属なし（PGRST116）→ 401', async (_name, call) => {
+  mockQueue = [{ data: { facility_id: ID }, error: null }, DB_DOWN];
+  expect((await call()).status).toBe(500);
+  mockQueue = [{ data: { facility_id: ID }, error: null }, { data: null, error: { code: 'PGRST116' } }];
+  expect((await call()).status).toBe(401);
 });

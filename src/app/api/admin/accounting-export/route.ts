@@ -233,7 +233,7 @@ export async function GET(request: NextRequest) {
     facilityId,
     action: 'export',
     tableName: 'bookings',
-    newValues: { format, from: from ?? null, to: to ?? null, row_count: bookings.length },
+    newValues: { format, from, to, row_count: bookings.length },
     ipAddress: auditIp,
     userAgent: ua,
   });
