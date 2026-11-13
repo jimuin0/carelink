@@ -93,15 +93,19 @@ export async function GET(request: Request) {
         // 同じ施設・日時のウェイトリスト（waiting 状態のもの）を取得。
         // error を無音で握ると「待ち客なし」と区別できず恒久 miss になるため可視化する
         // （2h オーバーラップ窓により、一過性失敗は次 run で自己修復される）。
-        const { data: waiters, error: waitersError } = await supabase
+        // 先頭3人は「waiting と通知済み(notified)」を合わせて数える。waiting だけを数えると、
+        // 2h 窓の重なりで同じキャンセルを拾った次の run が「次の3人」に通知し、
+        // 1件のキャンセルで最大6人に通知していた。通知済みの人は 48h で expired になり順番が移る。
+        const { data: queueHead, error: waitersError } = await supabase
           .from('booking_waitlist')
-          .select('id, customer_name, email, line_user_id, date, start_time')
+          .select('id, customer_name, email, line_user_id, date, start_time, status')
           .eq('facility_id', cancel.facility_id)
           .eq('date', cancel.booking_date)
           .eq('start_time', cancel.start_time)
-          .eq('status', 'waiting')
+          .in('status', ['waiting', 'notified'])
           .order('created_at', { ascending: true })
           .limit(3); // 最大3人に通知（先着順）
+        const waiters = (queueHead ?? []).filter((w) => w.status !== 'notified');
 
         if (waitersError) {
           console.error('[waitlist-notify] waiters query failed', {
@@ -109,7 +113,7 @@ export async function GET(request: Request) {
           });
           continue; // 次 run(2h 窓内)で再試行される
         }
-        if (!waiters || waiters.length === 0) continue;
+        if (waiters.length === 0) continue;
 
         // 施設名取得。error は待ち客ありのケースで通知不能を招くため可視化する。
         const { data: facility, error: facilityError } = await supabase

@@ -116,6 +116,7 @@ const validWaitlist = {
   start_time: '10:00',
   end_time: '11:00',
   customer_name: 'Test Customer',
+  email: 'waiter@example.invalid',
 };
 
 describe('POST /api/waitlist', () => {
@@ -217,6 +218,13 @@ describe('POST /api/waitlist', () => {
   test('notes too long (201+ chars) → 400', async () => {
     const res = await POST(makePostRequest({ ...validWaitlist, notes: 'a'.repeat(201) }));
 
+    expect(res.status).toBe(400);
+  });
+
+  test('email 未入力 → 400（通知できない登録を受け付けない）', async () => {
+    const { email: _omit, ...noEmail } = validWaitlist;
+    void _omit;
+    const res = await POST(makePostRequest(noEmail));
     expect(res.status).toBe(400);
   });
 

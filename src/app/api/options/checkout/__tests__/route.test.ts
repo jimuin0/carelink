@@ -28,7 +28,7 @@ const USER_ID = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 let membershipResult: { data: unknown };
 let optionResult: { data: unknown };
-let entitlementResult: { data: unknown };
+let entitlementResult: { data: unknown; error?: unknown };
 
 const makeMaybeSingleChain = (resultRef: () => { data: unknown }) => ({
   select: jest.fn().mockReturnThis(),
@@ -187,4 +187,20 @@ test('Stripe エラー → 500（内部情報は漏らさない）＋Slack通知
     expect.any(Error),
     '/api/options/checkout',
   );
+});
+
+test('既存契約の確認エラー → 503（決済を開かない）', async () => {
+  entitlementResult = { data: null, error: { message: 'down' } };
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(503);
+  expect(mockStripeCreate).not.toHaveBeenCalled();
+});
+
+test('Checkout Session は施設・オプション・操作者で決まる冪等キー付きで作る（連打で同じキー）', async () => {
+  await POST(makeRequest());
+  await POST(makeRequest());
+  const k1 = mockStripeCreate.mock.calls[0][1]?.idempotencyKey;
+  const k2 = mockStripeCreate.mock.calls[1][1]?.idempotencyKey;
+  expect(k1).toMatch(new RegExp(`^options-checkout:${FACILITY_UUID}:reminder_line:${USER_ID}:\\d+$`));
+  expect(k2).toBe(k1);
 });

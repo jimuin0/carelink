@@ -21,6 +21,7 @@ export const dynamic = 'force-dynamic';
 
 /** option_catalog.key の許容形式（英小文字・数字・アンダースコア） */
 const OPTION_KEY_REGEX = /^[a-z0-9_]{1,64}$/;
+const CHECKOUT_IDEMPOTENCY_WINDOW_MS = 10 * 60 * 1000;
 
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
@@ -79,13 +80,17 @@ export async function POST(request: NextRequest) {
     }
 
     // 既に利用中なら二重課金を防ぐ
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from('facility_entitlements')
       .select('id')
       .eq('facility_id', facilityId)
       .eq('option_key', optionKey)
       .eq('status', 'active')
       .maybeSingle();
+    // 確認できないまま決済を開かない（既に利用中かもしれない＝二重課金の入口）
+    if (existingError) {
+      return NextResponse.json({ error: 'ご利用状況を確認できません。時間をおいて再度お試しください。' }, { status: 503 });
+    }
     if (existing) {
       return NextResponse.json({ error: 'このオプションは既にご利用中です' }, { status: 400 });
     }
@@ -119,6 +124,10 @@ export async function POST(request: NextRequest) {
         },
       },
       locale: 'ja',
+    }, {
+      // 連打・再送で別々の Checkout Session（＝別々の月額契約）が作られないよう、
+      // 同じ施設・オプション・操作者の 10 分枠では同じセッションを返す。
+      idempotencyKey: `options-checkout:${facilityId}:${optionKey}:${user.id}:${Math.floor(Date.now() / CHECKOUT_IDEMPOTENCY_WINDOW_MS)}`,
     });
 
     return NextResponse.json({ url: session.url });
