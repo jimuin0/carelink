@@ -26,11 +26,11 @@ const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 
 const mockGetUser = jest.fn();
-let membershipResult: { data: unknown };
-let optionResult: { data: unknown };
-let entitlementResult: { data: unknown };
+let membershipResult: { data: unknown; error?: unknown };
+let optionResult: { data: unknown; error?: unknown };
+let entitlementResult: { data: unknown; error?: unknown };
 
-const makeMaybeSingleChain = (resultRef: () => { data: unknown }) => ({
+const makeMaybeSingleChain = (resultRef: () => { data: unknown; error?: unknown }) => ({
   select: jest.fn().mockReturnThis(),
   eq: jest.fn().mockReturnThis(),
   in: jest.fn().mockReturnThis(),
@@ -187,4 +187,29 @@ test('Stripe エラー → 500（内部情報は漏らさない）＋Slack通知
     expect.any(Error),
     '/api/options/checkout',
   );
+});
+
+// 中 A21：DB 障害を 403／404／「未契約」に化けさせない（未契約扱いで二重のサブスクを作らない）。
+describe('障害時の応答', () => {
+  const down = { code: '08006', message: 'down' };
+  test('認証基盤の障害 → 503', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null }, error: new Error('network') });
+    expect((await POST(makeRequest())).status).toBe(503);
+    expect(mockStripeCreate).not.toHaveBeenCalled();
+  });
+  test('所属確認の障害 → 500（403 にしない）', async () => {
+    membershipResult = { data: null, error: down };
+    expect((await POST(makeRequest())).status).toBe(500);
+    expect(mockStripeCreate).not.toHaveBeenCalled();
+  });
+  test('カタログの障害 → 500（404 にしない）', async () => {
+    optionResult = { data: null, error: down };
+    expect((await POST(makeRequest())).status).toBe(500);
+    expect(mockStripeCreate).not.toHaveBeenCalled();
+  });
+  test('既存契約の確認の障害 → 500 で決済セッションを作らない', async () => {
+    entitlementResult = { data: null, error: down };
+    expect((await POST(makeRequest())).status).toBe(500);
+    expect(mockStripeCreate).not.toHaveBeenCalled();
+  });
 });

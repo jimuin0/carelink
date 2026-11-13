@@ -26,6 +26,8 @@ const mockGetUser = jest.fn();
 const mockServiceInsert = jest.fn(() => Promise.resolve({ error: null }));
 // 既存 pending セッション失効ロジック用。既定は「既存 pending 無し」。
 let mockStalePending: { stripe_session_id: string }[] = [];
+let mockStaleError: unknown = null;
+let mockExpireUpdateError: unknown = null;
 const mockServiceUpdate = jest.fn(() => Promise.resolve({ error: null }));
 
 jest.mock('@supabase/ssr', () => ({
@@ -38,13 +40,13 @@ jest.mock('@/lib/supabase-server', () => ({
       // select(...).eq(...).eq(...) → 既存 pending セッション一覧
       select: jest.fn(() => ({
         eq: jest.fn(() => ({
-          eq: jest.fn(() => Promise.resolve({ data: mockStalePending })),
+          eq: jest.fn(() => Promise.resolve({ data: mockStaleError ? null : mockStalePending, error: mockStaleError })),
         })),
       })),
       // update(...).eq(...).eq(...) → pending → expired 更新
       update: jest.fn((...args: unknown[]) => {
         mockServiceUpdate(...args);
-        return { eq: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) };
+        return { eq: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: mockExpireUpdateError })) })) };
       }),
     })),
   })),
@@ -92,6 +94,8 @@ function singleChain(data: unknown, error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockStaleError = null;
+  mockExpireUpdateError = null;
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
@@ -308,19 +312,58 @@ test('既存 pending セッションがある → 失効させてから新規作
   expect(json.url).toContain('checkout.stripe.com/new');
 });
 
-test('既存 pending の Stripe 失効が throw しても新規作成は続行する', async () => {
+test('既存 pending の Stripe 失効が throw しても、既に失効済みなら新規作成は続行する', async () => {
   mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
   mockStalePending = [{ stripe_session_id: 'cs_old_x' }];
-  const expireMock = jest.fn().mockRejectedValue(new Error('already finalized'));
+  const expireMock = jest.fn().mockRejectedValue(new Error('already expired'));
+  const retrieveMock = jest.fn().mockResolvedValue({ status: 'expired' });
   const Stripe = require('stripe');
   Stripe.mockImplementation(() => ({
-    checkout: { sessions: { create: mockStripeCreate, expire: expireMock } },
+    checkout: { sessions: { create: mockStripeCreate, expire: expireMock, retrieve: retrieveMock } },
   }));
   mockStripeCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/new2', id: 'cs_new2' });
 
   const res = await POST(makeRequest());
-  // .catch(()=>{}) で握り潰し、新規作成は成功する
   expect(res.status).toBe(200);
+});
+
+// 中 A22：古い pending を失効できないまま新しいセッションを作らない（二重課金の防止）。
+test.each([
+  ['完了済みなど失効できない', { status: 'complete' }],
+  ['状態を確認できない', null],
+])('既存 pending を失効できない（%s）→ 500 で新規作成しない', async (_label, retrieved) => {
+  mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
+  mockStalePending = [{ stripe_session_id: 'cs_old_y' }];
+  const expireMock = jest.fn().mockRejectedValue(new Error('cannot expire'));
+  const retrieveMock = retrieved ? jest.fn().mockResolvedValue(retrieved) : jest.fn().mockRejectedValue(new Error('network'));
+  const Stripe = require('stripe');
+  Stripe.mockImplementation(() => ({
+    checkout: { sessions: { create: mockStripeCreate, expire: expireMock, retrieve: retrieveMock } },
+  }));
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(500);
+  expect(mockStripeCreate).not.toHaveBeenCalled();
+});
+
+test('既存 pending の照会が失敗 → 500 で新規作成しない', async () => {
+  mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
+  mockStaleError = { code: '08006', message: 'down' };
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(500);
+  expect(mockStripeCreate).not.toHaveBeenCalled();
+});
+
+test('既存 pending の DB 失効更新が失敗 → 500 で新規作成しない', async () => {
+  mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
+  mockStalePending = [{ stripe_session_id: 'cs_old_z' }];
+  mockExpireUpdateError = { code: '08006', message: 'down' };
+  const Stripe = require('stripe');
+  Stripe.mockImplementation(() => ({
+    checkout: { sessions: { create: mockStripeCreate, expire: jest.fn().mockResolvedValue(undefined) } },
+  }));
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(500);
+  expect(mockStripeCreate).not.toHaveBeenCalled();
 });
 
 // Branch coverage: line 69 — total_price が null かつ menu?.price も undefined → ?? 0 にフォールバック（全 ?? false 分岐）
