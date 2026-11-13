@@ -1,568 +1,323 @@
 /**
  * @jest-environment node
  *
- * Tests for GET/POST /api/admin/featured-ads
- * Key assertions:
- *   - No facility membership → 403
- *   - Invalid slot_type → 400
- *   - ends_at ≤ starts_at → 400
- *   - ends_at > 2 years out → 400
- *   - DB insert failure → 500
- *   - No STRIPE_SECRET_KEY → dev mode (activate immediately, checkout_url null)
+ * GET / POST / DELETE /api/admin/featured-ads（2026年11月13日・点検 B2-1：PAY.JP の月額サブスク）。
+ * PAY.JP への通信は @/lib/payjp の通信関数をモックする（金額判定・カードエラー判定は本物を使う）。
  */
-
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
-jest.mock('@/lib/audit-logger', () => ({ ...jest.requireActual('@/lib/audit-logger'), writeAuditLog: jest.fn() }));
-jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
-jest.mock('@/lib/constants', () => ({ SITE_URL: 'http://localhost', UUID_REGEX: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i }));
-
-const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
-const USER_ID       = '33333333-3333-3333-3333-333333333333';
-const SLOT_UUID     = '44444444-4444-4444-4444-444444444444';
-
+jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn(), getRequestContext: jest.fn(() => ({ ip: '127.0.0.1', ua: 'test' })) }));
+const mockAlert = jest.fn();
+jest.mock('@/lib/alert', () => ({ alertCaughtError: (...a: unknown[]) => mockAlert(...a) }));
 const mockGetUser = jest.fn();
-const mockAdminFrom = jest.fn();
-
-jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({ auth: { getUser: mockGetUser } }),
+jest.mock('@/lib/supabase-server-auth', () => ({ createServerSupabaseAuthClient: async () => ({ auth: { getUser: mockGetUser } }) }));
+let mockDb: ReturnType<typeof import('@/test-utils/fake-supabase').createFakeSupabase>;
+jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => mockDb.client }));
+const mockPayjp = { retrievePlan: jest.fn(), createCustomer: jest.fn(), addDefaultCard: jest.fn(), createSubscription: jest.fn(), cancelSubscription: jest.fn() };
+jest.mock('@/lib/payjp', () => ({
+  ...jest.requireActual('@/lib/payjp'),
+  retrievePlan: (...a: unknown[]) => mockPayjp.retrievePlan(...a),
+  createCustomer: (...a: unknown[]) => mockPayjp.createCustomer(...a),
+  addDefaultCard: (...a: unknown[]) => mockPayjp.addDefaultCard(...a),
+  createSubscription: (...a: unknown[]) => mockPayjp.createSubscription(...a),
+  cancelSubscription: (...a: unknown[]) => mockPayjp.cancelSubscription(...a),
 }));
-jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
-}));
 
-import { NextRequest } from 'next/server';
-import { GET, POST } from '../route';
+import { GET, POST, DELETE } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog } from '@/lib/audit-logger';
+import { PayjpError } from '@/lib/payjp';
+import { createFakeSupabase, eqOf, type FakeCall, type FakeResult } from '@/test-utils/fake-supabase';
 
-function makeGetRequest(facilityId: string = FACILITY_UUID) {
-  return new NextRequest(`http://localhost/api/admin/featured-ads?facility_id=${facilityId}`, { method: 'GET' });
-}
+const FAC = '22222222-2222-4222-8222-222222222222';
+const USER = '33333333-3333-4333-8333-333333333333';
+const SLOT = '44444444-4444-4444-8444-444444444444';
+const ENV = { ...process.env };
+const PLAN = { id: 'pln_featured', amount: 10780, currency: 'jpy', interval: 'month' };
 
-function makePostRequest(body: object) {
-  return new NextRequest('http://localhost/api/admin/featured-ads', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+type Opts = Partial<Record<
+  'member' | 'slots' | 'billing' | 'current' | 'customer' | 'customerInsert' | 'slotInsert' | 'slotDelete'
+  | 'linkInsert' | 'linkSave' | 'cancelRead' | 'cancelMark', FakeResult>>;
+
+function db(opts: Opts = {}) {
+  mockDb = createFakeSupabase((call: FakeCall) => {
+    switch (call.table) {
+      case 'facility_members': return opts.member ?? { data: { facility_id: FAC } };
+      case 'featured_slots':
+        if (call.op === 'select') return opts.slots ?? { data: [{ id: SLOT, is_active: true }] };
+        if (call.op === 'insert') return opts.slotInsert ?? { data: { id: SLOT, is_active: false } };
+        if (call.op === 'delete') return opts.slotDelete;
+        return undefined;
+      case 'facility_payjp_customers':
+        if (call.op === 'select') return opts.customer ?? { data: null };
+        return opts.customerInsert;
+      case 'featured_slot_payjp_subscriptions':
+        if (call.op === 'insert') return opts.linkInsert;
+        if (call.op === 'update') return (call.payload as { status?: string }).status === 'canceled' ? opts.cancelMark : opts.linkSave;
+        if (eqOf(call, 'slot_id') !== undefined) return opts.cancelRead ?? { data: { payjp_subscription_id: 'sub_1', status: 'active' } };
+        if (call.filters.some(([op]) => op === 'in')) return opts.current ?? { data: [] };
+        return opts.billing ?? { data: [{ slot_id: SLOT, status: 'active', current_period_end: '2026-12-13T00:00:00Z' }] };
+      default: return undefined;
+    }
   });
 }
+const calls = (table: string, op?: string) => mockDb.calls.filter((c) => c.table === table && (!op || c.op === op));
 
-const STARTS = new Date(Date.now() + 86400_000).toISOString();
-const ENDS   = new Date(Date.now() + 30 * 86400_000).toISOString();
-
-function validPostBody(overrides: object = {}) {
-  return { facility_id: FACILITY_UUID, slot_type: 'search_top', starts_at: STARTS, ends_at: ENDS, ...overrides };
-}
-
-/** verifyFacilityMembership は .maybeSingle() で終わる */
-function facilityIdChain(data: unknown) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    in: jest.fn().mockReturnThis(),
-    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
-  };
-}
-
-function listChain(data: unknown[], error: unknown = null) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    order: jest.fn(() => Promise.resolve({ data, error })),
-  };
-}
-
-function insertSingle(data: unknown, error: unknown = null) {
-  return {
-    insert: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        single: jest.fn(() => Promise.resolve({ data, error })),
-      }),
-    }),
-  };
-}
-
-function updateEq(error: unknown = null) {
-  return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error })),
-    }),
-  };
-}
+const getReq = (fid: string | null = FAC) => new Request(`http://localhost/api/admin/featured-ads${fid === null ? '' : `?facility_id=${fid}`}`);
+const postReq = (body: unknown = { facility_id: FAC, token: 'tok_abc123', area: '豊中市', business_type: '' }) => new Request('http://localhost/api/admin/featured-ads', {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body),
+});
+const delReq = (fid: string | null = FAC, sid: string | null = SLOT) => {
+  const q = new URLSearchParams();
+  if (fid !== null) q.set('facility_id', fid);
+  if (sid !== null) q.set('slot_id', sid);
+  return new Request(`http://localhost/api/admin/featured-ads?${q}`, { method: 'DELETE' });
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
+  process.env = { ...ENV, PAYJP_SECRET_KEY: 'sk_test', PAYJP_WEBHOOK_TOKEN: 'whook', NEXT_PUBLIC_PAYJP_PUBLIC_KEY: 'pk_test_pub', PAYJP_FEATURED_PLAN_ID: 'pln_featured' };
   (checkRateLimit as jest.Mock).mockReturnValue(false);
-  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
-  delete process.env.STRIPE_SECRET_KEY; // dev mode: no Stripe
-  delete process.env.VERCEL_ENV; // 既定は非本番（fail-closed 判定は VERCEL_ENV=production のみ）
+  mockGetUser.mockResolvedValue({ data: { user: { id: USER } }, error: null });
+  mockPayjp.retrievePlan.mockResolvedValue(PLAN);
+  mockPayjp.createCustomer.mockResolvedValue({ id: 'cus_new' });
+  mockPayjp.addDefaultCard.mockResolvedValue({ id: 'car_1' });
+  mockPayjp.createSubscription.mockResolvedValue({ id: 'sub_new', status: 'active' });
+  mockPayjp.cancelSubscription.mockResolvedValue({ id: 'sub_1', status: 'canceled' });
+  db();
 });
+afterAll(() => { process.env = ENV; });
 
-// ─── GET ──────────────────────────────────────────────────────────────────────
-
-test('GET: 未認証 → 401', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await GET(makeGetRequest());
-  expect(res.status).toBe(401);
-});
-
-test('GET: レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await GET(makeGetRequest());
-  expect(res.status).toBe(429);
-});
-
-test('GET: facility_id クエリパラメータなし → 400', async () => {
-  const res = await GET(new NextRequest('http://localhost/api/admin/featured-ads', { method: 'GET' }));
-  expect(res.status).toBe(400);
-});
-
-test('GET: 施設メンバーシップなし → 403', async () => {
-  mockAdminFrom.mockReturnValue(facilityIdChain(null));
-  const res = await GET(makeGetRequest());
-  expect(res.status).toBe(403);
-});
-
-test('GET: 正常取得 → 200 with slots', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    return listChain([{ id: SLOT_UUID }]);
+describe('GET', () => {
+  test('枠と決済状態・販売情報（税込月額・公開鍵）を返す', async () => {
+    const res = await GET(getReq());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.slots).toEqual([{ id: SLOT, is_active: true, billing_status: 'active', current_period_end: '2026-12-13T00:00:00Z' }]);
+    expect(body.sales).toEqual({ enabled: true, publicKey: 'pk_test_pub', priceTaxExcluded: 9800, priceTaxIncluded: 10780 });
   });
-  const res = await GET(makeGetRequest());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.slots).toBeDefined();
-});
 
-// ─── POST ─────────────────────────────────────────────────────────────────────
-
-test('POST: 未認証 → 401', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await POST(makePostRequest(validPostBody()));
-  expect(res.status).toBe(401);
-});
-
-test('POST: レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await POST(makePostRequest(validPostBody()));
-  expect(res.status).toBe(429);
-});
-
-test('POST: facility_id なし → 400', async () => {
-  const { facility_id: _omit, ...bodyWithoutFacility } = validPostBody() as Record<string, unknown>;
-  const res = await POST(makePostRequest(bodyWithoutFacility));
-  expect(res.status).toBe(400);
-});
-
-test('POST: 施設メンバーシップなし → 403', async () => {
-  mockAdminFrom.mockReturnValue(facilityIdChain(null));
-  const res = await POST(makePostRequest(validPostBody()));
-  expect(res.status).toBe(403);
-});
-
-test('POST: 必須フィールド欠落 (starts_at/ends_at なし) → 400', async () => {
-  mockAdminFrom.mockReturnValue(facilityIdChain({ facility_id: FACILITY_UUID }));
-  const res = await POST(makePostRequest({ facility_id: FACILITY_UUID, slot_type: 'search_top' })); // starts_at, ends_at missing
-  expect(res.status).toBe(400);
-});
-
-test('POST: 不正な slot_type → 400', async () => {
-  mockAdminFrom.mockReturnValue(facilityIdChain({ facility_id: FACILITY_UUID }));
-  const res = await POST(makePostRequest(validPostBody({ slot_type: 'premium_top' })));
-  expect(res.status).toBe(400);
-});
-
-test('POST: ends_at ≤ starts_at → 400', async () => {
-  mockAdminFrom.mockReturnValue(facilityIdChain({ facility_id: FACILITY_UUID }));
-  const res = await POST(makePostRequest(validPostBody({ starts_at: ENDS, ends_at: STARTS })));
-  expect(res.status).toBe(400);
-});
-
-test('POST: ends_at が 2年超え → 400', async () => {
-  mockAdminFrom.mockReturnValue(facilityIdChain({ facility_id: FACILITY_UUID }));
-  const tooFar = new Date();
-  tooFar.setFullYear(tooFar.getFullYear() + 3);
-  const res = await POST(makePostRequest(validPostBody({ ends_at: tooFar.toISOString() })));
-  expect(res.status).toBe(400);
-});
-
-test('POST: DB挿入失敗 → 500', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    return insertSingle(null, { message: 'DB error' });
+  test('PAY.JP の設定が欠けていれば販売しない（準備中の見え方）', async () => {
+    delete process.env.PAYJP_WEBHOOK_TOKEN;
+    db({ slots: { data: null }, billing: { data: null } });
+    const body = await (await GET(getReq())).json();
+    expect(body).toEqual({ slots: [], sales: { enabled: false } });
   });
-  const res = await POST(makePostRequest(validPostBody()));
-  expect(res.status).toBe(500);
-});
 
-test('POST: Stripeなし→devモード→201 checkout_url=null', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    if (callNum === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
-    return updateEq(null); // activate slot
+  test('決済の行が無い枠は billing_status=null', async () => {
+    db({ billing: { data: [] } });
+    const body = await (await GET(getReq())).json();
+    expect(body.slots[0]).toMatchObject({ billing_status: null, current_period_end: null });
   });
-  const res = await POST(makePostRequest(validPostBody()));
-  const json = await res.json();
-  expect(res.status).toBe(201);
-  expect(json.checkout_url).toBeNull();
-  expect(json.slot).toBeDefined();
+
+  test.each([null, 'bad'])('facility_id %p は 400', async (fid) => { expect((await GET(getReq(fid))).status).toBe(400); });
+  test('所属が無ければ 403', async () => { db({ member: { data: null } }); expect((await GET(getReq())).status).toBe(403); });
+  test.each([
+    ['所属', { member: { error: { message: 'db' } } }],
+    ['枠', { slots: { error: { message: 'db' } } }],
+    ['決済状態', { billing: { error: { message: 'db' } } }],
+  ])('%sの読み取り失敗は 500', async (_l, opts) => { db(opts as Opts); expect((await GET(getReq())).status).toBe(500); });
+  test('未ログインは 401', async () => { mockGetUser.mockResolvedValue({ data: { user: null }, error: null }); expect((await GET(getReq())).status).toBe(401); });
 });
 
-// 【恒久根治・金銭仕様確定 2026年7月16日】真の本番(VERCEL_ENV=production)で STRIPE_SECRET_KEY
-// が未設定の場合、決済なしで広告枠を無料アクティブ化する抜け穴を fail-closed(500) に根治した。
-// 判定源は NODE_ENV ではなく VERCEL_ENV（NODE_ENV は Vercel Preview でも 'production' になり
-// Preview まで巻き込むため）。開発/デモ(VERCEL_ENV≠production)の即時有効化は維持する。
-test('POST: 本番(VERCEL_ENV=production)でSTRIPE_SECRET_KEY未設定 → 500 fail-closed（無料アクティブ化しない）', async () => {
-  const originalVercelEnv = process.env.VERCEL_ENV;
-  jest.spyOn(console, 'error').mockImplementation(() => {});
-  process.env.VERCEL_ENV = 'production';
-  try {
-    // テーブル名ベースでディスパッチする（audit_logs への fire-and-forget 書き込みが
-    // featured_slots とは独立に発生するため、callNum の呼び出し順序に依存しない）。
-    const activateSpy = jest.fn();
-    mockAdminFrom.mockImplementation((table: string) => {
-      if (table === 'facility_members') return facilityIdChain({ facility_id: FACILITY_UUID });
-      if (table === 'featured_slots') {
-        return {
-          insert: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: { id: SLOT_UUID, slot_type: 'search_top' }, error: null })),
-            }),
-          }),
-          update: jest.fn((payload: unknown) => {
-            activateSpy(payload);
-            return { eq: jest.fn(() => Promise.resolve({ error: null })) };
-          }),
-        };
-      }
-      if (table === 'audit_logs') return { insert: jest.fn().mockResolvedValue({ error: null }) };
-      return {};
-    });
-    const res = await POST(makePostRequest(validPostBody()));
-    const json = await res.json();
-    expect(res.status).toBe(500);
-    expect(json.error).toBeDefined();
-    // is_active を true にする update 呼び出しに到達していないこと（無料化が発生していない）。
-    expect(activateSpy).not.toHaveBeenCalled();
-  } finally {
-    if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV;
-    else process.env.VERCEL_ENV = originalVercelEnv;
-  }
-});
-
-// Preview デプロイ(VERCEL_ENV=preview)は開発扱い＝即時アクティブ化を維持する（NODE_ENV
-// ベースだと Preview の NODE_ENV=production で誤って fail-closed になっていた盲点の回帰防止）。
-test('POST: Preview(VERCEL_ENV=preview)でSTRIPE_SECRET_KEY未設定 → 201 即時有効化（fail-closedしない）', async () => {
-  const originalVercelEnv = process.env.VERCEL_ENV;
-  process.env.VERCEL_ENV = 'preview';
-  try {
-    let callNum = 0;
-    mockAdminFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-      if (callNum === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
-      return updateEq(null);
-    });
-    const res = await POST(makePostRequest(validPostBody()));
-    const json = await res.json();
+describe('POST（申込）', () => {
+  test('新しい customer を作り、有効化待ちの枠と定期課金を作る（掲載は webhook が始める）', async () => {
+    const res = await POST(postReq());
     expect(res.status).toBe(201);
-    expect(json.checkout_url).toBeNull();
-  } finally {
-    if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV;
-    else process.env.VERCEL_ENV = originalVercelEnv;
-  }
-});
-
-// ─── Additional coverage ──────────────────────────────────────────────────────
-
-test('POST: CSRF エラー → 403', async () => {
-  const { checkCsrf } = require('@/lib/csrf');
-  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
-  const res = await POST(makePostRequest(validPostBody()));
-  expect(res.status).toBe(403);
-});
-
-test('GET: rate limit params (20/60s)', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    return listChain([]);
-  });
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
-  (checkRateLimit as jest.Mock).mockClear();
-  await GET(makeGetRequest());
-  const call = (checkRateLimit as jest.Mock).mock.calls[0];
-  expect(call[2]).toBe(20);
-  expect(call[3]).toBe(60_000);
-});
-
-test('POST: rate limit params (10/60s)', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    if (callNum === 2) return insertSingle({ id: SLOT_UUID });
-    return updateEq(null);
-  });
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
-  (checkRateLimit as jest.Mock).mockClear();
-  await POST(makePostRequest(validPostBody()));
-  const postCall = (checkRateLimit as jest.Mock).mock.calls.find((c: unknown[]) => c[4] === 'featured-ads');
-  expect(postCall).toBeDefined();
-  expect(postCall[2]).toBe(10);
-  expect(postCall[3]).toBe(60_000);
-});
-
-test('GET: レスポンスが { slots: [] } 形式', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    return listChain([]);
-  });
-  const res = await GET(makeGetRequest());
-  const json = await res.json();
-  expect(Array.isArray(json.slots)).toBe(true);
-});
-
-// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
-
-test('POST: 不正な日付形式 → 400', async () => {
-  mockAdminFrom.mockReturnValue(facilityIdChain({ facility_id: FACILITY_UUID }));
-  const res = await POST(makePostRequest({
-    facility_id: FACILITY_UUID, slot_type: 'search_top', starts_at: 'invalid-date', ends_at: 'also-invalid',
-  }));
-  expect(res.status).toBe(400);
-});
-
-test('POST: devモード activate 失敗 → 500', async () => {
-  jest.spyOn(console, 'error').mockImplementation(() => {});
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    if (callNum === 2) return insertSingle({ id: SLOT_UUID });
-    return updateEq({ message: 'fail' });
-  });
-  const res = await POST(makePostRequest(validPostBody()));
-  expect(res.status).toBe(500);
-});
-
-test('POST: 例外発生 → 500 (catchブロック)', async () => {
-  jest.spyOn(console, 'error').mockImplementation(() => {});
-  mockAdminFrom.mockImplementation(() => {
-    throw new Error('boom');
-  });
-  const res = await POST(makePostRequest(validPostBody()));
-  expect(res.status).toBe(500);
-});
-
-test('GET: slots が null → 空配列で返す', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    return listChain(null as unknown as unknown[]);
-  });
-  const res = await GET(makeGetRequest());
-  const json = await res.json();
-  expect(json.slots).toEqual([]);
-});
-
-// Branch coverage: L50 — featured_slots クエリ失敗 → 500
-test('GET: slotsErr → 500 (L50 slotsErr 分岐)', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    return listChain([], { message: 'DB error' });
-  });
-  const res = await GET(makeGetRequest());
-  expect(res.status).toBe(500);
-  const json = await res.json();
-  expect(json.error).toBeDefined();
-});
-
-test('POST: 不正な JSON body → 400 (slot_type 欠落で)', async () => {
-  mockAdminFrom.mockReturnValue(facilityIdChain({ facility_id: FACILITY_UUID }));
-  const req = new NextRequest('http://localhost/api/admin/featured-ads', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: 'not-json',
-  });
-  const res = await POST(req);
-  expect(res.status).toBe(400);
-});
-
-test('POST: area/business_type 指定で正常作成 (devモード)', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    if (callNum === 2) return insertSingle({ id: SLOT_UUID });
-    return updateEq(null);
-  });
-  const res = await POST(makePostRequest(validPostBody({ area: '東京', business_type: 'salon' })));
-  expect(res.status).toBe(201);
-});
-
-// Branch coverage: line 101 — budget_yen: PLAN_PRICES[slot_type] が定義されている場合の正常値確認
-test('POST: area_banner slot_type → budget_yen=4900 (PLAN_PRICES 分岐)', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    if (callNum === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'area_banner', budget_yen: 4900 });
-    return updateEq(null);
-  });
-  const res = await POST(makePostRequest(validPostBody({ slot_type: 'area_banner' })));
-  const json = await res.json();
-  expect(res.status).toBe(201);
-  expect(json.slot).toBeDefined();
-});
-
-test('POST: category_top slot_type → budget_yen=7800 (PLAN_PRICES 分岐)', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    if (callNum === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'category_top', budget_yen: 7800 });
-    return updateEq(null);
-  });
-  const res = await POST(makePostRequest(validPostBody({ slot_type: 'category_top' })));
-  const json = await res.json();
-  expect(res.status).toBe(201);
-  expect(json.slot).toBeDefined();
-});
-
-// Branch coverage: line 111, 135 (×2) — Stripe 設定ありの場合: checkout session 作成
-jest.mock('stripe', () => {
-  return jest.fn().mockImplementation(() => ({
-    checkout: {
-      sessions: {
-        create: jest.fn().mockResolvedValue({ url: 'https://checkout.stripe.com/pay/cs_test_abc' }),
-      },
-    },
-  }));
-});
-
-test('POST: Stripe設定あり → checkout URL を返す (line 135)', async () => {
-  process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
-
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
+    expect((await res.json()).slot).toMatchObject({ id: SLOT, is_active: false, billing_status: 'pending' });
+    expect(mockPayjp.retrievePlan).toHaveBeenCalledWith('pln_featured');
+    expect(mockPayjp.createCustomer).toHaveBeenCalledWith('tok_abc123', FAC);
+    expect(calls('facility_payjp_customers', 'insert')[0].payload).toEqual({ facility_id: FAC, payjp_customer_id: 'cus_new' });
+    expect(calls('featured_slots', 'insert')[0].payload).toMatchObject({ facility_id: FAC, slot_type: 'search_top', area: '豊中市', business_type: null, budget_yen: 10780, is_active: false });
+    expect(calls('featured_slot_payjp_subscriptions', 'insert')[0].payload).toEqual({ slot_id: SLOT, facility_id: FAC, payjp_customer_id: 'cus_new', status: 'pending' });
+    expect(mockPayjp.createSubscription).toHaveBeenCalledWith('cus_new', 'pln_featured', { slot_id: SLOT, facility_id: FAC });
+    expect(calls('featured_slot_payjp_subscriptions', 'update')[0].payload).toMatchObject({ payjp_subscription_id: 'sub_new' });
+    expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'create', recordId: SLOT, facilityId: FAC }));
   });
 
-  const res = await POST(makePostRequest(validPostBody()));
-  const json = await res.json();
-  expect(res.status).toBe(201);
-  expect(json.checkout_url).toBe('https://checkout.stripe.com/pay/cs_test_abc');
-  expect(json.slot).toBeDefined();
-  expect((jest.requireMock('@/lib/audit-logger') as { writeAuditLog: jest.Mock }).writeAuditLog).toHaveBeenCalledTimes(1);
-
-  delete process.env.STRIPE_SECRET_KEY;
-});
-
-test('POST: Stripe設定あり + area_banner → checkout URL を返す (line 135 planLabels 分岐)', async () => {
-  process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
-
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    return insertSingle({ id: SLOT_UUID, slot_type: 'area_banner' });
+  test('既存の customer にはカードを差し替えて使う', async () => {
+    db({ customer: { data: { payjp_customer_id: 'cus_old' } } });
+    expect((await POST(postReq({ facility_id: FAC, token: 'tok_abc123' }))).status).toBe(201);
+    expect(mockPayjp.addDefaultCard).toHaveBeenCalledWith('cus_old', 'tok_abc123');
+    expect(mockPayjp.createCustomer).not.toHaveBeenCalled();
+    expect(mockPayjp.createSubscription).toHaveBeenCalledWith('cus_old', 'pln_featured', expect.anything());
   });
 
-  const res = await POST(makePostRequest(validPostBody({ slot_type: 'area_banner' })));
-  const json = await res.json();
-  expect(res.status).toBe(201);
-  expect(json.checkout_url).toBe('https://checkout.stripe.com/pay/cs_test_abc');
+  test('PAY.JP の設定が欠けていれば 404（PAY.JP に通信しない）', async () => {
+    delete process.env.NEXT_PUBLIC_PAYJP_PUBLIC_KEY;
+    expect((await POST(postReq())).status).toBe(404);
+    expect(mockPayjp.retrievePlan).not.toHaveBeenCalled();
+  });
 
-  delete process.env.STRIPE_SECRET_KEY;
-});
+  test.each([
+    ['JSON でない', 'x'],
+    ['トークンが無い', { facility_id: FAC }],
+    ['トークンの形が違う（カード番号など）', { facility_id: FAC, token: '4242424242424242' }],
+    ['余計な項目', { facility_id: FAC, token: 'tok_a', amount: 1 }],
+    ['施設 ID が不正', { facility_id: 'x', token: 'tok_a' }],
+  ])('%sは 400', async (_l, body) => {
+    expect((await POST(postReq(body))).status).toBe(400);
+    expect(mockPayjp.retrievePlan).not.toHaveBeenCalled();
+  });
 
-// ─── 障害を 401/403 に化けさせない（中 A9） ───
-describe('障害時の応答', () => {
-  function failingMembership() {
-    return {
-      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), in: jest.fn().mockReturnThis(),
-      maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { code: '08006', message: 'down' } })),
-    };
-  }
-  test('GET: 認証基盤の障害 → 503', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null }, error: new Error('network') });
-    expect((await GET(makeGetRequest())).status).toBe(503);
+  test('所属が無ければ 403・所属の確認失敗は 500', async () => {
+    db({ member: { data: null } });
+    expect((await POST(postReq())).status).toBe(403);
+    db({ member: { error: { message: 'db' } } });
+    expect((await POST(postReq())).status).toBe(500);
   });
-  test('POST: 認証基盤の障害 → 503', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null }, error: new Error('network') });
-    expect((await POST(makePostRequest(validPostBody()))).status).toBe(503);
+
+  test.each(['active', 'paused', 'canceled', 'trial'])('契約（%s）がある店舗は 409（二重課金しない）', async (status) => {
+    db({ current: { data: [{ status, created_at: '2020-01-01T00:00:00Z' }] } });
+    expect((await POST(postReq())).status).toBe(409);
+    expect(mockPayjp.createSubscription).not.toHaveBeenCalled();
   });
-  test('GET: 所属確認の DB 障害 → 500（403 にしない）', async () => {
-    mockAdminFrom.mockReturnValue(failingMembership());
-    expect((await GET(makeGetRequest())).status).toBe(500);
+
+  test('申込処理中（30 分以内の pending）があれば 409、古い pending は妨げない', async () => {
+    db({ current: { data: [{ status: 'pending', created_at: new Date().toISOString() }] } });
+    expect((await POST(postReq())).status).toBe(409);
+    db({ current: { data: [{ status: 'pending', created_at: '2020-01-01T00:00:00Z' }] } });
+    expect((await POST(postReq())).status).toBe(201);
   });
-  test('POST: 所属確認の DB 障害 → 500（403 にしない）', async () => {
-    mockAdminFrom.mockReturnValue(failingMembership());
-    expect((await POST(makePostRequest(validPostBody()))).status).toBe(500);
+
+  test('契約状況の読み取り失敗は 500・契約状況が null でも続行', async () => {
+    db({ current: { error: { message: 'db' } } });
+    expect((await POST(postReq())).status).toBe(500);
+    db({ current: { data: null } });
+    expect((await POST(postReq())).status).toBe(201);
+  });
+
+  test('プラン金額が税込表示と食い違えば売らない（500・通知）', async () => {
+    mockPayjp.retrievePlan.mockResolvedValue({ ...PLAN, amount: 9800 });
+    const res = await POST(postReq());
+    expect(res.status).toBe(500);
+    expect(mockAlert).toHaveBeenCalledWith('admin-featured-ads-plan-mismatch', expect.any(Error), '/api/admin/featured-ads');
+    expect(mockPayjp.createCustomer).not.toHaveBeenCalled();
+  });
+
+  test('プランを取得できなければ 500', async () => {
+    mockPayjp.retrievePlan.mockRejectedValue(new PayjpError('down', 503));
+    expect((await POST(postReq())).status).toBe(500);
+    expect(mockPayjp.createCustomer).not.toHaveBeenCalled();
+  });
+
+  test('customer の読み取り失敗は 500', async () => {
+    db({ customer: { error: { message: 'db' } } });
+    expect((await POST(postReq())).status).toBe(500);
+  });
+
+  test.each([['作成', 'createCustomer', {}], ['カード差し替え', 'addDefaultCard', { customer: { data: { payjp_customer_id: 'cus_old' } } }]])('カード拒否（%s）は 400・枠を作らない', async (_l, fn, opts) => {
+    db(opts as Opts);
+    (mockPayjp as Record<string, jest.Mock>)[fn].mockRejectedValue(new PayjpError('declined', 402, 'card_error'));
+    const res = await POST(postReq());
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('カードを利用できませんでした');
+    expect(calls('featured_slots', 'insert')).toHaveLength(0);
+  });
+
+  test('customer 作成で PAY.JP 障害なら 500', async () => {
+    mockPayjp.createCustomer.mockRejectedValue(new PayjpError('down', 500, 'server_error'));
+    expect((await POST(postReq())).status).toBe(500);
+  });
+
+  test('customer の保存失敗は 500（孤児の customer ID を通知に残す）', async () => {
+    db({ customerInsert: { error: { message: 'dup' } } });
+    expect((await POST(postReq())).status).toBe(500);
+    expect(String(mockAlert.mock.calls[0][1].message)).toContain('cus_new');
+    expect(calls('featured_slots', 'insert')).toHaveLength(0);
+  });
+
+  test.each([[{ error: { message: 'db' } }], [{ data: null }]])('枠の作成失敗は 500 %#', async (slotInsert) => {
+    db({ slotInsert });
+    expect((await POST(postReq())).status).toBe(500);
+    expect(mockPayjp.createSubscription).not.toHaveBeenCalled();
+  });
+
+  test('決済の行の作成失敗は 500・枠を消す', async () => {
+    db({ linkInsert: { error: { message: 'db' } } });
+    expect((await POST(postReq())).status).toBe(500);
+    expect(calls('featured_slots', 'delete')).toHaveLength(1);
+    expect(mockPayjp.createSubscription).not.toHaveBeenCalled();
+  });
+
+  test('定期課金がカードで拒否されたら 400・未有効の枠を消す', async () => {
+    mockPayjp.createSubscription.mockRejectedValue(new PayjpError('declined', 402));
+    expect((await POST(postReq())).status).toBe(400);
+    const del = calls('featured_slots', 'delete')[0];
+    expect(eqOf(del, 'id')).toBe(SLOT);
+    expect(eqOf(del, 'is_active')).toBe(false);
+  });
+
+  test('定期課金の作成が PAY.JP 障害なら 500・枠を消す（消せなくても応答は 500）', async () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    db({ slotDelete: { error: { message: 'db' } } });
+    mockPayjp.createSubscription.mockRejectedValue(new PayjpError('down', 500));
+    expect((await POST(postReq())).status).toBe(500);
+    expect(spy).toHaveBeenCalledWith('[featured-ads] orphan slot cleanup failed', { slotId: SLOT });
+    spy.mockRestore();
+  });
+
+  test('定期課金 ID の保存に失敗しても請求は始まっているので 201・運営に通知（webhook が metadata で補う）', async () => {
+    db({ linkSave: { error: { message: 'db' } } });
+    expect((await POST(postReq())).status).toBe(201);
+    expect(mockAlert).toHaveBeenCalledWith('admin-featured-ads-subscription-save', expect.any(Error), '/api/admin/featured-ads');
+  });
+
+  test('レート制限は 429', async () => {
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
+    expect((await POST(postReq())).status).toBe(429);
   });
 });
 
-test('POST: Stripe の決済ページ作成に失敗 → 未有効の枠を消して 500・監査ログは残さない', async () => {
-  process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
-  const StripeMock = jest.requireMock('stripe') as jest.Mock;
-  StripeMock.mockImplementationOnce(() => ({
-    checkout: { sessions: { create: jest.fn().mockRejectedValue(new Error('stripe down')) } },
-  }));
-  const audit = (jest.requireMock('@/lib/audit-logger') as { writeAuditLog: jest.Mock }).writeAuditLog;
-  const deleteEqActive = jest.fn(() => Promise.resolve({ error: null }));
-  const deleteEqId = jest.fn(() => ({ eq: deleteEqActive }));
-  const del = jest.fn(() => ({ eq: deleteEqId }));
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    if (callNum === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
-    return { delete: del };
+describe('DELETE（期間末で解約）', () => {
+  test('契約中の定期課金を解約し、解約予約済みを記録する', async () => {
+    const res = await DELETE(delReq());
+    expect(res.status).toBe(200);
+    expect(mockPayjp.cancelSubscription).toHaveBeenCalledWith('sub_1');
+    expect(calls('featured_slot_payjp_subscriptions', 'update')[0].payload).toMatchObject({ status: 'canceled' });
+    expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'cancel', recordId: SLOT }));
   });
 
-  const res = await POST(makePostRequest(validPostBody()));
-  expect(res.status).toBe(500);
-  expect(del).toHaveBeenCalled();
-  expect(deleteEqId).toHaveBeenCalledWith('id', SLOT_UUID);
-  expect(deleteEqActive).toHaveBeenCalledWith('is_active', false);
-  expect(audit).not.toHaveBeenCalled();
-  delete process.env.STRIPE_SECRET_KEY;
-});
-
-test('POST: Stripe 失敗後の枠削除にも失敗 → それでも 500（is_active=false のまま）', async () => {
-  process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
-  const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-  const StripeMock = jest.requireMock('stripe') as jest.Mock;
-  StripeMock.mockImplementationOnce(() => ({
-    checkout: { sessions: { create: jest.fn().mockRejectedValue(new Error('stripe down')) } },
-  }));
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
-    if (callNum === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
-    return { delete: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: { message: 'x' } }) }) }) };
+  test('PAY.JP の設定が欠けていれば 404', async () => {
+    delete process.env.PAYJP_SECRET_KEY;
+    expect((await DELETE(delReq())).status).toBe(404);
   });
-  const res = await POST(makePostRequest(validPostBody()));
-  expect(res.status).toBe(500);
-  expect(errSpy).toHaveBeenCalledWith('[featured-ads] orphan slot cleanup failed', { slotId: SLOT_UUID });
-  errSpy.mockRestore();
-  delete process.env.STRIPE_SECRET_KEY;
+
+  test.each([[null, SLOT], [FAC, null], ['bad', SLOT], [FAC, 'bad']])('ID 不正（%p, %p）は 400', async (f, s) => {
+    expect((await DELETE(delReq(f, s))).status).toBe(400);
+  });
+
+  test('所属が無ければ 403・確認失敗は 500', async () => {
+    db({ member: { data: null } });
+    expect((await DELETE(delReq())).status).toBe(403);
+    db({ member: { error: { message: 'db' } } });
+    expect((await DELETE(delReq())).status).toBe(500);
+  });
+
+  test.each([
+    [{ data: null }],
+    [{ data: { payjp_subscription_id: null, status: 'pending' } }],
+    [{ data: { payjp_subscription_id: 'sub_1', status: 'canceled' } }],
+  ])('解約できる契約が無ければ 404 %#', async (cancelRead) => {
+    db({ cancelRead });
+    expect((await DELETE(delReq())).status).toBe(404);
+    expect(mockPayjp.cancelSubscription).not.toHaveBeenCalled();
+  });
+
+  test('契約の読み取り失敗は 500', async () => {
+    db({ cancelRead: { error: { message: 'db' } } });
+    expect((await DELETE(delReq())).status).toBe(500);
+  });
+
+  test('PAY.JP の解約に失敗したら 500・記録しない', async () => {
+    mockPayjp.cancelSubscription.mockRejectedValue(new PayjpError('down', 500));
+    expect((await DELETE(delReq())).status).toBe(500);
+    expect(calls('featured_slot_payjp_subscriptions', 'update')).toHaveLength(0);
+  });
+
+  test('解約予約の記録に失敗しても解約自体は済んでいるので 200・通知', async () => {
+    db({ cancelMark: { error: { message: 'db' } } });
+    expect((await DELETE(delReq())).status).toBe(200);
+    expect(mockAlert).toHaveBeenCalledWith('admin-featured-ads-cancel-mark', expect.anything(), '/api/admin/featured-ads');
+  });
 });

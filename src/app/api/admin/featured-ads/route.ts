@@ -1,24 +1,38 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+/**
+ * 広告枠（検索結果上位表示）の一覧・申込・解約（2026年11月13日・点検 B2-1 で PAY.JP の月額サブスクに作り直し）。
+ *
+ * 以前は Stripe Checkout で期間に関係なく 9,800 円を 1 回だけ請求していた。今は：
+ *   GET    … 自店の枠と、販売できるか（isPayjpEnabled）・税込月額・payjp.js の公開鍵を返す。
+ *   POST   … payjp.js が作ったカードのトークンで施設の customer を作り（既にあればカードを差し替え）、
+ *            定期課金を作る。枠は is_active=false の「有効化待ち」で作り、掲載の開始・停止は webhook
+ *            （/api/payjp/webhook）が決める。カード番号はサーバーを通らない。
+ *   DELETE … 期間末で解約する（期間末までは掲載し、subscription.deleted で止まる）。
+ * PAY.JP の 4 つの設定が揃っていなければ、販売に関わる操作は 404（販売停止中と同じ見え方）。
+ */
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import Stripe from 'stripe';
-import { SITE_URL } from '@/lib/constants';
-import { checkCsrf } from '@/lib/csrf';
-import { checkRateLimit } from '@/lib/rate-limit';
-import { getClientIp } from '@/lib/client-ip';
+import { serverError, withRoute } from '@/lib/with-route';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { serverError, authUnavailable } from '@/lib/with-route';
-import { verifyAuthUser } from '@/lib/auth-verification';
+import { alertCaughtError } from '@/lib/alert';
+import { UUID_REGEX } from '@/lib/constants';
+import { isPayjpEnabled } from '@/lib/integration-availability';
+import {
+  FEATURED_AD_PRICE_TAX_EXCLUDED, FEATURED_AD_PRICE_TAX_INCLUDED,
+  addDefaultCard, cancelSubscription, createCustomer, createSubscription, isCardError,
+  planMatchesFeaturedPrice, retrievePlan,
+} from '@/lib/payjp';
 
-const PLAN_PRICES: Record<string, number> = {
-  search_top: 9800,
-  area_banner: 4900,
-  category_top: 7800,
-};
+const ROUTE = '/api/admin/featured-ads';
+const NOT_ON_SALE = { error: '有料掲載枠のお申し込みは現在受け付けておりません' };
+const CARD_REJECTED = 'カードを利用できませんでした。カード情報を確かめるか、別のカードでお試しください。';
+/** 申込の途中で止まった「有効化待ち」を、この時間を過ぎたら新しい申込の妨げにしない。 */
+const PENDING_BLOCK_MS = 30 * 60 * 1000;
+
+type Admin = ReturnType<typeof createServiceRoleClient>;
 
 /** 所属を確かめる。DB 障害は「所属なし」に化けさせず error として返す（中 A9）。 */
-async function verifyFacilityMembership(userId: string, facilityId: string): Promise<{ member: boolean; error: unknown }> {
-  const admin = createServiceRoleClient();
+async function verifyFacilityMembership(admin: Admin, userId: string, facilityId: string): Promise<{ member: boolean; error: unknown }> {
   const { data, error } = await admin
     .from('facility_members')
     .select('facility_id')
@@ -30,171 +44,204 @@ async function verifyFacilityMembership(userId: string, facilityId: string): Pro
   return { member: data !== null, error: null };
 }
 
-export async function GET(req: NextRequest) {
-  const ip = getClientIp(req);
-  if (await checkRateLimit(null, ip, 20, 60_000, 'featured-ads-get')) {
-    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
-  }
-  const supabase = await createServerSupabaseAuthClient();
-  const verification = await verifyAuthUser(supabase.auth);
-  if (verification.state === 'unavailable') return authUnavailable('admin-featured-ads-auth', '/api/admin/featured-ads');
-  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const user = verification.user;
+export async function GET(request: Request) {
+  return withRoute(async (req, ctx) => {
+    const facilityId = new URL(req.url).searchParams.get('facility_id');
+    if (!facilityId || !UUID_REGEX.test(facilityId)) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
+    const admin = createServiceRoleClient();
+    const membership = await verifyFacilityMembership(admin, ctx.user!.id, facilityId);
+    if (membership.error) return serverError('admin-featured-ads-membership', membership.error, ROUTE);
+    if (!membership.member) return NextResponse.json({ error: 'No facility' }, { status: 403 });
 
-  const facilityId = req.nextUrl.searchParams.get('facility_id');
-  if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
-  const membership = await verifyFacilityMembership(user.id, facilityId);
-  if (membership.error) return serverError('admin-featured-ads-membership', membership.error, '/api/admin/featured-ads');
-  if (!membership.member) return NextResponse.json({ error: 'No facility' }, { status: 403 });
+    const { data: slots, error: slotsErr } = await admin
+      .from('featured_slots')
+      .select('id, slot_type, area, business_type, starts_at, ends_at, budget_yen, impressions, clicks, is_active')
+      .eq('facility_id', facilityId)
+      .order('starts_at', { ascending: false });
+    if (slotsErr) return serverError('admin-featured-ads-list', slotsErr, ROUTE, 'サーバーエラーが発生しました', { slots: [] });
 
-  const admin = createServiceRoleClient();
-  const { data: slots, error: slotsErr } = await admin
-    .from('featured_slots')
-    .select('*')
-    .eq('facility_id', facilityId)
-    .order('starts_at', { ascending: false });
+    const { data: billing, error: billingErr } = await admin
+      .from('featured_slot_payjp_subscriptions')
+      .select('slot_id, status, current_period_end')
+      .eq('facility_id', facilityId);
+    if (billingErr) return serverError('admin-featured-ads-billing', billingErr, ROUTE, 'サーバーエラーが発生しました', { slots: [] });
+    const billingBySlot = new Map((billing ?? []).map((b) => [b.slot_id, b]));
 
-  if (slotsErr) return serverError('admin-featured-ads-list', slotsErr, '/api/admin/featured-ads');
-  return NextResponse.json({ slots: slots || [] });
+    const enabled = isPayjpEnabled();
+    return NextResponse.json({
+      slots: (slots ?? []).map((s) => ({
+        ...s,
+        billing_status: billingBySlot.get(s.id)?.status ?? null,
+        current_period_end: billingBySlot.get(s.id)?.current_period_end ?? null,
+      })),
+      sales: enabled
+        ? {
+          enabled: true,
+          publicKey: process.env.NEXT_PUBLIC_PAYJP_PUBLIC_KEY,
+          priceTaxExcluded: FEATURED_AD_PRICE_TAX_EXCLUDED,
+          priceTaxIncluded: FEATURED_AD_PRICE_TAX_INCLUDED,
+        }
+        : { enabled: false },
+    });
+  }, { csrf: false, requireAuth: true, rateLimit: { limiter: null, limit: 20, windowMs: 60_000, prefix: 'featured-ads-get' }, sentryTag: 'admin-featured-ads-get' })(request);
 }
 
-export async function POST(req: NextRequest) {
-  try {
-  const csrfError = checkCsrf(req);
-  if (csrfError) return csrfError;
-  const ip = getClientIp(req);
-  if (await checkRateLimit(null, ip, 10, 60_000, 'featured-ads')) {
-    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
-  }
-  const supabase = await createServerSupabaseAuthClient();
-  const verification = await verifyAuthUser(supabase.auth);
-  if (verification.state === 'unavailable') return authUnavailable('admin-featured-ads-auth', '/api/admin/featured-ads');
-  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const user = verification.user;
+const createSchema = z.object({
+  facility_id: z.string().regex(UUID_REGEX),
+  // payjp.js の createToken が返すトークン ID（tok_...）。カード番号そのものは受け取らない。
+  token: z.string().regex(/^tok_[A-Za-z0-9]{1,100}$/),
+  area: z.string().trim().max(50).optional().nullable(),
+  business_type: z.string().trim().max(50).optional().nullable(),
+}).strict();
 
-  const body = await req.json().catch(() => ({}));
-  const { facility_id: bodyFacilityId, slot_type, area, business_type, starts_at, ends_at } = body;
-  if (!bodyFacilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
-  const membership = await verifyFacilityMembership(user.id, bodyFacilityId);
-  if (membership.error) return serverError('admin-featured-ads-membership', membership.error, '/api/admin/featured-ads');
-  if (!membership.member) return NextResponse.json({ error: 'No facility' }, { status: 403 });
-  const facilityId = bodyFacilityId;
+export async function POST(request: Request) {
+  return withRoute(async (req, ctx) => {
+    if (!isPayjpEnabled()) return NextResponse.json(NOT_ON_SALE, { status: 404 });
+    const parsed = createSchema.safeParse(await req.json().catch(() => null));
+    if (!parsed.success) return NextResponse.json({ error: '入力内容が正しくありません' }, { status: 400 });
+    const { facility_id: facilityId, token } = parsed.data;
+    const area = parsed.data.area || null;
+    const businessType = parsed.data.business_type || null;
+    const userId = ctx.user!.id;
 
-  if (!slot_type || !starts_at || !ends_at) {
-    return NextResponse.json({ error: 'slot_type, starts_at, ends_at required' }, { status: 400 });
-  }
+    const admin = createServiceRoleClient();
+    const membership = await verifyFacilityMembership(admin, userId, facilityId);
+    if (membership.error) return serverError('admin-featured-ads-membership', membership.error, ROUTE);
+    if (!membership.member) return NextResponse.json({ error: 'No facility' }, { status: 403 });
 
-  const VALID_TYPES = ['search_top', 'area_banner', 'category_top'];
-  if (!VALID_TYPES.includes(slot_type)) {
-    return NextResponse.json({ error: 'Invalid slot_type' }, { status: 400 });
-  }
+    // 1 店舗 1 契約。契約中・支払い停止中・期間末解約待ち・申込処理中があれば新しく作らない（二重課金の防止）。
+    const { data: current, error: currentErr } = await admin
+      .from('featured_slot_payjp_subscriptions')
+      .select('status, created_at')
+      .eq('facility_id', facilityId)
+      .in('status', ['pending', 'active', 'trial', 'paused', 'canceled']);
+    if (currentErr) return serverError('admin-featured-ads-current', currentErr, ROUTE);
+    const blocking = (current ?? []).filter((c) => c.status !== 'pending' || Date.now() - new Date(c.created_at).getTime() < PENDING_BLOCK_MS);
+    if (blocking.length > 0) {
+      return NextResponse.json({ error: 'この店舗にはすでに広告枠の契約があります。' }, { status: 409 });
+    }
 
-  // Validate dates: must be parseable, ends_at > starts_at, and not more than 2 years out
-  const startsDate = new Date(starts_at);
-  const endsDate = new Date(ends_at);
-  const maxAllowed = new Date();
-  maxAllowed.setFullYear(maxAllowed.getFullYear() + 2);
-  if (isNaN(startsDate.getTime()) || isNaN(endsDate.getTime())) {
-    return NextResponse.json({ error: 'Invalid date format' }, { status: 400 });
-  }
-  if (endsDate <= startsDate) {
-    return NextResponse.json({ error: 'ends_at must be after starts_at' }, { status: 400 });
-  }
-  if (endsDate > maxAllowed) {
-    return NextResponse.json({ error: 'ends_at is too far in the future' }, { status: 400 });
-  }
+    // 画面の税込月額と PAY.JP のプラン金額が食い違っていたら売らない（設定の誤り＝運営に通知）。
+    const planId = process.env.PAYJP_FEATURED_PLAN_ID!;
+    try {
+      const plan = await retrievePlan(planId);
+      if (!planMatchesFeaturedPrice(plan)) {
+        return serverError('admin-featured-ads-plan-mismatch',
+          new Error(`PAY.JP plan ${planId} is ${plan.amount} ${plan.currency}/${plan.interval}, expected ${FEATURED_AD_PRICE_TAX_INCLUDED} jpy/month`),
+          ROUTE, '決済設定に誤りがあるため申し込めません。運営にお問い合わせください。');
+      }
+    } catch (err) {
+      return serverError('admin-featured-ads-plan', err, ROUTE, '決済サービスに接続できませんでした。時間をおいて再度お試しください。');
+    }
 
-  const admin = createServiceRoleClient();
-  const { data: slot, error } = await admin
-    .from('featured_slots')
-    .insert({
+    // 施設ごとの customer。既にあればカードを差し替え、無ければ作る。
+    const { data: customerRow, error: customerErr } = await admin
+      .from('facility_payjp_customers').select('payjp_customer_id').eq('facility_id', facilityId).maybeSingle();
+    if (customerErr) return serverError('admin-featured-ads-customer-read', customerErr, ROUTE);
+    let customerId = customerRow?.payjp_customer_id ?? null;
+    try {
+      if (customerId) {
+        await addDefaultCard(customerId, token);
+      } else {
+        customerId = (await createCustomer(token, facilityId)).id;
+        const { error: saveErr } = await admin.from('facility_payjp_customers').insert({ facility_id: facilityId, payjp_customer_id: customerId });
+        if (saveErr) {
+          return serverError('admin-featured-ads-customer-save', new Error(`${saveErr.message} (orphan PAY.JP customer ${customerId})`), ROUTE);
+        }
+      }
+    } catch (err) {
+      if (isCardError(err)) return NextResponse.json({ error: CARD_REJECTED }, { status: 400 });
+      return serverError('admin-featured-ads-customer', err, ROUTE, '決済サービスに接続できませんでした。時間をおいて再度お試しください。');
+    }
+
+    const now = new Date().toISOString();
+    const { data: slot, error: slotErr } = await admin.from('featured_slots').insert({
       facility_id: facilityId,
-      slot_type,
-      area: area || null,
-      business_type: business_type || null,
-      starts_at: new Date(starts_at).toISOString(),
-      ends_at: new Date(ends_at).toISOString(),
-      budget_yen: PLAN_PRICES[slot_type] || /* istanbul ignore next */ 0,
-      is_active: false, // becomes active after payment
-    })
-    .select()
-    .single();
+      slot_type: 'search_top',
+      area,
+      business_type: businessType,
+      starts_at: now,
+      ends_at: now, // 掲載期間は webhook が課金期間の終わりまで延ばす
+      budget_yen: FEATURED_AD_PRICE_TAX_INCLUDED,
+      is_active: false, // 有効化待ち。subscription.created（active）で掲載が始まる
+    }).select('id, slot_type, area, business_type, starts_at, ends_at, budget_yen, impressions, clicks, is_active').single();
+    if (slotErr || !slot) return serverError('admin-featured-ads-create', slotErr ?? new Error('slot insert returned no row'), ROUTE);
 
-  if (error) return serverError('admin-featured-ads-create', error, '/api/admin/featured-ads');
+    const discardSlot = async () => {
+      // 課金できなかった枠は誰も支払っていない。未有効のまま残さず消す（ON DELETE CASCADE で決済の行も消える）。
+      const { error } = await admin.from('featured_slots').delete().eq('id', slot.id).eq('is_active', false);
+      if (error) console.error('[featured-ads] orphan slot cleanup failed', { slotId: slot.id });
+    };
+    const { error: linkErr } = await admin.from('featured_slot_payjp_subscriptions').insert({
+      slot_id: slot.id, facility_id: facilityId, payjp_customer_id: customerId, status: 'pending',
+    });
+    if (linkErr) {
+      await discardSlot();
+      return serverError('admin-featured-ads-link', linkErr, ROUTE);
+    }
 
-  // 監査ログは枠が実際に使える状態（決済ページ発行済み・開発時は有効化済み）になってから残す。
-  const recordCreated = () => {
-    const { ua } = getRequestContext(req);
+    let subscriptionId: string;
+    try {
+      subscriptionId = (await createSubscription(customerId, planId, { slot_id: slot.id, facility_id: facilityId })).id;
+    } catch (err) {
+      await discardSlot();
+      if (isCardError(err)) return NextResponse.json({ error: CARD_REJECTED }, { status: 400 });
+      return serverError('admin-featured-ads-subscription', err, ROUTE, '決済サービスに接続できませんでした。時間をおいて再度お試しください。');
+    }
+
+    // 定期課金は作れた＝請求は始まっている。ID の保存に失敗しても webhook が metadata.slot_id で
+    // 枠を見つけて反映するので、利用者には成功を返し、運営にだけ知らせる。
+    const { error: saveSubErr } = await admin.from('featured_slot_payjp_subscriptions')
+      .update({ payjp_subscription_id: subscriptionId, updated_at: new Date().toISOString() }).eq('slot_id', slot.id);
+    if (saveSubErr) {
+      alertCaughtError('admin-featured-ads-subscription-save', new Error(`${saveSubErr.message} (slot_id=${slot.id}, subscription=${subscriptionId})`), ROUTE);
+    }
+
+    const { ip, ua } = getRequestContext(req);
     void writeAuditLog({
-      userId: user.id,
-      facilityId,
-      action: 'create',
-      tableName: 'featured_slots',
-      recordId: slot.id,
-      newValues: { slot_type, area: area || null, business_type: business_type || null, starts_at, ends_at },
-      ipAddress: ip,
-      userAgent: ua,
+      userId, facilityId, action: 'create', tableName: 'featured_slots', recordId: slot.id,
+      newValues: { slot_type: 'search_top', area, business_type: businessType, payjp_subscription_id: subscriptionId, monthly_yen: FEATURED_AD_PRICE_TAX_INCLUDED },
+      ipAddress: ip, userAgent: ua,
     });
-  };
+    return NextResponse.json({ slot: { ...slot, billing_status: 'pending', current_period_end: null } }, { status: 201 });
+  }, { requireAuth: true, rateLimit: { limiter: null, limit: 10, windowMs: 60_000, prefix: 'featured-ads' }, sentryTag: 'admin-featured-ads-post' })(request);
+}
 
-  // Create Stripe Checkout session for payment
-  const stripeKey = process.env.STRIPE_SECRET_KEY;
-  if (!stripeKey) {
-    // 【恒久根治・金銭仕様確定 2026年7月16日】STRIPE_SECRET_KEY 未設定時に決済を経ずに
-    // 広告枠を即アクティブ化していた。本番で env 設定ミスにより STRIPE_SECRET_KEY が
-    // 抜けていると、これが「無料で広告枠が有効化される」抜け穴になる（金銭損失）。
-    // 開発/デモ用途の即時有効化(Stripe未接続でも動作確認できる)自体は残すが、
-    // 真の本番(VERCEL_ENV=production)でのみ fail-closed とし、決済なしの無料化を物理的に防ぐ。
-    // NODE_ENV は Vercel の Preview デプロイでも 'production' になり Preview まで巻き込むため、
-    // Preview を明確に区別できる VERCEL_ENV（alert.ts / instrumentation.ts と同じ env 判定源）で
-    // 判定する。VERCEL_ENV は本番のみ 'production'・Preview は 'preview'・ローカルは undefined。
-    if (process.env.VERCEL_ENV === 'production') {
-      const err = new Error(`STRIPE_SECRET_KEY is not set in production - refusing to activate featured slot without payment (slotId=${slot.id})`);
-      return serverError('featured-ads:stripe-key-missing', err, '/api/admin/featured-ads', '決済設定が未完了のため広告を有効化できません。運営にお問い合わせください。');
+export async function DELETE(request: Request) {
+  return withRoute(async (req, ctx) => {
+    if (!isPayjpEnabled()) return NextResponse.json(NOT_ON_SALE, { status: 404 });
+    const params = new URL(req.url).searchParams;
+    const facilityId = params.get('facility_id');
+    const slotId = params.get('slot_id');
+    if (!facilityId || !slotId || !UUID_REGEX.test(facilityId) || !UUID_REGEX.test(slotId)) {
+      return NextResponse.json({ error: '店舗・広告枠IDが不正です' }, { status: 400 });
     }
-    // No Stripe configured (development/demo mode): activate immediately.
-    const { error: activateErr } = await admin.from('featured_slots').update({ is_active: true }).eq('id', slot.id);
-    if (activateErr) {
-      return serverError('admin-featured-ads-dev-activate', activateErr, '/api/admin/featured-ads', 'スロットの有効化に失敗しました');
+    const admin = createServiceRoleClient();
+    const membership = await verifyFacilityMembership(admin, ctx.user!.id, facilityId);
+    if (membership.error) return serverError('admin-featured-ads-membership', membership.error, ROUTE);
+    if (!membership.member) return NextResponse.json({ error: 'No facility' }, { status: 403 });
+
+    const { data: link, error: linkErr } = await admin.from('featured_slot_payjp_subscriptions')
+      .select('payjp_subscription_id, status').eq('slot_id', slotId).eq('facility_id', facilityId).maybeSingle();
+    if (linkErr) return serverError('admin-featured-ads-cancel-read', linkErr, ROUTE);
+    if (!link?.payjp_subscription_id || !['active', 'trial', 'paused'].includes(link.status)) {
+      return NextResponse.json({ error: '解約できる契約が見つかりません' }, { status: 404 });
     }
-    recordCreated();
-    return NextResponse.json({ slot, checkout_url: null }, { status: 201 });
-  }
+    try {
+      await cancelSubscription(link.payjp_subscription_id);
+    } catch (err) {
+      return serverError('admin-featured-ads-cancel', err, ROUTE, '解約できませんでした。時間をおいて再度お試しください。');
+    }
+    // 状態の正は webhook（subscription.canceled）。ここでは画面がすぐ「解約予約済み」を出せるよう先に記録する。
+    const { error: markErr } = await admin.from('featured_slot_payjp_subscriptions')
+      .update({ status: 'canceled', updated_at: new Date().toISOString() }).eq('slot_id', slotId);
+    if (markErr) alertCaughtError('admin-featured-ads-cancel-mark', markErr, ROUTE);
 
-  const stripe = new Stripe(stripeKey, { apiVersion: '2026-06-24.dahlia' });
-  const planLabels: Record<string, string> = {
-    search_top: '検索結果トップ表示（月額）',
-    area_banner: 'エリアページバナー（月額）',
-    category_top: 'カテゴリトップ表示（月額）',
-  };
-
-  let session: Stripe.Checkout.Session;
-  try {
-    session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      line_items: [{
-        quantity: 1,
-        price_data: {
-          currency: 'jpy',
-          unit_amount: PLAN_PRICES[slot_type],
-          product_data: { name: planLabels[slot_type] || /* istanbul ignore next */ '広告プラン' },
-        },
-      }],
-      success_url: `${SITE_URL}/admin/featured-ads?payment=success&slot=${slot.id}`,
-      cancel_url: `${SITE_URL}/admin/featured-ads?payment=cancel`,
-      metadata: { slot_id: slot.id, facility_id: facilityId },
+    const { ip, ua } = getRequestContext(req);
+    void writeAuditLog({
+      userId: ctx.user!.id, facilityId, action: 'cancel', tableName: 'featured_slots', recordId: slotId,
+      newValues: { payjp_subscription_id: link.payjp_subscription_id, cancel_at_period_end: true }, ipAddress: ip, userAgent: ua,
     });
-  } catch (stripeErr) {
-    // 決済ページを作れなかった枠は誰も支払えない。未有効の孤児として残さず消す
-    // （消せなかった場合も is_active=false のままなので表示には出ない）。
-    const { error: cleanupErr } = await admin.from('featured_slots').delete().eq('id', slot.id).eq('is_active', false);
-    if (cleanupErr) console.error('[featured-ads] orphan slot cleanup failed', { slotId: slot.id });
-    return serverError('admin-featured-ads-checkout', stripeErr, '/api/admin/featured-ads', '決済ページを作成できませんでした。時間をおいて再度お試しください。');
-  }
-
-  recordCreated();
-  return NextResponse.json({ slot, checkout_url: session.url }, { status: 201 });
-  } catch (e) {
-    return serverError('admin-featured-ads-post', e, '/api/admin/featured-ads', 'Internal Server Error');
-  }
+    return NextResponse.json({ ok: true });
+  }, { requireAuth: true, rateLimit: { limiter: null, limit: 10, windowMs: 60_000, prefix: 'featured-ads-cancel' }, sentryTag: 'admin-featured-ads-delete' })(request);
 }

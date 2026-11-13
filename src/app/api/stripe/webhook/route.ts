@@ -114,9 +114,9 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
       if (sessionErr) throw new Error(`stripe_sessions update failed: ${sessionErr.message}`);
       if (!sessionRows || sessionRows.length === 0) {
         // stripe_sessions に行を作るのは booking 系フロー（payment/checkout・stripe/checkout）のみ。
-        // featured-ads（metadata=slot_id）と options/checkout（metadata=option_key）は行を作らないため、
-        // それら由来のイベントでは 0 行が【正常系】。無条件 throw にすると広告枠・オプション決済が
-        // 500→Stripe再送ループに陥り、featured_slots 有効化に永久に到達しない。
+        // options/checkout（metadata=option_key）は行を作らないため、その由来のイベントでは
+        // 0 行が【正常系】。無条件 throw にするとオプション決済が 500→Stripe再送ループに陥る。
+        // （以前は featured-ads（metadata=slot_id）もこの形だったが、広告枠は PAY.JP へ移した。）
         // stripe_sessions に行を作る2フローは必ず metadata.payment_type を持つ（stripe/checkout は
         // booking 未指定の一般デポジットで booking_id を '' にするため、booking_id 単独判定だと
         // その経路の真の0行異常が warn止まりになる＝観測性の穴）。booking_id か payment_type の
@@ -190,24 +190,8 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
         }
       }
 
-      // Activate featured slot if ad payment completed
-      if (meta.slot_id) {
-        const { data: slotRows, error: slotErr } = await admin.from('featured_slots')
-          .update({ is_active: true })
-          .eq('id', meta.slot_id)
-          .select('id');
-        // 🔴 支払い済みの広告枠を有効にできなかったら throw する（2026年11月13日 点検 高-3）。
-        // 以前は console.error だけで break し、外側で processed=true・200 を返していたため、
-        // Stripe は再送せず、広告枠は無効のまま・通知も無いまま放置された（予約側は throw している）。
-        // throw すれば POST の catch が serverError（Slack 通知）で 500 を返し、processed は立たないので
-        // Stripe の再送で再処理される（is_active=true の update は何度実行しても同じ結果）。
-        if (slotErr) {
-          throw new Error(`featured_slots activate failed: ${slotErr.message} (slot_id=${meta.slot_id})`);
-        }
-        if (!slotRows || slotRows.length === 0) {
-          throw new Error(`featured_slots activate failed: 0 rows updated (slot_id=${meta.slot_id})`);
-        }
-      }
+      // 広告枠（featured_slots）は 2026年11月13日（点検 B2-1）から PAY.JP の月額サブスク
+      // （/api/payjp/webhook）で有効化する。Stripe 経由で広告枠を有効化する経路は撤去した。
       break;
     }
 

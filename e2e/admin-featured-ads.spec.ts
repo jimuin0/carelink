@@ -3,12 +3,10 @@
 // 出ないことを検証する。CI の隔離 Supabase（supabase start）上でのみ動作（本番不可侵）。
 // admin-batch.setup の storageState（owner 認証）を使う。
 //
-// 【背景】神原さん決定（2026年7月22日）：ローンチは決済プロバイダ（Stripe/PAY.JP）を使わない。
-// 施設オーナーがプラットフォームへ支払う有料掲載枠は回収手段が無く成立しないため、壊れた決済導線
-// （鍵の無い Stripe Checkout への遷移）を出さないよう非表示化した。実体＝
-// src/app/admin/featured-ads/page.tsx の FEATURED_ADS_ENABLED（false でゲート）と
-// src/app/admin/layout.tsx の LAUNCH_HIDDEN_HREFS（nav から /admin/featured-ads を全ロール非表示）。
-// 決済導入時にフラグを戻すだけで販売UIが復活する。このテストは「販売UIが再露出しないこと」を固定する。
+// 【背景】広告枠は 2026年11月13日（点検 B2-1）から PAY.JP の月額サブスクで販売する。販売 UI は
+// PAY.JP の 4 つの設定（isPayjpEnabled・src/lib/integration-availability.ts）が揃ったときだけ出る。
+// CI の隔離環境には PAY.JP の設定が無いので、ここでは「設定が無ければ販売 UI が出ない」ことを固定する
+// （nav も src/app/admin/layout.tsx の LAUNCH_HIDDEN_HREFS で同じ判定に従って隠れる）。
 import { test, expect } from '@playwright/test';
 
 test('オーナーが広告・上位表示ページに到達すると「準備中」表示となり販売UIが出ない', async ({ page }) => {
@@ -24,5 +22,5 @@ test('オーナーが広告・上位表示ページに到達すると「準備�
   await expect(page.getByText('検索結果上位表示')).toHaveCount(0);
   await expect(page.getByText('エリアページバナー')).toHaveCount(0);
   await expect(page.getByText('カテゴリートップ')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '広告枠を購入' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '広告枠を申し込む' })).toHaveCount(0);
 });

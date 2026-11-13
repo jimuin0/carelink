@@ -43,3 +43,14 @@ export function isPaymentsEnabled(): boolean {
 export function isGoogleCalendarEnabled(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
+
+/**
+ * 広告枠（featured-ads）を PAY.JP の月額サブスクで販売できるか（2026年11月13日・点検 B2-1）。
+ * 秘密鍵・webhook の照合トークン・公開鍵（カード入力の payjp.js 用）・プラン ID の 4 つが揃って初めて
+ * 「申込 → 課金 → webhook で有効化」が成立する。1 つでも欠ければ販売 UI も API も出さない
+ * （販売停止中と同じ見え方）。NEXT_PUBLIC_PAYJP_PUBLIC_KEY はビルド時に埋め込まれる公開値。
+ */
+export function isPayjpEnabled(): boolean {
+  return !!(process.env.PAYJP_SECRET_KEY && process.env.PAYJP_WEBHOOK_TOKEN
+    && process.env.NEXT_PUBLIC_PAYJP_PUBLIC_KEY && process.env.PAYJP_FEATURED_PLAN_ID);
+}
