@@ -487,6 +487,14 @@ describe('同じ予約に残った pending セッション', () => {
     expect(mockStaleUpdate).not.toHaveBeenCalled();
   });
 
+  test('pending の読み取り結果が null（行なし）→ 何も閉じずに作る', async () => {
+    setupHappyPath();
+    mockStaleRows = { data: null, error: null };
+    const res = await POST(makeRequest(body));
+    expect(res.status).toBe(200);
+    expect(mockStaleUpdate).not.toHaveBeenCalled();
+  });
+
   test('pending の読み取り失敗 → 500（作らない）', async () => {
     setupHappyPath();
     mockStaleRows = { data: null, error: { message: 'down' } };

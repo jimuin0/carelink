@@ -113,7 +113,8 @@ export async function POST(request: NextRequest) {
     if (staleErr) {
       return serverError('stripe-checkout-stale-read', staleErr, '/api/stripe/checkout', '決済セッションの作成に失敗しました。');
     }
-    for (const row of stale ?? []) {
+    const staleRows = stale ?? [];
+    for (const row of staleRows) {
       const pastExpiry = typeof row.expires_at === 'string' && Date.parse(row.expires_at) <= Date.now();
       if (pastExpiry) continue;
       try {
@@ -125,7 +126,7 @@ export async function POST(request: NextRequest) {
         );
       }
     }
-    if ((stale ?? []).length > 0) {
+    if (staleRows.length > 0) {
       const { error: expireErr } = await admin
         .from('stripe_sessions')
         .update({ status: 'expired' })
