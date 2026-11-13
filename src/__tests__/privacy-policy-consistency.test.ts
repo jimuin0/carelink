@@ -19,24 +19,20 @@ const privacySource = readFileSync(
 
 describe('プライバシーポリシーと実装の整合', () => {
   /**
-   * 問診（intake）は施設が任意の質問項目を作れる設計のため、鍼灸院・整骨院・美容クリニック等が
-   * 症状や既往歴を尋ねれば【要配慮個人情報】の取得になる。顧客向けには現在 OFF（テンプレ0件・
-   * 回答0件を本番実データで確認済み）で、ポリシーも「取得していない」と明記している。
-   * 再開する際にポリシーを直し忘れると、健康情報を同意の裏付けなく集める状態になる。
+   * 問診（intake）は施設が任意の質問項目を作れる設計のため、症状や既往歴を尋ねれば
+   * 【要配慮個人情報】の取得になる。2026年11月13日（神原さん決定・A87）に、問診の公開状態に
+   * かかわらず「取得し得る」旨・利用目的・同意取得・提供範囲を明記する記載へ改めた。
+   * 「取得していません」へ戻すと、問診を再開した瞬間に同意なき取得の記載になるので CI で止める。
    */
-  test('問診を再開したらポリシーの要配慮個人情報の記載も更新されている', () => {
-    const saysNotCollecting = privacySource.includes('要配慮個人情報」）を');
-    const hasNotCollectingSentence = privacySource.includes('取得していません');
-
-    if (INTAKE_CUSTOMER_ENABLED) {
-      // 再開した以上「取得していない」とは書けない。取得する旨・目的・同意方法へ書き換えること。
-      expect(
-        saysNotCollecting && hasNotCollectingSentence,
-      ).toBe(false);
-    } else {
-      // OFF の間は「取得していない」と明記されていること（記載自体の消失も検知する）。
-      expect(hasNotCollectingSentence).toBe(true);
-    }
+  test('要配慮個人情報を取得し得る旨・目的・同意・提供範囲が明記されている', () => {
+    expect(privacySource).not.toContain('取得していません');
+    expect(privacySource).toContain('要配慮個人情報');
+    expect(privacySource).toContain('取得する場合があります');
+    expect(privacySource).toContain('ご本人の同意を得たうえで取得');
+    expect(privacySource).toContain('施術・診療の参考');
+    expect(privacySource).toContain('予約・回答した施設');
+    // 問診フラグを単一ソースから読んでいること（再開時もこの記載のまま成立する）
+    expect(typeof INTAKE_CUSTOMER_ENABLED).toBe('boolean');
   });
 
   /**
