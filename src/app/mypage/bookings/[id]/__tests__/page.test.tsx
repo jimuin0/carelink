@@ -478,3 +478,48 @@ test('開始時刻を過ぎた予約は、無料期限の案内ではなく開�
   expect(await screen.findByText(STARTED_NOTICE)).toBeInTheDocument();
   expect(screen.queryByText(CHANGE_WINDOW_CLOSED)).not.toBeInTheDocument();
 });
+
+// キャンセルの応答が届かない・5xx のとき「失敗」と言い切らず、予約の今の状態で伝える（点検 B8-M5）。
+describe('キャンセル結果が不明なとき', () => {
+  function uncertainCancelFetch(mode: 'throw' | 500) {
+    global.fetch = jest.fn(async (url: string) => {
+      if (url === '/api/google-calendar') return { ok: true, status: 200, json: async () => ({ connected: false }) };
+      if (mode === 'throw') throw new Error('timeout');
+      return { ok: false, status: 500, json: async () => ({ error: 'x' }) };
+    }) as unknown as typeof fetch;
+  }
+  async function openAndConfirm(statusAfter: string | 'read-error') {
+    const { fireEvent } = await import('@testing-library/react');
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', CANCEL_BUTTON));
+    await screen.findByRole('dialog');
+    if (statusAfter === 'read-error') {
+      (createBrowserSupabaseClient as jest.Mock).mockImplementation(() => { throw new Error('offline'); });
+    } else {
+      mockDetail({ booking: { ...BOOKING, booking_date: '2099-06-20', status: statusAfter } });
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセルする' }));
+  }
+
+  test.each(['throw', 500] as const)('%s でも実際にキャンセル済みなら成功と表示する', async (mode) => {
+    mockDetail({ booking: { ...BOOKING, booking_date: '2099-06-20' } });
+    uncertainCancelFetch(mode);
+    await openAndConfirm('cancelled');
+    expect(await screen.findByText('予約をキャンセルしました')).toBeInTheDocument();
+    expect(screen.queryByText('キャンセルに失敗しました')).not.toBeInTheDocument();
+  });
+
+  test('キャンセルされていなければ「確認できない」と案内する（失敗と断定しない）', async () => {
+    mockDetail({ booking: { ...BOOKING, booking_date: '2099-06-20' } });
+    uncertainCancelFetch('throw');
+    await openAndConfirm('confirmed');
+    expect(await screen.findByText(/キャンセルの結果を確認できませんでした/)).toBeInTheDocument();
+  });
+
+  test('状態の読み直しも失敗したら「確認できない」と案内する', async () => {
+    mockDetail({ booking: { ...BOOKING, booking_date: '2099-06-20' } });
+    uncertainCancelFetch(500);
+    await openAndConfirm('read-error');
+    expect(await screen.findByText(/キャンセルの結果を確認できませんでした/)).toBeInTheDocument();
+  });
+});

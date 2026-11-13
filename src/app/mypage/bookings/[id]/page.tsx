@@ -149,6 +149,20 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
     handleCancel();
   };
 
+  // キャンセルの結果が分からないとき、予約の今の状態を読み直して伝える（成立していれば成功として扱う）。
+  const settleUncertainCancel = async () => {
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { data, error } = await supabase.from('bookings').select('status').eq('id', params.id).maybeSingle();
+      if (!error && data?.status === 'cancelled') {
+        setToast({ type: 'success', message: '予約をキャンセルしました' });
+        setBooking((prev) => prev ? { ...prev, status: 'cancelled' } : null);
+        return;
+      }
+    } catch { /* 下の「確認できない」案内に倒す */ }
+    setToast({ type: 'error', message: 'キャンセルの結果を確認できませんでした。画面を再読み込みして予約の状態を確認してください。' });
+  };
+
   const handleCancel = async () => {
     if (cancelling) return;
     setCancelling(true);
@@ -161,12 +175,16 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         setCancelReceipt(describeConfirmedCancelFee(body?.cancelFee));
         setToast({ type: 'success', message: '予約をキャンセルしました' });
         setBooking((prev) => prev ? { ...prev, status: 'cancelled' } : null);
+      } else if (res.status >= 500) {
+        // 5xx は「取り消せなかった」とは限らない（受付後に応答だけ失敗し得る）。実際の状態を確かめる。
+        await settleUncertainCancel();
       } else {
         const body = await res.json().catch(() => null);
         setToast({ type: 'error', message: body?.error || 'キャンセルに失敗しました' });
       }
     } catch {
-      setToast({ type: 'error', message: 'キャンセルに失敗しました' });
+      // 時間切れ・通信断でもサーバーではキャンセルが成立していることがある。「失敗」と言い切らない。
+      await settleUncertainCancel();
     } finally {
       setCancelling(false);
     }

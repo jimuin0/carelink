@@ -214,3 +214,40 @@ test('予約の指定があれば一覧へは移さない', async () => {
   expect(await screen.findByText('予約が見つかりません')).toBeInTheDocument();
   expect(mockReplace).not.toHaveBeenCalled();
 });
+
+// キャンセルの応答が届かない・5xx のとき「失敗」と言い切らず、予約の今の状態で伝える（点検 B8-M5）。
+describe('キャンセル結果が不明なとき', () => {
+  function uncertainFetch(cancel: 'throw' | 500, statusAfter: string | null) {
+    let reads = 0;
+    global.fetch = jest.fn(async (url: string) => {
+      if (String(url).startsWith('/api/liff/bookings')) {
+        reads++;
+        if (reads > 1 && statusAfter === null) throw new Error('offline');
+        return { ok: true, status: 200, json: async () => ({ booking: { ...FUTURE, status: reads > 1 ? statusAfter : 'confirmed', online_cancel_allowed: true } }) };
+      }
+      if (cancel === 'throw') throw new Error('timeout');
+      return { ok: false, status: 500, json: async () => ({ error: 'x' }) };
+    }) as unknown as typeof fetch;
+  }
+
+  test.each(['throw', 500] as const)('%s でも実際にキャンセル済みなら完了と表示する', async (mode) => {
+    uncertainFetch(mode, 'cancelled');
+    render(<LiffCancelPage />);
+    fireEvent.click(await screen.findByText('この予約をキャンセルする'));
+    expect(await screen.findByText('キャンセルが完了しました')).toBeInTheDocument();
+  });
+
+  test('キャンセルされていなければ「確認できない」と案内する（失敗と断定しない）', async () => {
+    uncertainFetch('throw', 'confirmed');
+    render(<LiffCancelPage />);
+    fireEvent.click(await screen.findByText('この予約をキャンセルする'));
+    expect(await screen.findByText(/キャンセルの結果を確認できませんでした/)).toBeInTheDocument();
+  });
+
+  test('状態の読み直しも失敗したら「確認できない」と案内する', async () => {
+    uncertainFetch('throw', null);
+    render(<LiffCancelPage />);
+    fireEvent.click(await screen.findByText('この予約をキャンセルする'));
+    expect(await screen.findByText(/キャンセルの結果を確認できませんでした/)).toBeInTheDocument();
+  });
+});

@@ -91,6 +91,18 @@ function CancelContent() {
       .catch(() => { setLoadError(true); setLoading(false); });
   }, [liff, bookingId]);
 
+  // キャンセルの結果が分からないとき、予約の今の状態を読み直して伝える（成立していれば成功として扱う）。
+  const settleUncertainCancel = useCallback(async (id: string) => {
+    if (liff.status !== 'ready') return;
+    try {
+      const r = await fetch(`/api/liff/bookings?booking_id=${id}`, { headers: { Authorization: `Bearer ${liff.accessToken}` } });
+      const d = r.ok ? await r.json() : null;
+      if (d?.booking?.status === 'cancelled') { setResult('success'); return; }
+    } catch { /* 下の「確認できない」案内に倒す */ }
+    setErrorMsg('キャンセルの結果を確認できませんでした。予約の状態をもう一度開いて確認してください。');
+    setResult('error');
+  }, [liff]);
+
   const handleCancel = useCallback(async () => {
     if (!booking || cancelling || liff.status !== 'ready') return;
     const now = Date.now();
@@ -112,18 +124,21 @@ function CancelContent() {
         const data = await res.json().catch(() => null);
         setReceipt(describeConfirmedCancelFee(data?.cancelFee));
         setResult('success');
+      } else if (res.status >= 500) {
+        // 5xx は「取り消せなかった」とは限らない（受付後に応答だけ失敗し得る）。実際の状態を確かめる。
+        await settleUncertainCancel(booking.id);
       } else {
         const data = await res.json().catch(() => null);
         setErrorMsg(data?.error ?? 'キャンセルに失敗しました');
         setResult('error');
       }
     } catch {
-      setErrorMsg('キャンセルに失敗しました');
-      setResult('error');
+      // 時間切れ・通信断でもサーバーではキャンセルが成立していることがある。「失敗」と言い切らない。
+      await settleUncertainCancel(booking.id);
     } finally {
       setCancelling(false);
     }
-  }, [booking, cancelling, liff, estimateAt]);
+  }, [booking, cancelling, liff, estimateAt, settleUncertainCancel]);
 
   if (liff.status === 'loading') return <LiffLoading />;
   if (liff.status === 'error') return <LiffError message={liff.message} />;
