@@ -139,6 +139,16 @@ export default async function FacilityPage(props: Props) {
   results.forEach((r, i) => {
     if (r.status === 'rejected') safeCaptureException(r.reason, `facility-detail:${queryNames[i]}`);
   });
+  // メニュー・写真・口コミは { data, error } で失敗を返す（例外にならない）。0件のページとして
+  // ISR（revalidate=3600）にキャッシュさせず、例外にして直前の正常版を残す（初回は error.tsx）。
+  const coreErrors = [results[0], results[1], results[2]]
+    .map((r, i) => (r.status === 'fulfilled' && r.value.error ? queryNames[i] : null))
+    .filter((name): name is string => name !== null);
+  if (coreErrors.length > 0) {
+    const error = new Error(`Facility detail lookup failed: ${coreErrors.join(',')}`);
+    safeCaptureException(error, 'facility-detail:core-lookup');
+    throw error;
+  }
   const menus: FacilityMenu[] = results[0].status === 'fulfilled' ? results[0].value.menus : [];
   const photos: FacilityPhoto[] = results[1].status === 'fulfilled' ? results[1].value.photos : [];
   const reviews: FacilityReview[] = results[2].status === 'fulfilled' ? results[2].value.reviews : [];

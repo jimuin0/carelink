@@ -155,7 +155,7 @@ export default async function ChainManagementPage() {
             {stats.map((f) => (
               <tr key={f.id} className="hover:bg-gray-50/50">
                 <SbTd>
-                  <Link href={`/admin?fid=${f.id}`} className="font-medium text-gray-800 hover:text-sky-600 transition-colors">
+                  <Link href={`/admin?facility_id=${f.id}`} className="font-medium text-gray-800 hover:text-sky-600 transition-colors">
                     {f.name}
                   </Link>
                 </SbTd>

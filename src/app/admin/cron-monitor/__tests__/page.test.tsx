@@ -5,6 +5,8 @@ import CronMonitorPage from '../page';
 
 // 直近30日の件数（本番の実態に近い内訳: skipped が多数派・エラー 0）。
 let counts: { total: number; success: number; error: number; skipped: number };
+let summaryError: unknown = null;
+let failingJob: string | null = null;
 
 function query() {
   const filters: Record<string, unknown> = {};
@@ -18,8 +20,8 @@ function query() {
     then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
       const status = filters.status as keyof typeof counts | undefined;
       const result = head
-        ? { count: status ? counts[status] : counts.total, error: null }
-        : { data: [], error: null };
+        ? { count: status ? counts[status] : counts.total, error: summaryError }
+        : { data: [], error: failingJob && filters.job_name === failingJob ? { message: 'db down' } : null };
       return Promise.resolve(result).then(resolve, reject);
     },
   };
@@ -31,6 +33,8 @@ jest.mock('@/lib/supabase-browser', () => ({
 }));
 
 beforeEach(() => {
+  summaryError = null;
+  failingJob = null;
   counts = { total: 7400, success: 3100, error: 0, skipped: 4300 };
 });
 
@@ -58,4 +62,18 @@ test('記録が無いときは「—」で表示し、0% の赤にしない', as
   render(<CronMonitorPage />);
   expect(await screen.findByText('—')).toBeInTheDocument();
   expect(screen.queryByText('0%')).not.toBeInTheDocument();
+});
+
+// 監査 A30: 集計・ジョブ別最新の取得失敗を「エラー0・成功率—」の健全な画面に見せない。
+test('集計を取得できなければ警告し、エラー数を0と表示しない', async () => {
+  summaryError = { message: 'db down' };
+  render(<CronMonitorPage />);
+  expect(await screen.findByText(/直近30日の集計を取得できませんでした/)).toBeInTheDocument();
+  expect(screen.getByText('取得失敗')).toBeInTheDocument();
+});
+
+test('個別ジョブの最新実行の取得失敗を黙って一覧から消さない', async () => {
+  failingJob = 'booking-reminder';
+  render(<CronMonitorPage />);
+  expect(await screen.findByText(/最新実行を取得できませんでした: booking-reminder/)).toBeInTheDocument();
 });

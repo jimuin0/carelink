@@ -16,7 +16,7 @@ const mockGetPublishedFeatures = jest.fn();
 
 // factory 内は遅延参照にする（jest.mock の巻き上げで TDZ に当たるため）
 jest.mock('@/lib/features', () => ({
-  getPublishedFeatures: () => mockGetPublishedFeatures(),
+  getPublishedFeaturesStrict: () => mockGetPublishedFeatures(),
 }));
 
 import { generateMetadata } from '../page';

@@ -30,7 +30,7 @@ const FACILITY_ID = '71000000-0000-4000-8000-000000000001';
 /** 任意のメソッドチェーンを許容し、最後に .single() または直接 await で解決する thenable モック。 */
 function chain(result: { data?: unknown; count?: number | null; error?: unknown } = {}) {
   const obj: Record<string, unknown> = {};
-  const passthrough = ['select', 'eq', 'neq', 'gte', 'lte', 'in', 'or', 'not', 'order', 'limit'];
+  const passthrough = ['select', 'eq', 'neq', 'gte', 'lte', 'in', 'or', 'not', 'order', 'range', 'limit'];
   for (const m of passthrough) obj[m] = jest.fn(() => obj);
   obj.single = jest.fn(() => Promise.resolve({ data: result.data ?? null, error: result.error ?? null }));
   obj.then = (resolve: (v: { data: unknown; count: number | null; error: unknown }) => unknown) =>
@@ -67,7 +67,7 @@ function mockSupabase(opts: {
       const bookings = chain({ data: opts.bookingRows ?? [], count: 0 });
       // Chainable but never settles, like a transport that accepted the request and went silent.
       const stalled: Record<string, unknown> = { then: () => undefined };
-      for (const m of ['eq', 'neq', 'gte', 'lte']) stalled[m] = () => stalled;
+      for (const m of ['eq', 'neq', 'gte', 'lte', 'order', 'range']) stalled[m] = () => stalled;
       if (opts.stall === 'kpi') bookings.eq = jest.fn(() => stalled);
       if (opts.stall === 'recent') bookings.limit = jest.fn(() => stalled);
       return bookings;

@@ -34,6 +34,7 @@ const reads: Read[] = [];
 let membershipError: unknown = null;
 const twoStores = [{ facility_id: A, facility_profiles: { name: '合成店舗A' } }, { facility_id: B, facility_profiles: { name: '合成店舗B' } }];
 let memberships = twoStores;
+let profileStatus = 'published';
 const auth = jest.fn();
 jest.mock('@/lib/supabase-browser', () => ({
   createBrowserSupabaseClient: () => ({
@@ -49,7 +50,7 @@ jest.mock('@/lib/supabase-browser', () => ({
         if (table === 'facility_qa') {
           return { data: [{ id: 'aa820000-0000-4000-8000-0000000000a1', facility_id: id(), question: `質問-${id()}`, answer: null, status: 'pending', is_public: false, created_at: '2026-10-20T00:00:00Z' }], error: null };
         }
-        if (table === 'facility_profiles') return { data: { slug: id() === B ? 'store-b' : 'store-a', name: id() === B ? '合成店舗B' : '合成店舗A' }, error: null };
+        if (table === 'facility_profiles') return { data: { slug: id() === B ? 'store-b' : 'store-a', name: id() === B ? '合成店舗B' : '合成店舗A', status: profileStatus }, error: null };
         return { data: [], error: null };
       };
       const chain: Record<string, unknown> = {
@@ -77,6 +78,7 @@ beforeEach(() => {
   mockQuery = '';
   membershipError = null;
   memberships = twoStores;
+  profileStatus = 'published';
   reads.length = 0;
   auth.mockResolvedValue({ data: { user: { id: 'synthetic-owner' } }, error: null });
   global.fetch = fetchMock as unknown as typeof fetch;
@@ -224,14 +226,37 @@ test('求人新規 sends the selected store so a multi-store owner can create a 
 test('会計連携 exports the selected store', async () => {
   mockQuery = `facility_id=${B}`;
   const clicked: string[] = [];
-  const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { clicked.push(this.getAttribute('href') ?? ''); });
+  const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { clicked.push(this.download); });
+  const originalFetch = global.fetch;
+  const exportFetch = jest.fn(async () => ({ ok: true, blob: async () => new Blob(['csv']), headers: new Headers({ 'Content-Disposition': "attachment; filename*=UTF-8''carelink_freee_2026-10-01.csv" }) }));
+  global.fetch = exportFetch as unknown as typeof fetch;
+  Object.assign(URL, { createObjectURL: jest.fn(() => 'blob:synthetic'), revokeObjectURL: jest.fn() });
   try {
     render(<AccountingPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'CSVをダウンロード' }));
-    expect(clicked).toHaveLength(1);
-    expect(new URL(clicked[0], 'https://carelink.example.invalid').searchParams.get('facility_id')).toBe(B);
+    await waitFor(() => expect(clicked).toHaveLength(1));
+    expect(clicked[0]).toBe('carelink_freee_2026-10-01.csv');
+    expect(new URL(String((exportFetch.mock.calls[0] as unknown[])[0]), 'https://carelink.example.invalid').searchParams.get('facility_id')).toBe(B);
   } finally {
     click.mockRestore();
+    global.fetch = originalFetch;
+  }
+});
+
+// 監査 B7-11: 出力の失敗（期間エラー・障害）を画面に出し、JSON を保存させない。
+test('会計連携 shows export errors instead of silently downloading nothing', async () => {
+  mockQuery = `facility_id=${B}`;
+  const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn(async () => ({ ok: false, json: async () => ({ error: 'エクスポート範囲は最大366日です' }) })) as unknown as typeof fetch;
+  try {
+    render(<AccountingPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'CSVをダウンロード' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('エクスポート範囲は最大366日です');
+    expect(click).not.toHaveBeenCalled();
+  } finally {
+    click.mockRestore();
+    global.fetch = originalFetch;
   }
 });
 
@@ -241,6 +266,15 @@ test('QRコード encodes the selected store’s public page', async () => {
   expect((await screen.findAllByText('https://carelink-jp.com/facility/store-b')).length).toBeGreaterThan(0);
   expect(reads.find(read => read.table === 'facility_profiles')?.eq).toEqual([['id', B]]);
   expect(screen.queryByText(/facility\/store-a/)).toBeNull();
+});
+
+// 監査 B7-12: 公開前の店舗の QR は 404 のページへ案内するので作らない。
+test('QRコード is not generated for an unpublished store', async () => {
+  mockQuery = `facility_id=${B}`;
+  profileStatus = 'draft';
+  render(<QrCodePage />);
+  expect(await screen.findByText(/まだ公開されていないため、QRコードを作成できません/)).toBeTruthy();
+  expect(screen.queryByText(/facility\/store-b/)).toBeNull();
 });
 
 test('a single store is selected automatically without a query', async () => {

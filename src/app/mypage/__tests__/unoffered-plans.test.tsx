@@ -22,10 +22,11 @@ jest.mock('@/lib/supabase-server-auth', () => ({
     }),
   }),
 }));
-jest.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({
+const mockServiceError = jest.fn();
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: () => ({
     from: (table: string) => ({
-      select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: mockServiceRows(table), error: null }) }) }),
+      select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: mockServiceRows(table), error: mockServiceError(table) ?? null }) }) }),
     }),
   }),
 }));
@@ -43,6 +44,7 @@ beforeEach(() => {
   mockGetUser.mockReset().mockResolvedValue({ data: { user: { id: 'synthetic-user' } }, error: null });
   mockHeldCount.mockReset().mockResolvedValue({ count: 0, error: null });
   mockServiceRows.mockReset().mockReturnValue([]);
+  mockServiceError.mockReset().mockReturnValue(null);
 });
 
 describe('マイページのナビ', () => {
@@ -110,5 +112,17 @@ describe('月額プランページ', () => {
     expect(html).toContain('合成月額プラン');
     expect(html).not.toContain('申し込む');
     expect(html).not.toContain('href="/search"');
+  });
+});
+
+// 取得失敗を「持っていない」の空状態に偽装しない（加入者に障害時「加入していません」と見せない）。
+describe('取得失敗', () => {
+  test.each([
+    ['回数券', MyPackagesPage, 'user_packages'],
+    ['月額プラン', MySubscriptionsPage, 'user_subscriptions'],
+  ] as const)('%s は空状態を出さず例外にする', async (_n, Page, table) => {
+    mockServiceRows.mockReturnValue(null);
+    mockServiceError.mockImplementation((t: string) => (t === table ? { message: 'db down' } : null));
+    await expect(Page()).rejects.toThrow('取得に失敗しました');
   });
 });

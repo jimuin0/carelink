@@ -28,7 +28,7 @@ beforeEach(() => {
   mockFrom.mockImplementation((table: string) => {
     const result = { data: table === 'facility_profiles' ? profileRow : table === 'staff_profiles' ? [{ id: 'staff-b', name: '合成スタッフ', is_active: true }] : [], count: 0, error: null };
     const c: Record<string, unknown> = {}; const eq = jest.fn(() => c); queries.push({ table, eq }); c.eq = eq;
-    for (const method of ['select', 'or', 'in', 'order', 'limit', 'gte', 'lte', 'neq', 'not']) c[method] = () => c;
+    for (const method of ['select', 'or', 'in', 'order', 'range', 'limit', 'gte', 'lte', 'neq', 'not']) c[method] = () => c;
     c.single = () => Promise.resolve(result); c.then = (resolve: (result: unknown) => unknown) => resolve(result); return c;
   });
 });
@@ -127,4 +127,32 @@ test('analytics children remount on store changes so previous tenant data cannot
   const tree = await Analytics({ searchParams: Promise.resolve({ facility_id: facility }) });
   const charts = nodes(tree).filter(node => node.props.facilityId === facility);
   expect(charts).toHaveLength(6); for (const chart of charts) expect(chart.key).toBe(facility);
+});
+
+// 監査 A29 / B7-2: 売上の集計を max-rows（1000行）で黙って切らない。id 順で全ページを読む。
+describe('売上は1000行を超えても全件で数える', () => {
+  beforeEach(() => {
+    profileRow = { status: 'published' };
+    mockFrom.mockImplementation((table: string) => {
+      let range: number | null = null;
+      const c: Record<string, unknown> = {}; const eq = jest.fn(() => c); queries.push({ table, eq }); c.eq = eq;
+      for (const method of ['select', 'or', 'in', 'order', 'limit', 'gte', 'lte', 'neq', 'not']) c[method] = () => c;
+      c.range = (from: number) => { range = from; return c; };
+      const result = () => ({
+        data: table === 'facility_profiles' ? profileRow : table === 'bookings' && range !== null
+          ? Array.from({ length: range === 0 ? 1000 : 5 }, () => ({ total_price: 1 })) : [],
+        count: 0, error: null,
+      });
+      c.single = () => Promise.resolve(result()); c.maybeSingle = () => Promise.resolve(result());
+      c.then = (resolve: (r: unknown) => unknown) => resolve(result()); return c;
+    });
+  });
+  test('analytics', async () => {
+    const tree = await Analytics({ searchParams: Promise.resolve({ facility_id: facility }) });
+    expect(nodes(tree).find(n => n.props.label === '直近6ヶ月の売上')?.props.value).toBe('¥6,030');
+  });
+  test('dashboard', async () => {
+    const tree = await Dashboard({ searchParams: Promise.resolve({ facility_id: facility }) });
+    expect(nodes(tree).find(n => n.props.label === '今月の売上')?.props.value).toBe('¥1,005');
+  });
 });

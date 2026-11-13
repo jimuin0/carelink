@@ -177,8 +177,16 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
     setPaid('');
     setCheckoutOpen(true);
   };
+  // 割引は常に負、メニュー・物販は常に非負。種別を切り替えたときも金額の符号を種別に合わせる。
   const updateItem = (i: number, patch: Partial<Charge>) =>
-    setCheckoutItems((prev) => prev.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+    setCheckoutItems((prev) => prev.map((c, idx) => {
+      if (idx !== i) return c;
+      const next = { ...c, ...patch };
+      if (patch.type !== undefined && patch.type !== c.type) {
+        next.amount = next.type === 'discount' ? -Math.abs(next.amount) : Math.abs(next.amount);
+      }
+      return next;
+    }));
   const addItem = (type: ChargeType) =>
     setCheckoutItems((prev) => [...prev, { type, name: type === 'discount' ? '割引' : '', amount: 0 }]);
   const removeItem = (i: number) =>

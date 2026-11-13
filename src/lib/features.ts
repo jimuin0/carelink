@@ -30,26 +30,29 @@ async function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
   }
 }
 
-export async function getPublishedFeatures(limit = 10): Promise<Feature[]> {
+/**
+ * 公開中の特集を読む。失敗（error・タイムアウト）は例外にする。
+ * ISR ページはこれを使い、障害時に「準備中・noindex」を1時間キャッシュさせない（直前の正常版が残る）。
+ */
+export async function getPublishedFeaturesStrict(limit = 10): Promise<Feature[]> {
   const supabase = createServerSupabaseClient();
+  const { data, error } = await withTimeout(
+    supabase
+      .from('features')
+      .select('id, title, slug, description, banner_image_url, filter_type, filter_keyword, filter_prefecture, display_order, published_at')
+      .eq('is_published', true)
+      .order('display_order', { ascending: true })
+      .limit(limit),
+    FEATURE_QUERY_TIMEOUT_MS,
+  );
+  if (error) throw new Error(error.message);
+  return (data || []) as Feature[];
+}
 
+/** 失敗時は [] を返す版（generateStaticParams など、失敗でビルドを止めたくない箇所用）。 */
+export async function getPublishedFeatures(limit = 10): Promise<Feature[]> {
   try {
-    const { data, error } = await withTimeout(
-      supabase
-        .from('features')
-        .select('id, title, slug, description, banner_image_url, filter_type, filter_keyword, filter_prefecture, display_order, published_at')
-        .eq('is_published', true)
-        .order('display_order', { ascending: true })
-        .limit(limit),
-      FEATURE_QUERY_TIMEOUT_MS,
-    );
-
-    if (error) {
-      console.error('[features] getPublishedFeatures failed:', error.message);
-      return [];
-    }
-
-    return (data || []) as Feature[];
+    return await getPublishedFeaturesStrict(limit);
   } catch (error) {
     console.error(
       '[features] getPublishedFeatures failed:',
@@ -61,11 +64,13 @@ export async function getPublishedFeatures(limit = 10): Promise<Feature[]> {
 
 export async function getFeatureBySlug(slug: string): Promise<Feature | null> {
   const supabase = createServerSupabaseClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('features')
     .select('*')
     .eq('slug', slug)
     .eq('is_published', true)
     .maybeSingle();
+  // 読み取り失敗を「特集が無い（404）」にしない。例外にして error.tsx／直前のキャッシュに委ねる。
+  if (error) throw new Error(`[features] getFeatureBySlug failed: ${error.message}`);
   return data as Feature | null;
 }

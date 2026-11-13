@@ -101,26 +101,26 @@ export default async function FunnelPage(props: { searchParams: Promise<{ facili
   // 月別予約推移（過去6ヶ月・JST 月境界）
   const monthlyBookings: { month: string; total: number; confirmed: number }[] = [];
 
-  const { data: allBookings } = await readPageResult(() => admin
-    .from('bookings')
-    .select('created_at, status')
-    .eq('facility_id', facilityId)
-    .gte('created_at', jstMonthStartIso(-6)), '/admin/funnel');
-
-  for (let i = 5; i >= 0; i--) {
+  // 行を取り寄せて数えると max-rows（既定1000行）で黙って切れるため、上段と同じく月ごとに件数（count）で数える。
+  // bookings.created_at は NOT NULL 制約が無く null があり得るが、範囲条件に当たらないので月別集計から外れる。
+  const months = Array.from({ length: 6 }, (_, k) => 5 - k);
+  const monthCounts = await Promise.all(months.flatMap((i) => {
     const start = jstMonthStartIso(-i);
     const end = jstMonthStartIso(-i + 1);
-    const label = `${jstMonthInfo(-i).month}月`;
-    // bookings.created_at は DEFAULT now() のみで NOT NULL 制約が無く DB 上 null があり得る
-    // （supabase/migrations/20260323000003_phase4_bookings.sql）。
-    // どの月にも属せない不明なレコードなので月別集計からは除外する（過大・過少どちらの月にも誤って加算しない）。
-    const month = (allBookings ?? []).filter((b) => b.created_at !== null && b.created_at >= start && b.created_at < end);
+    const base = () => admin.from('bookings').select('id', { count: 'exact', head: true })
+      .eq('facility_id', facilityId).gte('created_at', start).lt('created_at', end);
+    return [
+      readPageResult(() => base(), '/admin/funnel'),
+      readPageResult(() => base().in('status', ['confirmed', 'arrived', 'completed']), '/admin/funnel'),
+    ];
+  }));
+  months.forEach((i, k) => {
     monthlyBookings.push({
-      month: label,
-      total: month.length,
-      confirmed: month.filter((b) => ['confirmed', 'arrived', 'completed'].includes(b.status)).length,
+      month: `${jstMonthInfo(-i).month}月`,
+      total: verifiedCount(monthCounts[k * 2].count),
+      confirmed: verifiedCount(monthCounts[k * 2 + 1].count),
     });
-  }
+  });
 
   const maxMonthly = Math.max(...monthlyBookings.map((m) => m.total), 1);
 

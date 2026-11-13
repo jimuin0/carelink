@@ -8,6 +8,7 @@ import { SHOW_JOBS } from '@/lib/feature-toggles';
 import { isIndexableAreaQuality } from '@/lib/area-seo';
 import { generatePrefTypeContent, generateCityTypeContent } from '@/lib/seo-snippets';
 import { getSymptomSlugsWithPublishedFacilities } from '@/lib/symptom-coverage';
+import { fetchAllPaged } from '@/lib/paginate';
 
 // 完全動的: 環境変数変更/施設追加を即時反映、CDN静的化を完全回避
 export const dynamic = 'force-dynamic';
@@ -64,10 +65,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const supabase = createServerSupabaseClient();
 
   // Dynamic facility pages（prefecture, business_type も取得して 0件エリアを除外）
-  const { data: facilities } = await supabase
+  // max-rows（既定1000行）で黙って切れないよう slug 順で全ページを読む。施設一覧は施設・エリア・業種・
+  // ランキング・特集の全 URL の根拠なので、読めなければ欠けた sitemap を返さず失敗にする（検索エンジンは再取得する）。
+  const { rows: facilities, error: facilitiesError } = await fetchAllPaged<{ slug: string; updated_at: string | null; prefecture: string; business_type: string; city: string | null; rating_count: number | null }>(async (offset, limit) => await supabase
     .from('facility_profiles')
     .select('slug, updated_at, prefecture, business_type, city, rating_count')
-    .eq('status', 'published');
+    .eq('status', 'published')
+    .order('slug', { ascending: true })
+    .range(offset, offset + limit - 1), { failOnTruncation: true });
+  if (facilitiesError) {
+    console.error('[sitemap] facility_profiles lookup failed');
+    throw new Error('sitemap: facility_profiles lookup failed');
+  }
 
   // 施設が存在するエリアの Set を構築（薄いコンテンツページをサイトマップから除外）
   // 注: crossPages 生成より前に宣言する（TDZ 回避 — Cannot access before initialization 防止）
@@ -194,10 +203,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     if (f.prefecture) occupiedPrefectureRaw.add(f.prefecture);
   }
 
-  const { data: features } = await supabase
+  const { data: features, error: featuresError } = await supabase
     .from('features')
     .select('slug, updated_at, filter_type, filter_prefecture')
     .eq('is_published', true);
+  // 読めなかったときは特集だけ出さない（店舗ブログと同じ扱い）。無言にせず記録する。
+  if (featuresError) console.error('[sitemap] features lookup failed', { code: featuresError.code });
 
   const qualifyingFeatures = (features || []).filter((f) => {
     // 空文字は「未設定」扱い（ページ側 `feature.filter_type || undefined` と同じ意味論）。
@@ -307,10 +318,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // （src/lib/feature-toggles.ts 参照・true に戻すだけで復活）。
   let jobPages: MetadataRoute.Sitemap = [];
   if (SHOW_JOBS) {
-    const { data: jobs } = await supabase
+    const { data: jobs, error: jobsError } = await supabase
       .from('facility_jobs')
       .select('id, updated_at, facility_profiles!inner(slug, status)')
       .eq('facility_profiles.status', 'published');
+    if (jobsError) console.error('[sitemap] facility_jobs lookup failed', { code: jobsError.code });
     jobPages = [
       { url: `${SITE_URL}/jobs`, lastModified: updated, changeFrequency: 'daily' as const, priority: 0.7 },
       ...((jobs || []) as Array<{ id: string; updated_at: string | null }>).map((j) => ({

@@ -31,6 +31,9 @@ function isHrefSafe(raw: string): boolean {
   // ホワイトリスト方式に倒す（新しい名前付き参照が追加/発見されても構造的に安全側に倒れる）。
   if (/&#?[a-z0-9]+;/i.test(decoded)) return false;
   if (decoded.startsWith('javascript:') || decoded.startsWith('data:') || decoded.startsWith('vbscript:')) return false;
+  // プロトコル相対（//evil.example）と、ブラウザが / と同じに扱う \ を含むもの（/\evil.example）は
+  // コロンを含まないが外部サイトへ飛ぶ。サイト内リンクに見せかけた誘導になるため拒否する。
+  if (decoded.startsWith('//') || decoded.includes('\\')) return false;
   return SAFE_URL_PATTERN.test(decoded) || !decoded.includes(':');
 }
 

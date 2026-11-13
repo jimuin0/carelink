@@ -33,7 +33,7 @@ beforeEach(() => {
 const text = (html: HTMLElement) => html.textContent ?? '';
 test('full aggregate counts and selected facility links render without scanning bookings', async () => {
   render(await Page()); expect(screen.getByText('1,002')).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: '店舗1' })).toHaveAttribute('href', `/admin?fid=${B}`);
+  expect(screen.getByRole('link', { name: '店舗1' })).toHaveAttribute('href', `/admin?facility_id=${B}`);
   expect(mockRpc).toHaveBeenCalledWith('get_chain_statistics', expect.objectContaining({ p_actor_id: A, p_facility_ids: [A,B] }));
 });
 test.each([null, { id: A }])('invalid authentication fails closed %j', async user => {

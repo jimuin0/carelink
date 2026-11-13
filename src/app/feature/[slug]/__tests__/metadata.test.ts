@@ -104,3 +104,9 @@ test('特集が存在しない → 空メタデータ（施設検索も走らせ
   expect(meta).toEqual({});
   expect(mockSearchFacilities).not.toHaveBeenCalled();
 });
+
+test('施設検索の失敗は noindex（施設0件扱い）にせず例外にする', async () => {
+  mockGetFeatureBySlug.mockResolvedValue(feature());
+  mockSearchFacilities.mockResolvedValue({ facilities: [], error: { message: 'db down' } });
+  await expect(generateMetadata(props())).rejects.toThrow('Feature facilities lookup failed');
+});

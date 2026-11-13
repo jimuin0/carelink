@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { fetchAllPaged } from '@/lib/paginate';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 
 const SEGMENT_LABELS: Record<string, string> = {
@@ -38,10 +39,13 @@ export default function CustomerSegmentChart({ facilityId }: { facilityId: strin
     (async () => {
       const supabase = createBrowserSupabaseClient();
       setLoadError(false);
-      const { data: segments, error } = await supabase
+      // max-rows（既定1000行）で黙って切れないよう id 順で全ページを読む。
+      const { rows: segments, error } = await fetchAllPaged<{ segment: string | null }>(async (offset, limit) => await supabase
         .from('customer_segments')
         .select('segment')
-        .eq('facility_id', facilityId);
+        .eq('facility_id', facilityId)
+        .order('id')
+        .range(offset, offset + limit - 1), { failOnTruncation: true });
 
       if (cancelled) return;
       if (error) { setLoadError(true); setLoading(false); return; }

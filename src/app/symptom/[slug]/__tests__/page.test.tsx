@@ -8,7 +8,8 @@ import { safeCaptureException } from '@/lib/safe';
 const mockFrom = jest.fn();
 const mockEq = jest.fn();
 const mockIn = jest.fn();
-jest.mock('@supabase/supabase-js', () => ({ createClient: () => ({ from: mockFrom }) }));
+// 公開データは anon クライアント（createServerSupabaseClient）で読む。service_role を使わない。
+jest.mock('@/lib/supabase-server', () => ({ createServerSupabaseClient: () => ({ from: mockFrom }), createServiceRoleClient: () => { throw new Error('service role must not be used'); } }));
 jest.mock('next/navigation', () => ({ notFound: jest.fn(() => { throw new Error('TEST_NOT_FOUND'); }) }));
 jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
 jest.mock('@/data/symptom-seo', () => ({ getSymptomSeo: () => null }));

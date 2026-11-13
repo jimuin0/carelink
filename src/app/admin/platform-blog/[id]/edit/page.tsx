@@ -131,7 +131,20 @@ export default function EditPlatformBlogPage(props: Props) {
   const doDelete = async () => {
     setConfirmDelete(false);
     setDeleting(true);
-    await fetch(`/api/admin/platform-blog/${params.id}`, { method: 'DELETE' });
+    // 応答を確かめてから一覧へ戻る。失敗・通信断を「削除できた」ように見せない。
+    try {
+      const res = await fetch(`/api/admin/platform-blog/${params.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '削除に失敗しました' });
+        setDeleting(false);
+        return;
+      }
+    } catch {
+      setToast({ type: 'error', message: '削除に失敗しました。通信状況を確認してください' });
+      setDeleting(false);
+      return;
+    }
     router.push('/admin/platform-blog');
   };
 
