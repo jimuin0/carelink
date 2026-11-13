@@ -5,6 +5,7 @@ import { getClientIp } from "@/lib/client-ip";
  * POST /api/payment/checkout
  */
 
+import { SLOT_RELEASING_STATUSES, type BookingStatus } from '@/lib/booking-status';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createServerClient } from '@supabase/ssr';
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
     // サーバー側で予約を取得し、所有権検証＋金額をDBから決定
     const { data: booking, error: bookingErr } = await supabase
       .from('bookings')
-      .select('id, user_id, total_price, menu_id, facility_id, payment_status, facility:facility_profiles(name), menu:facility_menus(name, price)')
+      .select('id, user_id, status, total_price, menu_id, facility_id, payment_status, facility:facility_profiles(name), menu:facility_menus(name, price)')
       .eq('id', bookingId)
       .single();
 
@@ -58,6 +59,11 @@ export async function POST(request: NextRequest) {
 
     if (booking.user_id !== user.id) {
       return NextResponse.json({ error: 'この予約にアクセスする権限がありません' }, { status: 403 });
+    }
+
+    // キャンセル済み・無断キャンセル等の予約に決済を開かない（払っても施術は無く、返金の手当てが要る）。
+    if (SLOT_RELEASING_STATUSES.includes(booking.status as BookingStatus)) {
+      return NextResponse.json({ error: 'この予約はキャンセル済みのため支払いできません' }, { status: 409 });
     }
 
     if (booking.payment_status === 'paid') {

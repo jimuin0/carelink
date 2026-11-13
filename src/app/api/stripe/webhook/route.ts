@@ -4,6 +4,7 @@
  * Stripe署名検証 → イベント処理
  */
 
+import { SLOT_RELEASING_STATUSES, type BookingStatus } from '@/lib/booking-status';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -145,7 +146,15 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
             .select('status')
             .eq('id', meta.booking_id)
             .maybeSingle();
-          if (currentErr || current?.status !== 'confirmed') {
+          if (!currentErr && current && SLOT_RELEASING_STATUSES.includes(current.status as BookingStatus)) {
+            // 支払い完了前に予約がキャンセルされていた。throw しても状態は変わらず、Stripe の再送
+            // （最大3日）と警報が続くだけなので、返金が必要な事実を 1 回通知して受領済みとする。
+            alertCaughtError(
+              'stripe-webhook-deposit-on-released-booking',
+              new Error(`deposit paid for a released booking — manual refund required (booking_id=${meta.booking_id}, status=${current.status}, session_id=${session.id})`),
+              '/api/stripe/webhook',
+            );
+          } else if (currentErr || current?.status !== 'confirmed') {
             // トリアージ精度のため「booking 不存在」と「切り分け SELECT 自体の失敗」を区別して通知する。
             const currentStatusLabel = currentErr
               ? `select_failed: ${currentErr.message}`

@@ -100,6 +100,43 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '支払い金額を決定できませんでした' }, { status: 400 });
   }
 
+  // 同じ予約に残っている pending を先に閉じる。uq_stripe_sessions_booking_pending があるため、
+  // 放置すると Stripe 側の失効（30分）まで新しいセッションの INSERT が毎回失敗して 500 になっていた。
+  // Stripe 側で失効させられた（または期限を過ぎた）ものだけを expired にする。失効を確認できない
+  // ものは支払われ得るので、新しいセッションを作らず 409 で止める（二重課金を作らない）。
+  if (booking_id) {
+    const { data: stale, error: staleErr } = await admin
+      .from('stripe_sessions')
+      .select('stripe_session_id, expires_at')
+      .eq('booking_id', booking_id)
+      .eq('status', 'pending');
+    if (staleErr) {
+      return serverError('stripe-checkout-stale-read', staleErr, '/api/stripe/checkout', '決済セッションの作成に失敗しました。');
+    }
+    for (const row of stale ?? []) {
+      const pastExpiry = typeof row.expires_at === 'string' && Date.parse(row.expires_at) <= Date.now();
+      if (pastExpiry) continue;
+      try {
+        await getStripe().checkout.sessions.expire(row.stripe_session_id);
+      } catch {
+        return NextResponse.json(
+          { error: '前回の決済手続きの状態を確認できません。少し時間をおいて、予約詳細で支払い状況を確認してください。' },
+          { status: 409 },
+        );
+      }
+    }
+    if ((stale ?? []).length > 0) {
+      const { error: expireErr } = await admin
+        .from('stripe_sessions')
+        .update({ status: 'expired' })
+        .eq('booking_id', booking_id)
+        .eq('status', 'pending');
+      if (expireErr) {
+        return serverError('stripe-checkout-stale-expire', expireErr, '/api/stripe/checkout', '決済セッションの作成に失敗しました。');
+      }
+    }
+  }
+
   // Get user email
   const { data: authUser } = await admin.auth.admin.getUserById(user.id);
   const email = authUser?.user?.email;

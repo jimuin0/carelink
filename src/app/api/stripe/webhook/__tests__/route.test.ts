@@ -802,6 +802,23 @@ describe('POST /api/stripe/webhook', () => {
       );
     });
 
+    test('deposit 0行更新・予約がキャンセル済み → 返金要の通知を1回出して受領（200・再送ループにしない）', async () => {
+      setupDepositZeroRows({ updateData: [], currentStatus: { status: 'cancelled' } });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_dep_cancelled',
+        payment_intent: 'pi_dep_cancelled',
+        metadata: { booking_id: 'bk_dep_cancelled', payment_type: 'deposit' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockAlertCaughtError).toHaveBeenCalledWith(
+        'stripe-webhook-deposit-on-released-booking',
+        expect.objectContaining({ message: expect.stringContaining('manual refund required') }),
+        '/api/stripe/webhook',
+      );
+      expect(mockAlertCaughtError).not.toHaveBeenCalledWith('stripe-webhook-deposit-confirm-0rows', expect.anything(), expect.anything());
+    });
+
     test('deposit 0行更新・booking不存在（current:null）→ alertCaughtError通知（not_found表記）＋throw→500', async () => {
       setupDepositZeroRows({ updateData: null, currentStatus: null });
       setupEventMock('checkout.session.completed', {

@@ -68,8 +68,17 @@ function singleChain(data: unknown) {
   return chain;
 }
 
+let mockStaleRows: { data: unknown; error: unknown } = { data: [], error: null };
+let mockStaleUpdateError: unknown = null;
+const mockStaleUpdate = jest.fn();
 function insertChain(error: unknown = null) {
-  return { insert: jest.fn(() => Promise.resolve({ error })) };
+  const selectChain: any = { eq: jest.fn(() => selectChain), then: (r: (v: unknown) => unknown, j?: (e: unknown) => unknown) => Promise.resolve(mockStaleRows).then(r, j) };
+  const updateChain: any = { eq: jest.fn(() => updateChain), then: (r: (v: unknown) => unknown, j?: (e: unknown) => unknown) => Promise.resolve({ error: mockStaleUpdateError }).then(r, j) };
+  return {
+    insert: jest.fn(() => Promise.resolve({ error })),
+    select: jest.fn(() => selectChain),
+    update: jest.fn((v: unknown) => { mockStaleUpdate(v); return updateChain; }),
+  };
 }
 
 function setupHappyPath(insertError: unknown = null) {
@@ -94,6 +103,8 @@ function setupHappyPath(insertError: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockStaleRows = { data: [], error: null };
+  mockStaleUpdateError = null;
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
@@ -440,4 +451,56 @@ test('user.email が undefined → customer_email も undefined', async () => {
   expect(res.status).toBe(200);
   const createCall = mockStripeSessionCreate.mock.calls[0][0];
   expect(createCall.customer_email).toBeUndefined();
+});
+
+// ─── 古い pending の後始末（B1-13） ─────────────────────────────────────────────
+describe('同じ予約に残った pending セッション', () => {
+  const body = { facility_id: FACILITY_UUID, booking_id: VALID_UUID, payment_type: 'deposit' };
+  const future = () => new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+  test('Stripe で失効させてから expired にし、新しいセッションを作る', async () => {
+    setupHappyPath();
+    mockStaleRows = { data: [{ stripe_session_id: 'cs_old', expires_at: future() }], error: null };
+    const res = await POST(makeRequest(body));
+    expect(res.status).toBe(200);
+    expect(mockStripeSessionExpire).toHaveBeenCalledWith('cs_old');
+    expect(mockStaleUpdate).toHaveBeenCalledWith({ status: 'expired' });
+    expect(mockStripeSessionCreate).toHaveBeenCalled();
+  });
+
+  test('期限切れの pending は Stripe を呼ばずに expired にする', async () => {
+    setupHappyPath();
+    mockStaleRows = { data: [{ stripe_session_id: 'cs_old', expires_at: '2000-01-01T00:00:00Z' }], error: null };
+    const res = await POST(makeRequest(body));
+    expect(res.status).toBe(200);
+    expect(mockStripeSessionExpire).not.toHaveBeenCalled();
+    expect(mockStaleUpdate).toHaveBeenCalledWith({ status: 'expired' });
+  });
+
+  test('失効を確認できない（支払われ得る）なら新しいセッションを作らず 409', async () => {
+    setupHappyPath();
+    mockStaleRows = { data: [{ stripe_session_id: 'cs_old', expires_at: null }], error: null };
+    mockStripeSessionExpire.mockRejectedValueOnce(new Error('already complete'));
+    const res = await POST(makeRequest(body));
+    expect(res.status).toBe(409);
+    expect(mockStripeSessionCreate).not.toHaveBeenCalled();
+    expect(mockStaleUpdate).not.toHaveBeenCalled();
+  });
+
+  test('pending の読み取り失敗 → 500（作らない）', async () => {
+    setupHappyPath();
+    mockStaleRows = { data: null, error: { message: 'down' } };
+    const res = await POST(makeRequest(body));
+    expect(res.status).toBe(500);
+    expect(mockStripeSessionCreate).not.toHaveBeenCalled();
+  });
+
+  test('expired への更新失敗 → 500（作らない）', async () => {
+    setupHappyPath();
+    mockStaleRows = { data: [{ stripe_session_id: 'cs_old', expires_at: future() }], error: null };
+    mockStaleUpdateError = { message: 'down' };
+    const res = await POST(makeRequest(body));
+    expect(res.status).toBe(500);
+    expect(mockStripeSessionCreate).not.toHaveBeenCalled();
+  });
 });
