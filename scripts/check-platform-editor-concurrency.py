@@ -102,11 +102,11 @@ try:
   expected='OK'
   race(kind+' write before account deletion','SET LOCAL ROLE service_role; '+save(kind,values,record),deletion,expected)
   if kind=='newsletter:create':assert sql("SELECT created_by IS NULL FROM public.newsletter_campaigns WHERE subject='Synthetic editor create'")=='t'
- for kind,values,record,table,missing in [('feature:update',{'subtitle':'new'},FEATURE,'feature_articles','P0002'),('feature:delete',{},FEATURE,'feature_articles','P0002'),('post:update',{'description':'new'},POST,'platform_blog_posts','P0002'),('post:delete',{},POST,'platform_blog_posts','P0002'),('newsletter:cancel',{},CAMPAIGN,'newsletter_campaigns','40001')]:
+ for kind,values,record,table,missing in [('feature:update',{'subtitle':'new'},FEATURE,'feature_articles','P0002'),('feature:delete',{},FEATURE,'feature_articles','P0002'),('post:update',{'description':'new'},POST,'platform_blog_posts','P0002'),('post:delete',{},POST,'platform_blog_posts','P0002'),('newsletter:cancel',{},CAMPAIGN,'newsletter_campaigns','PT409')]:
   reset();race(kind+' target deletion first',f"DELETE FROM public.{table} WHERE id='{record}'",attempt(save(kind,values,record)),missing)
   reset();race(kind+' target write first','SET LOCAL ROLE service_role; '+save(kind,values,record),f"DELETE FROM public.{table} WHERE id='{record}';SELECT 'deleted'",'deleted')
  reset();sql(f"UPDATE public.feature_articles SET image_url={q(STOCK)} WHERE id='{FEATURE}'")
- race('distinct admin changes image before stale exemption','SET LOCAL ROLE service_role; '+save('feature:update',{'image_url':'https://example.invalid/new.png'},FEATURE,actor=OTHER),attempt(save('feature:update',{'image_url':STOCK},FEATURE,expected=STOCK)),'40001')
+ race('distinct admin changes image before stale exemption','SET LOCAL ROLE service_role; '+save('feature:update',{'image_url':'https://example.invalid/new.png'},FEATURE,actor=OTHER),attempt(save('feature:update',{'image_url':STOCK},FEATURE,expected=STOCK)),'PT409')
  assert sql(f"SELECT image_url FROM public.feature_articles WHERE id='{FEATURE}'")=='https://example.invalid/new.png'
  reset();sql(f"UPDATE public.feature_articles SET image_url={q(STOCK)} WHERE id='{FEATURE}'")
  assert sql(save('feature:update',{'image_url':STOCK,'subtitle':'unchanged image'},FEATURE,expected=STOCK))==FEATURE;RESULTS.append({'case':'unchanged legacy image accepted under lock'})
@@ -121,7 +121,7 @@ try:
  assert sql(save('post:update',{'is_published':True},POST))==POST;restamp=published_at();assert restamp not in ('NULL',stamp);RESULTS.append({'case':'republishing after unpublish assigns a new date'})
  reset();sql(f"UPDATE public.platform_blog_posts SET is_published=true,published_at=NULL WHERE id='{POST}'")
  assert sql(save('post:update',{'title':'Synthetic legacy','is_published':True},POST))==POST;assert published_at()!='NULL';RESULTS.append({'case':'legacy published post without a date gets one on save'})
- reset();race('distinct admins cancel once','SET LOCAL ROLE service_role; '+save('newsletter:cancel',{},CAMPAIGN),attempt(save('newsletter:cancel',{},CAMPAIGN,actor=OTHER)),'40001')
+ reset();race('distinct admins cancel once','SET LOCAL ROLE service_role; '+save('newsletter:cancel',{},CAMPAIGN),attempt(save('newsletter:cancel',{},CAMPAIGN,actor=OTHER)),'PT409')
  for kind,values,record in operations:
   reset();before=snapshot();assert sql(attempt(save(kind,values,record),'authenticated'))=='42501';assert snapshot()==before;RESULTS.append({'case':kind+' authenticated gateway denied'})
  for label,stmt,code in [

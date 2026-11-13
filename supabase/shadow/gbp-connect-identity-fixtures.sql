@@ -2,7 +2,7 @@
 -- Dedicated synthetic shadow DB only; every change rolls back and Google is never called.
 -- GBP の連携保存は、照合に使った店舗の登録内容（p_expected.identity）と今の行が一致するときだけ通る（20261023150300）。
 --   1. 照合した内容と同じなら保存できる
---   2. 照会の間に店名・電話・住所が変わっていたら 40001（INTEGRATION_CHANGED）で断り、何も書かない
+--   2. 照会の間に店名・電話・住所が変わっていたら PT409（INTEGRATION_CHANGED）で断り、何も書かない
 --   3. identity 以外のキーが混ざった expected は 22023
 --   4. 解除（place_id null）と、旧アプリの '{}' は従来どおり通る
 BEGIN;
@@ -34,7 +34,7 @@ SET LOCAL ROLE service_role;
 -- 2. 照合時の内容（他店に合わせた電話番号）と今の行が違えば断る
 SELECT pg_temp.assert_bind(pg_temp.try_connect(jsonb_build_object('identity',jsonb_build_object(
   'name','Synthetic Bind','phone','06-9999-0000','postal_code','100-0001','prefecture','検証県','city','検証市','address','検証町1-1')),
-  'ChIJStaleCheck')='40001','stale identity refused');
+  'ChIJStaleCheck')='PT409','stale identity refused');
 SELECT pg_temp.assert_bind(pg_temp.place() IS NULL,'refused connect wrote nothing');
 -- 3. identity 以外のキーは受け付けない
 SELECT pg_temp.assert_bind(pg_temp.try_connect('{"identity":{},"place_id":"x"}'::jsonb,'ChIJExtra')='22023','extra expected keys refused');

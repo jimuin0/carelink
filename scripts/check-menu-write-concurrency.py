@@ -97,7 +97,7 @@ try:
       ('forged scope key',save(values={'facility_id':OTHER_FACILITY}),'22023'),
       ('patch cannot reorder',save(values={'sort_order':5}),'22023'),
       ('empty patch',f"SELECT public.save_admin_menu_atomic('{ACTOR}','{FACILITY}','{MENU}','{{}}',false,NULL)",'22023'),
-      ('stale photo observation',save(values={'photo_url':PHOTO},check=True,photo=None),'40001'),
+      ('stale photo observation',save(values={'photo_url':PHOTO},check=True,photo=None),'PT409'),
       ('same legacy photo',save(values={'photo_url':PHOTO},check=True,photo=PHOTO),'OK')]:
         before=snapshot();expect(label,command,expected)
         if expected!='OK':assert snapshot()==before,label
@@ -107,7 +107,7 @@ try:
     reset();revision=snapshot()['revision'];expect('create bumps order revision',save(None,{'category':'Cut','name':'New'}),'OK');assert snapshot()['revision']!=revision
     reset();revision=snapshot()['revision'];expect('patch bumps order revision',save(),'OK')
     reorder=f"SELECT public.reorder_admin_menus_atomic('{ACTOR}','{FACILITY}',ARRAY['{MENU2}','{MENU}']::uuid[],ARRAY['{MENU}','{MENU2}']::uuid[],{quoted(revision)})"
-    before=snapshot();expect('old reorder cannot follow an edit unnoticed',reorder,'40001');assert snapshot()==before
+    before=snapshot();expect('old reorder cannot follow an edit unnoticed',reorder,'PT409');assert snapshot()==before
     reset()
     sql("CREATE FUNCTION public.synthetic_menu_revision_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'SYNTHETIC_REVISION_FAILURE'; END $$; CREATE TRIGGER synthetic_menu_revision_failure BEFORE UPDATE ON public.facility_profiles FOR EACH ROW EXECUTE FUNCTION public.synthetic_menu_revision_failure();")
     try:
@@ -118,15 +118,15 @@ try:
         reset();before=snapshot();race('role revocation before '+label,f"UPDATE public.facility_members SET role='staff' WHERE user_id='{ACTOR}';",attempt(operation),'42501');assert snapshot()['menus']==before['menus']
         reset();race(label+' before role revocation',attempt(operation),f"UPDATE public.facility_members SET role='staff' WHERE user_id='{ACTOR}' RETURNING 'revoked';",'revoked')
         reset();before=snapshot();race('membership deletion before '+label,f"DELETE FROM public.facility_members WHERE user_id='{ACTOR}';",attempt(operation),'42501');assert snapshot()['menus']==before['menus']
-    reset();race('photo removal before stale exemption',f"UPDATE public.facility_menus SET photo_url=NULL WHERE id='{MENU}';",attempt(save(values={'photo_url':PHOTO},check=True,photo=PHOTO)),'40001');assert next(x for x in snapshot()['menus'] if x['id']==MENU)['photo_url'] is None
+    reset();race('photo removal before stale exemption',f"UPDATE public.facility_menus SET photo_url=NULL WHERE id='{MENU}';",attempt(save(values={'photo_url':PHOTO},check=True,photo=PHOTO)),'PT409');assert next(x for x in snapshot()['menus'] if x['id']==MENU)['photo_url'] is None
     reset();same=save(None,{'category':'Cut','name':'Same concurrent name'});race('duplicate concurrent creates',attempt(same),attempt(same),'23505');assert len(snapshot()['menus'])==3
     for isolation in ['REPEATABLE READ','SERIALIZABLE']:
         reset();session=Session()
         try:
             session.send(f"BEGIN ISOLATION LEVEL {isolation}; SELECT role FROM public.facility_members WHERE user_id='{ACTOR}';");session.mark('snapshot')
             sql(f"UPDATE public.facility_members SET role='staff' WHERE user_id='{ACTOR}';")
-            before=snapshot();session.send(attempt(save()));assert session.mark('done')==['40001'];assert session.end()[0]==0;assert snapshot()['menus']==before['menus']
-            RESULTS.append({'case':isolation+' cannot authorize stale membership','result':'40001'})
+            before=snapshot();session.send(attempt(save()));assert session.mark('done')==['PT409'];assert session.end()[0]==0;assert snapshot()['menus']==before['menus']
+            RESULTS.append({'case':isolation+' cannot authorize stale membership','result':'PT409'})
         finally:
             if session.proc.poll() is None:session.proc.kill();session.proc.wait(timeout=5)
     print(json.dumps({'database':DB,'cases':RESULTS,'production_or_provider_traffic':False},indent=2))
