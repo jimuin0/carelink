@@ -41,7 +41,7 @@ function setupDefaultMocks(keyValid: boolean = true, hasScope: boolean = true) {
         chain.gte.mockReturnValue(chain);
         chain.lte.mockReturnValue(chain);
         chain.eq.mockReturnValue(chain);
-        return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ range: jest.fn().mockReturnValue(chain) }) }) }) };
+        return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ range: jest.fn().mockReturnValue(chain) }) }) }) }) };
       }
     }),
   });
@@ -291,7 +291,7 @@ describe('GET /api/v1/bookings', () => {
       chain.gte.mockReturnValue(chain);
       chain.lte.mockReturnValue(chain);
       chain.eq.mockReturnValue(chain);
-      return { from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ range: jest.fn().mockReturnValue(chain) }) }) }) }) };
+      return { from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ range: jest.fn().mockReturnValue(chain) }) }) }) }) }) };
     });
     const res = await GET(makeRequest('test-api-key', '?facility_id=different-facility') as any);
     expect(res.status).toBe(403);
@@ -382,7 +382,7 @@ describe('GET /api/v1/bookings', () => {
       chain.gte.mockReturnValue(chain);
       chain.lte.mockReturnValue(chain);
       chain.eq.mockReturnValue(chain);
-      return { from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ range: jest.fn().mockReturnValue(chain) }) }) }) }) };
+      return { from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ range: jest.fn().mockReturnValue(chain) }) }) }) }) }) };
     });
     const res = await GET(makeRequest() as any);
     const json = await res.json();
@@ -443,7 +443,9 @@ describe('GET /api/v1/bookings', () => {
           select: jest.fn().mockReturnValue({
             eq: jest.fn().mockReturnValue({
               order: jest.fn().mockReturnValue({
-                range: jest.fn().mockReturnValue(errChain),
+                order: jest.fn().mockReturnValue({
+                  range: jest.fn().mockReturnValue(errChain),
+                }),
               }),
             }),
           }),
@@ -488,7 +490,9 @@ describe('adversarial pagination boundaries', () => {
   const response=await GET(makeRequest('test-api-key', `?page=2&limit=${value}`) as any);
   expect(response.status).toBe(200);const body=await response.json();expect(body.pagination.limit).toBe(1);
   const {createServiceRoleClient}=require('@/lib/supabase-server');const client=createServiceRoleClient.mock.results.at(-1).value;
-  const bookings=client.from.mock.results[client.from.mock.calls.findIndex(([table]:[string])=>table==='bookings')].value;expect(bookings.select.mock.results[0].value.eq.mock.results[0].value.order.mock.results[0].value.range).toHaveBeenCalledWith(1,1);
+  const bookings=client.from.mock.results[client.from.mock.calls.findIndex(([table]:[string])=>table==='bookings')].value;expect(bookings.select.mock.results[0].value.eq.mock.results[0].value.order.mock.results[0].value.order.mock.results[0].value.range).toHaveBeenCalledWith(1,1);
+  // 同じ日付内の並びを id で一意に決める（中 A26）
+  expect(bookings.select.mock.results[0].value.eq.mock.results[0].value.order.mock.results[0].value.order).toHaveBeenCalledWith('id',{ascending:false});
  });
 });
 
