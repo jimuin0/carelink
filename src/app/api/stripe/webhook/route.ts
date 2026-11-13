@@ -187,10 +187,16 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
           .update({ is_active: true })
           .eq('id', meta.slot_id)
           .select('id');
+        // 🔴 支払い済みの広告枠を有効にできなかったら throw する（2026年11月13日 点検 高-3）。
+        // 以前は console.error だけで break し、外側で processed=true・200 を返していたため、
+        // Stripe は再送せず、広告枠は無効のまま・通知も無いまま放置された（予約側は throw している）。
+        // throw すれば POST の catch が serverError（Slack 通知）で 500 を返し、processed は立たないので
+        // Stripe の再送で再処理される（is_active=true の update は何度実行しても同じ結果）。
         if (slotErr) {
-          console.error('[stripe/webhook] featured_slot activate failed:', slotErr);
-        } else if (!slotRows || slotRows.length === 0) {
-          console.error('[stripe/webhook] featured_slot activate matched 0 rows', { slotId: meta.slot_id });
+          throw new Error(`featured_slots activate failed: ${slotErr.message} (slot_id=${meta.slot_id})`);
+        }
+        if (!slotRows || slotRows.length === 0) {
+          throw new Error(`featured_slots activate failed: 0 rows updated (slot_id=${meta.slot_id})`);
         }
       }
       break;
