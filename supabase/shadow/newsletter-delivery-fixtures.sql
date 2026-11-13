@@ -48,8 +48,8 @@ DO $$ BEGIN BEGIN UPDATE public.newsletter_campaigns SET status='sending' WHERE 
 SET CONSTRAINTS guard_newsletter_send_operation DEFERRED;
 DO $$ DECLARE audience text[]; links jsonb; receipt jsonb; replay jsonb; BEGIN
  SELECT array_agg(email ORDER BY email),jsonb_object_agg(email,'https://carelink-jp.com/unsubscribe?n='||repeat('a',64)) INTO audience,links FROM public.newsletter_current_recipients('user_digest') email;
- BEGIN PERFORM public.publish_newsletter_send_operation('ed110000-0000-4000-8000-000000000001','ed120000-0000-4000-8000-000000000001','2026-10-08',audience,links,'CareLink <newsletter@carelink-jp.com>');RAISE EXCEPTION 'stale revision passed';EXCEPTION WHEN serialization_failure THEN NULL;END;
- BEGIN PERFORM public.publish_newsletter_send_operation('ed110000-0000-4000-8000-000000000001','ed120000-0000-4000-8000-000000000001','2026-10-09','{}',links,'CareLink <newsletter@carelink-jp.com>');RAISE EXCEPTION 'partial audience passed';EXCEPTION WHEN serialization_failure THEN NULL;END;
+ BEGIN PERFORM public.publish_newsletter_send_operation('ed110000-0000-4000-8000-000000000001','ed120000-0000-4000-8000-000000000001','2026-10-08',audience,links,'CareLink <newsletter@carelink-jp.com>');RAISE EXCEPTION 'stale revision passed';EXCEPTION WHEN SQLSTATE 'PT409' THEN NULL;END;
+ BEGIN PERFORM public.publish_newsletter_send_operation('ed110000-0000-4000-8000-000000000001','ed120000-0000-4000-8000-000000000001','2026-10-09','{}',links,'CareLink <newsletter@carelink-jp.com>');RAISE EXCEPTION 'partial audience passed';EXCEPTION WHEN SQLSTATE 'PT409' THEN NULL;END;
  BEGIN
   PERFORM public.publish_newsletter_send_operation('ed110000-0000-4000-8000-000000000001','ed120000-0000-4000-8000-000000000001','2026-10-09',audience,links||jsonb_build_object(audience[cardinality(audience)],'invalid-link'),'CareLink <newsletter@carelink-jp.com>');
   RAISE EXCEPTION 'partial queue publication accepted';

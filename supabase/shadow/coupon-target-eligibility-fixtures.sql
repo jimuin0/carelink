@@ -189,7 +189,7 @@ BEGIN
   PERFORM pg_temp.assert_target(has_function_privilege('service_role',
     'public.create_booking_for_menus_atomic(uuid,uuid,uuid,uuid,uuid,date,time,time,text,text,text,text,int,int,text,boolean,uuid[])', 'EXECUTE'),
     'the service role keeps the booking core');
-  PERFORM pg_temp.assert_target((SELECT p.prosecdef AND p.proconfig = ARRAY['search_path=public']
+  PERFORM pg_temp.assert_target((SELECT p.prosecdef AND p.proconfig = ARRAY['search_path=public, pg_temp']
     FROM pg_proc p WHERE p.oid = 'public.create_booking_for_menus_atomic(uuid,uuid,uuid,uuid,uuid,date,time,time,text,text,text,text,int,int,text,boolean,uuid[])'::regprocedure),
     'SECURITY DEFINER and search_path are unchanged');
 END $$;

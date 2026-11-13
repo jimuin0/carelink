@@ -102,9 +102,9 @@ try:
     for kind in VALUES:
         reset()
         race(kind+' current-role save while revoker holds parent FK lock',f"SELECT 1 FROM public.facility_members WHERE user_id='{ACTOR}' AND facility_id='{FACILITY}' FOR SHARE",attempt(f"SELECT 1 FROM public.facility_profiles WHERE id='{FACILITY}' FOR KEY SHARE; UPDATE public.facility_members SET role='staff' WHERE user_id='{ACTOR}'"),'OK',finish='SET LOCAL ROLE service_role; '+save(kind)+'; COMMIT;')
-    reset();race('place changes before old response','SET LOCAL ROLE service_role; '+save('gbp:connect'),attempt(save()),'40001');data=snapshot();assert data['profile']['place']=='NewPlace' and data['profile']['rating'] is None and data['profile']['count']==0 and data['cache'] is None
+    reset();race('place changes before old response','SET LOCAL ROLE service_role; '+save('gbp:connect'),attempt(save()),'PT409');data=snapshot();assert data['profile']['place']=='NewPlace' and data['profile']['rating'] is None and data['profile']['count']==0 and data['cache'] is None
     reset();race('old response finishes before place replacement','SET LOCAL ROLE service_role; '+save(),attempt(save('gbp:connect')),'OK');assert snapshot()['cache'] is None and snapshot()['profile']['rating'] is None
-    reset();race('domain changes before old DNS proof','SET LOCAL ROLE service_role; '+save('domain:configure'),attempt(save('domain:verify')),'40001');assert snapshot()['domain']['is_verified'] is False and snapshot()['domain']['verified_at'] is None
+    reset();race('domain changes before old DNS proof','SET LOCAL ROLE service_role; '+save('domain:configure'),attempt(save('domain:verify')),'PT409');assert snapshot()['domain']['is_verified'] is False and snapshot()['domain']['verified_at'] is None
     reset();race('old DNS proof finishes before domain replacement','SET LOCAL ROLE service_role; '+save('domain:verify'),attempt(save('domain:configure')),'OK');assert snapshot()['domain']['is_verified'] is False and snapshot()['domain']['verified_at'] is None
     reset();expect('same place refresh accepted',save(),'OK');assert snapshot()['profile']['rating']==5 and snapshot()['cache']['score']==80
     # Fail the second table write after the profile update: both roll back.
@@ -118,9 +118,9 @@ try:
     for kind,values,expected,code in [
       ('gbp:connect',{'place_id':{},'cid':None},{},'22023'),('gbp:connect',{'place_id':'x','cid':'x','is_verified':True},{},'22023'),
       ('gbp:refresh',{**VALUES['gbp:refresh'],'review_count':0.5},EXPECTED['gbp:refresh'],'22023'),('gbp:refresh',{**VALUES['gbp:refresh'],'rating':6},EXPECTED['gbp:refresh'],'22023'),
-      ('gbp:refresh',VALUES['gbp:refresh'],{'place_id':'OtherPlace'},'40001'),
+      ('gbp:refresh',VALUES['gbp:refresh'],{'place_id':'OtherPlace'},'PT409'),
       ('domain:configure',{**VALUES['domain:configure'],'is_verified':True},{},'22023'),('domain:configure',{**VALUES['domain:configure'],'domain':'bad..example.invalid'},{},'22023'),
-      ('domain:verify',{}, {'domain':'old.example.invalid','txt_record':'bad'},'40001')]:
+      ('domain:verify',{}, {'domain':'old.example.invalid','txt_record':'bad'},'PT409')]:
         before=snapshot();expect('invalid '+kind+' '+str(values)[:35],save(kind,values,expected),code);assert snapshot()==before
     reset();expect('300-character place identifier',save('gbp:connect',{'place_id':'a'*300,'cid':None}),'OK')
     reset();before=snapshot();expect('301-character place identifier rejected',save('gbp:connect',{'place_id':'a'*301,'cid':None}),'22023');assert snapshot()==before
