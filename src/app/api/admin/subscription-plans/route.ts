@@ -7,7 +7,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 const planSchema = z.object({
   name: z.string().min(1).max(100),
@@ -19,21 +20,25 @@ const planSchema = z.object({
   is_active: z.boolean().optional(),
 });
 
-async function getAdminContext(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
+/** 権限確認。null＝権限なし（401）。障害は 503/500 の応答を返す（中 A12）。 */
+async function getAdminContext(request: NextRequest): Promise<{ userId: string; facilityId: string } | NextResponse | null> {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-subscription-plans-auth', '/api/admin/subscription-plans');
+  if (verification.state !== 'verified') return null;
+  const user = verification.user;
 
   const facilityId = request.nextUrl.searchParams.get('facility_id');
   if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
     .eq('facility_id', facilityId)
     .in('role', ['owner', 'admin'])
     .single();
+  if (error && error.code !== 'PGRST116') return serverError('admin-subscription-plans-membership', error, '/api/admin/subscription-plans');
 
   return data ? { userId: user.id, facilityId: data.facility_id } : null;
 }
@@ -44,6 +49,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const auth = await getAdminContext(request);
+  if (auth instanceof NextResponse) return auth;
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { facilityId } = auth;
 
@@ -67,6 +73,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const auth = await getAdminContext(request);
+  if (auth instanceof NextResponse) return auth;
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { userId, facilityId } = auth;
 

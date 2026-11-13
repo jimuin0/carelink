@@ -7,7 +7,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 const PLAN_PRICES: Record<string, number> = {
   search_top: 9800,
@@ -15,16 +16,18 @@ const PLAN_PRICES: Record<string, number> = {
   category_top: 7800,
 };
 
-async function verifyFacilityMembership(userId: string, facilityId: string): Promise<boolean> {
+/** 所属を確かめる。DB 障害は「所属なし」に化けさせず error として返す（中 A9）。 */
+async function verifyFacilityMembership(userId: string, facilityId: string): Promise<{ member: boolean; error: unknown }> {
   const admin = createServiceRoleClient();
-  const { data } = await admin
+  const { data, error } = await admin
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', userId)
     .eq('facility_id', facilityId)
     .in('role', ['owner', 'admin'])
     .maybeSingle();
-  return data !== null;
+  if (error) return { member: false, error };
+  return { member: data !== null, error: null };
 }
 
 export async function GET(req: NextRequest) {
@@ -33,13 +36,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-featured-ads-auth', '/api/admin/featured-ads');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = verification.user;
 
   const facilityId = req.nextUrl.searchParams.get('facility_id');
   if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
-  const isMember = await verifyFacilityMembership(user.id, facilityId);
-  if (!isMember) return NextResponse.json({ error: 'No facility' }, { status: 403 });
+  const membership = await verifyFacilityMembership(user.id, facilityId);
+  if (membership.error) return serverError('admin-featured-ads-membership', membership.error, '/api/admin/featured-ads');
+  if (!membership.member) return NextResponse.json({ error: 'No facility' }, { status: 403 });
 
   const admin = createServiceRoleClient();
   const { data: slots, error: slotsErr } = await admin
@@ -61,14 +67,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-featured-ads-auth', '/api/admin/featured-ads');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = verification.user;
 
   const body = await req.json().catch(() => ({}));
   const { facility_id: bodyFacilityId, slot_type, area, business_type, starts_at, ends_at } = body;
   if (!bodyFacilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
-  const isMember = await verifyFacilityMembership(user.id, bodyFacilityId);
-  if (!isMember) return NextResponse.json({ error: 'No facility' }, { status: 403 });
+  const membership = await verifyFacilityMembership(user.id, bodyFacilityId);
+  if (membership.error) return serverError('admin-featured-ads-membership', membership.error, '/api/admin/featured-ads');
+  if (!membership.member) return NextResponse.json({ error: 'No facility' }, { status: 403 });
   const facilityId = bodyFacilityId;
 
   if (!slot_type || !starts_at || !ends_at) {
