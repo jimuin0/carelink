@@ -62,7 +62,12 @@ export async function getPublishedFeatures(limit = 10): Promise<Feature[]> {
   }
 }
 
+/**
+ * 公開中の特集を slug で 1 件引く。見つからなければ null。DB 障害は例外にする（中 A52）。
+ * slug になり得ない入力は問い合わせずに「見つからない」にする（誰でも 5xx と障害通知を出せないように）。
+ */
 export async function getFeatureBySlug(slug: string): Promise<Feature | null> {
+  if (slug.length === 0 || slug.length > 200 || /[\u0000-\u001f\u007f]/.test(slug)) return null;
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
     .from('features')

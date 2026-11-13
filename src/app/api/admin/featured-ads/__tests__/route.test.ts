@@ -490,3 +490,29 @@ test('POST: Stripe設定あり + area_banner → checkout URL を返す (line 13
 
   delete process.env.STRIPE_SECRET_KEY;
 });
+
+// ─── 障害を 401/403 に化けさせない（中 A9） ───
+describe('障害時の応答', () => {
+  function failingMembership() {
+    return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), in: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { code: '08006', message: 'down' } })),
+    };
+  }
+  test('GET: 認証基盤の障害 → 503', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null }, error: new Error('network') });
+    expect((await GET(makeGetRequest())).status).toBe(503);
+  });
+  test('POST: 認証基盤の障害 → 503', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null }, error: new Error('network') });
+    expect((await POST(makePostRequest(validPostBody()))).status).toBe(503);
+  });
+  test('GET: 所属確認の DB 障害 → 500（403 にしない）', async () => {
+    mockAdminFrom.mockReturnValue(failingMembership());
+    expect((await GET(makeGetRequest())).status).toBe(500);
+  });
+  test('POST: 所属確認の DB 障害 → 500（403 にしない）', async () => {
+    mockAdminFrom.mockReturnValue(failingMembership());
+    expect((await POST(makePostRequest(validPostBody()))).status).toBe(500);
+  });
+});

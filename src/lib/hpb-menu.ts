@@ -16,16 +16,20 @@ import type { HpbFetchStopReason, HpbMenuRow } from '@/types/hpb';
 
 const TABLE = 'hpb_menu_durations';
 
-/** facility の HPB 店舗ID(hpb_sln_id)を取得。未設定/空白/不在は null。 */
+/**
+ * facility の HPB 店舗ID(hpb_sln_id)を取得。未設定/空白/不在は null。
+ * DB 障害は「店舗ID未設定」（＝正常な skip）に化けさせず例外にする（中 A53）。
+ */
 export async function getFacilitySlnId(
   admin: SupabaseClient,
   facilityId: string,
 ): Promise<string | null> {
-  const { data } = await admin
+  const { data, error } = await admin
     .from('facility_profiles')
     .select('hpb_sln_id')
     .eq('id', facilityId)
     .maybeSingle();
+  if (error) throw new Error('HPB_SLN_ID_LOOKUP_FAILED', { cause: error });
   return normalizeSlnId(data?.hpb_sln_id);
 }
 

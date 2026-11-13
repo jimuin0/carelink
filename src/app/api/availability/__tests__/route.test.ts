@@ -17,6 +17,7 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/alert', () => ({ ...jest.requireActual('@/lib/alert'), alertCaughtError: jest.fn() }));
 jest.mock('@/lib/facility-publish-gate', () => ({ checkBookingReadiness: jest.fn() }));
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 
@@ -653,4 +654,26 @@ describe('当日は開始時刻を過ぎた枠を数えない', () => {
     expect(json.dates['2027-06-10']).toEqual({ slots: 1, status: 'few' });
     expect(json.dates['2027-06-11'].status).toBe('available');
   });
+});
+
+// 中 A15：公開 GET のたびに Slack 通知を積み上げない（インスタンスごとに一定間隔で 1 回）。
+test('集約 RPC のフォールバック通知は間隔内で 1 回に間引く', async () => {
+  const { alertCaughtError } = jest.requireMock('@/lib/alert') as { alertCaughtError: jest.Mock };
+  const nowSpy = jest.spyOn(Date, 'now');
+  const base = Date.UTC(2099, 0, 1);
+  try {
+    // 他テストで記録された直近の通知時刻の影響を受けないよう、十分先の時刻から始める。
+    nowSpy.mockReturnValue(base);
+    setupDefaultMocks({ monthError: { code: 'PGRST202' } });
+    await GET(makeRequest());
+    await GET(makeRequest());
+    const calls = () => alertCaughtError.mock.calls.filter((c) => c[0] === 'availability:get_month_availability_fallback').length;
+    const afterTwo = calls();
+    nowSpy.mockReturnValue(base + 10 * 60 * 1000);
+    await GET(makeRequest());
+    expect(afterTwo).toBe(1);
+    expect(calls()).toBe(2);
+  } finally {
+    nowSpy.mockRestore();
+  }
 });

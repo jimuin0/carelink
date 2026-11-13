@@ -97,7 +97,7 @@ test.each([{price:100},{photo_url:''},{photo_url:null},{name:'Rename',descriptio
  const values=mockRpc.mock.calls[0][1].p_values;if('photo_url' in payload)expect(values.photo_url).toBeNull();else expect(values).not.toHaveProperty('photo_url');
 });
 test.each([['42501',403],['P0002',404],['23505',409],['40001',409],['22023',400],['57014',500]])('PATCH SQL failure %s cannot audit success',async(code,status)=>{
- mockRpc.mockResolvedValue({data:null,error:{code,message:'PRIVATE_DETAIL'}});const r=await PATCH(makeRequest('PATCH',{price:100}),makeProps());expect(r.status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expect(JSON.stringify(await r.json())).not.toContain('PRIVATE_DETAIL');
+ mockRpc.mockResolvedValue({data:null,error:{code,message:code==='42501'?'MENU_ACCESS_DENIED':'PRIVATE_DETAIL'}});const r=await PATCH(makeRequest('PATCH',{price:100}),makeProps());expect(r.status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expect(JSON.stringify(await r.json())).not.toContain('PRIVATE_DETAIL');
 });
 const STOCK='https://images.unsplash.com/existing';
 test('PATCH retains a legacy photo only with the observed value bound into SQL',async()=>{

@@ -473,8 +473,11 @@ describe('GET /api/cron/booking-reminder', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const many = Array.from({ length: 5000 }, (_, i) => booking({ id: String(i), email: null }));
     setup({ bookings: { data: many } });
-    await GET(makeRequest() as any);
+    const res = await GET(makeRequest() as any);
     expect(warnSpy).toHaveBeenCalledWith('[booking-reminder] consider limit reached', { limit: 5000 });
+    // 打ち切られた予約はリマインドが計画されないので、success ではなく error・503（中 A16）。
+    expect(res.status).toBe(503);
+    expect(logCronRun).toHaveBeenCalledWith('booking-reminder', 'error', expect.any(Date), expect.objectContaining({ meta: expect.objectContaining({ truncated: true }) }));
     warnSpy.mockRestore();
   });
 

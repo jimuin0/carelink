@@ -241,10 +241,13 @@ describe('GET /api/cron/birthday-coupon', () => {
 
     const res = await GET(makeRequest() as any);
 
-    expect(res.status).toBe(200);
+    // 翌日の run では対象外になるため、success ではなく error・503 で記録する（中 A14）。
+    expect(res.status).toBe(503);
     const json = await res.json();
     expect(json.deferred).toBe(2);
     expect(json.processed).toBe(0);
+    expect((logCronRun as jest.Mock).mock.calls.some((c: any[]) => c[1] === 'error' && c[3]?.meta?.deferred === 2)).toBe(true);
+    expect((logCronRun as jest.Mock).mock.calls.some((c: any[]) => c[1] === 'success')).toBe(false);
     nowSpy.mockRestore();
   });
 
@@ -369,6 +372,36 @@ describe('GET /api/cron/birthday-coupon', () => {
 
     expect(emailSend).toHaveBeenCalled();
     expect(emailSend.mock.calls[0][0].html).toContain('お客様');
+  });
+
+  test('表示名の HTML はエスケープしてメールに入れる（中 A13）', async () => {
+    const emailSend = jest.fn().mockResolvedValue({ data: { id: 'sent' } });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'profiles') {
+        return {
+          select: jest.fn().mockReturnValue({
+            not: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                range: jest.fn().mockResolvedValue({
+                  data: [{ id: 'user-1', email: 'user@example.com', display_name: '<a href="https://evil.example">x</a>&\'' }],
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === 'user_points') return { insert: jest.fn().mockResolvedValue({ error: null }) };
+      if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
+      return {};
+    });
+
+    await GET(makeRequest() as any);
+
+    const html = emailSend.mock.calls[0][0].html as string;
+    expect(html).not.toContain('<a href="https://evil.example">');
+    expect(html).toContain('&lt;a href=&quot;https://evil.example&quot;&gt;x&lt;/a&gt;&amp;&#39;');
   });
 
   test('配信停止者にはメール送らないがポイントは付与する', async () => {

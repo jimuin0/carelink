@@ -27,7 +27,9 @@ export async function GET(request: NextRequest) {
       query = query.ilike('nearest_station', `%${escaped}%`);
     }
 
-    const { data } = await query.limit(200);
+    const { data, error } = await query.limit(200);
+    // DB 障害を「駅候補なし」として CDN に 1 時間配らない（catch で 500・no-store・通知・中 A24）。
+    if (error) throw error;
 
     const stations = Array.from(new Set((data || []).map((r) => r.nearest_station).filter(Boolean) as string[])).sort();
 
@@ -36,6 +38,8 @@ export async function GET(request: NextRequest) {
       { headers: { 'Cache-Control': 'public, max-age=3600, s-maxage=3600' } }
     );
   } catch (e) {
-    return serverError('api/stations', e, '/api/stations', 'Internal Server Error');
+    const response = serverError('api/stations', e, '/api/stations', 'Internal Server Error');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   }
 }

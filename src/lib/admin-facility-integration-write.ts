@@ -12,7 +12,8 @@ export async function saveAdminFacilityIntegration(input:{actorId:string;facilit
  try {result=await createServiceRoleClient().rpc('save_admin_facility_integration_atomic',{p_actor_id:input.actorId,p_facility_id:input.facilityId,p_kind:input.kind,p_expected:input.expected,p_values:input.values});}
  catch(error){return serverError(tag,databaseDiagnostic(error),'/api/admin');}
  if(result.error){
-  if(result.error.code==='42501')return NextResponse.json({error:'Forbidden'},{status:403});
+  // 403 にするのは RPC 自身の拒否（INTEGRATION_FORBIDDEN）だけ。別原因の 42501 は通知する（中 A43）。
+  if(result.error.code==='42501'&&result.error.message==='INTEGRATION_FORBIDDEN')return NextResponse.json({error:'Forbidden'},{status:403});
   if(result.error.code==='P0002')return NextResponse.json({error:'Not found'},{status:404});
   // gbp:connect の 23505 は「同じ Place ID が別の施設に登録済み」（部分ユニーク索引 uq_facility_profiles_gbp_place_id）。
   if(result.error.code==='23505'&&input.kind==='gbp:connect')return NextResponse.json({code:'GBP_PLACE_TAKEN',error:GBP_PLACE_TAKEN_MESSAGE},{status:409});

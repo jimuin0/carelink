@@ -19,7 +19,8 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { serverError } from '@/lib/with-route';
+import { authUnavailable, serverError } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -90,30 +91,39 @@ export async function POST(request: Request) {
 
     // Auth
     const authClient = await createServerSupabaseAuthClient();
-    const { data: { user } } = await authClient.auth.getUser();
-    if (!user) {
+    const verification = await verifyAuthUser(authClient.auth);
+    if (verification.state === 'unavailable') return authUnavailable('admin-checkout-auth', '/api/admin/booking-checkout');
+    if (verification.state !== 'verified') {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
+    const user = verification.user;
 
     const supabase = createServiceRoleClient();
 
     // 予約取得（権限スコープ確定のため先に取る）
-    const { data: booking } = await supabase
+    const { data: booking, error: bookingError } = await supabase
       .from('bookings')
       .select('id, facility_id, user_id, customer_name, email, booking_date, start_time, menu_id, staff_id, status, updated_at, points_used')
       .eq('id', bookingId)
       .single();
+    if (bookingError && bookingError.code !== 'PGRST116') {
+      return serverError('admin-checkout-booking-read', bookingError, '/api/admin/booking-checkout');
+    }
 
-    const membership = booking
-      ? await supabase
-          .from('facility_members')
-          .select('facility_id, role')
-          .eq('user_id', user.id)
-          .eq('facility_id', booking.facility_id)
-          .in('role', ['owner', 'admin'])
-          .maybeSingle()
-          .then((r) => r.data)
-      : null;
+    let membership: { facility_id: string; role: string } | null = null;
+    if (booking) {
+      const { data: memberRow, error: memberError } = await supabase
+        .from('facility_members')
+        .select('facility_id, role')
+        .eq('user_id', user.id)
+        .eq('facility_id', booking.facility_id)
+        .in('role', ['owner', 'admin'])
+        .maybeSingle();
+      if (memberError) {
+        return serverError('admin-checkout-membership-read', memberError, '/api/admin/booking-checkout');
+      }
+      membership = memberRow;
+    }
 
     // 「見つからない」と「他施設」を 404 に統一（ID 列挙防止）
     if (!booking || !membership) {

@@ -14,7 +14,7 @@ test('assignment omission, clear and replacement remain distinct',async()=>{
  for(const menuIds of [null,[],[actor]]) {await saveAdminStaff({...input,menuIds});expect(mockRpc.mock.calls.at(-1)[1].p_menu_ids).toEqual(menuIds);}
 });
 test.each([['42501',403],['P0002',404],['23505',409],['40001',409],['22023',400],['57014',500]])('SQL failure %s is bounded and cannot be accepted as success',async(code,status)=>{
- mockRpc.mockResolvedValue({data:{id,facility_id:facility},error:{code,message:'private detail'}});
+ mockRpc.mockResolvedValue({data:{id,facility_id:facility},error:{code,message:code==='42501'?'STAFF_FORBIDDEN':'private detail'}});
  const res=await saveAdminStaff(input) as NextResponse;expect(res.status).toBe(status);expect(JSON.stringify(await res.json())).not.toContain('private detail');
 });
 test.each([null,[],{}, {id:'bad',facility_id:facility},{id,facility_id:actor}])('invalid staff receipt fails closed: %p',async data=>{
@@ -25,4 +25,11 @@ test('different staff ID cannot confirm a patch',async()=>{
 });
 test('SDK rejection does not retry the mutation or expose its body',async()=>{
  mockRpc.mockRejectedValue({code:'57014',message:'private detail'});const res=await saveAdminStaff(input) as NextResponse;expect(res.status).toBe(500);expect(mockRpc).toHaveBeenCalledTimes(1);
+});
+
+// 中 A43：RPC 自身の拒否ではない 42501（関数の実行権限の設定ミス等）は、権限不足の 403 に見せず通知つきの 500。
+test('42501 でも RPC 自身の拒否でなければ 500', async () => {
+  mockRpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'permission denied for function' } });
+  const res = await saveAdminStaff(input) as NextResponse;
+  expect(res.status).toBe(500);
 });

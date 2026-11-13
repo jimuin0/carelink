@@ -17,7 +17,7 @@ import {POST as job} from '../jobs/route';
 import {PATCH as catalogUpdate,DELETE as catalogDelete} from '../catalog/[id]/route';
 import {PATCH as jobUpdate,DELETE as jobDelete} from '../jobs/[id]/route';
 import {writeAuditLog} from '@/lib/audit-logger';
-beforeEach(()=>{jest.clearAllMocks();mockRpc.mockResolvedValue({data:null,error:{code:'42501'}});});
+beforeEach(()=>{jest.clearAllMocks();mockRpc.mockResolvedValue({data:null,error:{code:'42501',message:'CONTENT_FORBIDDEN'}});});
 const cases=[
  ['catalog','POST',{name:'Synthetic'},catalog,''],['blog-create','POST',{title:'Synthetic',content:'Content'},blog,''],
  ['blog-update','PATCH',{title:'Synthetic'},blogUpdate,''],['blog-delete','DELETE',{},blogDelete,''],

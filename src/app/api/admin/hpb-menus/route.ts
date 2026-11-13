@@ -69,7 +69,12 @@ export async function POST(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   const admin = createServiceRoleClient();
-  const result = await scrapeAndSaveFacility(admin, auth.facilityId);
+  let result: Awaited<ReturnType<typeof scrapeAndSaveFacility>>;
+  try {
+    result = await scrapeAndSaveFacility(admin, auth.facilityId);
+  } catch (e) {
+    return serverError('admin-hpb-menus-scrape', e, '/api/admin/hpb-menus');
+  }
   if (!result.slnId) {
     return NextResponse.json(
       { error: 'この施設の HPB 店舗ID(hpb_sln_id)が未設定です。設定画面で登録してください。' },

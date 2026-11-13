@@ -168,7 +168,7 @@ test('GET: x-forwarded-for ヘッダあり → IP抽出', async () => {
 
 
 test.each([['42501',403],['P0002',404],['08006',500]])('GET current DB scope error %s rejects partial snapshot',async(code,status)=>{
- mockAnonFrom.mockReturnValue(memberSingle({facility_id:FACILITY_UUID})); mockRpc.mockResolvedValue({data:{menus:[],revision:null},error:{code,message:'PRIVATE_DETAIL'}});
+ mockAnonFrom.mockReturnValue(memberSingle({facility_id:FACILITY_UUID})); mockRpc.mockResolvedValue({data:{menus:[],revision:null},error:{code,message:code==='42501'?'MENU_ACCESS_DENIED':'PRIVATE_DETAIL'}});
  const response=await GET(makeGetRequest());expect(response.status).toBe(status);expect(JSON.stringify(await response.json())).not.toContain('PRIVATE_DETAIL');
 });
 
@@ -189,7 +189,7 @@ test.each([{},{photo_url:''},{photo_url:null},{photo_url:'https://example.invali
  expect(mockAdminFrom).not.toHaveBeenCalled();expect(mockRpc).toHaveBeenCalledWith('save_admin_menu_atomic',expect.objectContaining({p_actor_id:USER_ID,p_facility_id:FACILITY_UUID,p_menu_id:null}));expect(writeAuditLog).toHaveBeenCalledTimes(1);
 });
 test.each([['42501',403],['P0002',404],['23505',409],['40001',409],['22023',400],['57014',500]])('POST SQL failure %s has no success audit',async(code,status)=>{
- mockRpc.mockResolvedValue({data:null,error:{code,message:'PRIVATE_DETAIL'}});const r=await POST(makePostRequest(validBody()));expect(r.status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expect(JSON.stringify(await r.json())).not.toContain('PRIVATE_DETAIL');
+ mockRpc.mockResolvedValue({data:null,error:{code,message:code==='42501'?'MENU_ACCESS_DENIED':'PRIVATE_DETAIL'}});const r=await POST(makePostRequest(validBody()));expect(r.status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expect(JSON.stringify(await r.json())).not.toContain('PRIVATE_DETAIL');
 });
 test('POST unauthenticated',async()=>{mockGetUser.mockResolvedValue({data:{user:null}});expect((await POST(makePostRequest(validBody()))).status).toBe(401);expect(mockRpc).not.toHaveBeenCalled();});
 test('POST CSRF',async()=>{(checkCsrf as jest.Mock).mockReturnValue(NextResponse.json({}, {status:403}));expect((await POST(makePostRequest(validBody()))).status).toBe(403);expect(mockRpc).not.toHaveBeenCalled();});

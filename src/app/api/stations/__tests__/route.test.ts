@@ -253,3 +253,22 @@ describe('GET /api/stations', () => {
     const json = await res.json();
     expect(Array.isArray(json.stations)).toBe(true);
   });
+
+// 中 A24：DB 障害を「駅候補なし」として CDN に 1 時間配らない。
+test('DB 障害 → 500・キャッシュさせない', async () => {
+  const { createServerSupabaseClient } = require('@/lib/supabase-server');
+  const chainable: any = {};
+  Object.assign(chainable, {
+    eq: jest.fn().mockReturnValue(chainable),
+    not: jest.fn().mockReturnValue(chainable),
+    ilike: jest.fn().mockReturnValue(chainable),
+    limit: jest.fn().mockResolvedValue({ data: null, error: { code: '08006', message: 'down' } }),
+    select: jest.fn().mockReturnValue(chainable),
+  });
+  createServerSupabaseClient.mockReturnValue({ from: jest.fn().mockReturnValue(chainable) });
+  const req = new Request('http://localhost/api/stations', { headers: { 'x-forwarded-for': '192.168.1.1' } });
+  Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+  const res = await GET(req as any);
+  expect(res.status).toBe(500);
+  expect(res.headers.get('Cache-Control')).toBe('no-store');
+});

@@ -24,6 +24,10 @@ export type AvailabilityStatus = 'available' | 'few' | 'full' | 'closed' | 'past
 
 export const dynamic = 'force-dynamic';
 
+/** 集約 RPC フォールバックの Slack 通知を間引く間隔（インスタンス単位）。 */
+const FALLBACK_ALERT_INTERVAL_MS = 10 * 60 * 1000;
+let lastFallbackAlertAt = Number.NEGATIVE_INFINITY;
+
 export async function GET(request: Request) {
   try {
     const ip = getClientIp(request);
@@ -164,9 +168,14 @@ export async function GET(request: Request) {
     // 集約RPCが失敗した場合（未デプロイ / PostgREST schema cache 未反映 / ランタイムエラーの
     // いずれでも）500 にせず従来の日次ループにフォールバックする。フォールバックは実データを
     // 再計算するため「空状態偽装」にはならず、公開導線（施設ページのバッジ）を止めない。
-    // 原因可視化のため記録する（cache 反映＆関数正常後は到達しないため恒常ノイズにならない）。
+    // 原因可視化のため記録する。ただし公開 GET は閲覧者の数だけ呼ばれ、関数が壊れている間は毎回ここに
+    // 来るため、Slack 通知はインスタンスごとに一定間隔で 1 回に間引く（他の警報を埋もれさせない・中 A15）。
     safeCaptureException(monthErr, 'availability:get_month_availability_fallback');
-    alertCaughtError('availability:get_month_availability_fallback', monthErr, '/api/availability');
+    const nowMs = Date.now();
+    if (nowMs - lastFallbackAlertAt >= FALLBACK_ALERT_INTERVAL_MS) {
+      lastFallbackAlertAt = nowMs;
+      alertCaughtError('availability:get_month_availability_fallback', monthErr, '/api/availability');
+    }
 
     // ---- フォールバック（集約RPCが使えない間の互換経路。cache 反映＆関数正常後は到達しない）----
     const futureDates: string[] = [];

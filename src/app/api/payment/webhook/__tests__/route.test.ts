@@ -875,7 +875,7 @@ describe('POST /api/payment/webhook', () => {
 
     // ─── 有料オプション（施設向け月額サブスク）のエンタイトルメント自動 ON/OFF ───
 
-    function setupEntitlementTables(opts: { upsertError?: unknown; updateError?: unknown; deleteError?: unknown; existingSubId?: string | null } = {}) {
+    function setupEntitlementTables(opts: { upsertError?: unknown; updateError?: unknown; deleteError?: unknown; existingSubId?: string | null; selectError?: unknown } = {}) {
       const entUpsert = jest.fn().mockResolvedValue({ error: opts.upsertError ?? null });
       const entUpdate = jest.fn().mockReturnValue({
         eq: jest.fn().mockResolvedValue({ error: opts.updateError ?? null }),
@@ -884,7 +884,7 @@ describe('POST /api/payment/webhook', () => {
       // existingSubId を渡すと孤児化防止 cancel 経路を再現できる。
       const entSelectMaybeSingle = jest.fn().mockResolvedValue({
         data: opts.existingSubId ? { stripe_subscription_id: opts.existingSubId } : null,
-        error: null,
+        error: opts.selectError ?? null,
       });
       const entSelectChain: { eq: jest.Mock; maybeSingle: jest.Mock } = {
         eq: jest.fn(() => entSelectChain),
@@ -949,6 +949,30 @@ describe('POST /api/payment/webhook', () => {
         expect.objectContaining({ stripe_subscription_id: 'sub_new' }),
         { onConflict: 'facility_id,option_key' },
       );
+    });
+
+    test('既存 active の照会が失敗 → upsert せず 500＋冪等行ロールバック（中 A23）', async () => {
+      setupEventMock('checkout.session.completed', {
+        metadata: { facility_id: 'fac-1', option_key: 'reminder_line' },
+        subscription: 'sub_new',
+      });
+      const { entUpsert, evDelete } = setupEntitlementTables({ selectError: { code: '08006', message: 'down' } });
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(500);
+      expect(entUpsert).not.toHaveBeenCalled();
+      expect(evDelete).toHaveBeenCalled();
+    });
+
+    test('旧 sub の cancel 失敗 → Slack に通知する（中 A23）', async () => {
+      setupEventMock('checkout.session.completed', {
+        metadata: { facility_id: 'fac-1', option_key: 'reminder_line' },
+        subscription: 'sub_new',
+      });
+      setupEntitlementTables({ existingSubId: 'sub_old' });
+      mockSubscriptionsCancel.mockRejectedValueOnce(new Error('stripe down'));
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(200);
+      expect(mockAlertCaughtError).toHaveBeenCalledWith('payment-webhook-old-subscription-cancel', expect.any(Error), '/api/payment/webhook');
     });
 
     test('同一 sub の再処理では cancel しない（冪等・監査D1）', async () => {

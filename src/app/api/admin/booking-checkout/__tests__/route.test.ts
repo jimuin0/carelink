@@ -241,7 +241,7 @@ test('更新エラー → 500', async () => {
 });
 
 test('予期せぬ例外 → 500（catch）', async () => {
-  mockGetUser.mockRejectedValue(new Error('boom'));
+  mockFrom.mockImplementation(() => { throw new Error('boom'); });
   const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(500);
 });
@@ -410,5 +410,48 @@ describe('会計を確定して完了にするのは予約の開始時刻（JST�
     await POST(makeRequest(validBody({ complete: true })));
     const bookingSelect = mockFrom.mock.results[0].value.select as jest.Mock;
     expect(bookingSelect.mock.calls[0][0]).toContain('start_time');
+  });
+});
+
+// ─── 障害を「見つからない／未ログイン」に化けさせない（中 A6） ───
+describe('障害時の応答', () => {
+  test('認証基盤の障害 → 503（401 にしない）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null }, error: new Error('network') });
+    const res = await POST(makeRequest(validBody()));
+    expect(res.status).toBe(503);
+  });
+
+  test('予約の読み取り障害 → 500（404 にしない）', async () => {
+    mockFrom.mockImplementation(() => {
+      const chain: Record<string, jest.Mock> = {};
+      chain.select = jest.fn(() => chain); chain.eq = jest.fn(() => chain);
+      chain.single = jest.fn(() => Promise.resolve({ data: null, error: { code: '08006', message: 'down' } }));
+      return chain;
+    });
+    const res = await POST(makeRequest(validBody()));
+    expect(res.status).toBe(500);
+  });
+
+  test('所属の読み取り障害 → 500（404 にしない）', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return fluentBooking({ ...bookingBase, status: 'confirmed' });
+      return {
+        select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), in: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { code: '08006', message: 'down' } })),
+      };
+    });
+    const res = await POST(makeRequest(validBody()));
+    expect(res.status).toBe(500);
+  });
+
+  test('予約が無い（PGRST116）→ 404 のまま', async () => {
+    mockFrom.mockImplementation(() => {
+      const chain: Record<string, jest.Mock> = {};
+      chain.select = jest.fn(() => chain); chain.eq = jest.fn(() => chain);
+      chain.single = jest.fn(() => Promise.resolve({ data: null, error: { code: 'PGRST116' } }));
+      return chain;
+    });
+    const res = await POST(makeRequest(validBody()));
+    expect(res.status).toBe(404);
   });
 });

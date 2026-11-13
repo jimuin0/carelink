@@ -14,6 +14,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { serverError, authUnavailable } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { offeredPlanLabels, unofferedFeatureNotice } from '@/lib/feature-toggles';
+import { isAiEnabled } from '@/lib/integration-availability';
+import { checkChatLimit, chatDailyLimit, CHAT_DAILY_WINDOW_MS } from '@/lib/chat-rate-limit';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -89,6 +91,16 @@ export async function POST(request: NextRequest) {
     ...safeHistory,
     { role: 'user', content: safeMessage },
   ];
+
+  // 未設定の連携は「使えない」と返す（呼ぶたびに 500＋通知を出さない）。外部 API の費用は
+  // /api/chat と同じ 24 時間の共有上限（AI_CHAT_DAILY_REQUEST_LIMIT）で抑える（中 A7）。
+  const dailyLimit = chatDailyLimit(process.env.AI_CHAT_DAILY_REQUEST_LIMIT);
+  if (!isAiEnabled() || dailyLimit === null) {
+    return NextResponse.json({ error: 'AIサービスは現在利用できません。' }, { status: 503 });
+  }
+  const daily = await checkChatLimit('chat-daily:global', dailyLimit, CHAT_DAILY_WINDOW_MS);
+  if (daily === 'unavailable') return NextResponse.json({ error: 'AIの利用状況を確認できません。時間をおいて再試行してください。' }, { status: 503 });
+  if (daily === 'limited') return NextResponse.json({ code: 'CHAT_GLOBAL_QUOTA_LIMIT', error: 'AIの24時間の利用上限に達しました。時間をおいて再試行してください。' }, { status: 429 });
 
   try {
     const response = await client.messages.create({

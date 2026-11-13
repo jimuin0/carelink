@@ -30,8 +30,10 @@ export async function uploadReviewPhotos(db: ReturnType<typeof createBrowserSupa
   for (const original of originals) {
     let upload = uploads.get(original);
     if (!upload) {
-      const compressed = await compressImage(original);
-      const file = acceptable(compressed, limits) ? compressed : acceptable(original, limits) ? original : null;
+      // ブラウザが読めない形式（HEIC など）では圧縮が例外になる。投稿を止めず、元ファイルの判定へ進み、
+      // 対応外なら下の案内文を出す（中 A46）。
+      const compressed = await compressImage(original).catch(() => null);
+      const file = compressed && acceptable(compressed, limits) ? compressed : acceptable(original, limits) ? original : null;
       if (!file) throw new Error('写真を保存上限・対応形式に収められません。元写真を保持しています。写真の選択を確認してください。');
       const extensions: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
       const ext = extensions[file.type]!;

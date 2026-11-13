@@ -5,6 +5,7 @@ import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityR
 import { cachedFetch } from './redis';
 import { jstMonthInfo, dayOfWeekUtc, addDays } from './admin-date';
 import { SLOT_OCCUPYING_STATUSES } from './booking-status';
+import { fetchAllPaged } from './paginate';
 import type { CancelPolicy } from './cancel-fee';
 import { isCardBookingReady } from './facility-publish-gate';
 import { OSAKA_CITY, OSAKA_CITY_WARDS } from './facility-location';
@@ -638,6 +639,8 @@ export function facilityOpenWindow(businessHours: unknown, dayOfWeek: number): {
 
 /** 予約枠 RPC（get_available_slots）が枠の開始時刻を並べる間隔（分）。 */
 export const SLOT_STEP_MINUTES = 30;
+/** 空き判定で読む勤務・予約の上限。超えたら部分データで判定せず null（判定不能）にする。 */
+const AVAILABILITY_MAX_ROWS = 50_000;
 
 /**
  * 1 人のスタッフに、予約画面で選べる枠が 1 つでもあるか（分単位の純粋関数）。
@@ -749,10 +752,17 @@ export async function getAvailableFacilityIds(
   for (const profile of buffersRead.data || []) bufferMinutes.set(profile.id, profile.booking_buffer_minutes ?? 0);
 
   // 1. Get staff schedules for this day of week
-  const { data: staffSchedules, error: schedulesError } = await supabase
-    .from('staff_schedules')
-    .select('staff_id, start_time, end_time')
-    .eq('day_of_week', dayOfWeek);
+  // PostgREST の db-max-rows（既定1000）で黙って切られると、勤務を読めなかったスタッフが「空きなし」に
+  // なる。全件をページングで読み、上限で打ち切られたら「判定できない」（null）にする（中 A45）。
+  const { rows: staffSchedules, error: schedulesError } = await fetchAllPaged<{ staff_id: string; start_time: string; end_time: string }>(
+    async (offset, limit) => await supabase
+      .from('staff_schedules')
+      .select('staff_id, start_time, end_time')
+      .eq('day_of_week', dayOfWeek)
+      .order('id', { ascending: true })
+      .range(offset, offset + limit - 1),
+    { maxRows: AVAILABILITY_MAX_ROWS, failOnTruncation: true },
+  );
   if (schedulesError) return null;
 
   // 2. Get staff → facility mapping
@@ -797,19 +807,25 @@ export async function getAvailableFacilityIds(
   // service role で行う（他クエリ（staff_schedules/staff_profiles/schedule_overrides）は
   // 公開データのため anon のまま変更しない）。取得列は既存どおり（PII非含有）。
   const serviceRoleSupabase = createServiceRoleClient();
-  const { data: bookings, error: bookingsError } = await serviceRoleSupabase
-    .from('bookings')
-    .select('staff_id, booking_date, start_time, end_time')
-    .in('booking_date', [addDays(dateStr, -1), dateStr, addDays(dateStr, 1)])
-    // 枠を占有する全状態（pending/confirmed/arrived/completed）。arrived（来店中）/ completed
-    // （同日施術済）を取りこぼすと、その枠を「空きあり」と過大表示し RPC の実占有と乖離する。
-    .in('status', SLOT_OCCUPYING_STATUSES)
-    .in('facility_id', bookableIds);
-  // 予約を読めないと、満席の枠を空きありと出してしまう。
+  // 予約も上限で黙って切られると満席の枠を「空きあり」と出すため、全件をページングで読む（中 A45）。
+  const { rows: bookings, error: bookingsError } = await fetchAllPaged<{ staff_id: string | null; booking_date: string | null; start_time: string; end_time: string }>(
+    async (offset, limit) => await serviceRoleSupabase
+      .from('bookings')
+      .select('staff_id, booking_date, start_time, end_time')
+      .in('booking_date', [addDays(dateStr, -1), dateStr, addDays(dateStr, 1)])
+      // 枠を占有する全状態（pending/confirmed/arrived/completed）。arrived（来店中）/ completed
+      // （同日施術済）を取りこぼすと、その枠を「空きあり」と過大表示し RPC の実占有と乖離する。
+      .in('status', SLOT_OCCUPYING_STATUSES)
+      .in('facility_id', bookableIds)
+      .order('id', { ascending: true })
+      .range(offset, offset + limit - 1),
+    { maxRows: AVAILABILITY_MAX_ROWS, failOnTruncation: true },
+  );
+  // 予約を読めない・上限で打ち切られたときは、満席の枠を空きありと出してしまうので判定しない。
   if (bookingsError) return null;
 
   const staffBookings = new Map<string, { start: number; end: number }[]>();
-  for (const b of bookings || []) {
+  for (const b of bookings) {
     if (!b.staff_id) continue;
     const list = staffBookings.get(b.staff_id) || [];
     const offset = b.booking_date ? (Date.parse(b.booking_date) - Date.parse(dateStr)) / 60_000 : 0;
@@ -825,7 +841,7 @@ export async function getAvailableFacilityIds(
 
   // 6. Check each staff for availability
   const scheduleMap = new Map<string, { start: string; end: string }>();
-  for (const s of staffSchedules || []) {
+  for (const s of staffSchedules) {
     scheduleMap.set(s.staff_id, { start: s.start_time, end: s.end_time });
   }
 

@@ -102,7 +102,7 @@ export async function GET(request: Request) {
 
     // 対象3日付の confirmed 予約を全件取得（id 昇順・決定的）。
     // 旧実装は .limit(200) silent miss の教訓から fetchAllPaged + 実時間予算ガード。
-    const { rows: bookings, error: bookingsErr } = await fetchAllPaged<BookingRow>(
+    const { rows: bookings, error: bookingsErr, truncated: bookingsTruncated } = await fetchAllPaged<BookingRow>(
       async (offset, limit) => {
         // この取得は副作用がない。Supabase/Cloudflare の一過性 522 だけはページ単位で一度再試行し、
         // 回復した場合に予約リマインダー全体を 500 で落とさない。書込みや通知はここから再試行しない。
@@ -126,7 +126,9 @@ export async function GET(request: Request) {
       });
     }
     if (bookings.length === 0) return finishWithoutSending();
-    if (bookings.length === CONSIDER_LIMIT) {
+    // 上限で打ち切られた分（CONSIDER_LIMIT 件目より後）は今日一度も計画されず、自動でも送られない。
+    // 末尾で run を error として記録し警報する（以前は console.warn だけで success になっていた・中 A16）。
+    if (bookingsTruncated) {
       console.warn('[booking-reminder] consider limit reached', { limit: CONSIDER_LIMIT });
     }
 
@@ -470,14 +472,23 @@ export async function GET(request: Request) {
         { route: '/api/cron/booking-reminder', extra: { sent, skipped, deliveryFailures, deferred } },
       );
     }
-    if (dependencyFailures > 0 || notDelivered > 0 || deliveryUncertain > 0) {
+    if (bookingsTruncated) {
+      alertWarning(
+        `[booking-reminder] 対象の予約が上限 ${CONSIDER_LIMIT}件を超えたため、それより後の予約はリマインドを計画できませんでした。自動では再送されません`,
+        { route: '/api/cron/booking-reminder', extra: { sent, skipped, limit: CONSIDER_LIMIT } },
+      );
+    }
+    if (dependencyFailures > 0 || notDelivered > 0 || deliveryUncertain > 0 || bookingsTruncated) {
       await logCronRun('booking-reminder', 'error', startedAt, {
         processed: sent,
         skipped,
         error_msg: deferred > 0
           ? `予約リマインドのうち${deferred}件を時間切れで送れませんでした（自動では再送されません）`
-          : '予約リマインドで未完了の依存障害または送信障害が発生しました',
+          : bookingsTruncated
+            ? `対象の予約が上限${CONSIDER_LIMIT}件を超え、それより後の予約はリマインドを計画できませんでした`
+            : '予約リマインドで未完了の依存障害または送信障害が発生しました',
         meta: {
+          truncated: bookingsTruncated,
           total_bookings: bookings.length,
           planned: plan.length,
           deferred,

@@ -11,6 +11,11 @@
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+const mockCheckChatLimit = jest.fn();
+jest.mock('@/lib/chat-rate-limit', () => ({
+  ...jest.requireActual('@/lib/chat-rate-limit'),
+  checkChatLimit: (...args: unknown[]) => mockCheckChatLimit(...args),
+}));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
 jest.mock('@anthropic-ai/sdk', () => {
@@ -66,6 +71,9 @@ beforeEach(() => {
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+  process.env.ANTHROPIC_API_KEY = 'test-anthropic';
+  delete process.env.AI_CHAT_DAILY_REQUEST_LIMIT;
+  mockCheckChatLimit.mockResolvedValue('allowed');
   getMockCreate().mockResolvedValue({
     content: [{ type: 'text', text: 'AIからの回答です。' }],
   });
@@ -258,4 +266,38 @@ test.each(['auth-data-error', 'auth-null-error', 'auth-throw', 'member-data-erro
  expect(await response.json()).toMatchObject({code:'AUTH_UNAVAILABLE'});
  expect(getMockCreate()).not.toHaveBeenCalled();
 
+});
+
+// ─── 連携の出し分けと共有上限（中 A7） ───
+describe('AI の出し分けと 24 時間の共有上限', () => {
+  beforeEach(() => { mockAnonFrom.mockReturnValue(memberSingle({ role: 'owner' })); });
+
+  test('ANTHROPIC_API_KEY 未設定 → 503 で外部 API を呼ばない', async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    const res = await POST(makeRequest({ message: '質問' }));
+    expect(res.status).toBe(503);
+    expect(getMockCreate()).not.toHaveBeenCalled();
+  });
+
+  test('上限値が不正 → 503 で外部 API を呼ばない', async () => {
+    process.env.AI_CHAT_DAILY_REQUEST_LIMIT = 'abc';
+    const res = await POST(makeRequest({ message: '質問' }));
+    expect(res.status).toBe(503);
+    expect(getMockCreate()).not.toHaveBeenCalled();
+  });
+
+  test('共有上限に達した → 429 で外部 API を呼ばない', async () => {
+    mockCheckChatLimit.mockResolvedValue('limited');
+    const res = await POST(makeRequest({ message: '質問' }));
+    expect(res.status).toBe(429);
+    expect(mockCheckChatLimit).toHaveBeenCalledWith('chat-daily:global', 100, expect.any(Number));
+    expect(getMockCreate()).not.toHaveBeenCalled();
+  });
+
+  test('利用状況を確認できない → 503 で外部 API を呼ばない', async () => {
+    mockCheckChatLimit.mockResolvedValue('unavailable');
+    const res = await POST(makeRequest({ message: '質問' }));
+    expect(res.status).toBe(503);
+    expect(getMockCreate()).not.toHaveBeenCalled();
+  });
 });

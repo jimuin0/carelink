@@ -31,10 +31,20 @@ import { logCronRun, cronError } from '@/lib/cron-logger';
  */
 
 import { NextResponse } from 'next/server';
+
+/** 表示名は利用者が自由に入れられるので、メール HTML へは必ずエスケープして入れる（中 A13）。 */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
-import { alertDeliveryFailures } from '@/lib/alert';
+import { alertDeliveryFailures, alertWarning } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
 import { fromEnv } from '@/lib/email-from';
 import { sendResendChecked } from '@/lib/resend-result';
@@ -202,14 +212,15 @@ export async function GET(request: Request) {
     for (let pi = 0; pi < profiles.length; pi++) {
       const profile = profiles[pi];
       // 実時間予算ガード: 超過したら残りを graceful に打ち切る（ハード timeout での強制終了を避ける）。
-      // deferred を LOUD にログして可視化する。ポイント/通知は年内冪等のため、同日中に
-      // workflow_dispatch で再実行すれば残りだけが処理され二重付与・二重通知は起きない。
+      // 対象は「今日が誕生日」の人なので、打ち切った分は翌日の run では対象外になり自動では処理されない。
+      // そのため deferred は run を error として記録し警報する（末尾・中 A14）。ポイント/通知は年内冪等なので、
+      // 同日中に手動で再実行すれば残りだけが処理され二重付与・二重通知は起きない。
       if (Date.now() - loopStart > SEND_BUDGET_MS) {
         deferred = profiles.length - pi;
-        console.warn('[birthday-coupon] time budget exceeded, deferring rest (re-run same day via workflow_dispatch to catch up)', { deferred, processed: sent, skipped });
+        console.warn('[birthday-coupon] time budget exceeded; the remaining users are not processed today', { deferred, processed: sent, skipped });
         break;
       }
-      const name = profile.display_name || 'お客様';
+      const name = escapeHtml(profile.display_name || 'お客様');
 
       // 誕生日ポイント付与（unique index が 23505 を返せばスキップ — TOCTOU対策）
       const { error: insertErr } = await supabase.from('user_points').insert({
@@ -267,7 +278,7 @@ export async function GET(request: Request) {
             } catch (err) {
               deliveryFailures++;
               console.error('[birthday-coupon] email send failed', { userId: profile.id, err });
-              // 送信失敗: claim を解放して翌 run の再送を可能にする。
+              // 送信失敗: claim を解放する（同日中の再実行で再送できる。翌日の run では対象外になる）。
               await releaseNotificationClaim(profile.id, 'email');
             }
           }
@@ -296,6 +307,19 @@ export async function GET(request: Request) {
     }
 
     alertDeliveryFailures('birthday-coupon', deliveryFailures, { sent, skipped });
+    if (deferred > 0) {
+      alertWarning(
+        `[birthday-coupon] 誕生日ポイント・通知のうち${deferred}件を時間切れで処理できませんでした。翌日の run では対象外になるため、同日中に手動で再実行してください`,
+        { route: '/api/cron/birthday-coupon', extra: { sent, skipped, deferred } },
+      );
+      await logCronRun('birthday-coupon', 'error', startedAt, {
+        processed: sent,
+        skipped,
+        error_msg: `誕生日ポイント・通知のうち${deferred}件を時間切れで処理できませんでした（翌日は対象外）`,
+        meta: { deferred },
+      });
+      return NextResponse.json({ processed: sent, skipped, deferred, total: profiles.length }, { status: 503 });
+    }
     await logCronRun('birthday-coupon', 'success', startedAt, { processed: sent, skipped, meta: { deferred } });
     return NextResponse.json({ processed: sent, skipped, deferred, total: profiles.length });
   } catch (e) {

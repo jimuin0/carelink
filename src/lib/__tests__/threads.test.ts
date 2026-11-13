@@ -283,6 +283,29 @@ describe('refreshThreadsToken', () => {
   });
 });
 
+// 中 A48：reason は Slack と cron_logs に載るので、上流の応答本文・例外文字列・DB のメッセージを入れない。
+describe('refreshThreadsToken reason does not carry provider/DB/exception text', () => {
+  test('HTTP failure keeps only the status', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 400, text: async () => '{"error":"SECRET_TOKEN_DETAIL"}' } as unknown as Response);
+    const result = await refreshThreadsToken();
+    expect(result.reason).toBe('refresh failed: HTTP 400');
+  });
+  test('DB failure keeps only a safe code', async () => {
+    updateResult = { error: { code: '08006', message: 'PRIVATE_DB_DETAIL' } };
+    mockFetchSequence([jsonResponse(true, 200, { access_token: 'new-token', expires_in: 5184000 })]);
+    expect((await refreshThreadsToken()).reason).toBe('db update failed: 08006');
+    updateResult = { error: { code: 'not a code; PRIVATE', message: 'PRIVATE_DB_DETAIL' } };
+    mockFetchSequence([jsonResponse(true, 200, { access_token: 'new-token', expires_in: 5184000 })]);
+    expect((await refreshThreadsToken()).reason).toBe('db update failed: unknown');
+  });
+  test('exception keeps only the error kind', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new TypeError('fetch failed https://graph.threads.net/?access_token=SECRET'));
+    expect((await refreshThreadsToken()).reason).toBe('refresh error: TypeError');
+    global.fetch = jest.fn().mockRejectedValue('SECRET_STRING');
+    expect((await refreshThreadsToken()).reason).toBe('refresh error: unknown');
+  });
+});
+
 describe('buildArticlePostText', () => {
   // Threads の重み付け（BMP=1 / BMP外=UTF-8バイト数）で数え直すヘルパー。
   // 公式ドキュメントの "emojis count as UTF-8 bytes" に合わせる。
