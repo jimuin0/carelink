@@ -725,3 +725,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Fromは `CareLink <support@carelink-jp.com>`、Reply-Toは `support@carelink-jp.com` に固定。既存の `RESEND_API_KEY` をサーバーのみで使用。新たな環境変数・cron・依存なし。日本時間の予約は1分後〜30日以内、Resend標準の単発送信予約を使う。
 - 不明な送信結果はpendingのまま内容を固定する。同じ操作UUIDを冪等キーにして23時間以内だけ再確認できる。以後は再送信せず配信記録を照合する。予約取り消しは実際のResend受付結果を確認し、送信済みのメールは取り消さない。
 - `20261025143701_platform_mail_console.sql` を使い捨てDBで検証後、本番へ適用してからアプリを配信する。元データを削除しない。外部API受付は受信者への配信完了とは区別する。実顧客への送信・予約は利用者の指示を必要とする。
+
+## 作業フォルダの置き場所（2026年11月13日 神原さん指示）
+
+CareLink の作業用コピー・検証用 clone・引き継ぎメモ・ログ等は、必ずこのリポジトリの中（`work/` または `.claude/worktrees/`）に作る。`~/Projects/` 直下など外に `carelink-*` フォルダやファイルを作らない。worktree を作るときは `git worktree add work/<名前> ...` とする。
