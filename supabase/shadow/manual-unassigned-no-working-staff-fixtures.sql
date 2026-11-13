@@ -27,7 +27,7 @@ SELECT pg_temp.assert_unassigned(NOT has_function_privilege('anon', 'public.crea
   AND has_function_privilege('service_role', 'public.create_booking_for_menus_atomic(uuid,uuid,uuid,uuid,uuid,date,time,time,text,text,text,text,int,int,text,boolean,uuid[])', 'EXECUTE'),
   'the booking core stays server-only');
 SELECT pg_temp.assert_unassigned((SELECT prosecdef FROM pg_proc WHERE oid = 'public.create_booking_for_menus_atomic(uuid,uuid,uuid,uuid,uuid,date,time,time,text,text,text,text,int,int,text,boolean,uuid[])'::regprocedure)
-  AND (SELECT proconfig FROM pg_proc WHERE oid = 'public.create_booking_for_menus_atomic(uuid,uuid,uuid,uuid,uuid,date,time,time,text,text,text,text,int,int,text,boolean,uuid[])'::regprocedure) = ARRAY['search_path=public'],
+  AND (SELECT proconfig FROM pg_proc WHERE oid = 'public.create_booking_for_menus_atomic(uuid,uuid,uuid,uuid,uuid,date,time,time,text,text,text,text,int,int,text,boolean,uuid[])'::regprocedure) = ARRAY['search_path=public, pg_temp'],
   'SECURITY DEFINER and search_path are unchanged');
 
 INSERT INTO auth.users(id, email, email_confirmed_at) VALUES
