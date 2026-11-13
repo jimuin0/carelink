@@ -13,7 +13,6 @@ import { readPageResult } from './page-read-verification';
 import { bookingDurationForMenus, MENU_DURATION_FALLBACK_MINUTES } from './booking-slot-rules';
 import { isPublicReadOnlyPreview } from './preview-capabilities';
 import { medicalSpecialties } from './medical-specialties';
-import { fetchAllPaged } from './paginate';
 
 const PER_PAGE = 20;
 
