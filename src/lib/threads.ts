@@ -55,26 +55,33 @@ function getThreadsUserId(): string | null {
 
 /**
  * threads_credentials（単一行運用）からアクセストークンを取得する。
- * 行が無い・エラーの場合は null（＝未設定として扱う。エラーにはしない）。
+ * 行が無い（または service role client を作れない＝env 未設定）は null（＝未設定）。
+ * DB の読み取りエラーは 'unavailable'（未設定と区別する。障害中の投稿を「未設定でスキップ」に
+ * 化けさせると、自己修復の threads-backfill が再試行しない）。
  */
 async function getStoredCredential(): Promise<{
   id: string;
   accessToken: string;
   expiresAt: string;
-} | null> {
+} | null | 'unavailable'> {
+  let supabase: ReturnType<typeof createServiceRoleClient>;
   try {
-    const supabase = createServiceRoleClient();
+    supabase = createServiceRoleClient();
+  } catch {
+    return null;
+  }
+  try {
     const { data, error } = await supabase
       .from('threads_credentials')
       .select('id, access_token, expires_at')
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (error || !data) return null;
+    if (error) return 'unavailable';
+    if (!data) return null;
     return { id: data.id, accessToken: data.access_token, expiresAt: data.expires_at };
   } catch {
-    // service role client 生成失敗（env 未設定）等も未設定として扱う。
-    return null;
+    return 'unavailable';
   }
 }
 
@@ -104,6 +111,9 @@ export async function publishThreadsText(text: string, options?: { beforePublish
   }
 
   const credential = await getStoredCredential();
+  if (credential === 'unavailable') {
+    return { outcome: 'transient', reason: 'threads_credentials read unavailable' };
+  }
   if (!credential) {
     return { outcome: 'skipped', reason: 'threads_credentials has no row' };
   }
@@ -174,7 +184,7 @@ export async function publishThreadsText(text: string, options?: { beforePublish
 export async function readThreadsContainerStatus(creationId: string): Promise<string | null> {
   if (!/^[0-9]{1,100}$/.test(creationId)) return null;
   const credential = await getStoredCredential();
-  if (!credential) return null;
+  if (!credential || credential === 'unavailable') return null;
   try {
     const res = await fetch(buildUrl(`/${creationId}`, { fields: 'id,status,error_message', access_token: credential.accessToken }),
       { method: 'GET', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
@@ -198,6 +208,9 @@ export async function refreshThreadsToken(): Promise<{
   reason?: string;
 }> {
   const credential = await getStoredCredential();
+  if (credential === 'unavailable') {
+    return { ok: false, reason: 'threads_credentials read unavailable' };
+  }
   if (!credential) {
     return { ok: false, reason: 'threads_credentials has no row' };
   }
