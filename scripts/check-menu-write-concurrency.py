@@ -125,8 +125,8 @@ try:
         try:
             session.send(f"BEGIN ISOLATION LEVEL {isolation}; SELECT role FROM public.facility_members WHERE user_id='{ACTOR}';");session.mark('snapshot')
             sql(f"UPDATE public.facility_members SET role='staff' WHERE user_id='{ACTOR}';")
-            before=snapshot();session.send(attempt(save()));assert session.mark('done')==['PT409'];assert session.end()[0]==0;assert snapshot()['menus']==before['menus']
-            RESULTS.append({'case':isolation+' cannot authorize stale membership','result':'PT409'})
+            before=snapshot();session.send(attempt(save()));assert session.mark('done')==['40001'];assert session.end()[0]==0;assert snapshot()['menus']==before['menus']
+            RESULTS.append({'case':isolation+' cannot authorize stale membership','result':'40001'})
         finally:
             if session.proc.poll() is None:session.proc.kill();session.proc.wait(timeout=5)
     print(json.dumps({'database':DB,'cases':RESULTS,'production_or_provider_traffic':False},indent=2))
