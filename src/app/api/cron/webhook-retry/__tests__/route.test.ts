@@ -350,13 +350,17 @@ describe('GET /api/cron/webhook-retry', () => {
     const {Resend}=require('resend');const send=jest.fn().mockResolvedValue({data:{id:'99999999-9999-4999-8999-999999999999'},error:null});Resend.mockImplementation(()=>({emails:{send}}));
     await GET(makeRequest());expect(mockBookingFence).toHaveBeenCalledWith(namespace==='newsletter'?'start_newsletter_delivery':'start_booking_create_notification',expect.objectContaining({p_queue_id:id}));expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();expect(send).toHaveBeenCalledTimes(1);if(namespace==='newsletter')expect(send.mock.calls[0][0].text).toBe('Exact text');
   });
+  // 以前は id が UUID として不正（区切りが1つ欠けていた）で、フェンスに届く前に弾かれていた。
+  // 各 outcome でフェンスが実際に呼ばれたうえで送信されないことを確かめる（点検 A74）。
   test.each(['booking-create','newsletter'])('%s unknown start outcomes never invoke provider',async namespace=>{
-    const id='88888888-8888-4888-888888888881';const envelope={from:'sender@example.invalid',to:'recipient@example.invalid',subject:'Synthetic',html:'<p>Synthetic</p>'};
+    const id='88888888-8888-4888-8888-888888888881';const envelope={from:'sender@example.invalid',to:'recipient@example.invalid',subject:'Synthetic',html:'<p>Synthetic</p>'};
     mockJobsSelect.mockResolvedValue({data:[{id,webhook_type:'email',target_id:envelope.to,payload:{event_email_version:1,idempotency_key:`carelink-event-email/${id}`,...(namespace==='newsletter'?{newsletter_delivery_version:1}:{booking_create_operation:'e4000000-0000-4000-8000-000000000001'})},email_envelope:envelope,attempt_count:0,status:'pending'}],error:null});
     const {Resend}=require('resend');const send=jest.fn().mockResolvedValue({data:{id:'99999999-9999-4999-8999-999999999999'},error:null});Resend.mockImplementation(()=>({emails:{send}}));
     for(const mode of ['superseded','not_owned','empty','bad','no-time','bad-time','error']){
       jest.clearAllMocks();mockBookingFence.mockResolvedValue({data:mode==='empty'?[]:[{outcome:['bad','error'].includes(mode)?'bad':['no-time','bad-time'].includes(mode)?'ready':mode,started_at:mode==='no-time'?null:mode==='bad-time'?'invalid':new Date().toISOString()}],error:mode==='error'?{code:'522'}:null});
-      await GET(makeRequest());expect(send).not.toHaveBeenCalled();expect(mockSuccessUpdate).not.toHaveBeenCalled();
+      await GET(makeRequest());
+      expect(mockBookingFence).toHaveBeenCalledWith(namespace==='newsletter'?'start_newsletter_delivery':'start_booking_create_notification',expect.objectContaining({p_queue_id:id}));
+      expect(send).not.toHaveBeenCalled();expect(mockSuccessUpdate).not.toHaveBeenCalled();
     }
   });
   test.each(['allowed','false','error','throw','uncertain-provider'])('newsletter definitive rejection release %s is permission-fenced',async mode=>{
@@ -778,20 +782,35 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(res.status).toBe(500);
   });
 
-  test('claim は真のCAS（.eq(status,pending)＋.select(id)）で行う', async () => {
+  // 以前は .eq('status','pending')・.lte('scheduled_at')・.select('*') を見ていたが、それは
+  // テスト自身の mockClaimGateway が作った呼び出しで route の振る舞いではなかった（点検 A73）。
+  // route が実際にするのは RPC 呼び出しだけなので、その引数を正確に主張し、CAS の条件は
+  // RPC の SQL 本体（最新 migration）で確かめる。
+  test('claim は claim_webhook_retry_queue_v2 に選択した id と claim 時刻だけを渡す', async () => {
     setupDefaultMocks(1);
 
     await GET(makeRequest() as any);
 
-    // update({status:'processing', claimed_at}) → .in('id', ids) → .eq('status','pending') → .select('id')
-    const inMock = mockClaimUpdate.mock.results[0].value.in as jest.Mock;
-    expect(inMock).toHaveBeenCalledWith('id', ['job-1', '88888888-8888-4888-8888-888888888880']);
-    const eqMock = inMock.mock.results[0].value.eq as jest.Mock;
-    expect(eqMock).toHaveBeenCalledWith('status', 'pending');
-    const lteMock = eqMock.mock.results[0].value.lte as jest.Mock;
-    expect(lteMock).toHaveBeenCalledWith('scheduled_at', mockClaimUpdate.mock.calls[0][0].claimed_at);
-    const selectMock = lteMock.mock.results[0].value.select as jest.Mock;
-    expect(selectMock).toHaveBeenCalledWith('*');
+    expect(mockClaimGateway).toHaveBeenCalledTimes(1);
+    const args = mockClaimGateway.mock.calls[0][0];
+    expect(Object.keys(args).sort()).toEqual(['p_claimed_at', 'p_job_ids']);
+    expect(args.p_job_ids).toEqual(['job-1', '88888888-8888-4888-8888-888888888880']);
+    expect(new Date(args.p_claimed_at).toISOString()).toBe(args.p_claimed_at);
+  });
+
+  test('claim RPC の SQL は pending かつ期限到来の行だけを processing へ CAS 更新する', () => {
+    const { readdirSync, readFileSync } = jest.requireActual('fs') as typeof import('fs');
+    const { join } = jest.requireActual('path') as typeof import('path');
+    const dir = join(process.cwd(), 'supabase/migrations');
+    const sig = /CREATE (OR REPLACE )?FUNCTION public\.claim_webhook_retry_queue_v2\(/;
+    const latest = readdirSync(dir).filter((f) => /^\d{14}_.*\.sql$/.test(f))
+      .filter((f) => sig.test(readFileSync(join(dir, f), 'utf8'))).sort().pop() as string;
+    expect(latest).toBeDefined();
+    const sql = readFileSync(join(dir, latest), 'utf8');
+    const start = sql.search(sig);
+    const body = sql.slice(start, sql.indexOf('END $$;', start));
+    expect(body).toMatch(/q\.status='pending' AND q\.scheduled_at<=clock_timestamp\(\) AND q\.delivery_started_at IS NULL FOR UPDATE SKIP LOCKED/);
+    expect(body).toMatch(/UPDATE public\.webhook_retry_queue q SET status='processing',claimed_at=p_claimed_at[^;]*WHERE q\.id=selected_id AND q\.status='pending' RETURNING q\.\*/);
   });
 
   test('claim 競合（並行runが一部行を先取り）→ claimできた行のみ処理し、取れなかった行は送信しない', async () => {

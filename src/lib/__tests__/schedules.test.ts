@@ -98,3 +98,24 @@ describe('getAvailableSlots()', () => {
     expect(result).toEqual([]);
   });
 });
+
+// 点検 A94：本体は error を見ずに (data ?? []) を返すため、DB 障害が「勤務なし」「空き枠0件」として
+// 成功扱いになる（来院者には満枠に見え、通知も出ない）。上の「data が null → 空配列」は error の無い
+// 正常系に限った話で、error 分岐は未検証だった。本体の修正待ちのため test.failing で現状を固定し、
+// 本体が直ると反転して知らせる（そのとき test に戻す）。
+describe('【本体未修正】DB 障害を空として握り潰さない', () => {
+  test.failing('getStaffSchedules: error ありは空配列で成功扱いにしない（reject する）', async () => {
+    const chain = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn(() => Promise.resolve({ data: null, error: { message: 'db down' } })),
+    };
+    mockFrom.mockReturnValue(chain);
+    await expect(getStaffSchedules('staff-1')).rejects.toBeDefined();
+  });
+
+  test.failing('getAvailableSlots: error ありは空配列で成功扱いにしない（reject する）', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'db down' } });
+    await expect(getAvailableSlots('f1', 's1', '2026-05-01', 30)).rejects.toBeDefined();
+  });
+});

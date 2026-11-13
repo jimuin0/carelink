@@ -13,19 +13,26 @@ const mockGetUser = jest.fn();
 const mockHeldCount = jest.fn();
 const mockServiceRows = jest.fn();
 let navHidden: readonly string[] | undefined;
+const serviceFilters: Array<[string, string, unknown]> = [];
 
 jest.mock('@/lib/supabase-server-auth', () => ({
   createServerSupabaseAuthClient: async () => ({
     auth: { getUser: () => mockGetUser() },
     from: (table: string) => ({
-      select: () => ({ eq: () => mockHeldCount(table) }),
+      select: () => ({ eq: (col: string, val: unknown) => mockHeldCount(table, col, val) }),
     }),
   }),
 }));
 jest.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from: (table: string) => ({
-      select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: mockServiceRows(table), error: null }) }) }),
+      // service role は RLS が効かないため、本人の user_id で絞っているかを実際に評価する（点検 A86）。
+      // 絞り方が違えば行を返さない＝「持っている回数券が表示される」系のテストが落ちる。
+      select: () => ({ eq: (col: string, val: unknown) => ({ order: () => {
+        serviceFilters.push([table, col, val]);
+        const own = col === 'user_id' && val === 'synthetic-user';
+        return Promise.resolve({ data: own ? mockServiceRows(table) : [], error: null });
+      } }) }),
     }),
   }),
 }));
@@ -40,6 +47,7 @@ jest.mock('@/components/mypage/MyPageNav', () => ({
 
 beforeEach(() => {
   navHidden = undefined;
+  serviceFilters.length = 0;
   mockGetUser.mockReset().mockResolvedValue({ data: { user: { id: 'synthetic-user' } }, error: null });
   mockHeldCount.mockReset().mockResolvedValue({ count: 0, error: null });
   mockServiceRows.mockReset().mockReturnValue([]);
@@ -50,8 +58,9 @@ describe('マイページのナビ', () => {
     renderToStaticMarkup(await MyPageLayout({ children: <div /> }));
     expect(navHidden).toEqual(['/mypage/packages', '/mypage/subscriptions']);
     // 本人の行だけを数えている
-    expect(mockHeldCount).toHaveBeenCalledWith('user_packages');
-    expect(mockHeldCount).toHaveBeenCalledWith('user_subscriptions');
+    expect(mockHeldCount).toHaveBeenCalledWith('user_packages', 'user_id', 'synthetic-user');
+    expect(mockHeldCount).toHaveBeenCalledWith('user_subscriptions', 'user_id', 'synthetic-user');
+    expect(mockHeldCount).toHaveBeenCalledTimes(2);
   });
 
   test('既に持っている人には出し続ける', async () => {
@@ -110,5 +119,15 @@ describe('月額プランページ', () => {
     expect(html).toContain('合成月額プラン');
     expect(html).not.toContain('申し込む');
     expect(html).not.toContain('href="/search"');
+  });
+});
+
+describe('本人の行だけを読む（service role・RLS 不適用）', () => {
+  test.each([
+    ['user_packages', () => MyPackagesPage()],
+    ['user_subscriptions', () => MySubscriptionsPage()],
+  ] as const)('%s は user_id = 本人 で絞る', async (table, render) => {
+    renderToStaticMarkup(await render());
+    expect(serviceFilters).toEqual([[table, 'user_id', 'synthetic-user']]);
   });
 });

@@ -56,37 +56,29 @@ function setupDefaultMocks(
     : [];
 
   const listResult = { data: dbError ? null : listData, error: dbError ? { message: 'DB error' } : null };
+  const singleResult = { data: dbError ? null : singleData, error: dbError ? { message: 'DB error' } : null };
 
-  // Self-referential chain: order().eq().ilike().limit() or any subset
-  const listChain: any = {};
-  Object.assign(listChain, {
-    eq: jest.fn().mockReturnValue(listChain),
-    ilike: jest.fn().mockReturnValue(listChain),
-    order: jest.fn().mockReturnValue(listChain),
-    limit: jest.fn().mockResolvedValue(listResult),
-  });
+  // route がクエリビルダに渡した呼び出しを順に記録する（点検 A79：以前は固定データと
+  // status しか見ておらず、フィルタ・エスケープ・limit を消しても緑だった）。
+  calls = [];
+  const chain: any = {};
+  for (const m of ['select', 'eq', 'ilike', 'order']) {
+    chain[m] = jest.fn((...args: unknown[]) => { calls.push([m, ...args]); return chain; });
+  }
+  chain.limit = jest.fn((...args: unknown[]) => { calls.push(['limit', ...args]); return Promise.resolve(listResult); });
+  chain.maybeSingle = jest.fn(() => { calls.push(['maybeSingle']); return Promise.resolve(singleResult); });
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
     from: jest.fn((table: string) => {
-      if (table === 'salons') {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                maybeSingle: jest.fn().mockResolvedValue({
-                  data: dbError ? null : singleData,
-                  error: dbError ? { message: 'DB error' } : null,
-                }),
-              }),
-              order: jest.fn().mockReturnValue(listChain),
-            }),
-          }),
-        };
-      }
+      calls.push(['from', table]);
+      return chain;
     }),
   });
 }
+
+let calls: unknown[][] = [];
+const callsOf = (m: string) => calls.filter((c) => c[0] === m).map((c) => c.slice(1));
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -151,16 +143,15 @@ describe('GET /api/salons', () => {
     const res = await GET(makeRequest('business_type=eyelash') as any);
 
     expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(Array.isArray(json)).toBe(true);
+    expect(callsOf('eq')).toEqual([['is_public', true], ['business_type', 'eyelash']]);
+    expect(callsOf('ilike')).toEqual([]);
   });
 
   test('filters by area (ILIKE search)', async () => {
     const res = await GET(makeRequest('area=東京都渋谷区') as any);
 
     expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(Array.isArray(json)).toBe(true);
+    expect(callsOf('ilike')).toEqual([['address', '%東京都渋谷区%']]);
   });
 
   test('area parameter trimmed and sliced to 100 chars', async () => {
@@ -168,12 +159,15 @@ describe('GET /api/salons', () => {
     const res = await GET(makeRequest(`area= ${longArea} `) as any);
 
     expect(res.status).toBe(200);
+    expect(callsOf('ilike')).toEqual([['address', `%${'x'.repeat(100)}%`]]);
   });
 
   test('area with SQL injection chars escaped', async () => {
-    const res = await GET(makeRequest('area=%_\\') as any);
+    const res = await GET(makeRequest(`area=${encodeURIComponent('a%_\\b')}`) as any);
 
     expect(res.status).toBe(200);
+    // ワイルドカード（% _）とエスケープ文字（\）はすべてリテラルとして渡す
+    expect(callsOf('ilike')).toEqual([['address', '%a\\%\\_\\\\b%']]);
   });
 
   test('both business_type and area filters applied', async () => {
@@ -182,42 +176,38 @@ describe('GET /api/salons', () => {
     );
 
     expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(Array.isArray(json)).toBe(true);
+    expect(callsOf('eq')).toEqual([['is_public', true], ['business_type', 'eyelash']]);
+    expect(callsOf('ilike')).toEqual([['address', '%東京都%']]);
   });
 
   test('list limited to 50 results', async () => {
     const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(200);
+    expect(callsOf('limit')).toEqual([[50]]);
   });
 
   test('results ordered by created_at descending', async () => {
     const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(200);
-    const json = await res.json();
-    if (json.length > 1) {
-      expect(new Date(json[0].created_at).getTime()).toBeGreaterThanOrEqual(new Date(json[1].created_at).getTime());
-    }
+    expect(callsOf('order')).toEqual([['created_at', { ascending: false }]]);
   });
 
   test('includes is_public=true filter for single lookup', async () => {
     const res = await GET(makeRequest(`id=${VALID_UUID}`) as any);
 
     expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.is_public).toBe(true);
+    expect(callsOf('from')).toEqual([['salons']]);
+    expect(callsOf('eq')).toEqual([['id', VALID_UUID], ['is_public', true]]);
+    expect(callsOf('maybeSingle')).toEqual([[]]);
   });
 
   test('includes is_public=true filter for list', async () => {
     const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(200);
-    const json = await res.json();
-    if (json.length > 0) {
-      expect(json[0].is_public).toBe(true);
-    }
+    expect(callsOf('eq')).toEqual([['is_public', true]]);
   });
 
   test('DB error → 500', async () => {

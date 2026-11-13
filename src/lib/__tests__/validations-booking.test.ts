@@ -16,6 +16,18 @@ const validBooking = {
   total_price: 5000,
 };
 
+// 基準データの日付（2027-04-01・2027-02-30）は「今日〜1年後」の範囲内でなければ意味を失う。
+// 実時計のままだと 2027-04-02（JST）以降に過去日となり、正常系が一斉に赤くなる（点検 A57）。
+// 時計を固定して、日付が経っても同じ条件を検証し続ける。個別に時刻を指定する describe は上書きする。
+const FIXED_NOW = new Date('2026-11-13T03:00:00.000Z'); // JST 2026-11-13 12:00
+beforeEach(() => {
+  jest.useFakeTimers();
+  jest.setSystemTime(FIXED_NOW);
+});
+afterEach(() => {
+  jest.useRealTimers();
+});
+
 describe('bookingSchema', () => {
   test('正常データが通過する', () => {
     const result = bookingSchema.safeParse(validBooking);

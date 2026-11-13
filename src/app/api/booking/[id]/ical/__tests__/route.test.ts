@@ -243,17 +243,25 @@ describe('GET /api/booking/[id]/ical', () => {
     expect(disposition).toContain('carelink-booking-123e4567.ics');
   });
 
-  test('iCal escapes special characters in summary', async () => {
-    setupDefaultMocks(true, true);
-    // The mock already has a clean menu name, but we verify escaping works
+  test('iCal escapes special characters in summary / description / location（点検 A72）', async () => {
+    // 以前はモックに特殊文字が無く 'SUMMARY:' の有無しか見ていなかったため、escapeIcal が壊れても緑だった。
+    setupDefaultMocks(true, true, {
+      menu: [{ name: 'カット,カラー;\\トリートメント' }],
+      staff: [{ name: 'A\nB' }],
+      facility_profiles: [{ name: 'Salon, A;B', address: '東京都,渋谷区;1\r\n2', phone: null }],
+    });
 
     const res = await GET(makeRequest() as any, {
       params: Promise.resolve({ id: BOOKING_UUID }),
     } as any);
 
     const text = await res.text();
-    // Commas, semicolons, newlines should be escaped
-    expect(text).toContain('SUMMARY:');
+    const lines = text.split('\r\n');
+    expect(lines).toContain('SUMMARY:Salon\\, A\\;B - カット\\,カラー\\;\\\\トリートメント');
+    expect(lines).toContain('LOCATION:東京都\\,渋谷区\\;1\\n2');
+    expect(lines).toContain('DESCRIPTION:メニュー: カット\\,カラー\\;\\\\トリートメント\\n担当: A\\nB\\n予約ID: 123e4567');
+    // 生の改行で行が割れて、別のプロパティ行が注入されていないこと
+    expect(lines.every((l) => /^[A-Z-]+[;:]/.test(l))).toBe(true);
   });
 
   test('iCal handles missing facility name gracefully', async () => {
@@ -427,8 +435,9 @@ describe('GET /api/booking/[id]/ical', () => {
     // SUMMARY uses fallback '施術'
     expect(text).toContain('SUMMARY:Salon NoOptional - 施術');
     // No DTSTART / DTEND / LOCATION lines should be present
-    expect(text).not.toContain('DTSTART:');
-    expect(text).not.toContain('DTEND:');
+    // route は `DTSTART;TZID=...:` の形で出すため、'DTSTART:' の不在では何も確かめられない（点検 A71）。
+    expect(text).not.toMatch(/^DTSTART[;:]/m);
+    expect(text).not.toMatch(/^DTEND[;:]/m);
     expect(text).not.toContain('LOCATION:');
   });
 
