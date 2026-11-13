@@ -1042,12 +1042,26 @@ describe('getMonthlyBookingCounts', () => {
       { facility_id: 'f-1' },
       { facility_id: 'f-2' },
     ];
-    const chain = fluent(null);
-    chain.lt = jest.fn(() => Promise.resolve({ data: bookings }));
+    const chain = fluent({ data: bookings, error: null });
     mockServiceFrom.mockReturnValue(chain);
 
     const result = await getMonthlyBookingCounts(['f-1', 'f-2']);
     expect(result).toEqual({ 'f-1': 2, 'f-2': 1 });
+    expect(chain.order).toHaveBeenCalledWith('id', { ascending: true });
+    expect(chain.range).toHaveBeenCalledWith(0, 999);
+  });
+
+  test('1000件を超えても全ページを数える（max-rows で切らない）', async () => {
+    const chain = fluent(null);
+    const page1 = Array.from({ length: 1000 }, () => ({ facility_id: 'f-1' }));
+    chain.range = jest.fn((from: number) => Promise.resolve({ data: from === 0 ? page1 : [{ facility_id: 'f-1' }, { facility_id: 'f-2' }], error: null }));
+    mockServiceFrom.mockReturnValue(chain);
+    expect(await getMonthlyBookingCounts(['f-1', 'f-2'])).toEqual({ 'f-1': 1001, 'f-2': 1 });
+  });
+
+  test('読み取りエラーならバッジを出さない（空）', async () => {
+    mockServiceFrom.mockReturnValue(fluent({ data: null, error: { message: 'down' } }));
+    expect(await getMonthlyBookingCounts(['f-1'])).toEqual({});
   });
 
   test('空配列の場合は空オブジェクト', async () => {
@@ -1061,8 +1075,7 @@ describe('getMonthlyBookingCounts', () => {
   // （anon(mockFrom) に退行したら bookings は取得されず 0 になり、この test が赤化する）。
   test('bookings読み取りはanonではなくservice roleクライアント経由（#483/#484同型の回帰防止）', async () => {
     const bookings = [{ facility_id: 'f-1' }];
-    const chain = fluent(null);
-    chain.lt = jest.fn(() => Promise.resolve({ data: bookings }));
+    const chain = fluent({ data: bookings, error: null });
     mockServiceFrom.mockReturnValue(chain);
     // anon の from が bookings 目的で呼ばれたら壊す（anon退行を検知するための毒餌）
     mockFrom.mockImplementation(() => {
@@ -1963,7 +1976,7 @@ describe('null data fallbacks', () => {
 
   test('getMonthlyBookingCounts: dataがnullのとき空オブジェクト', async () => {
     const chain = fluent(null);
-    chain.lt = jest.fn(() => Promise.resolve({ data: null }));
+    chain.range = jest.fn(() => Promise.resolve({ data: null, error: null }));
     mockServiceFrom.mockReturnValue(chain);
     const result = await getMonthlyBookingCounts(['f-1']);
     expect(result).toEqual({});
@@ -2124,7 +2137,8 @@ describe('null data fallbacks', () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-12-15T00:00:00Z'));
     const chain = fluent(null);
-    chain.lt = jest.fn(() => Promise.resolve({ data: [] }));
+    chain.lt = jest.fn(() => chain);
+    chain.range = jest.fn(() => Promise.resolve({ data: [], error: null }));
     mockServiceFrom.mockReturnValue(chain);
     await getMonthlyBookingCounts(['f-1']);
     const ltCall = (chain.lt as jest.Mock).mock.calls[0];
@@ -2138,7 +2152,8 @@ describe('null data fallbacks', () => {
     jest.setSystemTime(new Date('2026-06-30T17:00:00Z'));
     const chain = fluent(null);
     chain.gte = jest.fn(() => chain);
-    chain.lt = jest.fn(() => Promise.resolve({ data: [] }));
+    chain.lt = jest.fn(() => chain);
+    chain.range = jest.fn(() => Promise.resolve({ data: [], error: null }));
     mockServiceFrom.mockReturnValue(chain);
     await getMonthlyBookingCounts(['f-1']);
     // JST では既に7月 → 当月境界は 7/1〜8/1 でなければならない（旧実装だと 6/1〜7/1）
