@@ -3,8 +3,7 @@ BEGIN;
 CREATE FUNCTION pg_temp.assert_thread(ok boolean,label text) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'threads fixture failed: %',label; END IF; END $$;
 SELECT pg_temp.assert_thread(current_setting('server_version_num')::int BETWEEN 170000 AND 179999,'PG17');
-SELECT pg_temp.assert_thread(current_database() LIKE 'carelink_shadow%' OR
- (current_database()='postgres' AND current_setting('application_name')='carelink-batch2-photos'),'isolated target');
+SELECT pg_temp.assert_thread(current_database() LIKE 'carelink_shadow%','isolated target');
 SELECT pg_temp.assert_thread(NOT EXISTS(SELECT 1 FROM public.platform_blog_posts WHERE id::text LIKE 'ef12%'),'synthetic namespace unused');
 INSERT INTO public.platform_blog_posts(id,slug,title,is_published) VALUES
  ('ef120000-0000-4000-8000-000000000001','synthetic-threads-start','Frozen title',true),

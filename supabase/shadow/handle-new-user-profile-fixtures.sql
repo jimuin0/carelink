@@ -3,7 +3,7 @@
 BEGIN;
 SET LOCAL statement_timeout='15s';
 DO $$ BEGIN
-  IF current_database() NOT IN ('carelink_shadow','postgres')
+  IF current_database() NOT IN ('carelink_shadow')
     OR current_setting('server_version_num')::int NOT BETWEEN 170000 AND 179999
     THEN RAISE EXCEPTION 'isolated PG17 database required'; END IF;
   IF EXISTS(SELECT 1 FROM auth.users WHERE id::text LIKE 'ef710000-%')

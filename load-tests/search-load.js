@@ -65,7 +65,7 @@ export default function () {
   const area = areas[Math.floor(Math.random() * areas.length)];
   const type = businessTypes[Math.floor(Math.random() * businessTypes.length)];
 
-  const params: string[] = [];
+  const params = [];
   if (query) params.push(`q=${encodeURIComponent(query)}`);
   if (area) params.push(`area=${encodeURIComponent(area)}`);
   if (type) params.push(`business_type=${type}`);

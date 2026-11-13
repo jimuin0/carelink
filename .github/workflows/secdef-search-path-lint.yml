@@ -94,9 +94,9 @@ jobs:
                       r'ALTER\s+FUNCTION\s+(?:public\.)?(\w+)\s*\([^)]*\)\s+SET\s+search_path',
                       sql, re.IGNORECASE)
               )
-              if re.search(r'ALTER\s+FUNCTION[^\n;]*SET\s+search_path', sql, re.IGNORECASE) \
-                 and re.search(r'\bDO\s+\$\$', sql, re.IGNORECASE):
-                  continue
+              # 以前はここで「ALTER FUNCTION ... SET search_path と DO $$ が同居するファイル」を
+              # ファイルごと skip していた。無関係な ALTER が 1 本あるだけで、同じファイルの
+              # 未固定 SECURITY DEFINER 関数が全部素通りしたため撤去した（関数ごとの判定だけにする）。
 
               for m in func_re.finditer(sql):
                   body_and_attrs = m.group(0)
