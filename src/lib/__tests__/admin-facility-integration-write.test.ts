@@ -4,7 +4,7 @@ import {NextResponse} from 'next/server';import {saveAdminFacilityIntegration} f
 const id='22222222-2222-4222-8222-222222222222',other='44444444-4444-4444-8444-444444444444';const input={actorId:id,facilityId:id,kind:'gbp:connect' as const,expected:{},values:{place_id:'NewPlace',cid:null}};
 beforeEach(()=>{rpc.mockReset();rpc.mockResolvedValue({data:{id,facility_id:id},error:null});});
 test('scoped write receipt',async()=>{expect(await saveAdminFacilityIntegration(input)).toEqual({id,facility_id:id});expect(rpc).toHaveBeenCalledWith('save_admin_facility_integration_atomic',{p_actor_id:id,p_facility_id:id,p_kind:'gbp:connect',p_expected:{},p_values:input.values});});
-test.each([['42501',403],['P0002',404],['40001',409],['23505',409],['22023',400],['08006',500]])('SQL %s cannot certify success',async(code,status)=>{rpc.mockResolvedValue({data:{id,facility_id:id},error:{code,message:'private'}});const r=await saveAdminFacilityIntegration(input) as NextResponse;expect(r.status).toBe(status);expect(JSON.stringify(await r.json())).not.toContain('private');});
+test.each([['42501',403],['P0002',404],['40001',409],['23505',409],['22023',400],['08006',500]])('SQL %s cannot certify success',async(code,status)=>{rpc.mockResolvedValue({data:{id,facility_id:id},error:{code,message:code==='42501'?'INTEGRATION_FORBIDDEN':'private'}});const r=await saveAdminFacilityIntegration(input) as NextResponse;expect(r.status).toBe(status);expect(JSON.stringify(await r.json())).not.toContain('private');});
 test.each([null,{},[],{id,facility_id:other},{id:other,facility_id:id}])('wrong receipt %p',async data=>{rpc.mockResolvedValue({data,error:null});expect((await saveAdminFacilityIntegration(input) as NextResponse).status).toBe(500);});
 test('domain row has its own ID',async()=>{rpc.mockResolvedValue({data:{id:other,facility_id:id,domain:'new.example.invalid',is_verified:false},error:null});expect(await saveAdminFacilityIntegration({...input,kind:'domain:configure',values:{domain:'new.example.invalid'}})).toEqual({id:other,facility_id:id,domain:'new.example.invalid',is_verified:false});});
 test('SDK throw bounded without retries',async()=>{rpc.mockRejectedValue({code:'08006',message:'private'});expect((await saveAdminFacilityIntegration(input) as NextResponse).status).toBe(500);expect(rpc).toHaveBeenCalledTimes(1);});
@@ -23,4 +23,11 @@ test('a unique violation on a domain keeps the generic conflict message',async()
  rpc.mockResolvedValue({data:null,error:{code:'23505'}});
  const r=await saveAdminFacilityIntegration({...input,kind:'domain:configure',values:{domain:'new.example.invalid'}}) as NextResponse;
  expect(r.status).toBe(409);expect((await r.json()).error).toBe('設定が変更されました。再読み込みしてください');
+});
+
+// 中 A43：RPC 自身の拒否ではない 42501（関数の実行権限の設定ミス等）は、権限不足の 403 に見せず通知つきの 500。
+test('42501 でも RPC 自身の拒否でなければ 500', async () => {
+  rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'permission denied for function' } });
+  const res = await saveAdminFacilityIntegration(input) as NextResponse;
+  expect(res.status).toBe(500);
 });

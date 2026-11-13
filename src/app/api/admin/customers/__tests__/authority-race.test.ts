@@ -23,7 +23,7 @@ jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ rp
 import { POST } from '../route';
 import { PATCH, DELETE } from '../[id]/route';
 import { writeAuditLog } from '@/lib/audit-logger';
-beforeEach(() => { jest.clearAllMocks(); mockRpc.mockResolvedValue({ data: null, error: { code: '42501' } }); });
+beforeEach(() => { jest.clearAllMocks(); mockRpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'CUSTOMER_FORBIDDEN' } }); });
 test.each(['POST','PATCH','DELETE'])('%s rejects permission revoked after the HTTP gate', async method => {
  const request = new NextRequest('http://localhost/api/admin/customers?facility_id='+facility, {method,body:JSON.stringify({name:'Allowed before revocation'}),headers:{'Content-Type':'application/json'}});
  const response = method === 'POST' ? await POST(request) : method === 'PATCH' ? await PATCH(request,{params:Promise.resolve({id:menu})}) : await DELETE(request,{params:Promise.resolve({id:menu})});

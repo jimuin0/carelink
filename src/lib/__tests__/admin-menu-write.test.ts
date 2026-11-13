@@ -15,7 +15,7 @@ test('patch binds expected ID and legacy-photo observation',async()=>{
  expect(mockRpc.mock.calls[0][1]).toMatchObject({p_menu_id:id,p_check_photo:true,p_expected_photo:'https://images.unsplash.com/existing'});
 });
 test.each([['42501',403],['P0002',404],['23505',409],['40001',409],['22023',400],['57014',500]])('SQL failure %s is bounded and cannot be accepted as success',async(code,status)=>{
- mockRpc.mockResolvedValue({data:{id,facility_id:facility},error:{code,message:'private detail'}});
+ mockRpc.mockResolvedValue({data:{id,facility_id:facility},error:{code,message:code==='42501'?'MENU_ACCESS_DENIED':'private detail'}});
  const res=await saveAdminMenu(input) as NextResponse;expect(res.status).toBe(status);expect(JSON.stringify(await res.json())).not.toContain('private detail');
 });
 test.each([null,[],{}, {id:'bad',facility_id:facility},{id,facility_id:actor}])('invalid create receipt fails closed: %p',async data=>{
@@ -36,4 +36,11 @@ test('the last visible menu refusal is a 400 with the reason, not a server error
 test.each([{code:'23514',message:'new row violates check constraint "facility_menus_price_check"'},{code:'23514'}])('other check violations still notify as a server error %#',async error=>{
  mockRpc.mockResolvedValue({data:null,error});
  expect((await saveAdminMenu({...input,menuId:id,values:{price:1}}) as NextResponse).status).toBe(500);
+});
+
+// 中 A43：RPC 自身の拒否ではない 42501（関数の実行権限の設定ミス等）は、権限不足の 403 に見せず通知つきの 500。
+test('42501 でも RPC 自身の拒否でなければ 500', async () => {
+  mockRpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'permission denied for function' } });
+  const res = await saveAdminMenu(input) as NextResponse;
+  expect(res.status).toBe(500);
 });
