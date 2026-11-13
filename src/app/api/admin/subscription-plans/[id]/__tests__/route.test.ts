@@ -378,10 +378,9 @@ test('PATCH: 不正な JSON body → 400', async () => {
 });
 
 // 点検 A70：契約者数を確認できない（count=null）のにハード削除して 200 を返していた。
-// 以前のテストはこの安全でない動作を正しいものとして固定していた。本体（route.ts の
-// `if (count && count > 0)`）の修正待ちのため test.failing で「今は削除してしまう」ことを示し、
-// 本体が直ると反転して知らせる（そのとき test.failing → test に戻す）。
-test.failing('【本体未修正】DELETE: count=null（契約者数を確認できない）→ 削除しない', async () => {
+// 以前のテストはこの安全でない動作を正しいものとして固定していた。今は無効化だけにとどめる。
+const updateRef: { fn?: jest.Mock } = {};
+test('DELETE: count=null（契約者数を確認できない）→ 削除せず無効化だけにする', async () => {
   let adminCallNum = 0;
   const del = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
@@ -402,12 +401,21 @@ test.failing('【本体未修正】DELETE: count=null（契約者数を確認で
         }),
       };
     }
-    return { delete: del };
+    const update = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: [{ id: PLAN_UUID }], error: null })),
+        }),
+      }),
+    });
+    updateRef.fn = update;
+    return { delete: del, update };
   });
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(del).not.toHaveBeenCalled();
-  expect(res.status).toBeGreaterThanOrEqual(500);
+  expect(res.status).toBe(200);
+  expect(updateRef.fn).toHaveBeenCalledWith({ is_active: false });
 });
 
 test('DELETE: 契約中ユーザーあり + deactivate 失敗 → 500', async () => {

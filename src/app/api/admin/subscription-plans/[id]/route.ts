@@ -107,7 +107,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   // 契約中ユーザーがいる場合は無効化のみ
   const { count, error: countErr } = await admin.from('user_subscriptions').select('id', { count: 'exact', head: true }).eq('plan_id', params.id).eq('status', 'active');
   if (countErr) return serverError('admin-subscription-plans-delete-count', countErr, '/api/admin/subscription-plans/[id]');
-  if (count && count > 0) {
+  // 件数を確認できない（count=null）ときは「契約者なし」とみなさず、無効化だけにとどめる（点検 A70）。
+  if (count === null || count === undefined || count > 0) {
     // 更新件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（契約中ユーザー確認後に
     // 既削除等）による0件更新も「成功」と偽装していた（phantom success）。.select() で更新行を受け取り、
     // 0件なら404を返す（packages/[id]・catalog/[id] と同型）。
