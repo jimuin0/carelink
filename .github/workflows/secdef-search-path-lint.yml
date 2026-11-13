@@ -104,7 +104,7 @@ jobs:
                   body_and_attrs = m.group(0)
                   if not re.search(r'SECURITY\s+DEFINER', body_and_attrs, re.IGNORECASE):
                       continue
-                  sp = re.search(r'SET\s+search_path\s*(?:=|TO)\s*([^;\n]*?)(?:\s+AS\s+\$|\s+LANGUAGE\b|\s+SECURITY\b|\s+STABLE\b|\s+VOLATILE\b|\s+IMMUTABLE\b|$)', body_and_attrs, re.IGNORECASE | re.MULTILINE)
+                  sp = re.search(r'SET\s+search_path\s*(?:=|TO)\s*([^;\n]*?)(?:\s+AS\s+\$|\s+LANGUAGE\b|\s+SECURITY\b|\s+STABLE\b|\s+VOLATILE\b|\s+IMMUTABLE\b|;|$)', body_and_attrs, re.IGNORECASE | re.MULTILINE)
                   if sp:
                       # 点検 B9-13（2026年11月13日）: public を含む search_path は pg_temp を末尾に明示する。
                       # 書かないと pg_temp が先頭で探索され、一時テーブルで表名を横取りできる。
