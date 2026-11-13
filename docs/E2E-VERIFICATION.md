@@ -6,7 +6,7 @@
 検証できるよう、クリック手順に加えて Supabase SQL / curl の確認コマンドを埋め込んだもの。
 
 - テスト用の名前は全て「神原良祐」で統一（既存 docs/TEST-CHECKLIST.md 準拠）。
-- テスト用メールは自分の受信できるアドレス（例：kambara.gimu+e2e@gmail.com のように +タグ）。
+- テスト用メールは自分の受信できるアドレス（自分の Gmail 等に `+e2e` のような +タグを付けたもの。台本には実アドレスを書かない）。
 - SQL は Supabase SQL Editor で実行。curl はターミナルで実行。
 - 実顧客データには絶対に触れない（WHERE 句で必ずテスト対象を絞る）。
 - 完了後は最後の「後片付け」で作成したテストデータを削除。
@@ -113,9 +113,21 @@ select id, payment_status from bookings where id = '（2-1のid）';
 
 ## 4. 後片付け（テストデータ削除）
 
+氏名だけで絞って削除しないこと（同姓同名の実顧客や、テスト以外で同じ名前を使った予約を巻き添えにする）。
+**テスト用メールアドレス（+タグ付き）・テスト施設・検証日の3条件**で絞り、まず SELECT で件数と中身を確認してから削除する。
+
 ```sql
--- テスト予約を物理削除（顧客名で厳密に絞る）
-delete from bookings where customer_name = '神原良祐';
+-- 1) まず対象を確認する（件数と中身が自分の作ったテスト予約だけであること）
+select id, facility_id, customer_name, email, booking_date, status, payment_status, created_at
+from bookings
+where email = '<テスト用メールアドレス（+タグ付き）>'
+  and facility_id = '<テスト施設の facility_id>'
+  and created_at >= '<検証開始日時（例: 2026-07-03 00:00+09）>';
+
+-- 2) 上の結果が想定どおりのときだけ、確認した id を列挙して削除する
+--    （決済済み payment_status='paid' の行が含まれる場合は削除せず、先に Stripe 側の返金・記録を確認する）
+delete from bookings
+where id in ('<確認したid1>', '<確認したid2>');
 ```
 テスト施設・テストメニュー・テストアカウントは admin 画面 or Auth 画面から削除。
 
@@ -135,5 +147,8 @@ delete from bookings where customer_name = '神原良祐';
 - PAY-3/PAY-4：`/api/stripe/webhook` には全額決済(full)の分岐が無い、`/api/stripe/checkout` が
   デポジット種別(percent/fixed)を無視する、という決済金額に関わる論点。
 
-これらは金銭に関わるためコード側で勝手に変更していない。Stripe Dashboard の実態を教えてもらえれば、
+これらは金銭に関わるためコード側で勝手に変更していない。
+（2026年11月13日時点の再確認：PAY-1 はコード上も未解消。`src/app/api/stripe/webhook/route.ts` と
+`src/app/api/payment/webhook/route.ts` がどちらも `STRIPE_WEBHOOK_SECRET` で署名検証している。
+どちらを本番エンドポイントにするか（または env 分離）の決定待ち。）Stripe Dashboard の実態を教えてもらえれば、
 正しい方向（単一 Webhook への統合 or env 分離）を確定して根治する。

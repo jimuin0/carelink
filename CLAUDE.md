@@ -341,8 +341,8 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 - 公開・来院者系：`public`（祝日情報）`facilities` `facility` `salons` `availability` `slots` `booking` `waitlist` `options` `symptoms` `stations` `recommendations` `ab-test` `referral` `review` `nps` `report` `favorites` `preferred-staff`（指名スタッフの登録・解除）`profile` `account` `chat` `intake` `contact` `inquiry` `unsubscribe` `health` `og` `v1` `push` `[...notfound]`（未定義 API パスの catch-all）
 - 認証・LINE：`auth` `liff` `line`
 - 決済：`payment` `stripe`
-- 管理（`api/admin/`・施設オーナー／プラットフォーム）：`bookings` `booking-status` `booking-checkout` `booking-adjust-request` `customers` `staff` `menus` `catalog` `coupons` `packages` `user-packages` `subscription-plans` `user-subscriptions` `payments-settings` `accounting-export` `settings` `facility-verify` `registrations` `jobs` `job-applications` `featured-ads` `features` `feature-flags` `blog` `platform-blog` `qa` `review-summary` `review-replies` `moderation` `newsletter` `inquiries` `report` `gbp` `hpb-menus` `ai-support` `api-keys` `backup` `chain` `white-label` `photos` `notification-reconciliation`（実ディレクトリ 41 本と一致）
-- cron（`api/cron/`・Render Cron Jobs から Bearer 認証で起動。実ディレクトリ 15 本）：下記スケジュール参照
+- 管理（`api/admin/`・施設オーナー／プラットフォーム）：`bookings` `booking-status` `booking-checkout` `booking-adjust-request` `customers` `staff` `menus` `catalog` `coupons` `packages` `user-packages` `subscription-plans` `user-subscriptions` `payments-settings` `accounting-export` `settings` `facility-verify` `registrations` `jobs` `job-applications` `featured-ads` `features` `feature-flags` `blog` `platform-blog` `qa` `review-summary` `review-replies` `moderation` `newsletter` `inquiries` `report` `gbp` `hpb-menus` `ai-support` `api-keys` `backup` `chain` `white-label` `photos` `notification-reconciliation` `mail` `reviews` `listing-verification` `special-hours`（本数は書かない。実ディレクトリとの一致は `src/__tests__/claude-md-matches-code.test.ts` が `api/admin/` 配下まで検査する）
+- cron（`api/cron/`・Render Cron Jobs から Bearer 認証で起動。一覧は下記スケジュール表＝実ディレクトリと同テストが突合）：下記スケジュール参照
 - 運用・監視：`alert-check`（`ALERT_CHECK_TOKEN` で保護）・`admin`（管理画面用API群は下記）
 - Google 連携：`google-calendar` / Slack：`slack`
 
