@@ -9,6 +9,10 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { serverError, authUnavailable } from '@/lib/with-route';
 import { z } from 'zod';
 import { toJsonValue } from '@/lib/json-value';
+import { fetchAllPaged } from '@/lib/paginate';
+
+/** 結果集計で読むイベントの上限。超えたら部分集計を返さず 500 にする。 */
+const AB_TEST_RESULTS_MAX_ROWS = 200_000;
 
 
 // 【2026年7月16日 恒久根治】metadata に上限が無く、匿名POSTから任意サイズ・任意キー数の
@@ -103,17 +107,23 @@ export async function GET(request: NextRequest) {
 
     const admin = createServiceRoleClient();
 
-    const { data, error: eventsError } = await admin
-      .from('ab_test_events')
-      .select('variant, event_type')
-      .eq('experiment_key', key);
+    // 集計は全件で行う。PostgREST の db-max-rows（既定1000）で先頭だけが返ると率・lift が
+    // 欠けたまま 200 になるため、ページングで全件読み、上限で打ち切られたら 500 にする（中 A5）。
+    const { rows: data, error: eventsError } = await fetchAllPaged<{ variant: string; event_type: string }>(
+      async (offset, limit) => await admin
+        .from('ab_test_events')
+        .select('variant, event_type')
+        .eq('experiment_key', key)
+        .order('id', { ascending: true })
+        .range(offset, offset + limit - 1),
+      { maxRows: AB_TEST_RESULTS_MAX_ROWS, failOnTruncation: true },
+    );
 
     if (eventsError) {
       const response = serverError('ab-test-results', databaseDiagnostic(eventsError), '/api/ab-test');
       response.headers.set('Cache-Control', 'no-store');
       return response;
     }
-    if (!data) return NextResponse.json({ results: null });
 
     const stats: Record<string, Record<string, number>> = { control: {}, treatment: {} };
     for (const event of data) {
