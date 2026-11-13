@@ -34,6 +34,7 @@ test('simultaneous general applications save one isolated candidate record', asy
     expect(rows.data![0]).toMatchObject({ id: receipt.application.id, facility_id: facilityId, applicant_email: data.applicant_email, applicant_user_id: null, status: 'pending' });
   } finally {
     expect((await db.from('job_applications').delete().eq('facility_id', facilityId)).error).toBeNull();
-    expect((await db.from('facility_profiles').delete().eq('id', facilityId)).error).toBeNull();
+    // 施設は審査書類（listing_verification_documents）が参照するため削除しない。
+    // 使い捨ての CI 用 DB で、approveSyntheticListing を使うほかのテストと同じ扱い。
   }
 });
