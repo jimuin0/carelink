@@ -1378,6 +1378,29 @@ describe('getAvailableFacilityIds', () => {
     expect(result.size).toBe(0);
   });
 
+  // 中 A45：db-max-rows で黙って切られた勤務・予約で判定しない（上限で打ち切られたら null＝判定不能）。
+  test('勤務が上限で打ち切られたら null（空きなしと判定しない）', async () => {
+    const full = Array.from({ length: 1000 }, () => ({ staff_id: 'staff-x', start_time: '09:00', end_time: '18:00' }));
+    buildMultiTableMock({
+      staff_schedules: full,
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    await expect(getAvailableFacilityIds(['fac-1'], '2026-05-01')).resolves.toBeNull();
+  });
+
+  test('予約が上限で打ち切られたら null（空きありと判定しない）', async () => {
+    const full = Array.from({ length: 1000 }, () => ({ staff_id: 'staff-x', booking_date: '2026-05-01', start_time: '09:00', end_time: '10:00' }));
+    buildMultiTableMock({
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: full,
+    });
+    await expect(getAvailableFacilityIds(['fac-1'], '2026-05-01')).resolves.toBeNull();
+  });
+
   test('空きスタッフがいる施設を返す', async () => {
     // staff-1 has a 9時間勤務、予約なし → available
     buildMultiTableMock({
