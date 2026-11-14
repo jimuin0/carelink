@@ -1,5 +1,5 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
-import { applyBookingChargeEvent, bookingPaymentAmount, markBookingPaymentPaid, type PaymentRow } from '../booking-payjp';
+import { applyBookingChargeEvent, bookingPaymentAmount, disputeChargeId, markBookingPaymentPaid, type PaymentRow } from '../booking-payjp';
 import { createFakeSupabase, eqOf, type FakeCall, type FakeResult } from '@/test-utils/fake-supabase';
 
 type Db = ReturnType<typeof createFakeSupabase>;
@@ -136,5 +136,24 @@ describe('applyBookingChargeEvent', () => {
   test('状態の更新失敗は throw', async () => {
     await expect(applyBookingChargeEvent(admin(make({ update: { error: { message: 'x' } } })), { type: 'dispute.created', data: { charge: 'ch_1' } })).rejects.toThrow(/disputed update failed/);
     await expect(applyBookingChargeEvent(admin(make({ booking: { error: { message: 'x' } } })), { type: 'dispute.created', data: { charge: 'ch_1' } })).rejects.toThrow(/bookings disputed/);
+  });
+});
+
+describe('disputeChargeId（PAY.JP の dispute の形が公式に載っていないため、考えられる形をすべて受ける）', () => {
+  test.each([
+    ['charge が ID 文字列', { charge: 'ch_1' }, 'ch_1'],
+    ['charge が支払いオブジェクト', { charge: { id: 'ch_2', object: 'charge' } }, 'ch_2'],
+    ['charge_id', { charge_id: 'ch_3' }, 'ch_3'],
+    ['charge が null で charge_id がある', { charge: null, charge_id: 'ch_4' }, 'ch_4'],
+    ['どれも無い', {}, null],
+    ['ch_ で始まらない', { charge: 'dp_1', charge_id: 'x' }, null],
+    ['オブジェクトに id が無い', { charge: { object: 'charge' } }, null],
+  ])('%s', (_l, data, expected) => {
+    expect(disputeChargeId(data as Record<string, unknown>)).toBe(expected);
+  });
+  test('支払いオブジェクトの形で届いても disputed にする', async () => {
+    const db = createFakeSupabase((c: FakeCall) => (c.op === 'select' ? { data: { ...ROW, status: 'paid' } } : c.table === 'bookings' ? { data: [{ id: 'b1' }] } : undefined));
+    expect(await applyBookingChargeEvent(db.client as never, { type: 'dispute.created', data: { charge: { id: 'ch_1' } } })).toBe('applied');
+    expect(eqOf(db.calls[0], 'payjp_charge_id')).toBe('ch_1');
   });
 });
