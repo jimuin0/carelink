@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { VIEWED_FACILITIES_KEY } from '@/lib/client-storage';
 
 interface ViewedFacility {
   id: string;
@@ -14,7 +15,7 @@ interface ViewedFacility {
 export function saveViewedFacility(facility: Omit<ViewedFacility, 'ts'>) {
   if (typeof window === 'undefined') return;
   try {
-    const key = 'viewed_facilities';
+    const key = VIEWED_FACILITIES_KEY;
     const raw = localStorage.getItem(key);
     const list: ViewedFacility[] = raw ? JSON.parse(raw) : [];
     const filtered = list.filter((f) => f.id !== facility.id);
@@ -26,7 +27,7 @@ export function saveViewedFacility(facility: Omit<ViewedFacility, 'ts'>) {
 export function getViewedFacilities(): ViewedFacility[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem('viewed_facilities');
+    const raw = localStorage.getItem(VIEWED_FACILITIES_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];

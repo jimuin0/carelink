@@ -100,3 +100,23 @@ describe('clearStoredPersonalData', () => {
     expect(() => clearStoredPersonalData()).not.toThrow();
   });
 });
+
+describe('B6-13: 退会時に閲覧の履歴（検索語・最近見た施設）も消す', () => {
+  beforeEach(() => { jest.restoreAllMocks(); localStorage.clear(); sessionStorage.clear(); mockClearAll.mockReset().mockResolvedValue(undefined); });
+  it('clearAccountLocalData で検索履歴・閲覧履歴が消え、他のキーは残る', async () => {
+    localStorage.setItem('carelink_search_history', '["腰痛"]');
+    localStorage.setItem('viewed_facilities', '[{"id":"x"}]');
+    localStorage.setItem('cookie-consent', 'kept');
+    await clearAccountLocalData();
+    expect(localStorage.getItem('carelink_search_history')).toBeNull();
+    expect(localStorage.getItem('viewed_facilities')).toBeNull();
+    expect(localStorage.getItem('cookie-consent')).toBe('kept');
+  });
+  it('localStorage が使えなくても退会の後始末は失敗にしない', async () => {
+    jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (this: Storage, key: string) {
+      if (this === localStorage) throw new Error('blocked');
+      return undefined as unknown as void;
+    });
+    await expect(clearAccountLocalData()).resolves.toBeUndefined();
+  });
+});
