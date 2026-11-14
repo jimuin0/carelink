@@ -1,3 +1,4 @@
+import { withStaticParamFallback } from '@/lib/static-params-fallback';
 import { schemaBusinessPeriods } from '@/lib/business-hours';
 import { hasSupabasePublicEnv } from '@/lib/supabase-build-env';
 import { Suspense } from 'react';
@@ -63,7 +64,7 @@ export async function generateStaticParams() {
     .from('facility_profiles')
     .select('slug')
     .eq('status', 'published');
-  return (data || []).map((f) => ({ slug: f.slug }));
+  return withStaticParamFallback((data || []).map((f) => ({ slug: f.slug })));
 }
 
 interface Props {
