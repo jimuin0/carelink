@@ -868,6 +868,7 @@
     "customer_name",
     "facility_id",
     "id",
+    "idempotency_key",
     "responses",
     "submitted_at",
     "template_id",

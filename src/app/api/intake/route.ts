@@ -99,6 +99,11 @@ export async function POST(request: Request) {
     if (!UUID_REGEX.test(body.template_id)) return NextResponse.json({ error: 'Invalid template_id' }, { status: 400 });
     if (!UUID_REGEX.test(body.facility_id)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
     if (body.booking_id && !UUID_REGEX.test(body.booking_id)) return NextResponse.json({ error: 'Invalid booking_id' }, { status: 400 });
+    // 冪等キー（点検 B6-6）。フォームが表示ごとに 1 つ発行する。古い画面からの送信は無しでも受ける。
+    const idempotencyKey: string | null = body.idempotency_key ?? null;
+    if (idempotencyKey !== null && (typeof idempotencyKey !== 'string' || !UUID_REGEX.test(idempotencyKey))) {
+      return NextResponse.json({ error: 'Invalid idempotency_key' }, { status: 400 });
+    }
 
     const responsesJson = body.responses ?? {};
     const responsesStr = JSON.stringify(responsesJson);
@@ -147,9 +152,25 @@ export async function POST(request: Request) {
         user_id:       user?.id ?? null,
         customer_name: String(body.customer_name).slice(0, 50),
         responses:     responsesJson,
+        idempotency_key: idempotencyKey,
       })
       .select('id')
       .single();
+
+    // 同じ冪等キーで既に保存済み（二重クリック・再送）なら、2 件目を作らず保存済みの行を返す。
+    if (error?.code === '23505' && idempotencyKey) {
+      const { data: existing, error: existingError } = await supabase
+        .from('intake_form_responses')
+        .select('id')
+        .eq('idempotency_key', idempotencyKey)
+        .eq('facility_id', body.facility_id)
+        .eq('template_id', body.template_id)
+        .maybeSingle();
+      if (existingError) return serverError('intake-post-replay', existingError, '/api/intake', '送信に失敗しました');
+      if (existing) return NextResponse.json({ success: true, id: existing.id });
+      // 同じキーが別の店舗・別の問診票で使われている＝クライアントの誤り。
+      return NextResponse.json({ error: 'この送信は既に処理されています。画面を読み込み直してください' }, { status: 409 });
+    }
 
     if (error || !response) {
       return serverError(

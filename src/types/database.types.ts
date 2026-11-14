@@ -3414,6 +3414,7 @@ export type Database = {
           customer_name: string
           facility_id: string
           id: string
+          idempotency_key: string | null
           responses: Json
           submitted_at: string
           template_id: string
@@ -3426,6 +3427,7 @@ export type Database = {
           customer_name: string
           facility_id: string
           id?: string
+          idempotency_key?: string | null
           responses?: Json
           submitted_at?: string
           template_id: string
@@ -3438,6 +3440,7 @@ export type Database = {
           customer_name?: string
           facility_id?: string
           id?: string
+          idempotency_key?: string | null
           responses?: Json
           submitted_at?: string
           template_id?: string
