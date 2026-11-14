@@ -15,7 +15,7 @@ const packageSchema = z.object({
   menu_id: z.string().uuid().nullable().optional(),
   session_count: z.number().int().min(1).max(100),
   bonus_count: z.number().int().min(0).max(50),
-  price: z.number().int().min(0),
+  price: z.number().int().min(0).max(9999999),
   valid_days: z.number().int().min(1).max(3650),
   notes: z.string().max(500).optional(),
   is_active: z.boolean().optional(),

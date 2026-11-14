@@ -66,7 +66,11 @@ jobs:
         id: audit
         run: |
           npm audit --json > audit-report.json 2>/dev/null || true
-          VULN_COUNT=$(cat audit-report.json | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('metadata', {}).get('vulnerabilities', {}).get('total', 0))" 2>/dev/null || echo "0")
+          # audit 自体の失敗（ネットワーク・レジストリ障害で JSON が無い／壊れている）を「0 件」と読まない（点検 B10-9）。
+          if ! VULN_COUNT=$(python3 -c "import sys, json; d=json.load(open('audit-report.json')); print(int(d['metadata']['vulnerabilities']['total']))"); then
+            echo "::error::npm audit の結果を読めませんでした（0 件とはみなしません）"
+            exit 1
+          fi
           echo "vuln_count=$VULN_COUNT" >> "$GITHUB_OUTPUT"
 
       - name: Create issue if vulnerabilities found

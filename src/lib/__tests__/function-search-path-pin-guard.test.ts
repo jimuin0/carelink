@@ -107,7 +107,9 @@ describe('supabase/migrations', () => {
   });
 
   it('負の対照: 今回の固定し直しを除くと search_facilities_nearby が検出される', () => {
-    const without = files.filter(({ file }) => file !== '20261104120000_repin_search_facilities_nearby_path.sql');
+    const without = files.filter(({ file }) => file !== '20261104120000_repin_search_facilities_nearby_path.sql'
+      // 20261114200400 も search_facilities_nearby を SET search_path 付きで作り直しているので、併せて除く
+      && file !== '20261114200400_search_nearby_limit_cap.sql');
     expect(unpinnedAfterPin(without)).toEqual(
       expect.arrayContaining([expect.stringMatching(/^search_facilities_nearby（/)]),
     );

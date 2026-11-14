@@ -14,7 +14,7 @@
  *   - 区切りが無い行も無効（黙って無視しない＝設定ミスが無音にならない）
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import {
   diffFingerprint,
@@ -178,6 +178,24 @@ describe('🔴 ガードが CLI 本体に配線されていること（関数が
       return { code: err.status, out: `${err.stdout}${err.stderr}` };
     }
   };
+
+  it('点検 B10-19: オプションを先に書いても値を位置引数と取り違えず、空白を含むパスでも起動する', () => {
+    const spaced = mkdtempSync(join(tmpdir(), 'schema diff '));
+    const a = join(spaced, 'exp a.txt');
+    const b = join(spaced, 'act b.txt');
+    writeFileSync(a, JSON.stringify(build(rels, 'a', '17')), 'utf8');
+    writeFileSync(b, JSON.stringify(build(rels, 'a', '17')), 'utf8');
+    // 空白を含むディレクトリに scripts/ と src/lib/known-prod-only.json の配置を再現して起動する。
+    mkdirSync(join(spaced, 'scripts'));
+    mkdirSync(join(spaced, 'src', 'lib'), { recursive: true });
+    copyFileSync(join(ROOT, 'src', 'lib', 'known-prod-only.json'), join(spaced, 'src', 'lib', 'known-prod-only.json'));
+    const cli = join(spaced, 'scripts', 'schema diff.mjs');
+    copyFileSync(CLI, cli);
+    const out = execFileSync('node', [CLI, '--min-lines', '500', a, b], { encoding: 'utf8', stdio: 'pipe' });
+    expect(out).toMatch(/✅ スキーマ一致/);
+    const spacedOut = execFileSync('node', [cli, a, b], { encoding: 'utf8', stdio: 'pipe' });
+    expect(spacedOut).toMatch(/✅ スキーマ一致/);
+  });
 
   it('一致していれば exit 0（負の対照: ガードが常時鳴るだけの実装を落とす）', () => {
     const a = write('same-a.txt', build(rels, 'a', '17'));

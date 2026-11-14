@@ -16,7 +16,7 @@ const updateSchema = z.object({
   menu_id: z.string().uuid().nullable().optional(),
   session_count: z.number().int().min(1).max(100).optional(),
   bonus_count: z.number().int().min(0).max(50).optional(),
-  price: z.number().int().min(0).optional(),
+  price: z.number().int().min(0).max(9999999).optional(),
   valid_days: z.number().int().min(1).max(3650).optional(),
   notes: z.string().max(500).optional(),
   is_active: z.boolean().optional(),
