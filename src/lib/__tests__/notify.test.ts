@@ -47,6 +47,16 @@ const contactPayload: NotifyPayload = {
   data: { contact_id: CONTACT_ID },
 };
 
+test('返信受理通知には受付番号のみを載せ、氏名や本文を落とす', async () => {
+  const input = untyped({ type: 'contact_reply_sent', data: { contact_id: CONTACT_ID, name: '秘密の名前', body: '秘密の本文' } });
+  expect((await sendNotify(input)).ok).toBe(true);
+  expect(postedToSlack()).toContain('返信を送信サービスが受理');
+  expect(postedToSlack()).toContain(CONTACT_ID);
+  expect(postedToSlack()).toContain(`/admin/mail?contactId=${CONTACT_ID}`);
+  expect(postedToSlack()).not.toContain('秘密の名前');
+  expect(postedToSlack()).not.toContain('秘密の本文');
+});
+
 const facilityInquiryData = { inquiry_id: INQUIRY_ID, facility_name: 'テスト施設' };
 
 const facilityInquiryPayload: NotifyPayload = {

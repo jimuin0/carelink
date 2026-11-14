@@ -51,6 +51,7 @@ describe('応答後の Slack 通知が投げっぱなしになっていない', 
   it('sendNotify を呼ぶルートが実在する（空振りを緑にしない）', () => {
     const callers = routes.filter((f) => readFileSync(f, 'utf8').includes('sendNotify('));
     expect(callers.map(f => relative(ROOT, f).split(sep).join('/')).sort()).toEqual([
+      'src/app/api/admin/inquiries/[id]/reply/route.ts',
       'src/app/api/contact/route.ts', 'src/app/api/inquiry/route.ts',
     ]);
     // Registration must not add a second, direct notification path beside its durable outbox.
