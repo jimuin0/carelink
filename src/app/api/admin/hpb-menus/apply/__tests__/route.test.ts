@@ -74,16 +74,16 @@ test('未認証 → 401', async () => {
 });
 
 test('facility_id なし → 401', async () => {
-  expect((await POST(makeReq(null))).status).toBe(401);
+  expect((await POST(makeReq(null))).status).toBe(403);
 });
 
 test('不正UUID → 401', async () => {
-  expect((await POST(makeReq('bad'))).status).toBe(401);
+  expect((await POST(makeReq('bad'))).status).toBe(403);
 });
 
 test('非メンバー → 401', async () => {
   mockAnonFrom.mockReturnValue(memberSingle(null));
-  expect((await POST(makeReq())).status).toBe(401);
+  expect((await POST(makeReq())).status).toBe(403);
 });
 
 test('反映成功 → 200 with counts', async () => {

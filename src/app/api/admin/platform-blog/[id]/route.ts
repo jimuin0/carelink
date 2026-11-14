@@ -8,7 +8,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import type { Database, Json } from '@/types/database.types';
 import { runAfterResponse } from '@/lib/after-response';
 import { publishArticleToThreads } from '@/lib/platform-blog-threads';
@@ -62,9 +62,8 @@ async function handlePATCH(request: NextRequest, props: { params: Promise<{ id: 
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const adminUser = await requirePlatformAdmin();
+  const adminUser = await requirePlatformAdminApi();
   if (adminUser instanceof NextResponse) return adminUser;
-  if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const userId = adminUser.id;
 
   const body = await request.json().catch(() => null);
@@ -121,9 +120,8 @@ async function handleDELETE(request: NextRequest, props: { params: Promise<{ id:
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const adminUser = await requirePlatformAdmin();
+  const adminUser = await requirePlatformAdminApi();
   if (adminUser instanceof NextResponse) return adminUser;
-  if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const userId = adminUser.id;
 
   // 【2026年7月10日 恒久根治】削除件数を検証せず常に成功を返していたため、存在しないIDの

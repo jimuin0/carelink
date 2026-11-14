@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { listingFacilityIdentity } from '@/lib/listing-verification-review';
 import { listingEvidenceOptions } from '@/lib/listing-verification-evidence';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -15,9 +15,8 @@ const applicantRow = z.object({ id:z.uuid(),display_name:z.string(),email:z.stri
 
 /** Restricted to the platform operator; document contents require a separate audited download. */
 export const GET = withRoute(async request => {
-  const user = await requirePlatformAdmin();
+  const user = await requirePlatformAdminApi();
   if (user instanceof NextResponse) return user;
-  if (!user) return NextResponse.json({ error:'権限がありません' }, { status:403,headers });
   const id = z.uuid().safeParse(new URL(request.url).searchParams.get('facility_id'));
   if (!id.success) return NextResponse.json({ error:'施設を確認してください' }, { status:400,headers });
   try {

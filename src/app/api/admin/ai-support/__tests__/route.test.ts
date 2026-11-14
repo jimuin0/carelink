@@ -94,7 +94,7 @@ test('POST: レートリミット → 429', async () => {
 test('POST: 非施設メンバー → 401', async () => {
   mockAnonFrom.mockReturnValue(memberSingle(null));
   const res = await POST(makeRequest({ message: 'テスト質問' }));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('POST: message が空 → 400', async () => {

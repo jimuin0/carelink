@@ -79,10 +79,12 @@ export async function grantToFacilityCustomer(input: {
   return row;
 }
 
+/** email は「その店舗の予約でお客様が入力した最新のメール」（bookings.email）。
+ * ログイン用・プロフィールのアドレスは店舗に見せない（点検 A414・20261114500100）。 */
 export type CustomerProfile = { display_name: string | null; email: string | null };
 
 /**
- * 一覧の各行に付ける表示名・メールを、その店舗の予約者に限って取得する。
+ * 一覧の各行に付ける表示名・メール（予約時に入力したもの）を、その店舗の予約者に限って取得する。
  * 予約者でない人（＝以前の不具合で付与された行など）は含まれず、呼び出し側では profiles=null になる。
  * 失敗は握り潰さず `{ error }` で返す（主データの一部なので 0 件に偽装しない）。
  */

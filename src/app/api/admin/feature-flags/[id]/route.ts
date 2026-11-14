@@ -1,6 +1,6 @@
 import { writePlatformControl, platformControlResponse } from '@/lib/platform-control-write';
 import { NextRequest, NextResponse } from 'next/server';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
@@ -25,9 +25,8 @@ async function handlePATCH(request: NextRequest, props: { params: Promise<{ id: 
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const adminUser = await requirePlatformAdmin();
+  const adminUser = await requirePlatformAdminApi();
   if (adminUser instanceof NextResponse) return adminUser;
-  if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await request.json().catch(() => null);
   const parsed = flagUpdateSchema.safeParse(body);

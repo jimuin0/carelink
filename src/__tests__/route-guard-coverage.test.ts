@@ -173,7 +173,7 @@ const IDENTITY_PATTERNS: RegExp[] = [
   /\bgetUser\s*\(\s*\)/,
   /\brequireAuth\b/,                  // withRoute のオプション
   /\bcheckCronAuth\s*\(/,             // cron の Bearer シークレット
-  /\brequirePlatformAdmin\s*\(/,      // プラットフォーム管理者
+  /\brequirePlatformAdmin(?:Api)?\s*\(/,      // プラットフォーム管理者（API は 401/403 を返す版）
   /\bis_platform_admin\b/,
   // facility_members は「参照しているだけ」（本人と無関係な全件 select 等）でも合格になるため外した（点検 A95）。
   // 施設メンバーの確認は getAdminApiContext・auth.getUser 等の本人確認と組で行われ、それで検出できる。

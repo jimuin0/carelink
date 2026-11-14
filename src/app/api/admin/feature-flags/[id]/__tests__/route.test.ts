@@ -71,10 +71,10 @@ beforeEach(() => {
 
 // ─── Security guards ──────────────────────────────────────────────────────────
 
-test('未認証 → 403 (platform admin required)', async () => {
+test('未認証 → 401 (platform admin required)', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await PATCH(makeRequest(), makeProps());
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(401);
 });
 
 test('レートリミット → 429', async () => {

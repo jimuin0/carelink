@@ -1,3 +1,4 @@
+import { adminForbidden, adminUnauthenticated } from '@/lib/admin-denial';
 /**
  * 施設登録審査 API（v1.0）
  * PATCH /api/admin/registrations/[id]
@@ -53,7 +54,8 @@ async function patch(request: NextRequest, props: { params: Promise<{ id: string
   const body = await request.json().catch(() => null);
   const verification = await verifyPlatformSupportUser();
   if (verification.state === 'unavailable') return authUnavailable('admin-registrations-patch', '/api/admin/registrations/[id]');
-  if (verification.state !== 'verified') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (verification.state === 'unauthenticated') return adminUnauthenticated();
+  if (verification.state !== 'verified') return adminForbidden();
   const userId = verification.user.id;
 
   // 【2026年8月20日 新設】運営による claim 解除。Cookie による所有権 claim

@@ -1,3 +1,4 @@
+import { adminForbidden, adminUnauthenticated } from '@/lib/admin-denial';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPlatformSupportUser } from '@/lib/platform-support-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -108,7 +109,8 @@ async function handleGet(request: NextRequest, props: { params: Promise<{ id: st
 
   const verification = await verifyPlatformSupportUser();
   if (verification.state === 'unavailable') return authUnavailable('admin-inquiries-reply-status', '/api/admin/inquiries/[id]/reply');
-  if (verification.state !== 'verified') return noStoreJson({ error: 'Unauthorized' }, 401);
+  if (verification.state === 'unauthenticated') return adminUnauthenticated({ headers: { 'Cache-Control': 'no-store' } });
+  if (verification.state !== 'verified') return adminForbidden({ headers: { 'Cache-Control': 'no-store' } });
 
   const service = createServiceRoleClient();
   const pendingResult = await service.from('contact_replies')
@@ -176,7 +178,8 @@ async function handlePost(request: NextRequest, props: { params: Promise<{ id: s
   if (!UUID_REGEX.test(params.id)) return noStoreJson({ error: '不正なIDです' }, 400);
   const verification = await verifyPlatformSupportUser();
   if (verification.state === 'unavailable') return authUnavailable('admin-inquiries-reply', '/api/admin/inquiries/[id]/reply');
-  if (verification.state !== 'verified') return noStoreJson({ error: 'Unauthorized' }, 401);
+  if (verification.state === 'unauthenticated') return adminUnauthenticated({ headers: { 'Cache-Control': 'no-store' } });
+  if (verification.state !== 'verified') return adminForbidden({ headers: { 'Cache-Control': 'no-store' } });
   const admin = { id: verification.user.id, name: verification.name };
 
   const json = await request.json().catch(() => null);

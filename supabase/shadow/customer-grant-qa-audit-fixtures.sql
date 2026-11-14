@@ -46,9 +46,9 @@ INSERT INTO public.facility_members(user_id, facility_id, role) VALUES
   ('fb8a0000-0000-4000-8000-000000000006', 'fb8a0001-0000-4000-8000-000000000002', 'owner');
 INSERT INTO public.bookings(id, facility_id, user_id, booking_date, start_time, end_time, customer_name, email, status, total_price, points_used) VALUES
   ('fb8a0002-0000-4000-8000-000000000001', 'fb8a0001-0000-4000-8000-000000000001', 'fb8a0000-0000-4000-8000-000000000004',
-   '2030-01-07', '10:00', '11:00', 'Synthetic customer', NULL, 'confirmed', 0, 0),
+   '2030-01-07', '10:00', '11:00', 'Synthetic customer', 'grant-customer@example.invalid', 'confirmed', 0, 0),
   ('fb8a0002-0000-4000-8000-000000000002', 'fb8a0001-0000-4000-8000-000000000002', 'fb8a0000-0000-4000-8000-000000000005',
-   '2030-01-07', '10:00', '11:00', 'Synthetic stranger', NULL, 'confirmed', 0, 0);
+   '2030-01-07', '10:00', '11:00', 'Synthetic stranger', 'grant-stranger@example.invalid', 'confirmed', 0, 0);
 INSERT INTO public.subscription_plans(id, facility_id, name, price, valid_months) VALUES
   ('fb8a0003-0000-4000-8000-000000000001', 'fb8a0001-0000-4000-8000-000000000001', 'Synthetic plan A', 1000, 3),
   ('fb8a0003-0000-4000-8000-000000000002', 'fb8a0001-0000-4000-8000-000000000002', 'Synthetic plan B', 1000, 1);

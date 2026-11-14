@@ -1,3 +1,4 @@
+import { adminUnauthenticated } from '@/lib/admin-denial';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -31,7 +32,7 @@ async function getAdminAndVerifyPackage(request: NextRequest, packageId: string)
   const supabase = await createServerSupabaseAuthClient();
   const verification = await verifyAuthUser(supabase.auth);
   if (verification.state === 'unavailable') return authUnavailable('admin-packages-id-auth', '/api/admin/packages/[id]');
-  if (verification.state !== 'verified') return null;
+  if (verification.state !== 'verified') return adminUnauthenticated();
   const user = verification.user;
 
   const admin = createServiceRoleClient();
@@ -62,7 +63,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const auth = await getAdminAndVerifyPackage(request, params.id);
   if (auth instanceof NextResponse) return auth;
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!auth) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   const body = await request.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
@@ -114,7 +115,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const auth = await getAdminAndVerifyPackage(request, params.id);
   if (auth instanceof NextResponse) return auth;
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!auth) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   const admin = createServiceRoleClient();
 

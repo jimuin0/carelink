@@ -82,9 +82,9 @@ beforeEach(()=>{
  process.env.NEXT_PUBLIC_SUPABASE_URL='https://test.supabase.co';process.env.SUPABASE_SERVICE_ROLE_KEY='test-key';
 });
 test('PATCH unauthenticated',async()=>{mockGetUser.mockResolvedValue({data:{user:null}});expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(401);expect(mockRpc).not.toHaveBeenCalled();});
-test('PATCH missing facility',async()=>{expect((await PATCH(makeRequest('PATCH',{price:100},null),makeProps())).status).toBe(401);});
+test('PATCH missing facility',async()=>{expect((await PATCH(makeRequest('PATCH',{price:100},null),makeProps())).status).toBe(403);});
 test('PATCH invalid ID',async()=>{expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps('bad'))).status).toBe(400);});
-test('PATCH no membership',async()=>{mockAnonFrom.mockReturnValue(memberChain(null));expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(401);});
+test('PATCH no membership',async()=>{mockAnonFrom.mockReturnValue(memberChain(null));expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(403);});
 test('PATCH CSRF',async()=>{(checkCsrf as jest.Mock).mockReturnValue(NextResponse.json({}, {status:403}));expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(403);});
 test('PATCH rate limit',async()=>{(checkRateLimit as jest.Mock).mockReturnValue(true);expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(429);});
 test.each([{name:''},{name:'x'.repeat(101)},{category:''},{category:'x'.repeat(51)},{price:-1},{price:10000000},{duration_minutes:-1},{duration_minutes:1441},{duration_minutes:0},{duration_minutes:14},{duration_minutes:481},{duration_minutes:null},{sort_order:-1},{sort_order:1000000},{photo_url:'bad'},{photo_url:'javascript:alert(1)'},{photo_url:'http://example.invalid/p.jpg'},{photo_url:'data:image/png;base64,AAAA'},{description:'x'.repeat(501)},{price_note:'x'.repeat(101)}])('PATCH rejects invalid field: %p',async payload=>{

@@ -8,7 +8,7 @@
  */
 
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -81,9 +81,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   // 管理者権限チェック
-  const user = await requirePlatformAdmin();
+  const user = await requirePlatformAdminApi();
   if (user instanceof NextResponse) return user;
-  if (!user) return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
 
   const serviceSupabase = createServiceRoleClient();
 
@@ -121,9 +120,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   // 管理者権限チェック
-  const user = await requirePlatformAdmin();
+  const user = await requirePlatformAdminApi();
   if (user instanceof NextResponse) return user;
-  if (!user) return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
 
   const body: unknown = await request.json().catch(() => null);
   const table = body !== null && typeof body === 'object' && !Array.isArray(body)

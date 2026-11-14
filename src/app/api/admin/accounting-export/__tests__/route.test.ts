@@ -129,7 +129,7 @@ test('GET: 不正なfacility_id → 400', async () => {
 test('GET: 非管理者 → 401 (IDOR防止)', async () => {
   mockAnonFrom.mockReturnValue(memberChain(null));
   const res = await GET(makeGetRequest());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 // ─── Parameter validation ──────────────────────────────────────────────────────

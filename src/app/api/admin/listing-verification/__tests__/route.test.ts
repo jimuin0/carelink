@@ -1,11 +1,11 @@
 /** @jest-environment node */
 import { NextRequest, NextResponse } from 'next/server';
 import { GET } from '../route';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 
 jest.mock('@/lib/with-route',()=>({ withRoute:(handler:(request:Request)=>Promise<Response>)=>handler }));
-jest.mock('@/lib/platform-admin',()=>({ requirePlatformAdmin:jest.fn() }));
+jest.mock('@/lib/platform-admin',()=>({ requirePlatformAdminApi:jest.fn() }));
 jest.mock('@/lib/supabase-server',()=>({ createServiceRoleClient:jest.fn() }));
 const facility='22222222-2222-4222-8222-222222222222';
 const request=()=>new NextRequest(`http://localhost/api/admin/listing-verification?facility_id=${facility}`);
@@ -14,9 +14,9 @@ function chain(data:unknown,error:unknown=null) {
   return { select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),order:jest.fn().mockReturnThis(),
     maybeSingle:jest.fn().mockResolvedValue({ data,error }),limit:jest.fn().mockResolvedValue({ data,error }),in:jest.fn().mockResolvedValue({ data,error }) };
 }
-beforeEach(()=>{ jest.clearAllMocks(); jest.mocked(requirePlatformAdmin).mockResolvedValue({ id:'11111111-1111-4111-8111-111111111111' } as never); });
+beforeEach(()=>{ jest.clearAllMocks(); jest.mocked(requirePlatformAdminApi).mockResolvedValue({ id:'11111111-1111-4111-8111-111111111111' } as never); });
 test('運営権限がない場合、非公開書類の記録を読み取らない',async()=>{
-  jest.mocked(requirePlatformAdmin).mockResolvedValueOnce(null).mockResolvedValueOnce(NextResponse.json({}, { status:503 }));
+  jest.mocked(requirePlatformAdminApi).mockResolvedValueOnce(NextResponse.json({ error: '権限がありません' }, { status: 403 })).mockResolvedValueOnce(NextResponse.json({}, { status:503 }));
   expect((await GET(request())).status).toBe(403); expect((await GET(request())).status).toBe(503);
   expect(createServiceRoleClient).not.toHaveBeenCalled();
 });

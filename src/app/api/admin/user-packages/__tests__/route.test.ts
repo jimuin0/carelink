@@ -164,7 +164,7 @@ test('GET: facility_id なし → 400', async () => {
 test('GET: 非管理者 → 401', async () => {
   mockAnonFrom.mockReturnValue(memberChain(null));
   const res = await GET(makeGetRequest());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 // user_packages 取得チェーン（select→eq→order→limit）と profiles 別取得チェーン（select→in）。
@@ -269,7 +269,7 @@ test('POST: 不正なボディ (invalid UUID) → 400', async () => {
 test('POST: 非管理者 → 401', async () => {
   mockAnonFrom.mockReturnValue(memberChain(null));
   const res = await POST(makePostRequest() as any);
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('POST: パッケージが存在しない → 404', async () => {
@@ -609,7 +609,7 @@ test('PATCH: 本人でも管理者でもない → 401', async () => {
   mockAnonFrom.mockReturnValue(memberChain(null)); // not admin
   mockAdminFrom.mockReturnValue(singleChain(buildUserPackage())); // user_id = USER_ID (different)
   const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('PATCH: service_packages が null (facilityId なし) で本人なら通過 → 200', async () => {

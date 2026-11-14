@@ -114,7 +114,7 @@ test('PATCH: パッケージが見つからない → 401 (所有権と非存在
   mockAdminFrom.mockReturnValue(singleChain(null)); // package not found
   mockAnonFrom.mockReturnValue(singleChain(null));
   const res = await PATCH(makeRequest('PATCH', { name: 'test' }), makeProps());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('PATCH: 不正なスキーマ → 400', async () => {
@@ -452,7 +452,7 @@ test('PATCH: package 存在・membership null → verifyPackage null → 401（l
   mockAdminFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
   mockAnonFrom.mockReturnValue(singleChain(null));
   const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 // Branch coverage: L107 — user_packages count クエリ失敗 → 500

@@ -1,3 +1,4 @@
+import { adminUnauthenticated } from '@/lib/admin-denial';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
@@ -22,13 +23,13 @@ const bodySchema = z.object({
   revision: z.iso.datetime({ offset: true }).nullable(),
 }).strict();
 
-async function identity(request: Request): Promise<{ userId: string; facilityId: string } | 'unavailable' | null> {
-  const facilityId = new URL(request.url).searchParams.get('facility_id');
-  if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
+async function identity(request: Request): Promise<{ userId: string; facilityId: string } | 'unavailable' | 'unauthenticated' | null> {
   const client = await createServerSupabaseAuthClient();
   const verification = await verifyAuthUser(client.auth);
   if (verification.state === 'unavailable') return 'unavailable';
-  if (verification.state !== 'verified') return null;
+  if (verification.state !== 'verified') return 'unauthenticated';
+  const facilityId = new URL(request.url).searchParams.get('facility_id');
+  if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
   const lookup = await readAuthorization(client.from('facility_members').select('facility_id')
     .eq('user_id', verification.user.id).eq('facility_id', facilityId).in('role', ['owner', 'admin']).maybeSingle());
   if (lookup.error) throw new Error('SPECIAL_HOURS_AUTH_UNAVAILABLE');
@@ -41,7 +42,8 @@ export const GET = withRoute(async (request: Request) => {
   try {
     const actor = await identity(request);
     if (actor === 'unavailable') return authUnavailable('special-hours-auth', '/api/admin/special-hours');
-    if (!actor) return NextResponse.json({ error: '権限を確認できません' }, { status: 401, headers: noStore });
+    if (actor === 'unauthenticated') return adminUnauthenticated({ headers: noStore });
+    if (!actor) return NextResponse.json({ error: '権限がありません' }, { status: 403, headers: noStore });
     const result = await createServiceRoleClient().from('facility_special_hours').select('*').eq('facility_id', actor.facilityId).maybeSingle();
     if (result.error) throw new Error('SPECIAL_HOURS_READ_UNAVAILABLE');
     return NextResponse.json({
@@ -62,7 +64,8 @@ export const PUT = withRoute(async (request: Request) => {
     const ip = getClientIp(request);
     const actor = await identity(request);
     if (actor === 'unavailable') return authUnavailable('special-hours-auth', '/api/admin/special-hours');
-    if (!actor) return NextResponse.json({ error: '権限を確認できません' }, { status: 401, headers: noStore });
+    if (actor === 'unauthenticated') return adminUnauthenticated({ headers: noStore });
+    if (!actor) return NextResponse.json({ error: '権限がありません' }, { status: 403, headers: noStore });
     const parsed = bodySchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return NextResponse.json({ error: '入力内容を確認してください' }, { status: 400, headers: noStore });
     const holidays = parsed.data.closeOnPublicHolidays ? await fetchCabinetHolidays() : null;

@@ -15,12 +15,21 @@ export const revalidate = 0;
  * パイプラインをローンチ前にワンショットで疎通確認できる本エンドポイントに置換する。
  *
  * 使い方（神原さん・事務員）:
- *   https://carelink-jp.com/api/alert-check?fire=1&token=<ALERT_CHECK_TOKEN>
+ *   curl -s -H "Authorization: Bearer <ALERT_CHECK_TOKEN>" "https://carelink-jp.com/api/alert-check?fire=1"
  *   → Slack #alerts-prod に 🔴 ERROR [alert-check] ... のテスト通知が届けば疎通OK。
  *
  * セキュリティ: ALERT_CHECK_TOKEN（高エントロピー・Vercel 環境変数）を timing-safe に
  * 照合。未設定なら 500、不一致なら 401。実害のある副作用は Slack 1通のみ。
+ * token は Authorization: Bearer ヘッダーだけで受ける。URL のクエリ（?token=）は
+ * ブラウザ履歴・アクセスログ・Referer に残るため受け付けない（来たら 401）。
  */
+
+/** Authorization: Bearer <token> から token を取り出す。無い・形式違いは空文字。 */
+function bearerToken(request: Request): string {
+  const header = request.headers.get('authorization') ?? '';
+  const m = /^Bearer\s+(.+)$/i.exec(header);
+  return m ? m[1].trim() : '';
+}
 
 /** token を定数時間で照合。長さ不一致も必ず false。 */
 function tokenValid(actual: string, expected: string): boolean {
@@ -47,8 +56,12 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   const url = new URL(request.url);
-  const token = url.searchParams.get('token') ?? '';
-  if (!tokenValid(token, expected)) {
+  if (url.searchParams.has('token')) {
+    // URL に秘密値を載せた要求は、ヘッダーが正しくても拒否する（載せる運用を残さないため）。
+    return NextResponse.json({ ok: false, message: 'invalid token' }, { status: 401 });
+  }
+  const token = bearerToken(request);
+  if (!token || !tokenValid(token, expected)) {
     return NextResponse.json({ ok: false, message: 'invalid token' }, { status: 401 });
   }
 

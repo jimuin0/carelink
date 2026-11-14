@@ -47,12 +47,12 @@ test.each([PUT, POST, DELETE])('csrf, rate limiting and invalid staff ID block m
 test.each([PUT, POST, DELETE])('verified membership and staff tenant required', async handler => {
   mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null });
   expect((await handler(request('PUT', body), props())).status).toBe(401);
-  expect((await handler(request('PUT', body, null), props())).status).toBe(401);
-  expect((await handler(request('PUT', body, 'bad'), props())).status).toBe(401);
+  expect((await handler(request('PUT', body, null), props())).status).toBe(403);
+  expect((await handler(request('PUT', body, 'bad'), props())).status).toBe(403);
   mockAnonFrom.mockReturnValueOnce(chain(null));
-  expect((await handler(request('PUT', body), props())).status).toBe(401);
+  expect((await handler(request('PUT', body), props())).status).toBe(403);
   mockAdminFrom.mockReturnValueOnce(chain(null));
-  expect((await handler(request('PUT', body), props())).status).toBe(401);
+  expect((await handler(request('PUT', body), props())).status).toBe(403);
   expect(mockRpc).not.toHaveBeenCalled();
 });
 test.each([

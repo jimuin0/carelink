@@ -13,7 +13,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { serverError } from '@/lib/with-route';
 import { moderationReviewSnapshotSchema } from '@/lib/moderation-review-snapshot';
 
@@ -50,9 +50,8 @@ async function moderateContent(request: NextRequest, props: { params: Promise<{ 
     return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
   }
 
-  const adminUser = await requirePlatformAdmin();
+  const adminUser = await requirePlatformAdminApi();
   if (adminUser instanceof NextResponse) return adminUser;
-  if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const userId = adminUser.id;
 
   const body = await request.json().catch(() => null);
@@ -138,9 +137,8 @@ export async function GET(_request: NextRequest, props: { params: Promise<{id:st
   try {
     const {id}=await props.params;
     if (!UUID_REGEX.test(id)) return NextResponse.json({error:'不正なIDです'},{status:400,headers});
-    const user=await requirePlatformAdmin();
+    const user = await requirePlatformAdminApi();
     if (user instanceof NextResponse) return user;
-    if (!user) return NextResponse.json({error:'Forbidden'},{status:403,headers});
     const result=await createServiceRoleClient().rpc('moderation_review_snapshot',{p_actor_id:user.id,p_queue_id:id});
     if (result.error?.message.includes('MODERATION_PERMISSION_REVOKED')) return NextResponse.json({error:'Forbidden'},{status:403,headers});
     if (result.error) return serverError('admin-moderation-snapshot',result.error,'/api/admin/moderation/[id]','審査する口コミを取得できませんでした');

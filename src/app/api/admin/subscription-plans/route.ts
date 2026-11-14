@@ -1,3 +1,4 @@
+import { adminUnauthenticated } from '@/lib/admin-denial';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -25,7 +26,7 @@ async function getAdminContext(request: NextRequest): Promise<{ userId: string; 
   const supabase = await createServerSupabaseAuthClient();
   const verification = await verifyAuthUser(supabase.auth);
   if (verification.state === 'unavailable') return authUnavailable('admin-subscription-plans-auth', '/api/admin/subscription-plans');
-  if (verification.state !== 'verified') return null;
+  if (verification.state !== 'verified') return adminUnauthenticated();
   const user = verification.user;
 
   const facilityId = request.nextUrl.searchParams.get('facility_id');
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
   }
   const auth = await getAdminContext(request);
   if (auth instanceof NextResponse) return auth;
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!auth) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
   const { facilityId } = auth;
 
   const admin = createServiceRoleClient();
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
   }
   const auth = await getAdminContext(request);
   if (auth instanceof NextResponse) return auth;
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!auth) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
   const { userId, facilityId } = auth;
 
   const body = await request.json().catch(() => null);

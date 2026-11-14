@@ -1,6 +1,6 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { NextResponse } from 'next/server';
-import { requirePlatformAdmin } from '../platform-admin';
+import { requirePlatformAdmin, requirePlatformAdminApi } from '../platform-admin';
 const mockGetUser = jest.fn();
 const mockProfile = jest.fn();
 const mockFrom = jest.fn();
@@ -28,4 +28,22 @@ test.each(['auth-data-error','auth-null-error','auth-throw','profile-data-error'
  const result=await requirePlatformAdmin();expect(result).toBeInstanceOf(NextResponse);
  const response=result as NextResponse;expect(response.status).toBe(503);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.json()).toMatchObject({code:'AUTH_UNAVAILABLE'});
  if(fault.startsWith('auth'))expect(mockFrom).not.toHaveBeenCalled();
+});
+
+describe('requirePlatformAdminApi（点検 A205）', () => {
+ test('運営はユーザーを返す',async()=>expect(await requirePlatformAdminApi()).toEqual(user));
+ test('未ログインだけが 401',async()=>{
+  mockGetUser.mockResolvedValue({data:{user:null},error:null});
+  const res=await requirePlatformAdminApi({headers:{'Cache-Control':'no-store'}}) as NextResponse;
+  expect(res.status).toBe(401);expect(await res.json()).toEqual({error:'ログインしてください'});expect(res.headers.get('cache-control')).toBe('no-store');
+ });
+ test.each([null,{is_platform_admin:false}])('ログイン済みで権限なし %j は 403「権限がありません」',async data=>{
+  mockProfile.mockResolvedValue({data,error:null});
+  const res=await requirePlatformAdminApi({body:{state:'forbidden'}}) as NextResponse;
+  expect(res.status).toBe(403);expect(await res.json()).toEqual({error:'権限がありません',state:'forbidden'});
+ });
+ test('依存の失敗は 503 のまま',async()=>{
+  mockGetUser.mockRejectedValue(new Error('x'));
+  expect((await requirePlatformAdminApi() as NextResponse).status).toBe(503);
+ });
 });

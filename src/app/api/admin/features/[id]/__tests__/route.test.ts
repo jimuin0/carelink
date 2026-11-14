@@ -91,13 +91,13 @@ beforeEach(() => {
 test('PATCH: profileレコードなし → 401 (フェイルセーフ)', async () => {
   mockAnonFrom.mockReturnValue(profileChain(null));
   const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('PATCH: is_platform_admin=false → 401', async () => {
   mockAnonFrom.mockReturnValue(profileChain(false));
   const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 // ─── Guards ───────────────────────────────────────────────────────────────────

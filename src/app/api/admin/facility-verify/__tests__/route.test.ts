@@ -71,10 +71,10 @@ test('PATCH: レートリミット → 429', async () => {
   expect(res.status).toBe(429);
 });
 
-test('PATCH: 未認証 → 403', async () => {
+test('PATCH: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await PATCH(makeRequest({ facility_id: FACILITY_UUID, is_verified: true }));
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(401);
 });
 
 test('PATCH: 一般ユーザー → 403', async () => {

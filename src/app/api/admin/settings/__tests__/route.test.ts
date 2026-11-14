@@ -323,7 +323,7 @@ test('main-photo database update failure is not successful save', async () => {
 
 test('PATCH: facility_id なし → 401', async () => {
   const res = await PATCH(makePatchRequest(VALID_BODY, {}));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('PATCH: レートリミット → 429', async () => {
@@ -335,7 +335,7 @@ test('PATCH: レートリミット → 429', async () => {
 test('PATCH: 非管理者 → 401 (IDOR防止)', async () => {
   mockAnonFrom.mockReturnValue(memberChain(null));
   const res = await PATCH(makePatchRequest());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 // ─── Schema validation ────────────────────────────────────────────────────────
@@ -787,7 +787,7 @@ test('PATCH: 不正JSON → 400', async () => {
 
 test('PATCH: facility_id が不正UUID → 401', async () => {
   const res = await PATCH(makePatchRequest(VALID_BODY, { facility_id: 'bad-uuid' }));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 describe('保存した行の確認と依存障害', () => {
@@ -829,7 +829,7 @@ describe('保存した行の確認と依存障害', () => {
 
   test('異なる施設のmembership応答を信用しない', async () => {
     mockAnonFrom.mockReturnValue(memberChain({ facility_id: USER_ID }));
-    expect((await PATCH(makePatchRequest())).status).toBe(401);
+    expect((await PATCH(makePatchRequest())).status).toBe(403);
     expect(mockAdminFrom).not.toHaveBeenCalled();
   });
 

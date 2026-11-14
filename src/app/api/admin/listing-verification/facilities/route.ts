@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { withRoute } from '@/lib/with-route';
 
@@ -11,9 +11,8 @@ const row=z.object({ id:z.uuid(),name:z.string(),prefecture:z.string().nullable(
 
 /** Find existing listings too; only the platform operator may use this endpoint. */
 export const GET=withRoute(async request => {
-  const user=await requirePlatformAdmin();
+  const user = await requirePlatformAdminApi();
   if (user instanceof NextResponse) return user;
-  if (!user) return NextResponse.json({ error:'権限がありません' },{ status:403,headers });
   const input=query.safeParse(new URL(request.url).searchParams.get('q'));
   if (!input.success) return NextResponse.json({ error:'施設名を2文字以上入力してください' },{ status:400,headers });
   try {

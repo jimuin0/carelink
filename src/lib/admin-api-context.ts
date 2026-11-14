@@ -4,9 +4,12 @@ import { createServerSupabaseAuthClient } from './supabase-server-auth';
 import { createServiceRoleClient } from './supabase-server';
 import { UUID_REGEX } from './constants';
 import { AUTH_UNAVAILABLE_BODY, verifyAuthUser } from './auth-verification';
+import { adminForbidden, adminUnauthenticated } from './admin-denial';
 
 type AdminApiContext = { userId: string; facilityId: string };
-const denied = () => NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+// 未ログインだけが 401、ログイン済みで所属・権限が無いものは 403（点検 A205）。
+const unauthenticated = () => adminUnauthenticated();
+const denied = () => adminForbidden();
 const unavailable = () => NextResponse.json(AUTH_UNAVAILABLE_BODY, { status: 503, headers: { 'Cache-Control': 'no-store' } });
 
 /** Service-role callers may proceed only with unambiguous verified identity
@@ -18,7 +21,7 @@ export async function getAdminApiContext(
     const supabase = await createServerSupabaseAuthClient();
     const identity = await verifyAuthUser(supabase.auth);
     if (identity.state === 'unavailable') return unavailable();
-    if (identity.state === 'unauthenticated') return denied();
+    if (identity.state === 'unauthenticated') return unauthenticated();
 
     const rawFacilityId = request.nextUrl.searchParams.get('facility_id');
     if (!rawFacilityId || !UUID_REGEX.test(rawFacilityId)) return denied();

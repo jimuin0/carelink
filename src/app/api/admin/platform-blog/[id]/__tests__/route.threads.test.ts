@@ -3,7 +3,7 @@ import { legacyEditorRpc, type EditorArgs } from '@/test-utils/platform-editor-r
 
 jest.mock('@/lib/rate-limit',()=>({checkRateLimit:jest.fn(()=>false)}));
 jest.mock('@/lib/csrf',()=>({checkCsrf:jest.fn(()=>null)}));
-jest.mock('@/lib/platform-admin',()=>({requirePlatformAdmin:async()=>({id:'admin'})}));
+jest.mock('@/lib/platform-admin',()=>({requirePlatformAdminApi:async()=>({id:'admin'})}));
 jest.mock('@/lib/audit-logger',()=>({writeAuditLog:jest.fn()}));
 jest.mock('@/lib/platform-blog-threads',()=>({publishArticleToThreads:jest.fn(async()=> 'published')}));
 jest.mock('@/lib/after-response',()=>({runAfterResponse:jest.fn((action:()=>Promise<unknown>)=>action())}));

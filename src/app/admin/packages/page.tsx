@@ -330,7 +330,7 @@ function PackagesManager({ facilityId, choices }: AdminFacilityScopeValue) {
                   <tr key={up.id}>
                     <SbTd className="text-xs">
                       <p className="font-medium text-gray-800">{up.profiles?.display_name || '不明'}</p>
-                      <p className="text-gray-500">{up.profiles?.email}</p>
+                      <p className="text-gray-500" title="予約時に入力されたメール">{up.profiles?.email}</p>
                     </SbTd>
                     <SbTd className="text-xs text-gray-700">{up.service_packages?.name}</SbTd>
                     <SbTd className="hidden sm:table-cell">

@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
     p_actor_id:auth.userId,p_facility_id:auth.facilityId,p_coupon_id:null,p_operation_id:operationId,p_kind:'create',
     p_fields:couponData,p_target_menu_ids:targetMenuIds ?? [],
   });
-  if(error?.code==='42501')return NextResponse.json({error:'Unauthorized'},{status:401});
+  if(error?.code==='42501')return NextResponse.json({ error: '権限がありません' }, { status: 403 });
   if(error?.code==='22023')return NextResponse.json({error:'クーポンまたは対象メニューが不正です'},{status:400});
   if(error?.code==='23505')return NextResponse.json({error:'この操作は別の入力で保存済みです。一覧で保存内容を確認してください。'},{status:409});
   if(error?.code==='P0002')return NextResponse.json({error:'この操作のクーポンは削除済みです。一覧で確認してください。'},{status:410});

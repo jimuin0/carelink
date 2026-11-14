@@ -123,13 +123,13 @@ test('GET: レートリミット → 429', async () => {
 
 test('GET: facility_id なし → 401', async () => {
   const res = await GET(makeGetRequest(null));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('GET: 非管理者 → 401 (IDOR防止)', async () => {
   mockAnonFrom.mockReturnValue(memberSingle(null));
   const res = await GET(makeGetRequest());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('GET: 正常取得 → 200 with packages', async () => {
@@ -152,7 +152,7 @@ test('POST: 未認証 → 401', async () => {
 test('POST: 非管理者 → 401', async () => {
   mockAnonFrom.mockReturnValue(memberSingle(null));
   const res = await POST(makePostRequest(validPostBody()));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('POST: session_count が 0 → 400', async () => {
@@ -264,7 +264,7 @@ test('POST: price が 0 → 201', async () => {
 
 test('POST: facility_id が不正UUID → 401', async () => {
   const res = await POST(makePostRequest(validPostBody(), 'not-uuid'));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('GET: DB エラー → 500', async () => {
@@ -317,7 +317,7 @@ test('POST: is_active が明示的に false → 201 (?? 分岐の左側)', async
 
 test('GET: facility_id が不正UUID → 401', async () => {
   const res = await GET(makeGetRequest('not-uuid'));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('POST: レートリミット params', async () => {
@@ -352,7 +352,7 @@ it('GET: メンバー確認が DB 障害 → 500（401 にしない）', async (
 it('GET: メンバー確認が 0 行（PGRST116）→ 401', async () => {
   mockAnonFrom.mockReturnValue(failingSingle({ code: 'PGRST116', message: 'no rows' }));
   const res = await GET(makeGetRequest());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 it('POST: メニュー照会が DB 障害 → 500（「リクエストが不正です」400 にしない）', async () => {

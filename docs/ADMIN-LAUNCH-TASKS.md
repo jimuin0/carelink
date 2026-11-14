@@ -219,9 +219,9 @@ GSC のページ上部の **検索ボックス（「URL検査」）** に、以�
 
 ### 5-2. テスト通知を送信
 
-1. ブラウザで以下を開く（`YOUR_TOKEN` を `ALERT_CHECK_TOKEN` の値に置き換え）:
+1. ターミナルで以下を実行する（`（ALERT_CHECK_TOKENの値）` を実値に置き換え）。ブラウザで URL に `?token=` を付けて開く方法は廃止（履歴・ログに残るため 401 になる）:
    ```
-   https://carelink-jp.com/api/alert-check?fire=1&token=YOUR_TOKEN
+   curl -s -H "Authorization: Bearer （ALERT_CHECK_TOKENの値）" "https://carelink-jp.com/api/alert-check?fire=1"
    ```
 2. 応答に `"fired":true` と `"slackConfigured":true` が含まれれば送信成功
    - `"slackConfigured":false` → `SLACK_BOT_TOKEN` / `SLACK_DEFAULT_CHANNEL` が未設定

@@ -6,7 +6,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { serverError } from '@/lib/with-route';
 import { isCreatableNewsletterType, NEWSLETTER_TYPE_UNAVAILABLE_MESSAGE } from '@/lib/newsletter-types';
 
@@ -15,9 +15,8 @@ async function handleGET(request: NextRequest) {
   if (await checkRateLimit(null, ip, 20, 60_000, 'newsletter-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const user = await requirePlatformAdmin();
+  const user = await requirePlatformAdminApi();
   if (user instanceof NextResponse) return user;
-  if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const admin = createServiceRoleClient();
   const { data: campaigns, error } = await admin
@@ -38,9 +37,8 @@ async function handlePOST(req: NextRequest) {
   if (await checkRateLimit(null, ip, 5, 60_000, 'newsletter-create')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
-  const user = await requirePlatformAdmin();
+  const user = await requirePlatformAdminApi();
   if (user instanceof NextResponse) return user;
-  if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
   if(body===null||typeof body!=='object'||Array.isArray(body))return NextResponse.json({error:'Invalid request'},{status:400});

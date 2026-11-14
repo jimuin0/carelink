@@ -1,22 +1,22 @@
 /** @jest-environment node */
 import { NextRequest, NextResponse } from 'next/server';
 import { GET } from '../route';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { readListingEvidence } from '@/lib/listing-verification-review';
 import { writeAuditLog } from '@/lib/audit-logger';
 
 jest.mock('@/lib/with-route', () => ({ withRoute:(handler:(request:Request)=>Promise<Response>)=>handler }));
-jest.mock('@/lib/platform-admin', () => ({ requirePlatformAdmin:jest.fn() }));
+jest.mock('@/lib/platform-admin', () => ({ requirePlatformAdminApi:jest.fn() }));
 jest.mock('@/lib/listing-verification-review', () => ({ readListingEvidence:jest.fn() }));
 jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient:()=>({}) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog:jest.fn(),getRequestContext:()=>({ ip:'synthetic',ua:'synthetic' }) }));
 const facility='22222222-2222-4222-8222-222222222222';
 const document='33333333-3333-4333-8333-333333333333';
 const request=()=>new NextRequest(`http://localhost/api/admin/listing-verification/document?facility_id=${facility}&document_id=${document}`);
-beforeEach(()=>{ jest.clearAllMocks(); (requirePlatformAdmin as jest.Mock).mockResolvedValue({ id:'11111111-1111-4111-8111-111111111111' }); });
+beforeEach(()=>{ jest.clearAllMocks(); (requirePlatformAdminApi as jest.Mock).mockResolvedValue({ id:'11111111-1111-4111-8111-111111111111' }); });
 
 test('運営管理者以外は非公開書類を取得できない',async()=>{
-  (requirePlatformAdmin as jest.Mock).mockResolvedValue(null);
+  (requirePlatformAdminApi as jest.Mock).mockResolvedValue(NextResponse.json({ error: '権限がありません' }, { status: 403 }));
   expect((await GET(request())).status).toBe(403);
   expect(readListingEvidence).not.toHaveBeenCalled();
 });
@@ -36,7 +36,7 @@ test('不正または取得不能な書類は内容を返さない',async()=>{
   expect(writeAuditLog).not.toHaveBeenCalled();
 });
 test('認証障害・不正ID・存在しない書類と画像形式を安全に処理する',async()=>{
-  (requirePlatformAdmin as jest.Mock).mockResolvedValueOnce(NextResponse.json({}, { status:503 }));
+  (requirePlatformAdminApi as jest.Mock).mockResolvedValueOnce(NextResponse.json({}, { status:503 }));
   expect((await GET(request())).status).toBe(503);
   expect((await GET(new NextRequest('http://localhost/api/admin/listing-verification/document?facility_id=bad'))).status).toBe(400);
   (readListingEvidence as jest.Mock).mockResolvedValueOnce({ state:'not_found' });

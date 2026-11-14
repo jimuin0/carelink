@@ -6,7 +6,7 @@ import { writePlatformControl, platformControlResponse } from '@/lib/platform-co
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { checkCsrf } from '@/lib/csrf';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -26,9 +26,8 @@ async function handlePATCH(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const user = await requirePlatformAdmin();
+  const user = await requirePlatformAdminApi();
   if (user instanceof NextResponse) return user;
-  if (!user) return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
 
   const userId = user.id;
   const parsed=verificationSchema.safeParse(await request.json().catch(()=>null));

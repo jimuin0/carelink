@@ -3,7 +3,7 @@ import { serverError } from '@/lib/with-route';
 import { writePlatformEditor } from '@/lib/platform-editor-write';
 import { platformControlResponse } from '@/lib/platform-control-write';
 import { NextRequest, NextResponse } from 'next/server';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -40,9 +40,8 @@ async function handlePOST(request: NextRequest) {
   }
 
   // feature_articles はサイトワイドコンテンツ(facility_idを持たない) — プラットフォーム管理者のみ編集可（監査A6b）
-  const user = await requirePlatformAdmin();
+  const user = await requirePlatformAdminApi();
   if (user instanceof NextResponse) return user;
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const userId = user.id;
 
   const body = await request.json().catch(() => null);
@@ -90,9 +89,8 @@ export async function POST(request:NextRequest){return platformControlResponse((
 
 export async function GET() {
  return platformControlResponse(async()=>{
-  const user=await requirePlatformAdmin();
-  if(user instanceof NextResponse)return user;
-  if(!user)return NextResponse.json({error:'Unauthorized'},{status:401});
+  const user = await requirePlatformAdminApi();
+  if (user instanceof NextResponse) return user;
   const {data,error}=await createServiceRoleClient().from('feature_articles').select('*').order('sort_order',{ascending:true});
   if(error||!Array.isArray(data))return serverError('admin-features-list',error||new Error('FEATURE_LIST_UNCONFIRMED'),'/api/admin/features');
   return NextResponse.json({features:data});

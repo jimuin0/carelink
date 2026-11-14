@@ -86,9 +86,9 @@ test.each(cases)('%s: DB 障害 → 500（401/404 にしない）', async (_name
   expect((await call()).status).toBe(500);
 });
 
-test.each(cases)('%s: 行が無い（PGRST116）→ 401/404 のまま', async (_name, call) => {
+test.each(cases)('%s: 行が無い（PGRST116）→ 403/404（権限なし・点検 A205）', async (_name, call) => {
   mockResult = { data: null, error: { code: 'PGRST116' } };
-  expect([401, 404]).toContain((await call()).status);
+  expect([403, 404]).toContain((await call()).status);
 });
 
 test('user-packages PATCH: 回数券は読めたが所属確認が DB 障害 → 500', async () => {
@@ -115,5 +115,5 @@ test.each([
   mockQueue = [{ data: { facility_id: ID }, error: null }, DB_DOWN];
   expect((await call()).status).toBe(500);
   mockQueue = [{ data: { facility_id: ID }, error: null }, { data: null, error: { code: 'PGRST116' } }];
-  expect((await call()).status).toBe(401);
+  expect((await call()).status).toBe(403);
 });
