@@ -45,3 +45,9 @@ test('time budget preserves the remaining users',async()=>{
 test('empty cohort is confirmed skipped',async()=>{
  (digestEmailCandidates as jest.Mock).mockResolvedValue([]);const b=await (await GET(request())).json();expect(b.sent).toBe(0);expect(b.queued).toBe(0);expect(logCronRun).toHaveBeenCalledWith('favorites-digest','skipped',expect.any(Date),expect.any(Object));
 });
+test('B1-23: 1人の宛先確認エラーで残りの人を止めない（run はエラーとして残す）',async()=>{
+ (digestEmailCandidates as jest.Mock).mockResolvedValue(['one','two']);
+ mockIdentity.mockResolvedValueOnce({data:{user:null},error:{message:'lookup failed'}}).mockResolvedValueOnce({data:{user:{id:'two',email:'two@example.invalid',email_confirmed_at:'x'}},error:null});
+ const r=await GET(request());expect(r.status).toBe(500);expect((await r.json()).identity_failed).toBe(1);
+ expect(queueScheduledEmail).toHaveBeenCalledWith(mockDb,'favorites_digest','two','two@example.invalid');
+});

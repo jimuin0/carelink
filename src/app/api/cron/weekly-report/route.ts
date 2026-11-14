@@ -181,8 +181,9 @@ async function sendWeeklyReports(
     if (ok) sent++;
     else {
       failed++;
-      // 送信失敗時は claim を解放し翌 run で再送できるようにする。
-      // 解放にも失敗すると claim が残り翌 run が 23505 で skip＝そのメールが恒久欠落するため LOUD に可視化。
+      // 送信失敗時は claim を解放し、同じ週のうちに手動で再実行すれば再送できるようにする。
+      // 🔴 自動では再送されない（この cron は週 1 回で、次の run は翌週の期間を扱う）。
+      // 解放にも失敗すると claim が残り再実行も 23505 で skip＝そのメールが恒久欠落するため LOUD に可視化。
       const { error: relErr } = await supabase.from('cron_report_sends').delete()
         .eq('job', 'weekly-report').eq('facility_id', facilityId).eq('period_key', periodKey);
       if (relErr) console.error('[weekly-report] claim release failed — mail may be permanently skipped', { facilityId, period: periodKey, err: relErr });

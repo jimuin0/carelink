@@ -677,3 +677,14 @@ test('集約 RPC のフォールバック通知は間隔内で 1 回に間引く
     nowSpy.mockRestore();
   }
 });
+
+test('B1-30: 年の範囲は JST で判定する（UTC 12/31 16:00＝JST 元日でも翌々年を受け付ける）', async () => {
+  jest.useFakeTimers({ now: new Date('2026-12-31T16:00:00Z'), doNotFake: ['setTimeout', 'setImmediate', 'setInterval', 'nextTick', 'queueMicrotask'] });
+  try {
+    const res = await GET(makeRequest(VALID_UUID, undefined, 2029, 1) as any);
+    const body = await res.json().catch(() => ({}));
+    expect(body.error).not.toBe('年月が不正です');
+  } finally {
+    jest.useRealTimers();
+  }
+});

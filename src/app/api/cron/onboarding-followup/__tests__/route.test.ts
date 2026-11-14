@@ -55,6 +55,7 @@ import { GET } from '../route';
 
 // Holds the facility_profiles UPDATE mock for the current test (for claim/release assertions).
 let facUpdateMock: jest.Mock;
+const mockFacilityStatusEq = jest.fn();
 // Holds the salons UPDATE mock for the current test (for claim/release assertions, 第2パス).
 let salonUpdateMock: jest.Mock;
 
@@ -259,7 +260,7 @@ function buildFrom(opts: any = {}) {
         select: jest.fn().mockReturnValue({
           gte: jest.fn().mockReturnValue({
             lte: jest.fn().mockReturnValue({
-              neq: jest.fn().mockReturnValue({
+              eq: mockFacilityStatusEq.mockReturnValue({
                 is: jest.fn().mockReturnValue({ order }),
               }),
             }),
@@ -408,6 +409,11 @@ function makeRequest(cronSecret: string = 'cron-secret') {
 }
 
 describe('GET /api/cron/onboarding-followup', () => {
+  test('B1-24: 施設は準備中（draft）だけを対象にする（停止中の施設へ送らない）', async () => {
+    await GET(makeRequest() as any);
+    expect(mockFacilityStatusEq).toHaveBeenCalledWith('status', 'draft');
+  });
+
   test('invalid CRON_SECRET → returns auth error', async () => {
     (checkCronAuth as jest.Mock).mockReturnValue(
       new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
