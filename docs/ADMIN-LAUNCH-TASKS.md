@@ -16,7 +16,7 @@
 
 - [ ] Google アカウント（CareLink で使うもの）
 - [ ] Vercel アカウントログイン情報
-- [ ] Stripe アカウントログイン情報（決済を使う場合）
+- [ ] PAY.JP アカウントログイン情報（決済を使う場合）
 - [ ] Slack（エラー通知の届くチャンネルを見られること）
 - [ ] スマホ（SMS認証が必要な場合あり）
 
@@ -236,85 +236,58 @@ GSC のページ上部の **検索ボックス（「URL検査」）** に、以�
 
 ---
 
-## 📦 タスク6: Stripe 本番モード切替（決済を使う場合のみ）
+## 📦 タスク6: PAY.JP 本番の設定（決済を使う場合のみ）
 
-> ⚠️ **2026年11月14日に決済を PAY.JP へ移した（Stripe のコード・env・webhook は撤去済み）。この節の Stripe の手順は使えない。** PAY.JP の設定は `docs/handoff/PAYJP_MIGRATION_20261114.md` を見ること。
+> 2026年11月14日に決済を Stripe から PAY.JP へ移した（Stripe のコード・秘密値・表は撤去済み）。
+> 本番の設定は 2026年11月14日に完了している（下の報告事項）。鍵を入れ替えるときにこの手順を使う。詳しい経緯は `docs/handoff/PAYJP_MIGRATION_20261114.md`。
 
-> ⚠️ サイトで料金を取らない場合は **このタスクをスキップ** してください
-> ⚠️ Stripeアカウントの審査が完了している必要があります
+**所要時間**: 約15分
 
-**所要時間**: 約20分
+### 6-1. 本番利用の審査状況
 
-### 6-1. Stripe 審査状況の確認
+1. https://console.pay.jp/d/application を開く
+2. 「クレジットカード決済」の各ブランドが **「利用可能」** になっていることを確かめる（2026年11月14日：全ブランド利用可能）
 
-1. https://dashboard.stripe.com にログイン
-2. 右上の **「テストモード」** スイッチが OFF にできるか確認
-   - OFFにできない = 審査未完了 → **このタスクは中止**して担当者に報告
+### 6-2. 本番の鍵と webhook の照合トークン
 
-### 6-2. 本番APIキーの取得
+1. 画面上部の **「テスト環境」スイッチを OFF**（ライブモード）にする
+2. **API設定**（https://console.pay.jp/d/settings）の「APIキーの情報」で、**本番秘密鍵**（`sk_live_...`）と **本番公開鍵**（`pk_live_...`）を確かめる
+3. 同じページの「Webhook」→「発信元トークン」（`whook_...`）を確かめる（テスト・本番で共通）
 
-1. テストモードスイッチを **OFF** にする
-2. 左メニュー **「開発者」** → **「API キー」** をクリック
-3. **「シークレットキー」** の項目で **「キーを表示」** をクリック
-4. `sk_live_...` で始まる長い文字列が表示される
-5. **コピーする**（このキーは絶対に他人に見せないこと、メモ帳にも保存しない）
+### 6-3. 置き場所
 
-### 6-3. Vercel 環境変数を更新
+| 値 | 置き場所 | 入れ方 |
+|---|---|---|
+| 本番秘密鍵 `PAYJP_SECRET_KEY` | Cloudflare Worker の秘密値 | `npx wrangler secret put PAYJP_SECRET_KEY`（値は本人が貼る） |
+| 発信元トークン `PAYJP_WEBHOOK_TOKEN` | Cloudflare Worker の秘密値 | `npx wrangler secret put PAYJP_WEBHOOK_TOKEN` |
+| 本番公開鍵 `NEXT_PUBLIC_PAYJP_PUBLIC_KEY` | GitHub のリポジトリ変数（ビルド時に埋め込む公開値） | `gh variable set NEXT_PUBLIC_PAYJP_PUBLIC_KEY` → 次の配信で反映 |
+| 広告枠のプラン ID `PAYJP_FEATURED_PLAN_ID` | Cloudflare Worker の秘密値 | 広告枠を売るときだけ（税込 10,780 円/月のプラン） |
 
-1. https://vercel.com → carelink プロジェクト → Settings → Environment Variables
-2. 既存の **`STRIPE_SECRET_KEY`** を探して **「Edit」**（鉛筆アイコン）をクリック
-3. Value欄を `sk_live_...` の値で **上書き**
-4. Environments: **Production のみ** にチェック（Preview はテストのままでOK）
-5. **「Save」** をクリック
+### 6-4. webhook の送信先
 
-### 6-4. Stripe Webhook の本番再登録
+1. API設定の「Webhook」→「Webhookを追加」
+2. URL `https://carelink-jp.com/api/payjp/webhook`・**ライブモード** を選んで登録（イベントの選択は無い＝全イベントが届き、アプリが振り分ける）
 
-1. Stripe Dashboard → 開発者 → **Webhooks**
-2. **「+ エンドポイントを追加」** をクリック
-3. **エンドポイント URL**:
-   ```
-   https://carelink-jp.com/api/payment/webhook
-   ```
-4. **送信するイベント** で以下を選択:
-   - `checkout.session.completed`
-   - `payment_intent.payment_failed`
-   - `customer.subscription.created`
-   - `customer.subscription.updated`
-   - `customer.subscription.deleted`
-   - `invoice.paid`
-   - `invoice.payment_failed`
-5. **「エンドポイントを追加」** をクリック
-6. 作成されたエンドポイント詳細画面で **「署名シークレット」** の **「クリックして表示」** → コピー
-   - `whsec_...` で始まる文字列
+### 6-5. 確認
 
-### 6-5. Vercel に Webhook シークレットを設定
+1. `https://carelink-jp.com/api/health` の `deps.payjp.ok` が `true`（`skipped` でない）
+2. API設定の「テストイベントを送信」で `charge.succeeded` を送り、`payjp_webhook_events` に `processed_at` 付きで記録される
+   （テストのイベント ID は固定値なので、2 回目以降は重複として読み飛ばされる）
 
-1. https://vercel.com → carelink → Settings → Environment Variables
-2. 既存の **`STRIPE_WEBHOOK_SECRET`** を **Edit**
-3. Value欄を `whsec_...` の値で **上書き**
-4. Environments: **Production のみ**
-5. **Save**
-
-### 6-6. Vercel Redeploy
-
-1. Vercel → carelink → Deployments
-2. 最新デプロイの「⋯」 → **Redeploy**
-3. Ready になるまで待つ
-
-### 6-7. 1円実機決済テスト（神原様立ち会い必須）
+### 6-6. 実機決済テスト（神原様立ち会い必須）
 
 ⚠️ **このステップは必ず神原様の指示・立ち会いのもとで実施してください**
 
-1. 神原様に「Stripe本番化が完了したので1円テストの段取りをしたい」と連絡
-2. 神原様指示の下、テスト用施設・1円メニューで決済→管理画面確認→返金まで実行
+1. テスト用施設で有料オプションを申し込み → 管理画面で「利用中」→ 「解約」で解約予約済みになることを確認
+2. PAY.JP 管理画面の「定期課金」で状態を確かめ、必要なら返金する
 
 ### 報告事項
 
-- [ ] Stripe審査状況: 完了 / 未完了
-- [ ] 本番APIキー設定完了
-- [ ] Webhook再登録完了
-- [ ] Vercel Redeploy 完了
-- [ ] 1円テストは神原様と日程調整
+- [x] 本番審査：全ブランド利用可能（2026年11月14日）
+- [x] 本番秘密鍵・発信元トークン：Cloudflare に設定（2026年11月14日）
+- [x] 本番公開鍵：GitHub のリポジトリ変数に設定（2026年11月14日）
+- [x] webhook（ライブモード）登録・テスト送信の受信を確認（2026年11月14日）
+- [ ] 実機決済テストは神原様と日程調整
 
 ---
 
@@ -360,7 +333,7 @@ CareLinkローンチ準備 完了報告
 ✅ タスク3: 主要8ページのインデックス登録リクエスト
 ✅ タスク4: UptimeRobot監視設定
 ✅ タスク5: Slack エラー通知の疎通確認（/api/alert-check）
-[✅/⏭] タスク6: Stripe本番化（決済使う場合のみ）
+[✅/⏭] タスク6: PAY.JP 本番設定（決済使う場合のみ）
 ✅ タスク7: メール到達性チェック
 
 次のステップ:
@@ -376,8 +349,8 @@ CareLinkローンチ準備 完了報告
 ### Q. Vercel にログインできません
 A. 神原様に連絡して招待してもらってください。
 
-### Q. Stripe Dashboard で「テストモード」を OFF にできません
-A. 審査が完了していません。Stripe Dashboard のホームに「アカウントを有効化」のメッセージが出ているはずなので、必要書類を提出してください。
+### Q. PAY.JP でライブモードの鍵が使えません
+A. 本番利用の審査が終わっていません。https://console.pay.jp/d/application でブランドごとの状態を確かめ、審査中ならメールの連絡に返信してください。
 
 ### Q. UptimeRobot のテスト通知が来ません
 A. 迷惑メールフォルダを確認。それでも来なければ Alert Contacts のメールアドレスが正しいか確認。
@@ -398,7 +371,7 @@ A. **必ずスクリーンショットを撮ってから** 担当者に送って
 作業中に以下が起きたら **即座に作業を中止して** 神原様に連絡:
 
 - 実顧客のデータが見える画面に到達した
-- 課金処理が走った（Stripeで通知が来た）
+- 課金処理が走った（PAY.JP で通知が来た）
 - パスワード変更を求められた
 - 「データを削除する」系のボタンを押してしまいそうになった
 
