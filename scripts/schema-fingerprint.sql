@@ -18,7 +18,8 @@
 --   ドリフトが出る。行は「種別|対象|詳細」の固定書式。
 --
 -- 誤報を出さないための設計:
---   - public スキーマのみ（auth/storage 等は Supabase 管理で migration 対象外）
+--   - public スキーマのみ（auth/storage 等は Supabase 管理で migration 対象外）。
+--     例外として storage.objects / storage.buckets の RLS ポリシーだけは見る（storagepolicy|）
 --   - 拡張が所有するオブジェクトは全除外（postgis のバージョン差が誤報になる）
 --   - 関数本体は md5 で持つ（整形の揺れではなく実体の変化だけを見る）
 --   - 内部トリガ（制約由来）は除外
@@ -198,6 +199,41 @@ SELECT line FROM (
   WHERE p.oid NOT IN (SELECT objid FROM ext_objs)
     AND grantee.rolname IN ('anon', 'authenticated', 'service_role')
     AND acl.privilege_type = 'EXECUTE'
+
+  UNION ALL
+  -- ── 列単位の権限（anon/authenticated/service_role のみ）───────────────
+  -- 🔴 なぜ必要か（2026年11月13日・点検 B10-3）: 上の grant| はテーブル単位の relacl しか
+  --   見ていない。RLS は列を絞れないため、この repo は「触ってよい列」を列単位 GRANT
+  --   （例 GRANT UPDATE (status) ON facility_reviews TO authenticated）で絞っている。
+  --   その列 GRANT が out-of-band で広げられても（または消えて機能が死んでも）検知できなかった。
+  --   attacl が NULL の列（列単位の GRANT を一度もしていない）は対象外（functiongrant| と同じ設計）。
+  SELECT format('colgrant|%s.%s|%s|%s', r.relname, a.attname, grantee.rolname,
+                string_agg(acl.privilege_type, ',' ORDER BY acl.privilege_type))
+  FROM rels r
+  JOIN pg_attribute a ON a.attrelid = r.oid AND a.attnum > 0 AND NOT a.attisdropped
+  CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) AS acl
+  JOIN pg_catalog.pg_roles grantee ON grantee.oid = acl.grantee
+  WHERE grantee.rolname IN ('anon', 'authenticated', 'service_role')
+  GROUP BY r.relname, a.attname, grantee.rolname
+
+  UNION ALL
+  -- ── storage の RLS ポリシー（storage.objects / storage.buckets のみ）──────
+  -- 🔴 なぜ必要か（同上）: 写真・アバター等のバケットの読み書き権限は storage.objects の
+  --   ポリシーが実体で、migration が約 50 箇所で作っている。public だけを見ていたため、
+  --   Dashboard から足された／消されたポリシーが一切監視されていなかった。
+  --   Supabase は storage.objects / storage.buckets に既定のポリシーを作らない
+  --   （RLS 有効・ポリシー 0 本で始まる）ので、ここに出る行は migration か手作業由来だけ。
+  --   storage の内部表（migrations・s3_multipart_uploads 等）は Supabase の版で増減するため対象外。
+  SELECT format('storagepolicy|%s|%s|cmd=%s|permissive=%s|roles=%s|using=%s|check=%s',
+                c.relname, p.polname, p.polcmd,
+                CASE p.polpermissive WHEN true THEN 'PERMISSIVE' ELSE 'RESTRICTIVE' END,
+                coalesce((SELECT string_agg(rolname, ',' ORDER BY rolname)
+                          FROM pg_roles WHERE oid = ANY(p.polroles)), 'PUBLIC'),
+                coalesce(pg_get_expr(p.polqual, p.polrelid), ''),
+                coalesce(pg_get_expr(p.polwithcheck, p.polrelid), ''))
+  FROM pg_policy p
+  JOIN pg_class c ON c.oid = p.polrelid AND c.relname IN ('objects', 'buckets')
+  JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'storage'
 
 ) s
 -- 🔴 COLLATE "C" が必須（2026年8月2日・CI が実装欠陥を検出）。

@@ -53,7 +53,7 @@ export function subjectTable(line) {
   const rest = line.slice(i + 1);
   const j = rest.indexOf('|');
   const first = j < 0 ? rest : rest.slice(0, j);
-  if (kind === 'column') {
+  if (kind === 'column' || kind === 'colgrant') {
     const dot = first.indexOf('.');
     return dot > 0 ? first.slice(0, dot) : null;
   }

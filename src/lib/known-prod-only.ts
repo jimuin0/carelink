@@ -63,8 +63,8 @@ export function subjectTable(line: string): string | null {
   const j = rest.indexOf('|');
   const first = j < 0 ? rest : rest.slice(0, j);
 
-  if (kind === 'column') {
-    // `column|<table>.<column>|…`
+  if (kind === 'column' || kind === 'colgrant') {
+    // `column|<table>.<column>|…` / `colgrant|<table>.<column>|<role>|…`
     const dot = first.indexOf('.');
     return dot > 0 ? first.slice(0, dot) : null;
   }
