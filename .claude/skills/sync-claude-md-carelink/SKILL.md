@@ -83,11 +83,11 @@ ls src/lib/
 → コードに対応する実装があれば維持、なければ削除
 
 **各セクションの更新基準（どのファイルから読み取るか）:**
-- バージョン: package.json の dependencies
+- バージョン: package-lock.json（実際に入る版）
 - セキュリティ実装順序: csrf.ts・rate-limit.ts・cron-auth.ts・audit-logger.ts の実装
 - middleware 保護パス: middleware.ts の PROTECTED_PATHS・MEMBERSHIP_CACHE_TTL_SECONDS
 - カバレッジ gate: jest.config.js の coverageThreshold（branches/lines/functions/statements）
-- Cron スケジュール: vercel.json または cron/*/route.ts のコメント・設定
+- Cron スケジュール: `src/lib/cron-jobs.data.json`（SSOT）と `docs/render-cron-consolidation.md`。route.ts のコメントや vercel.json は正にしない（vercel.json に crons は無く、コメントは古いことがある）
 - Supabase クライアント: lib/supabase-server.ts・supabase-server-auth.ts の export 関数名
 
 ---

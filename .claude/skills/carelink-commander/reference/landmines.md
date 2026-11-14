@@ -1,14 +1,14 @@
 # CareLink 地雷リスト(触れてはいけない共有物・file:行つき)
 
 最終更新：2026年7月17日(origin/main=dfba66e4 時点で G/K を更新・初版は2026年7月15日 67b255cd)。
-対象：このリポジトリ自身(医療・福祉・美容 施設向けの予約管理・集客・採用 統合マルチテナントSaaS・Next.js 15 App Router + Supabase + Vercel・決済 Stripe・LINE/LIFF・Resend・本番 https://carelink-jp.com・ブランチ【main】・GitHub jimuin0/carelink)。
+対象：このリポジトリ自身(医療・福祉・美容 施設向けの予約管理・集客・採用 統合マルチテナントSaaS・Next.js 16（16.3.0 以上を強制・版は package-lock.json）App Router + Supabase + Vercel・決済 Stripe・LINE/LIFF・Resend・本番 https://carelink-jp.com・ブランチ【main】・GitHub jimuin0/carelink)。
 
 ⚠️【使い方】行番号はこの時点のスナップショット。src/ の変更でズレる。断定・編集の前に必ず【安定アンカー(定数名・関数名・テーブル/列名・envキー名・本番ref・cron名・migration番号)】で grep 再特定してから動く(証拠運搬者)。事実確認は `git show origin/main:<path>` を正とし、本番DBの実体は `src/lib/schema-snapshot.json` と PostgREST(service_role)/psql で照会する。
 
 ---
 
 ## A【存在しないテーブル/列参照の無音停止・最頻の事故・最重要】
-- tsc は Supabase クライアントに `<Database>` 型が未配線のため列タイポを検知できない(`src/types/database.types.ts` は生成済みだが各クライアント helper に型付けされていない＝既知の恒久課題・再生成には神原さんのターミナルで `supabase login` が要る)。
+- `<Database>` 型は各 Supabase クライアントへ配線済み（`supabase-server.ts`・`supabase-server-auth.ts`・`supabase-browser.ts`）なので、存在しない列の参照は tsc が検知する。ただし型は生成物のため、新しい列は migration → `src/types/database.types.ts` → `node scripts/gen-schema-snapshot.mjs` → `scripts/gen-schema-fingerprint.sh` → コードの順で進める（完全な再生成には `supabase login` が要るが、列の追記だけなら手で書ける）。
 - 過去の実事故：`menus`(正=`facility_menus`)・`reviews`(正=`facility_reviews`)・`facility_menus.is_active`(元々不在の列)。存在しない名前を参照すると PostgREST 400 → `data ?? []` で握り潰され無音で機能停止する。
 - 【鉄則】新しいテーブル/列を参照する前に必ず `src/lib/schema-snapshot.json`(全テーブルの正)で実在を確認する。schema-drift-check cron(JST02:40)は事後検知＝事前予防にはならない。
 - Supabase の embed 名(例 `menu:facility_menus(name)`)を変えたら対応する jest テストの mock も同じキー名に合わせる(ずれると片側分岐が実行されず branches 100% ゲートが崩れて CI fail)。
@@ -27,7 +27,7 @@
 
 ## D【cron認証・冪等前提】
 - `src/lib/cron-auth.ts` `checkCronAuth`＝`Authorization: Bearer ${CRON_SECRET}` を `timingSafeEqual`(定数時間・長さ不一致は別途 false)で検証。`CRON_SECRET` 未設定は500(全cron 401/500 で停止)。
-- cron ハンドラは【冪等】前提(下記 H の三重化で多重発火しても副作用が重複しないこと)。新規 cron も冪等に作る。
+- cron ハンドラは【冪等】前提(手動の再実行や重複起動と重なっても副作用が重複しないこと)。新規 cron も冪等に作る。
 - 監査ログ：重要操作は `void writeAuditLog({...})`(`src/lib/audit-logger.ts`・fire-and-forget・失敗で本体を止めない)。`diffValues` で変更フィールドのみ抽出。
 
 ## E【予約の中核ロジック・動作確認済み・過剰修正禁止】
@@ -48,12 +48,11 @@
 - webhook-retry cron は【未配信ジョブを success に倒さない】(サイレントデータロス・PR#468 で throw→scheduleRetry に根治)。配信結果を確認してから status を更新。
 - 【cron の claim は真のCASパターンを崩さない(2026年7月17日 #503/#504/#505/#506 で全cron統一)】webhook-retry=claim時に claimed_at 記録・reclaim判定も claimed_at 基準(scheduled_at 流用は二重配信の温床・#505)／booking-reminder=upsert(ignoreDuplicates).select() の戻り件数が原子的勝敗判定(30秒ヒューリスティック禁止・#503)／birthday-coupon 通知=claim-first(送信前に birthday_notifications INSERT・23505=負け・送信失敗は claim DELETE 解放・#504)／customer-segment=at_risk クーポンは部分UNIQUE uq_user_coupon_codes_at_risk_daily が物理封鎖・23505=claim負けとして送信スキップ(#506)。新規 cron の送信系は必ずこのどれかの型に乗せる。enqueueWebhook は insert の {error} を必ず捕捉(PostgRESTはDBエラーでthrowしない・#505)。
 
-## H【cron三重化(GitHub Actions + pg_cron + Render Cron Jobs)＝移行中(2026年7月3日〜)】
+## H【cron は Render Cron Jobs のみが実働（GitHub Actions は無効・pg_cron は撤去済み）】
 - 背景：public repo の GitHub Actions scheduled workflow は GitHub が private/有料を優先し大幅に間引く(実測で cron.yml 最大176分の空白)。恒久解として Render Cron Jobs(`render.yaml`・機能ごと独立サービス・SSOT=`src/lib/cron-jobs.data.json`・`src/__tests__/render-yaml-drift.test.ts` がドリフト検知)を新設(PR#382)。
-- 現状：Render 稼働を実データ(Render UI)で確認できるまで、GitHub Actions `cron.yml` と pg_cron(Supabase `cron.job` の `carelink-*` prefix・15ジョブ)を【あえて残置】(endpoint冪等で三重発火は無害だが無駄)。
-- 一本化の順(Render稼働を実データ確認後・神原SQL・段階移行で空白を作らない)：(1)`cron.yml`/`health-monitor.yml` 廃止 (2)`select cron.unschedule(jobname) from cron.job where jobname like 'carelink-%';` で pg_cron 撤去。
-- 🔴 cronの挙動を調べる時は、まず【どのスケジューラが実際に動いているか】(Render Dashboard / GitHub Actions run history / `select * from cron.job`)を確認してから議論する。
-- 主要 cron(cron.yml・UTC/JST)：booking-reminder(毎日00:00) / daily-summary(毎日15:00) / review-request(毎日03:00) / birthday-coupon(毎日23:00) / flag-reviews(毎時) / waitlist-notify(毎時30分) / webhook-retry(15分毎) / schema-drift-check(毎日02:40) 他。
+- 現状（CLAUDE.md「cron の現状」が正）：pg_cron は 2026年7月29日に撤去済み（15ジョブ解除）。`cron.yml`・`health-monitor.yml`・`deploy-watch.yml` は GitHub 上で `disabled_manually`＝発火しない（ファイルが在ることを保険と読まない）。外形監視の代替は Render の `carelink-health-check`。
+- 🔴 cronの挙動を調べる時は、まず【どのスケジューラが実際に動いているか】(まず workflow の有効／無効＝`gh workflow list --all`、次に Render Dashboard／`cron_logs` の実記録)を確認してから議論する。
+- 主要 cron(SSOT＝`src/lib/cron-jobs.data.json`・JST)：booking-reminder(毎時05分に起動し、送信は 09:05 の run だけ) / daily-summary(毎日15:00) / review-request(毎日03:00) / birthday-coupon(毎日23:00) / flag-reviews(毎時) / waitlist-notify(毎時30分) / webhook-retry(15分毎) / schema-drift-check(毎日02:40) 他。
 - オーナーニュースレターの【自動月次配信は廃止】(神原さん確定 2026年7月2日「お知らせがある時のみ」)。旧 newsletter-digest エンドポイント・専用ワークフロー・monthly-batch-watcher は削除済み。配信は管理画面 `/admin/newsletters` からの手動送信のみ。台帳 newsletter_send_log は孤児化するが drift 整合のため残置(無害)。
 
 ## I【金銭/認可=fresh Sonnet で敵対検証必須】
@@ -78,5 +77,5 @@
 
 ## L【店舗ログインの仕様(繰り返し問われる)】
 - `auth.users` に「客/店舗」区別フィールドは無い。全員ただの Supabase 認証アカウント。「店舗」＝`facility_members` に role=owner/admin の行があるかだけで決まる(`src/app/admin/layout.tsx`)。
-- ログイン(`/auth/login`)後の既定リダイレクトは `/mypage`(客向け)。店舗オーナーでも最初は客画面に見えるため店舗管理は `/admin` に直行が必要。
+- ログイン(`/auth/login`・Google・callback)で戻り先の指定が無いときは `/auth/landing` が判定し、owner/admin の所属があれば `/admin`、無ければ `/mypage` へ送る(`src/lib/post-login-landing.ts`)。
 - 店舗化フロー：`/register`→`/auth/signup?redirect=/admin/onboarding&...`→`/admin/onboarding` が `/api/facility/setup` を呼び facility_profiles(draft)＋facility_members(owner) を作成。
