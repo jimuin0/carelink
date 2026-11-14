@@ -43,6 +43,9 @@ export default function SearchFilters({ className, onApplied }: { className?: st
     const keyword = searchParams.get('keyword');
     if (keyword) params.set('keyword', keyword);
     if (area) params.set('area', area);
+    // 市区町村×業種ページから来た市区町村は、都道府県を変えない限り引き継ぐ。
+    const city = searchParams.get('city');
+    if (city && area && area === searchParams.get('area')) params.set('city', city);
     if (type) params.set('type', type);
     if (ratingMin) params.set('rating_min', ratingMin);
     if (priceMin) params.set('price_min', priceMin);

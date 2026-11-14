@@ -1,6 +1,6 @@
 // Disposable PG17 synthetic transactions only. No provider, HTTP or production I/O.
 import assert from 'node:assert/strict';
-import { homedir } from 'node:os';
+import { requireDedicatedDockerHost } from './local-docker-host.mjs';
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 
@@ -10,7 +10,7 @@ assert.ok(!process.env.PGSERVICE && !process.env.PGSERVICEFILE && !process.env.P
 const database = 'carelink_shadow';
 let binary, args, environment;
 if (local) {
-  assert.ok(process.env.DOCKER_HOST === `unix://${homedir()}/.carelink-vm-20261008/.docker/run/docker.sock`, 'dedicated local Docker socket required');
+  requireDedicatedDockerHost();
   binary = 'docker';
   args = ['exec', '-i', 'supabase_db_carelink', 'psql', '-U', 'postgres', '-d', database];
   environment = { PATH: process.env.PATH, DOCKER_HOST: process.env.DOCKER_HOST, DOCKER_CONFIG: process.env.DOCKER_CONFIG };

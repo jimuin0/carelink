@@ -34,3 +34,14 @@ describe('こだわり条件チップの検索リンク', () => {
     expect(old).toMatch(KEYWORD_CHIP);
   });
 });
+
+// 監査 A168: 市区町村×業種ページのチップが都道府県だけを渡し、市区町村の絞り込みが失われていた。
+test('市区町村×業種ページのチップは市区町村を渡し、/search はそれで絞り込む', () => {
+  const page = readFileSync(join(process.cwd(), 'src/app/[prefectureSlug]/[secondSlug]/[typeSlug]/page.tsx'), 'utf8');
+  expect(page).toContain('featureSearchHref(feature, { type: typeValue, area: prefName, city: cityName })');
+  const search = readFileSync(join(process.cwd(), 'src/app/search/page.tsx'), 'utf8');
+  expect(search).toContain('city: searchParams.area ? searchParams.city : undefined');
+  expect(search).toContain("baseParams.set('city', searchParams.city)");
+  const filters = readFileSync(join(process.cwd(), 'src/components/search/SearchFilters.tsx'), 'utf8');
+  expect(filters).toContain("params.set('city', city)");
+});

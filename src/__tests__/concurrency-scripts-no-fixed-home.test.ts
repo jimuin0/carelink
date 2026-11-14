@@ -5,10 +5,28 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
+import { readdirSync } from 'fs';
+
+const scripts = readdirSync(join(process.cwd(), 'scripts')).filter((f) => /^check-.*-concurrency\.(mjs|py)$/.test(f));
+
+test('並行性検査スクリプトが見つかる（空振り防止）', () => {
+  expect(scripts.length).toBeGreaterThan(20);
+});
+
+test.each(scripts)('scripts/%s は個人環境のパスを直書きしない', (file) => {
+  const text = readFileSync(join(process.cwd(), 'scripts', file), 'utf8');
+  expect(text).not.toMatch(/\/Users\/[A-Za-z0-9_-]+\//);
+  expect(text).not.toMatch(/carelink-vm-\d+/);
+});
+
+// A432: 専用ソケットは CARELINK_LOCAL_DOCKER_HOST で明示させ、共通の確認関数を通す。
 test.each([
-  'scripts/check-manual-booking-concurrency.mjs',
-  'scripts/check-newsletter-delivery-concurrency.mjs',
-  'scripts/check-salon-intent-concurrency.mjs',
-])('%s は /Users/<名前> を直書きしない', (file) => {
-  expect(readFileSync(join(process.cwd(), file), 'utf8')).not.toMatch(/\/Users\/[A-Za-z0-9_-]+\//);
+  'check-moderation-photo-concurrency.mjs',
+  'check-newsletter-delivery-concurrency.mjs',
+  'check-review-atomic-concurrency.mjs',
+  'check-salon-intent-concurrency.mjs',
+])('scripts/%s はローカル Docker 経路で requireDedicatedDockerHost を通す', (file) => {
+  const text = readFileSync(join(process.cwd(), 'scripts', file), 'utf8');
+  expect(text).toContain("from './local-docker-host.mjs'");
+  expect(text).toContain('requireDedicatedDockerHost()');
 });

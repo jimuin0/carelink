@@ -19,7 +19,7 @@ import Button from '@/components/ui/Button';
 
 interface Props {
   searchParams: Promise<{
-    keyword?: string; type?: string; area?: string; sort?: string; page?: string;
+    keyword?: string; type?: string; area?: string; city?: string; sort?: string; page?: string;
     rating_min?: string; price_min?: string; price_max?: string; features?: string;
     symptom?: string; insurance?: string;
     lat?: string; lng?: string; available_date?: string; available_time?: string;
@@ -30,7 +30,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   const rawSearchParams = await props.searchParams;
   const searchParams = firstSearchParams(rawSearchParams);
   const parts: string[] = [];
-  if (searchParams.area) parts.push(searchParams.area);
+  if (searchParams.area) parts.push(searchParams.area + (searchParams.city || ''));
   if (searchParams.type) parts.push(businessTypeLabel(searchParams.type));
   if (searchParams.keyword) parts.push(`「${searchParams.keyword}」`);
 
@@ -67,7 +67,8 @@ export default async function SearchPage(props: Props) {
     prefecture: searchParams.area,
     sort,
     page: searchParams.page ? (parseInt(searchParams.page) || 1) : 1,
-    city: undefined as string | undefined,
+    // 市区町村は同名（北区など）が複数の都道府県にあるため、都道府県と組でだけ効かせる。
+    city: searchParams.area ? searchParams.city : undefined,
     rating_min: searchParams.rating_min ? parseFloat(searchParams.rating_min) : undefined,
     price_min: searchParams.price_min ? parseInt(searchParams.price_min) : undefined,
     price_max: searchParams.price_max ? parseInt(searchParams.price_max) : undefined,
@@ -93,6 +94,7 @@ export default async function SearchPage(props: Props) {
   if (searchParams.keyword) baseParams.set('keyword', searchParams.keyword);
   if (searchParams.type) baseParams.set('type', searchParams.type);
   if (searchParams.area) baseParams.set('area', searchParams.area);
+  if (searchParams.area && searchParams.city) baseParams.set('city', searchParams.city);
   if (searchParams.sort) baseParams.set('sort', searchParams.sort);
   if (searchParams.rating_min) baseParams.set('rating_min', searchParams.rating_min);
   if (searchParams.price_min) baseParams.set('price_min', searchParams.price_min);
@@ -136,7 +138,7 @@ export default async function SearchPage(props: Props) {
   // Breadcrumb
   const breadcrumbs: { label: string; href?: string }[] = [{ label: 'トップ', href: '/' }];
   if (searchParams.type) breadcrumbs.push({ label: businessTypeLabel(searchParams.type), href: `/search?type=${encodeURIComponent(searchParams.type)}` });
-  if (searchParams.area) breadcrumbs.push({ label: searchParams.area });
+  if (searchParams.area) breadcrumbs.push({ label: searchParams.area + (searchParams.city || '') });
   if (searchParams.keyword) breadcrumbs.push({ label: `「${searchParams.keyword}」` });
   if (breadcrumbs.length === 1) breadcrumbs.push({ label: 'サロン・クリニック検索' });
 
