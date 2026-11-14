@@ -46,7 +46,15 @@ export async function buildBookingCreateNotifications(db: SupabaseClient, input:
   const ids = [...new Set(members.data.map(m => m.user_id))];
   if(ids.length>250)throw new BookingNotificationPlanError();
   const profiles = ids.length ? {data:await collection((offset,limit)=>db.from('profiles').select('id,email').in('id',ids).order('id').range(offset,offset+limit-1),profileSchema),error:null} : { data: [], error: null };
-  if (profiles.data.length !== ids.length) throw new BookingNotificationPlanError();
+  // オーナーの profiles が欠けていても、お客様の予約は止めない（点検 B4-13）。
+  // 欠けたオーナーにはメール・プッシュを計画しない（DB 側の照合も profiles が在るオーナーだけを期待する）。
+  // 店舗には管理画面の案内（MissingProfileNotice）で、運営にはこのログで気づけるようにする。
+  const missingOwnerIds = ids.filter(id => !profiles.data.some(profile => profile.id === id));
+  if (missingOwnerIds.length > 0) {
+    console.error('[booking-notifications] owner profile missing — new-booking email/push skipped for these owners', {
+      facility_id: input.facility_id, missing_owner_ids: missingOwnerIds,
+    });
+  }
   const data = { customerName: input.customer_name, customerEmail: input.email, facilityName: facility.data.name,
     menuName: menu.data.name, staffName: staff.data?.name, bookingDate: input.booking_date, startTime: input.start_time,
     endTime: input.end_time, endDate: input.end_date, totalPrice, bookingId: '', bookingStatus:status,
