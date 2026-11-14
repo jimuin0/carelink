@@ -14,14 +14,14 @@ export const dynamic = 'force-dynamic';
  * 従来は管理画面のクライアントが option_catalog を直接読み、is_active=true の4件
  * （reminder_email_3d ¥500 ／ reminder_line ¥1,500 ／ time_adjust_line ¥500 ／
  * hpb_integration ¥3,000）を値札と購入ボタン付きで並べていた。しかし本番に
- * STRIPE_SECRET_KEY は存在せず、購入ボタンを押すと /api/options/checkout が
+ * 決済の鍵（当時は STRIPE_SECRET_KEY）は存在せず、購入ボタンを押すと /api/options/checkout が
  * 503「決済機能が設定されていません」を返す（実測で確認）。
  * 施設に値段を見せて押させ、エラーを返す状態だった。金銭が絡むぶん実害が大きい。
  *
  * 【なぜサーバで判定するか＝真の予防】
- * 購入可否を決めるのはサーバの STRIPE_SECRET_KEY であり、クライアントからは見えない。
+ * 購入可否を決めるのはサーバの決済設定（PAY.JP の鍵・isPaymentsEnabled）であり、クライアントからは見えない。
  * 表示側で個別に隠す運用にすると必ずズレる（隠し忘れ・戻し忘れ）。
- * 決済セッションを作る checkout と同じ変数をここで見て、購入できないものは
+ * 申込を受ける checkout と同じ判定をここで見て、購入できないものは
  * そもそも返さない。神原さんが鍵を入れた瞬間に全オプションが自動で復活する。
  *
  * 【contact_only は残す】
@@ -56,7 +56,9 @@ export async function GET(request: Request) {
     // 決済が無い間は「購入が必要なオプション」を一切返さない。申込み制のみ残す。
     const options = paymentsEnabled ? rows : rows.filter((o) => o.contact_only);
 
-    return NextResponse.json({ paymentsEnabled, options });
+    // 購入できるときだけ、カード入力欄（payjp.js）に使う公開鍵を返す（公開値）。
+    const publicKey = paymentsEnabled ? process.env.NEXT_PUBLIC_PAYJP_PUBLIC_KEY : undefined;
+    return NextResponse.json({ paymentsEnabled, options, ...(publicKey ? { publicKey } : {}) });
   } catch (e) {
     return serverError('options-catalog', e, '/api/options/catalog');
   }

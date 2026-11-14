@@ -58,7 +58,7 @@ test.each([['不一致', 'whook_wrong_token'], ['欠落', null]])('トークン%
 });
 
 test('PAY.JP の設定が揃っていなければ 404', async () => {
-  delete process.env.PAYJP_FEATURED_PLAN_ID;
+  delete process.env.PAYJP_WEBHOOK_TOKEN;
   expect((await POST(req())).status).toBe(404);
   expect(mockApply).not.toHaveBeenCalled();
 });

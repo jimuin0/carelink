@@ -1,224 +1,129 @@
 /**
  * @jest-environment node
  *
- * Tests for POST /api/options/checkout（施設向け有料オプションの月額サブスク購入）
- * Key assertions:
- *   - 価格はサーバ側（option_catalog）で決定（クライアント渡し価格を信用しない）
- *   - owner/admin 以外 → 403（IDOR 防止）
- *   - contact_only / 価格未設定 / 既購入 → 400
- *   - mode: 'subscription'・metadata に facility_id/option_key
+ * POST /api/options/checkout（有料オプションの月額・PAY.JP・2026年11月14日に Stripe から移行）。
  */
-
-jest.mock('@/lib/rate-limit', () => ({
-  mutationRateLimit: {},
-  checkRateLimit: jest.fn(() => Promise.resolve(false)),
-}));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false), mutationRateLimit: null }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
-jest.mock('next/headers', () => ({
-  cookies: () => ({ getAll: () => [], set: jest.fn() }),
-}));
-const mockAlertCaughtError = jest.fn();
-jest.mock('@/lib/alert', () => ({
-  alertCaughtError: (...args: unknown[]) => mockAlertCaughtError(...args),
-}));
-
-const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
-const USER_ID = '33333333-3333-3333-3333-333333333333';
-
+const mockAlert = jest.fn();
+jest.mock('@/lib/alert', () => ({ alertCaughtError: (...a: unknown[]) => mockAlert(...a) }));
 const mockGetUser = jest.fn();
-let membershipResult: { data: unknown; error?: unknown };
-let optionResult: { data: unknown; error?: unknown };
-let entitlementResult: { data: unknown; error?: unknown };
-
-const makeMaybeSingleChain = (resultRef: () => { data: unknown; error?: unknown }) => ({
-  select: jest.fn().mockReturnThis(),
-  eq: jest.fn().mockReturnThis(),
-  in: jest.fn().mockReturnThis(),
-  maybeSingle: jest.fn(() => Promise.resolve(resultRef())),
-});
-
-jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({
-    from: (table: string) => {
-      if (table === 'facility_members') return makeMaybeSingleChain(() => membershipResult);
-      if (table === 'option_catalog') return makeMaybeSingleChain(() => optionResult);
-      if (table === 'facility_entitlements') return makeMaybeSingleChain(() => entitlementResult);
-      throw new Error(`unexpected table: ${table}`);
-    },
-    auth: { getUser: mockGetUser },
-  }),
+jest.mock('@/lib/supabase-server-auth', () => ({ createServerSupabaseAuthClient: async () => ({ auth: { getUser: mockGetUser } }) }));
+let mockDb: ReturnType<typeof import('@/test-utils/fake-supabase').createFakeSupabase>;
+jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => mockDb.client }));
+const mockPayjp = { createSubscription: jest.fn() };
+jest.mock('@/lib/payjp', () => ({ ...jest.requireActual('@/lib/payjp'), createSubscription: (...a: unknown[]) => mockPayjp.createSubscription(...a) }));
+const mockCustomer = jest.fn();
+jest.mock('@/lib/payjp-customer', () => ({ ...jest.requireActual('@/lib/payjp-customer'), ensureFacilityCustomer: (...a: unknown[]) => mockCustomer(...a) }));
+const mockPlan = jest.fn();
+const mockApply = jest.fn();
+jest.mock('@/lib/options-payjp', () => ({
+  ensureOptionPlan: (...a: unknown[]) => mockPlan(...a),
+  applyOptionSubscription: (...a: unknown[]) => mockApply(...a),
 }));
-
-const mockStripeCreate = jest.fn();
-jest.mock('stripe', () =>
-  jest.fn().mockImplementation(() => ({
-    checkout: { sessions: { create: mockStripeCreate } },
-  }))
-);
 
 import { POST } from '../route';
-import { checkRateLimit } from '@/lib/rate-limit';
-import { checkCsrf } from '@/lib/csrf';
+import { PayjpError } from '@/lib/payjp';
+import { createFakeSupabase, type FakeCall, type FakeResult } from '@/test-utils/fake-supabase';
 
-function makeRequest(body: object = { facilityId: FACILITY_UUID, optionKey: 'reminder_line' }) {
-  return new Request('http://localhost/api/options/checkout', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }) as unknown as import('next/server').NextRequest;
+const FAC = '22222222-2222-4222-8222-222222222222';
+const USER = '33333333-3333-4333-8333-333333333333';
+const ENV = { ...process.env };
+const SUB = { id: 'sub_1', status: 'active', customer: 'cus_1', current_period_end: 1, metadata: {} };
+
+type Opts = Partial<Record<'member' | 'option' | 'current' | 'link' | 'del', FakeResult>>;
+function db(opts: Opts = {}) {
+  mockDb = createFakeSupabase((call: FakeCall) => {
+    if (call.table === 'facility_members') return opts.member ?? { data: { role: 'owner' } };
+    if (call.table === 'option_catalog') return opts.option ?? { data: { key: 'reminder_line', name: 'LINE', monthly_price: 1500, contact_only: false, is_active: true } };
+    if (call.op === 'select') return opts.current ?? { data: null };
+    if (call.op === 'upsert') return opts.link;
+    return opts.del;
+  });
 }
+const req = (body: unknown) => new Request('http://localhost/api/options/checkout', {
+  method: 'POST', headers: { 'content-type': 'application/json', origin: 'http://localhost', host: 'localhost' },
+  body: typeof body === 'string' ? body : JSON.stringify(body),
+});
+const BODY = { facilityId: FAC, optionKey: 'reminder_line', token: 'tok_abc' };
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (checkRateLimit as jest.Mock).mockResolvedValue(false);
-  (checkCsrf as jest.Mock).mockReturnValue(null);
-  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
-  mockStripeCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/opt', id: 'cs_opt' });
-  membershipResult = { data: { role: 'owner' } };
-  optionResult = { data: { key: 'reminder_line', name: 'LINEリマインド', monthly_price: 1500, contact_only: false, is_active: true } };
-  entitlementResult = { data: null };
-  process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
+  process.env = { ...ENV, PAYJP_SECRET_KEY: 'sk', PAYJP_WEBHOOK_TOKEN: 'wh', NEXT_PUBLIC_PAYJP_PUBLIC_KEY: 'pk' };
+  mockGetUser.mockResolvedValue({ data: { user: { id: USER } }, error: null });
+  mockPlan.mockResolvedValue({ id: 'carelink_option_reminder_line_1500' });
+  mockCustomer.mockResolvedValue({ ok: true, customerId: 'cus_1' });
+  mockPayjp.createSubscription.mockResolvedValue(SUB);
+  mockApply.mockResolvedValue('applied');
+  db();
 });
+afterAll(() => { process.env = ENV; });
 
-test('CSRF 失敗 → その応答を返す', async () => {
-  const deny = new Response(JSON.stringify({ error: 'csrf' }), { status: 403 });
-  (checkCsrf as jest.Mock).mockReturnValue(deny);
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(403);
+test('決済が未設定なら 503', async () => {
+  delete process.env.NEXT_PUBLIC_PAYJP_PUBLIC_KEY;
+  expect((await POST(req(BODY))).status).toBe(503);
 });
-
-test('Stripe未設定 → 503', async () => {
-  delete process.env.STRIPE_SECRET_KEY;
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(503);
+test.each([['JSON でない', 'x'], ['トークンが無い', { facilityId: FAC, optionKey: 'reminder_line' }], ['キーの形が違う', { ...BODY, optionKey: 'A B' }], ['価格を送ってくる', { ...BODY, price: 1 }]])('%sは 400', async (_l, body) => {
+  expect((await POST(req(body))).status).toBe(400);
 });
-
-test('レートリミット超過 → 429', async () => {
-  (checkRateLimit as jest.Mock).mockResolvedValue(true);
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(429);
-});
-
-test('未認証 → 401', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(401);
-});
-
-test('facilityId 不正（UUID でない）→ 400', async () => {
-  const res = await POST(makeRequest({ facilityId: 'not-uuid', optionKey: 'reminder_line' }));
-  expect(res.status).toBe(400);
-});
-
-test('optionKey 不正（記号入り）→ 400', async () => {
-  const res = await POST(makeRequest({ facilityId: FACILITY_UUID, optionKey: 'bad-key!' }));
-  expect(res.status).toBe(400);
-});
-
-test('body が JSON でない → 400（catch フォールバック）', async () => {
-  const req = new Request('http://localhost/api/options/checkout', {
-    method: 'POST', body: 'not-json',
-  }) as unknown as import('next/server').NextRequest;
-  const res = await POST(req);
-  expect(res.status).toBe(400);
-});
-
-test('owner/admin でない → 403（IDOR 防止）', async () => {
-  membershipResult = { data: null };
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(403);
-});
-
-test('オプションが存在しない → 404', async () => {
-  optionResult = { data: null };
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(404);
-});
-
-test('オプションが無効（is_active=false）→ 404', async () => {
-  optionResult = { data: { key: 'reminder_line', name: 'x', monthly_price: 1500, contact_only: false, is_active: false } };
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(404);
-});
-
-test('contact_only オプション → 400（自動課金不可）', async () => {
-  optionResult = { data: { key: 'hpb_integration', name: 'HPB連携', monthly_price: 3000, contact_only: true, is_active: true } };
-  const res = await POST(makeRequest({ facilityId: FACILITY_UUID, optionKey: 'hpb_integration' }));
-  expect(res.status).toBe(400);
-});
-
-test('価格 0 円 → 400（誤無料販売防止）', async () => {
-  optionResult = { data: { key: 'reminder_line', name: 'x', monthly_price: 0, contact_only: false, is_active: true } };
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(400);
-});
-
-test('既に利用中 → 400（二重課金防止）', async () => {
-  entitlementResult = { data: { id: 'ent-1' } };
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(400);
-});
-
-test('正常系: subscription モードで作成され URL を返す（価格はサーバ決定）', async () => {
-  const res = await POST(makeRequest());
+test('定期課金を作り、すぐ有効になれば active を返す', async () => {
+  const res = await POST(req(BODY));
   expect(res.status).toBe(200);
-  const json = await res.json();
-  expect(json.url).toBe('https://checkout.stripe.com/opt');
-
-  const arg = mockStripeCreate.mock.calls[0][0];
-  expect(arg.mode).toBe('subscription');
-  expect(arg.line_items[0].price_data.unit_amount).toBe(1500); // カタログ価格（サーバ側）
-  expect(arg.line_items[0].price_data.recurring).toEqual({ interval: 'month' });
-  expect(arg.metadata).toEqual({ facility_id: FACILITY_UUID, option_key: 'reminder_line', user_id: USER_ID });
-  expect(arg.subscription_data.metadata).toEqual({ facility_id: FACILITY_UUID, option_key: 'reminder_line' });
+  expect(await res.json()).toEqual({ subscribed: true, active: true });
+  expect(mockPlan).toHaveBeenCalledWith('reminder_line', 1500, 'LINE');
+  expect(mockPayjp.createSubscription).toHaveBeenCalledWith('cus_1', 'carelink_option_reminder_line_1500', { facility_id: FAC, option_key: 'reminder_line' });
+  expect(mockApply).toHaveBeenCalledWith(mockDb.client, 'subscription.created', SUB, expect.any(Date));
+  const upsert = mockDb.calls.find((c) => c.op === 'upsert')!;
+  expect(upsert.payload).toMatchObject({ facility_id: FAC, option_key: 'reminder_line', payjp_customer_id: 'cus_1', status: 'pending', payjp_subscription_id: null });
 });
-
-test('Stripe エラー → 500（内部情報は漏らさない）＋Slack通知（無音catch根治）', async () => {
-  mockStripeCreate.mockRejectedValue(new Error('stripe down'));
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  const json = await res.json();
-  expect(JSON.stringify(json)).not.toContain('stripe down');
-  // catch して 500 を返すと onRequestError に伝播せず Slack 通知が漏れるため明示通知する（#490 と同型）。
-  expect(mockAlertCaughtError).toHaveBeenCalledWith(
-    'options-checkout',
-    expect.any(Error),
-    '/api/options/checkout',
-  );
+test('試用など active でなければ active=false', async () => {
+  mockPayjp.createSubscription.mockResolvedValue({ ...SUB, status: 'trial' });
+  expect(await (await POST(req(BODY))).json()).toEqual({ subscribed: true, active: false });
 });
-
-// 中 A21：DB 障害を 403／404／「未契約」に化けさせない（未契約扱いで二重のサブスクを作らない）。
-describe('障害時の応答', () => {
-  const down = { code: '08006', message: 'down' };
-  test('認証基盤の障害 → 503', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null }, error: new Error('network') });
-    expect((await POST(makeRequest())).status).toBe(503);
-    expect(mockStripeCreate).not.toHaveBeenCalled();
-  });
-  test('所属確認の障害 → 500（403 にしない）', async () => {
-    membershipResult = { data: null, error: down };
-    expect((await POST(makeRequest())).status).toBe(500);
-    expect(mockStripeCreate).not.toHaveBeenCalled();
-  });
-  test('カタログの障害 → 500（404 にしない）', async () => {
-    optionResult = { data: null, error: down };
-    expect((await POST(makeRequest())).status).toBe(500);
-    expect(mockStripeCreate).not.toHaveBeenCalled();
-  });
-  test('既存契約の確認の障害 → 500 で決済セッションを作らない', async () => {
-    entitlementResult = { data: null, error: down };
-    expect((await POST(makeRequest())).status).toBe(500);
-    expect(mockStripeCreate).not.toHaveBeenCalled();
-  });
+test('反映に失敗しても成功を返し、運営に知らせる（webhook が反映する）', async () => {
+  mockApply.mockRejectedValue(new Error('db'));
+  const res = await POST(req(BODY));
+  expect(await res.json()).toEqual({ subscribed: true, active: false });
+  expect(mockAlert).toHaveBeenCalledWith('options-checkout-apply', expect.any(Error), '/api/options/checkout');
 });
-
-test('Checkout Session は施設・オプション・操作者で決まる冪等キー付きで作る（連打で同じキー）', async () => {
-  await POST(makeRequest());
-  await POST(makeRequest());
-  const k1 = mockStripeCreate.mock.calls[0][1]?.idempotencyKey;
-  const k2 = mockStripeCreate.mock.calls[1][1]?.idempotencyKey;
-  expect(k1).toMatch(new RegExp(`^options-checkout:${FACILITY_UUID}:reminder_line:${USER_ID}:\\d+$`));
-  expect(k2).toBe(k1);
+test.each([
+  ['所属の読み取り失敗', { member: { error: { message: 'x' } } }, 500],
+  ['所属なし', { member: { data: null } }, 403],
+  ['カタログの読み取り失敗', { option: { error: { message: 'x' } } }, 500],
+  ['オプションが無い', { option: { data: null } }, 404],
+  ['停止中のオプション', { option: { data: { key: 'k', name: 'n', monthly_price: 1500, contact_only: false, is_active: false } } }, 404],
+  ['申込み専用', { option: { data: { key: 'k', name: 'n', monthly_price: 1500, contact_only: true, is_active: true } } }, 400],
+  ['価格未設定', { option: { data: { key: 'k', name: 'n', monthly_price: 0, contact_only: false, is_active: true } } }, 400],
+  ['契約の読み取り失敗', { current: { error: { message: 'x' } } }, 500],
+  ['契約中', { current: { data: { status: 'active', created_at: new Date().toISOString() } } }, 409],
+  ['申込処理中（30 分以内）', { current: { data: { status: 'pending', created_at: new Date().toISOString() } } }, 409],
+])('%s → %s（課金しない）', async (_l, opts, status) => {
+  db(opts as Opts);
+  expect((await POST(req(BODY))).status).toBe(status);
+  expect(mockPayjp.createSubscription).not.toHaveBeenCalled();
+});
+test.each([['古い pending', 'pending'], ['終了した契約', 'deleted']])('%sは申し込み直せる', async (_l, status) => {
+  db({ current: { data: { status, created_at: '2026-01-01T00:00:00Z' } } });
+  expect((await POST(req(BODY))).status).toBe(200);
+});
+test('プランを用意できなければ 500', async () => {
+  mockPlan.mockRejectedValue(new Error('mismatch'));
+  expect((await POST(req(BODY))).status).toBe(500);
+  expect(mockCustomer).not.toHaveBeenCalled();
+});
+test('カード拒否は 400、customer の障害は 500', async () => {
+  mockCustomer.mockResolvedValue({ ok: false, reason: 'card' });
+  expect((await POST(req(BODY))).status).toBe(400);
+  mockCustomer.mockResolvedValue({ ok: false, reason: 'error', tag: 'customer', error: new Error('x') });
+  expect((await POST(req(BODY))).status).toBe(500);
+});
+test('pending 行の保存失敗は 500（定期課金を作らない）', async () => {
+  db({ link: { error: { message: 'x' } } });
+  expect((await POST(req(BODY))).status).toBe(500);
+  expect(mockPayjp.createSubscription).not.toHaveBeenCalled();
+});
+test.each([['カード拒否', new PayjpError('declined', 402, 'card_error'), 400], ['PAY.JP 障害', new PayjpError('down', 500), 500]])('定期課金の作成で%s → %s、pending を消す', async (_l, err, status) => {
+  mockPayjp.createSubscription.mockRejectedValue(err);
+  expect((await POST(req(BODY))).status).toBe(status);
+  expect(mockDb.calls.some((c) => c.op === 'delete')).toBe(true);
 });

@@ -159,7 +159,7 @@ test.describe('キャッシュ設定', () => {
   });
 
   test('領収書 API にキャッシュ無効ヘッダーがある', async ({ request }) => {
-    const response = await request.get('/api/stripe/receipt?session_id=test');
+    const response = await request.get('/api/payment/receipt?payment_id=00000000-0000-4000-8000-000000000000');
     const cc = response.headers()['cache-control'] || '';
     // 401 返る場合でも Cache-Control を確認
     if (response.status() === 200) {

@@ -3,10 +3,10 @@
  *
  * Tests for GET /api/health（Phase 6: rate_limit RPC ベースに更新）
  * Key assertions:
- *   - 4 依存（supabase / rate_limit / stripe / resend）の並列 ping
+ *   - 4 依存（supabase / rate_limit / payjp / resend）の並列 ping
  *   - critical（supabase + rate_limit）両方 OK → 200 healthy
  *   - critical のいずれか NG → 503 unhealthy
- *   - degraded（stripe / resend）NG のみ → 200 degraded
+ *   - degraded（payjp / resend）NG のみ → 200 degraded
  *   - deps の各依存に { ok, elapsed_ms } を含む
  *   - response に elapsed_ms / timestamp / version を含む
  */
@@ -63,7 +63,7 @@ let originalFetch: typeof fetch;
 function setupDefaultMocks(opts: {
   supabaseOk?: boolean;
   rateLimitOk?: boolean;
-  stripeOk?: boolean;
+  payjpOk?: boolean;
   resendOk?: boolean;
   supabaseThrows?: boolean;
   cron?: 'fresh' | 'stale' | 'error' | 'nodata';
@@ -71,7 +71,7 @@ function setupDefaultMocks(opts: {
   const {
     supabaseOk = true,
     rateLimitOk = true,
-    stripeOk = true,
+    payjpOk = true,
     resendOk = true,
     supabaseThrows = false,
     cron = 'fresh',
@@ -118,11 +118,11 @@ function setupDefaultMocks(opts: {
     from: jest.fn().mockReturnValue(cronChain),
   });
 
-  // Fetch mock for Stripe + Resend
+  // Fetch mock for PAY.JP + Resend
   global.fetch = jest.fn(async (url: string | URL | Request) => {
     const u = url.toString();
-    if (u.includes('stripe.com')) {
-      return new Response(JSON.stringify({}), { status: stripeOk ? 200 : 500 });
+    if (u.includes('api.pay.jp')) {
+      return new Response(JSON.stringify({}), { status: payjpOk ? 200 : 500 });
     }
     if (u.includes('resend.com')) {
       // /domains は検証済みドメイン一覧を返す。health は「送信元ドメインが verified か」まで見る。
@@ -135,7 +135,7 @@ function setupDefaultMocks(opts: {
   }) as unknown as typeof fetch;
 
   // env defaults
-  process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+  process.env.PAYJP_SECRET_KEY = 'sk_test_dummy';
   process.env.RESEND_API_KEY = 're_test_dummy';
 }
 
@@ -159,7 +159,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     expect(json.status).toBe('healthy');
     expect(json.deps.supabase.ok).toBe(true);
     expect(json.deps.rate_limit.ok).toBe(true);
-    expect(json.deps.stripe.ok).toBe(true);
+    expect(json.deps.payjp.ok).toBe(true);
     expect(json.deps.resend.ok).toBe(true);
     expect(json.deps.cron.ok).toBe(true);
   });
@@ -272,13 +272,13 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     expect(limitMock).toHaveBeenCalledTimes(2);
   });
 
-  test('Stripe NG のみ → 200 degraded (critical 維持)', async () => {
-    setupDefaultMocks({ stripeOk: false });
+  test('PAY.JP NG のみ → 200 degraded (critical 維持)', async () => {
+    setupDefaultMocks({ payjpOk: false });
     const res = await GET(makeReq());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.status).toBe('degraded');
-    expect(json.deps.stripe.ok).toBe(false);
+    expect(json.deps.payjp.ok).toBe(false);
   });
 
   test('Resend NG のみ → 200 degraded', async () => {
@@ -324,7 +324,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
   test('each dep includes ok and elapsed_ms', async () => {
     const res = await GET(makeReq());
     const json = await res.json();
-    for (const k of ['supabase', 'rate_limit', 'stripe', 'resend', 'cron']) {
+    for (const k of ['supabase', 'rate_limit', 'payjp', 'resend', 'cron']) {
       expect(typeof json.deps[k].ok).toBe('boolean');
       expect(typeof json.deps[k].elapsed_ms).toBe('number');
     }
@@ -338,16 +338,16 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     expect(typeof json.deps.rate_limit.error).toBe('string');
   });
 
-  test('Stripe 未設定 → skipped 扱い・degraded にしない（決済オフ運用）', async () => {
+  test('PAY.JP 未設定 → skipped 扱い・degraded にしない（決済オフ運用）', async () => {
     setupDefaultMocks();
-    delete process.env.STRIPE_SECRET_KEY;
+    delete process.env.PAYJP_SECRET_KEY;
     const res = await GET(makeReq());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.status).toBe('healthy');
-    expect(json.deps.stripe.ok).toBe(true);
-    expect(json.deps.stripe.skipped).toBe(true);
-    expect(json.deps.stripe.note).toBe('not_configured');
+    expect(json.deps.payjp.ok).toBe(true);
+    expect(json.deps.payjp.skipped).toBe(true);
+    expect(json.deps.payjp.note).toBe('not_configured');
   });
 
   test('Resend 401 → resend NG', async () => {
@@ -391,7 +391,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
   });
 
   test('Resend 500+ → resend NG (HTTP error branch)', async () => {
-    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    process.env.PAYJP_SECRET_KEY = 'sk_test_dummy';
     process.env.RESEND_API_KEY = 're_test_dummy';
     const { createServerSupabaseClient, createServiceRoleClient } = require('@/lib/supabase-server');
     createServerSupabaseClient.mockReturnValue({
@@ -404,7 +404,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     });
     global.fetch = jest.fn(async (url: string | URL | Request) => {
       const u = url.toString();
-      if (u.includes('stripe.com')) return new Response('{}', { status: 200 });
+      if (u.includes('api.pay.jp')) return new Response('{}', { status: 200 });
       if (u.includes('resend.com')) return new Response(null, { status: 503 });
       return new Response(null, { status: 200 });
     }) as unknown as typeof fetch;
@@ -426,7 +426,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
   });
 
   test('Resend 404 → resend OK (key valid even if 404)', async () => {
-    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    process.env.PAYJP_SECRET_KEY = 'sk_test_dummy';
     process.env.RESEND_API_KEY = 're_test_dummy';
     const { createServerSupabaseClient, createServiceRoleClient } = require('@/lib/supabase-server');
     createServerSupabaseClient.mockReturnValue({
@@ -439,7 +439,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     });
     global.fetch = jest.fn(async (url: string | URL | Request) => {
       const u = url.toString();
-      if (u.includes('stripe.com')) return new Response('{}', { status: 200 });
+      if (u.includes('api.pay.jp')) return new Response('{}', { status: 200 });
       if (u.includes('resend.com')) return new Response(null, { status: 404 });
       return new Response(null, { status: 200 });
     }) as unknown as typeof fetch;
@@ -462,13 +462,13 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     expect(res.status).toBe(429);
     const json = await res.json();
     expect(json.error).toBe('Too Many Requests');
-    // 依存プローブ（Supabase/Stripe/Resend）が一切呼ばれていないこと
+    // 依存プローブ（Supabase/PAY.JP/Resend）が一切呼ばれていないこと
     expect(mockSelect).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
   test('non-Error thrown in probe → String(e) logged, generic message in response', async () => {
-    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    process.env.PAYJP_SECRET_KEY = 'sk_test_dummy';
     process.env.RESEND_API_KEY = 're_test_dummy';
     const { createServerSupabaseClient, createServiceRoleClient } = require('@/lib/supabase-server');
     createServerSupabaseClient.mockImplementation(() => {

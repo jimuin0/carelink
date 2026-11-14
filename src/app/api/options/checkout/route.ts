@@ -1,141 +1,113 @@
-import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
-import { getClientIp } from '@/lib/client-ip';
 /**
- * 有料オプション（施設向け月額サブスク）の Stripe Checkout Session 作成
- * POST /api/options/checkout  body: { facilityId, optionKey }
+ * 有料オプション（施設向け月額）の申込（POST /api/options/checkout・2026年11月14日に Stripe から PAY.JP へ移行）。
+ *   body: { facilityId, optionKey, token }
+ *   token は payjp.js が作ったカードのトークン（tok_...）。カード番号はサーバーを通らない。
  *
- * CareLink → 施設 への課金。決済完了は /api/payment/webhook の
- * checkout.session.completed（metadata.option_key あり）で facility_entitlements を
- * 自動有効化し、解約（customer.subscription.deleted）で自動無効化する。
+ * CareLink → 施設 への課金。施設ごとの PAY.JP customer（広告枠と共用）にカードを登録し、
+ * オプションの税込月額と同じ PAY.JP プラン（無ければ作る）で定期課金を作る。
+ * entitlement の有効化・無効化は定期課金の状態で決める（申込の応答と webhook の subscription.* の両方から
+ * applyOptionSubscription が反映する）。施設 × オプションで契約は 1 件まで（二重課金を作らない）。
  */
-
-import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
-import { SITE_URL, UUID_REGEX } from '@/lib/constants';
-import { checkCsrf } from '@/lib/csrf';
-import { serverError, authUnavailable } from '@/lib/with-route';
-import { verifyAuthUser } from '@/lib/auth-verification';
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { withRoute, serverError } from '@/lib/with-route';
+import { mutationRateLimit } from '@/lib/rate-limit';
+import { alertCaughtError } from '@/lib/alert';
+import { UUID_REGEX } from '@/lib/constants';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { isPaymentsEnabled } from '@/lib/integration-availability';
+import { createSubscription, isCardError } from '@/lib/payjp';
+import { CARD_REJECTED_MESSAGE, PAYJP_UNAVAILABLE_MESSAGE, ensureFacilityCustomer } from '@/lib/payjp-customer';
+import { applyOptionSubscription, ensureOptionPlan } from '@/lib/options-payjp';
 
 export const dynamic = 'force-dynamic';
 
-/** option_catalog.key の許容形式（英小文字・数字・アンダースコア） */
-const OPTION_KEY_REGEX = /^[a-z0-9_]{1,64}$/;
-const CHECKOUT_IDEMPOTENCY_WINDOW_MS = 10 * 60 * 1000;
+const ROUTE = '/api/options/checkout';
+/** 申込の途中で止まった pending は、この時間を過ぎたら新しい申込の妨げにしない。 */
+const PENDING_BLOCK_MS = 30 * 60 * 1000;
 
-export async function POST(request: NextRequest) {
-  const csrfError = checkCsrf(request);
-  if (csrfError) return csrfError;
-  const stripeKey = process.env.STRIPE_SECRET_KEY;
-  if (!stripeKey) {
-    return NextResponse.json({ error: '決済機能が設定されていません' }, { status: 503 });
-  }
+const bodySchema = z.object({
+  facilityId: z.string().regex(UUID_REGEX),
+  optionKey: z.string().regex(/^[a-z0-9_]{1,64}$/),
+  token: z.string().regex(/^tok_[A-Za-z0-9]{1,100}$/),
+}).strict();
 
-  try {
-    const ip = getClientIp(request);
-    if (await checkRateLimit(mutationRateLimit, ip, 5, 60_000, 'mutation')) {
-      return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
-    }
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { getAll: () => cookieStore.getAll() } }
-    );
+export async function POST(request: Request) {
+  return withRoute(async (req, ctx) => {
+    if (!isPaymentsEnabled()) return NextResponse.json({ error: '決済機能が設定されていません' }, { status: 503 });
+    const parsed = bodySchema.safeParse(await req.json().catch(() => null));
+    if (!parsed.success) return NextResponse.json({ error: 'パラメータが不正です' }, { status: 400 });
+    const { facilityId, optionKey, token } = parsed.data;
+    const admin = createServiceRoleClient();
 
-    const verification = await verifyAuthUser(supabase.auth);
-    if (verification.state === 'unavailable') return authUnavailable('options-checkout-auth', '/api/options/checkout');
-    if (verification.state !== 'verified') return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
-    const user = verification.user;
-
-    const { facilityId, optionKey } = await request.json().catch(() => ({}));
-    if (!facilityId || !UUID_REGEX.test(facilityId) || !optionKey || !OPTION_KEY_REGEX.test(optionKey)) {
-      return NextResponse.json({ error: 'パラメータが不正です' }, { status: 400 });
-    }
-
-    // 施設の owner/admin のみ購入可能（IDOR 防止）
-    // 各読み取りの DB 障害は「権限なし」「見つからない」「未契約」に化けさせない。特に既存契約の確認が
-    // 失敗したまま進むと、利用中のオプションに二重のサブスクを作ってしまう（中 A21）。
-    const { data: membership, error: membershipError } = await supabase
-      .from('facility_members')
-      .select('role')
-      .eq('facility_id', facilityId)
-      .eq('user_id', user.id)
-      .in('role', ['owner', 'admin'])
-      .maybeSingle();
-    if (membershipError) return serverError('options-checkout-membership', membershipError, '/api/options/checkout');
-    if (!membership) {
-      return NextResponse.json({ error: 'この施設の管理権限がありません' }, { status: 403 });
-    }
+    // 施設の owner/admin のみ購入可能（IDOR 防止）。DB 障害は「権限なし」に化けさせない。
+    const { data: membership, error: membershipError } = await admin
+      .from('facility_members').select('role')
+      .eq('facility_id', facilityId).eq('user_id', ctx.user!.id).in('role', ['owner', 'admin']).maybeSingle();
+    if (membershipError) return serverError('options-checkout-membership', membershipError, ROUTE);
+    if (!membership) return NextResponse.json({ error: 'この施設の管理権限がありません' }, { status: 403 });
 
     // カタログからサーバ側で価格決定（クライアント渡し価格は信用しない）
-    const { data: option, error: optionError } = await supabase
-      .from('option_catalog')
-      .select('key, name, monthly_price, contact_only, is_active')
-      .eq('key', optionKey)
-      .maybeSingle();
-    if (optionError) return serverError('options-checkout-catalog', optionError, '/api/options/checkout');
-    if (!option || !option.is_active) {
-      return NextResponse.json({ error: 'オプションが見つかりません' }, { status: 404 });
+    const { data: option, error: optionError } = await admin
+      .from('option_catalog').select('key, name, monthly_price, contact_only, is_active').eq('key', optionKey).maybeSingle();
+    if (optionError) return serverError('options-checkout-catalog', optionError, ROUTE);
+    if (!option || !option.is_active) return NextResponse.json({ error: 'オプションが見つかりません' }, { status: 404 });
+    if (option.contact_only) return NextResponse.json({ error: 'このオプションはお申込み（個別対応）専用です' }, { status: 400 });
+    if (option.monthly_price < 50) return NextResponse.json({ error: '価格が未設定のため購入できません' }, { status: 400 });
+
+    // 契約中・支払い停止中・期間末解約待ち・申込処理中があれば作らない（二重課金の防止）。
+    const { data: current, error: currentErr } = await admin
+      .from('facility_option_payjp_subscriptions').select('status, created_at')
+      .eq('facility_id', facilityId).eq('option_key', optionKey).maybeSingle();
+    if (currentErr) return serverError('options-checkout-current', currentErr, ROUTE);
+    if (current && ['active', 'trial', 'paused', 'canceled'].includes(current.status)) {
+      return NextResponse.json({ error: 'このオプションは既にご利用中です' }, { status: 409 });
     }
-    if (option.contact_only) {
-      return NextResponse.json({ error: 'このオプションはお申込み（個別対応）専用です' }, { status: 400 });
-    }
-    if (option.monthly_price <= 0) {
-      return NextResponse.json({ error: '価格が未設定のため購入できません' }, { status: 400 });
+    if (current?.status === 'pending' && Date.now() - new Date(current.created_at).getTime() < PENDING_BLOCK_MS) {
+      return NextResponse.json({ error: 'お申し込みを処理中です。しばらくしてから画面を再読み込みしてください。' }, { status: 409 });
     }
 
-    // 既に利用中なら二重課金を防ぐ
-    const { data: existing, error: existingError } = await supabase
-      .from('facility_entitlements')
-      .select('id')
-      .eq('facility_id', facilityId)
-      .eq('option_key', optionKey)
-      .eq('status', 'active')
-      .maybeSingle();
-    if (existingError) return serverError('options-checkout-entitlement', existingError, '/api/options/checkout', '決済セッションの作成に失敗しました');
-    if (existing) {
-      return NextResponse.json({ error: 'このオプションは既にご利用中です' }, { status: 400 });
+    let planId: string;
+    try {
+      planId = (await ensureOptionPlan(option.key, option.monthly_price, option.name)).id;
+    } catch (err) {
+      return serverError('options-checkout-plan', err, ROUTE, PAYJP_UNAVAILABLE_MESSAGE);
     }
 
-    const stripe = new Stripe(stripeKey);
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency: 'jpy',
-          product_data: {
-            name: `CareLink オプション: ${option.name}`.slice(0, 200),
-          },
-          unit_amount: option.monthly_price,
-          recurring: { interval: 'month' },
-        },
-        quantity: 1,
-      }],
-      mode: 'subscription',
-      success_url: `${SITE_URL}/admin/settings?option=success`,
-      cancel_url: `${SITE_URL}/admin/settings?option=cancelled`,
-      metadata: {
-        facility_id: facilityId,
-        option_key: optionKey,
-        user_id: user.id,
-      },
-      subscription_data: {
-        metadata: {
-          facility_id: facilityId,
-          option_key: optionKey,
-        },
-      },
-      locale: 'ja',
-    }, {
-      // 連打・再送で別々の Checkout Session（＝別々の月額契約）が作られないよう、
-      // 同じ施設・オプション・操作者の 10 分枠では同じセッションを返す。
-      idempotencyKey: `options-checkout:${facilityId}:${optionKey}:${user.id}:${Math.floor(Date.now() / CHECKOUT_IDEMPOTENCY_WINDOW_MS)}`,
-    });
+    const customer = await ensureFacilityCustomer(admin, facilityId, token);
+    if (!customer.ok) {
+      if (customer.reason === 'card') return NextResponse.json({ error: CARD_REJECTED_MESSAGE }, { status: 400 });
+      return serverError(`options-checkout-${customer.tag}`, customer.error, ROUTE, PAYJP_UNAVAILABLE_MESSAGE);
+    }
 
-    return NextResponse.json({ url: session.url });
-  } catch (e) {
-    return serverError('options-checkout', e, '/api/options/checkout', '決済セッションの作成に失敗しました');
-  }
+    const now = new Date().toISOString();
+    const { error: linkErr } = await admin.from('facility_option_payjp_subscriptions').upsert({
+      facility_id: facilityId, option_key: optionKey, payjp_customer_id: customer.customerId,
+      payjp_subscription_id: null, status: 'pending', current_period_end: null, last_event_at: null,
+      created_at: now, updated_at: now,
+    }, { onConflict: 'facility_id,option_key' });
+    if (linkErr) return serverError('options-checkout-link', linkErr, ROUTE);
+
+    let subscription: Awaited<ReturnType<typeof createSubscription>>;
+    try {
+      subscription = await createSubscription(customer.customerId, planId, { facility_id: facilityId, option_key: optionKey });
+    } catch (err) {
+      // 定期課金は作られていない。pending を消して次の申込を妨げない。
+      await admin.from('facility_option_payjp_subscriptions').delete()
+        .eq('facility_id', facilityId).eq('option_key', optionKey).eq('status', 'pending');
+      if (isCardError(err)) return NextResponse.json({ error: CARD_REJECTED_MESSAGE }, { status: 400 });
+      return serverError('options-checkout-subscription', err, ROUTE, PAYJP_UNAVAILABLE_MESSAGE);
+    }
+
+    // 定期課金は作れた＝請求は始まっている。反映に失敗しても webhook（subscription.created）が
+    // metadata で行を見つけて反映するので、利用者には成功を返し、運営にだけ知らせる。
+    let active = false;
+    try {
+      await applyOptionSubscription(admin, 'subscription.created', subscription, new Date());
+      active = subscription.status === 'active';
+    } catch (err) {
+      alertCaughtError('options-checkout-apply', err, ROUTE);
+    }
+    return NextResponse.json({ subscribed: true, active });
+  }, { requireAuth: true, rateLimit: { limiter: mutationRateLimit, limit: 5, windowMs: 60_000, prefix: 'options-checkout' }, sentryTag: 'options-checkout' })(request);
 }

@@ -1,11 +1,11 @@
 /**
  * @jest-environment node
  *
- * Tests for GET /api/stripe/receipt
+ * Tests for GET /api/payment/receipt
  * Key assertions:
  *   - Rate limiting (20 req/min per IP)
  *   - Auth required
- *   - session_id query parameter validation
+ *   - payment_id query parameter validation
  *   - Ownership verification (user_id match)
  *   - Status check (must be 'paid')
  *   - HTML receipt generation
@@ -39,9 +39,9 @@ function setupDefaultMocks(
 
   const sessionData = sessionFound
     ? {
-        id: 'sess-abc-123',
+        id: 'abcdef12-3456-4789-8abc-def012345678',
         user_id: 'user-123',
-        stripe_session_id: 'cs_test_123',
+        payjp_charge_id: 'ch_test_123',
         amount: 15000,
         status: isPaid ? 'paid' : 'unpaid',
         payment_type: 'service',
@@ -85,11 +85,11 @@ beforeEach(() => {
   setupDefaultMocks();
 });
 
-const SESSION_ID = 'cs_test_123';
+const SESSION_ID = 'abcdef12-3456-4789-8abc-def012345678';
 
 function makeRequest(sessionId: string = SESSION_ID, ip = '192.168.1.1') {
   const req = new Request(
-    `http://localhost/api/stripe/receipt?session_id=${sessionId}`,
+    `http://localhost/api/payment/receipt?payment_id=${sessionId}`,
     {
       method: 'GET',
       headers: { 'x-forwarded-for': ip },
@@ -102,7 +102,7 @@ function makeRequest(sessionId: string = SESSION_ID, ip = '192.168.1.1') {
   return req;
 }
 
-describe('GET /api/stripe/receipt', () => {
+describe('GET /api/payment/receipt', () => {
   test('rate limiting → 429', async () => {
     (checkRateLimit as jest.Mock).mockReturnValue(true);
 
@@ -119,8 +119,8 @@ describe('GET /api/stripe/receipt', () => {
     expect(res.status).toBe(401);
   });
 
-  test('missing session_id parameter → 400', async () => {
-    const req = new Request('http://localhost/api/stripe/receipt', {
+  test('missing payment_id parameter → 400', async () => {
+    const req = new Request('http://localhost/api/payment/receipt', {
       method: 'GET',
       headers: { 'x-forwarded-for': '192.168.1.1' },
     });
@@ -134,7 +134,7 @@ describe('GET /api/stripe/receipt', () => {
     expect(res.status).toBe(400);
   });
 
-  test('session_id too long (>200) → 400', async () => {
+  test('payment_id too long (>200) → 400', async () => {
     const res = await GET(makeRequest('x'.repeat(201)) as any);
 
     expect(res.status).toBe(400);
@@ -192,7 +192,7 @@ describe('GET /api/stripe/receipt', () => {
     const res = await GET(makeRequest() as any);
 
     const html = await res.text();
-    expect(html).toContain('No. CL-SESS');
+    expect(html).toContain('No. CL-ABCDEF12');
   });
 
   test('receipt includes receipt date', async () => {
@@ -214,9 +214,9 @@ describe('GET /api/stripe/receipt', () => {
               eq: jest.fn().mockReturnValue({
                 single: jest.fn().mockResolvedValue({
                   data: {
-                    id: 'sess-abc-123',
+                    id: 'abcdef12-3456-4789-8abc-def012345678',
                     user_id: 'user-123',
-                    stripe_session_id: 'cs_test_123',
+                    payjp_charge_id: 'ch_test_123',
                     amount: 15000,
                     status: 'paid',
                     payment_type: 'service',
@@ -272,9 +272,9 @@ describe('GET /api/stripe/receipt', () => {
               eq: jest.fn().mockReturnValue({
                 single: jest.fn().mockResolvedValue({
                   data: {
-                    id: 'sess-abc-123',
+                    id: 'abcdef12-3456-4789-8abc-def012345678',
                     user_id: 'user-123',
-                    stripe_session_id: 'cs_test_123',
+                    payjp_charge_id: 'ch_test_123',
                     amount: 50000,
                     status: 'paid',
                     payment_type: 'deposit',
@@ -312,7 +312,7 @@ describe('GET /api/stripe/receipt', () => {
     expect(call[1]).toBe('192.168.1.1');
     expect(call[2]).toBe(20);
     expect(call[3]).toBe(60_000);
-    expect(call[4]).toBe('stripe-receipt');
+    expect(call[4]).toBe('payment-receipt');
   });
 
   test('extracts last (trusted) IP from x-forwarded-for', () => {
@@ -328,7 +328,7 @@ describe('GET /api/stripe/receipt', () => {
     (checkRateLimit as jest.Mock).mockClear();
 
     const req = new Request(
-      `http://localhost/api/stripe/receipt?session_id=${SESSION_ID}`
+      `http://localhost/api/payment/receipt?payment_id=${SESSION_ID}`
     );
     Object.defineProperty(req, 'nextUrl', {
       value: new URL(req.url),
@@ -369,9 +369,9 @@ describe('GET /api/stripe/receipt', () => {
             eq: jest.fn().mockReturnValue({
               single: jest.fn().mockResolvedValue({
                 data: {
-                  id: 'sess-abc-123',
+                  id: 'abcdef12-3456-4789-8abc-def012345678',
                   user_id: 'user-123',
-                  stripe_session_id: 'cs_test_123',
+                  payjp_charge_id: 'ch_test_123',
                   amount: 15000,
                   status: 'paid',
                   payment_type: 'service',
@@ -407,9 +407,9 @@ describe('GET /api/stripe/receipt', () => {
             eq: jest.fn().mockReturnValue({
               single: jest.fn().mockResolvedValue({
                 data: {
-                  id: 'sess-abc-123',
+                  id: 'abcdef12-3456-4789-8abc-def012345678',
                   user_id: 'user-123',
-                  stripe_session_id: 'cs_test_123',
+                  payjp_charge_id: 'ch_test_123',
                   amount: 15000,
                   status: 'paid',
                   payment_type: 'service',
@@ -445,9 +445,9 @@ describe('GET /api/stripe/receipt', () => {
             eq: jest.fn().mockReturnValue({
               single: jest.fn().mockResolvedValue({
                 data: {
-                  id: 'sess-abc-123',
+                  id: 'abcdef12-3456-4789-8abc-def012345678',
                   user_id: 'user-123',
-                  stripe_session_id: 'cs_test_123',
+                  payjp_charge_id: 'ch_test_123',
                   amount: 15000,
                   status: 'paid',
                   payment_type: 'service',
@@ -483,9 +483,9 @@ describe('GET /api/stripe/receipt', () => {
             eq: jest.fn().mockReturnValue({
               single: jest.fn().mockResolvedValue({
                 data: {
-                  id: 'sess-abc-123',
+                  id: 'abcdef12-3456-4789-8abc-def012345678',
                   user_id: 'user-123',
-                  stripe_session_id: 'cs_test_123',
+                  payjp_charge_id: 'ch_test_123',
                   amount: 15000,
                   status: 'paid',
                   payment_type: 'service',
@@ -530,9 +530,9 @@ describe('GET /api/stripe/receipt', () => {
             eq: jest.fn().mockReturnValue({
               single: jest.fn().mockResolvedValue({
                 data: {
-                  id: 'sess-abc-123',
+                  id: 'abcdef12-3456-4789-8abc-def012345678',
                   user_id: 'user-123',
-                  stripe_session_id: 'cs_test_123',
+                  payjp_charge_id: 'ch_test_123',
                   amount: 10001,
                   status: 'paid',
                   payment_type: 'service',
@@ -568,9 +568,9 @@ describe('GET /api/stripe/receipt', () => {
             eq: jest.fn().mockReturnValue({
               single: jest.fn().mockResolvedValue({
                 data: {
-                  id: 'sess-abc-123',
+                  id: 'abcdef12-3456-4789-8abc-def012345678',
                   user_id: 'user-123',
-                  stripe_session_id: 'cs_test_123',
+                  payjp_charge_id: 'ch_test_123',
                   amount: 0,
                   status: 'paid',
                   payment_type: 'service',
@@ -614,9 +614,9 @@ describe('GET /api/stripe/receipt', () => {
             eq: jest.fn().mockReturnValue({
               single: jest.fn().mockResolvedValue({
                 data: {
-                  id: 'sess-abc-123',
+                  id: 'abcdef12-3456-4789-8abc-def012345678',
                   user_id: 'user-123',
-                  stripe_session_id: 'cs_test_123',
+                  payjp_charge_id: 'ch_test_123',
                   amount: 15000,
                   status: 'paid',
                   payment_type: 'service',
@@ -635,7 +635,7 @@ describe('GET /api/stripe/receipt', () => {
     expect([200, 500]).toContain(res.status);
   });
 
-  test('session_id に特殊文字が含まれても 400 で安全に処理される', async () => {
+  test('payment_id に特殊文字が含まれても 400 で安全に処理される', async () => {
     const dangerousId = '<script>alert(1)</script>';
     const res = await GET(makeRequest(encodeURIComponent(dangerousId)) as any);
     expect([200, 400, 404]).toContain(res.status);
@@ -650,9 +650,9 @@ describe('GET /api/stripe/receipt', () => {
             eq: jest.fn().mockReturnValue({
               single: jest.fn().mockResolvedValue({
                 data: {
-                  id: 'sess-abc-123',
+                  id: 'abcdef12-3456-4789-8abc-def012345678',
                   user_id: 'user-123',
-                  stripe_session_id: 'cs_test_123',
+                  payjp_charge_id: 'ch_test_123',
                   amount: 10000,
                   status: 'paid',
                   payment_type: 'service',
@@ -683,9 +683,9 @@ describe('GET /api/stripe/receipt', () => {
             eq: jest.fn().mockReturnValue({
               single: jest.fn().mockResolvedValue({
                 data: {
-                  id: 'sess-abc-123',
+                  id: 'abcdef12-3456-4789-8abc-def012345678',
                   user_id: 'user-123',
-                  stripe_session_id: 'cs_test_123',
+                  payjp_charge_id: 'ch_test_123',
                   amount: 5000,
                   status: 'paid',
                   payment_type: 'service',
@@ -713,9 +713,9 @@ describe('GET /api/stripe/receipt', () => {
             eq: jest.fn().mockReturnValue({
               single: jest.fn().mockResolvedValue({
                 data: {
-                  id: 'sess-abc-123',
+                  id: 'abcdef12-3456-4789-8abc-def012345678',
                   user_id: 'user-123',
-                  stripe_session_id: 'cs_test_123',
+                  payjp_charge_id: 'ch_test_123',
                   amount: 7000,
                   status: 'paid',
                   payment_type: 'service',
@@ -741,8 +741,8 @@ describe('GET /api/stripe/receipt', () => {
     expect(html).toContain('〒100-0001');
   });
 
-  // Branch coverage: line 13 — esc(null) → s ?? '' の null 分岐（stripe_session_id=null で呼び出し）
-  test('stripe_session_id が null → esc(null) で空文字フォールバック（line 13 ?? true 分岐）', async () => {
+  // Branch coverage: line 13 — esc(null) → s ?? '' の null 分岐（payjp_charge_id=null で呼び出し）
+  test('payjp_charge_id が null → esc(null) で空文字フォールバック（line 13 ?? true 分岐）', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
       from: jest.fn().mockReturnValue({
@@ -751,9 +751,9 @@ describe('GET /api/stripe/receipt', () => {
             eq: jest.fn().mockReturnValue({
               single: jest.fn().mockResolvedValue({
                 data: {
-                  id: 'sess-abc-123',
+                  id: 'abcdef12-3456-4789-8abc-def012345678',
                   user_id: 'user-123',
-                  stripe_session_id: null,
+                  payjp_charge_id: null,
                   amount: 5000,
                   status: 'paid',
                   payment_type: 'service',
@@ -769,8 +769,8 @@ describe('GET /api/stripe/receipt', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     const html = await res.text();
-    // stripe_session_id is null → esc(null) returns '' → no session ID displayed
-    expect(html).not.toContain('cs_test');
+    // payjp_charge_id is null → esc(null) returns '' → no session ID displayed
+    expect(html).not.toContain('ch_test');
   });
 });
 
@@ -780,6 +780,6 @@ describe('所有者の検証（IDOR 防止・点検 A84）', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'someone-else' } } });
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(404);
-    expect(receiptFilters).toEqual([['stripe_session_id', SESSION_ID], ['user_id', 'someone-else']]);
+    expect(receiptFilters).toEqual([['id', SESSION_ID], ['user_id', 'someone-else']]);
   });
 });

@@ -116,6 +116,19 @@
     "booking_id",
     "withdrawn_at"
   ],
+  "booking_payjp_charges": [
+    "amount",
+    "booking_id",
+    "created_at",
+    "facility_id",
+    "id",
+    "payjp_charge_id",
+    "payment_type",
+    "refund_amount",
+    "status",
+    "updated_at",
+    "user_id"
+  ],
   "booking_waitlist": [
     "created_at",
     "customer_name",
@@ -528,6 +541,17 @@
     "push_on_cancel",
     "push_on_new_booking",
     "push_on_review"
+  ],
+  "facility_option_payjp_subscriptions": [
+    "created_at",
+    "current_period_end",
+    "facility_id",
+    "last_event_at",
+    "option_key",
+    "payjp_customer_id",
+    "payjp_subscription_id",
+    "status",
+    "updated_at"
   ],
   "facility_page_views": [
     "created_at",

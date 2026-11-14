@@ -108,3 +108,28 @@ test('webhook トークンの照合', () => {
   delete process.env.PAYJP_WEBHOOK_TOKEN;
   expect(verifyPayjpWebhookToken('whook_secret')).toBe(false);
 });
+
+describe('2026年11月14日に足した支払い・プラン', () => {
+  test('createPlan は月額・円でフォーム送信する', async () => {
+    fetchMock.mockResolvedValue(ok({ id: 'pln_x' }));
+    const { createPlan } = await import('../payjp');
+    await createPlan('pln_x', 1500, 'name');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${PAYJP_API_BASE}/plans`);
+    expect(Object.fromEntries(new URLSearchParams(init.body))).toEqual({ id: 'pln_x', amount: '1500', currency: 'jpy', interval: 'month', name: 'name' });
+  });
+  test('createCharge はトークン・金額・metadata を送る', async () => {
+    fetchMock.mockResolvedValue(ok({ id: 'ch_1', paid: true }));
+    const { createCharge } = await import('../payjp');
+    await createCharge('tok_1', 5000, 'desc', { payment_id: 'p1' });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${PAYJP_API_BASE}/charges`);
+    expect(Object.fromEntries(new URLSearchParams(init.body))).toEqual({ card: 'tok_1', amount: '5000', currency: 'jpy', description: 'desc', 'metadata[payment_id]': 'p1' });
+  });
+  test('isNotFound は PAY.JP の 404 だけ', async () => {
+    const { isNotFound } = await import('../payjp');
+    expect(isNotFound(new PayjpError('x', 404))).toBe(true);
+    expect(isNotFound(new PayjpError('x', 500))).toBe(false);
+    expect(isNotFound(new Error('x'))).toBe(false);
+  });
+});

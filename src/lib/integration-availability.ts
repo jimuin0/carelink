@@ -8,7 +8,7 @@
  *     （POST /api/chat → {"error":"AIサービスに接続できませんでした"}）。
  *     トップからリンクしている AI 症状チェッカーも 500
  *     （POST /api/symptoms/suggest → {"error":"AI処理に失敗しました"}）。
- *   - STRIPE_SECRET_KEY 未設定：施設の管理画面に ¥500〜¥1,500/月 の有料オプションが
+ *   - 決済の鍵が未設定：施設の管理画面に ¥500〜¥1,500/月 の有料オプションが
  *     値札と購入ボタン付きで並ぶが、押すと 503「決済機能が設定されていません」。
  *   - GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET 未設定：マイページに
  *     「Googleカレンダーと連携する」ボタンが出るが連携できない。
@@ -31,12 +31,12 @@ export function isAiEnabled(): boolean {
 }
 
 /**
- * 有料オプションを購入できるか。
- * 決済セッションを作るのは /api/options/checkout で、そこが見るのは STRIPE_SECRET_KEY。
- * 判定を同じ変数に揃えることで「表示できるのに購入は 503」というズレが構造的に起きなくなる。
+ * PAY.JP で決済を受けられるか（予約の前払い・有料オプションの月額・webhook・2026年11月14日に Stripe から移行）。
+ * 秘密鍵・webhook の照合トークン・公開鍵（カード入力の payjp.js 用）の 3 つが揃って初めて
+ * 「カード入力 → 課金 → webhook で反映」が成立する。1 つでも欠ければ購入 UI も API も出さない。
  */
 export function isPaymentsEnabled(): boolean {
-  return !!process.env.STRIPE_SECRET_KEY;
+  return !!(process.env.PAYJP_SECRET_KEY && process.env.PAYJP_WEBHOOK_TOKEN && process.env.NEXT_PUBLIC_PAYJP_PUBLIC_KEY);
 }
 
 /** Google カレンダー連携（OAuth）が使えるか。両方揃って初めて OAuth が成立する。 */
@@ -51,6 +51,5 @@ export function isGoogleCalendarEnabled(): boolean {
  * （販売停止中と同じ見え方）。NEXT_PUBLIC_PAYJP_PUBLIC_KEY はビルド時に埋め込まれる公開値。
  */
 export function isPayjpEnabled(): boolean {
-  return !!(process.env.PAYJP_SECRET_KEY && process.env.PAYJP_WEBHOOK_TOKEN
-    && process.env.NEXT_PUBLIC_PAYJP_PUBLIC_KEY && process.env.PAYJP_FEATURED_PLAN_ID);
+  return isPaymentsEnabled() && !!process.env.PAYJP_FEATURED_PLAN_ID;
 }

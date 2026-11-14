@@ -9,7 +9,7 @@
  * Usage:
  *   // サーバーサイド
  *   import { isFeatureEnabled } from '@/lib/feature-flags';
- *   if (await isFeatureEnabled('stripe_checkout')) { ... }
+ *   if (await isFeatureEnabled('online_payment')) { ... }
  *
  *   // ユーザー別ロールアウト
  *   if (await isFeatureEnabled('new_booking_ui', userId)) { ... }

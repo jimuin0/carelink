@@ -60,7 +60,7 @@ test.describe('API レスポンス形式', () => {
   });
 
   test('401 レスポンスに error フィールドがある', async ({ request }) => {
-    const response = await request.get('/api/stripe/receipt?session_id=test');
+    const response = await request.get('/api/payment/receipt?payment_id=00000000-0000-4000-8000-000000000000');
     expect(response.status()).toBe(401);
     const json = await response.json();
     expect(json).toHaveProperty('error');
