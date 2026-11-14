@@ -28,6 +28,12 @@ import { channelDeliveryResult } from '@/lib/channel-delivery-result';
 import { closeUndeliverableBookingCreation, describeUndeliverableBookingCreation, type UndeliverableBookingCreation } from '@/lib/booking-create-delivery-close';
 
 export const dynamic = 'force-dynamic';
+// 他の cron と同じく実行上限を明示し、その手前で送信ループを打ち切る（低 A150）。
+// 送信の途中で強制終了されると delivery_started_at の付いた行が手動照合待ちに残るため、
+// 新しい送信を始める前に予算を確かめる。打ち切った残り（送信未開始の claim 済み行）は
+// 冒頭の stale reclaim（claimed_at から 1 時間）で pending に戻り、次の run 以降で送られる。
+export const maxDuration = 60;
+const SEND_BUDGET_MS = 45 * 1000;
 
 export async function GET(request: Request) {
   const cronAuthError = checkCronAuth(request);
@@ -175,7 +181,14 @@ export async function GET(request: Request) {
     const closedUndeliverable = new Map<string, number>();
     const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-    for (const job of claimedJobs) {
+    const loopStart = Date.now();
+    let deferred = 0;
+    for (const [jobIndex, job] of claimedJobs.entries()) {
+      if (Date.now() - loopStart > SEND_BUDGET_MS) {
+        deferred = claimedJobs.length - jobIndex;
+        console.warn('[webhook-retry] time budget exceeded, deferring rest to stale reclaim', { deferred });
+        break;
+      }
       // 外部送信の開始前だけは安全に retry queue へ戻せる。開始後に timeout / 接続断 /
       // Promise reject が起きた場合は、provider が受理済みかをこのプロセスから判定できない。
       // その行を pending に戻すと同じ利用者への二重送信になるため、delivery_started_at を
@@ -506,7 +519,7 @@ export async function GET(request: Request) {
         processed: success,
         skipped: failed + undeliverableClosed,
         error_msg: '外部送信後の結果記録が不明なジョブを再送防止のため保留しました',
-        meta: { total: jobs.length, claimed: claimedJobs.length, delivery_uncertain: deliveryUncertain, superseded, undeliverable_closed: undeliverableClosed },
+        meta: { total: jobs.length, claimed: claimedJobs.length, delivery_uncertain: deliveryUncertain, superseded, undeliverable_closed: undeliverableClosed, deferred },
       });
       return NextResponse.json({
         error: 'delivery confirmation pending',
@@ -534,10 +547,10 @@ export async function GET(request: Request) {
     await logCronRun('webhook-retry', 'success', startedAt, {
       processed: success,
       skipped: failed + superseded + undeliverableClosed,
-      meta: { total: jobs.length, claimed: claimedJobs.length, queue_pending: queuePending, delivery_uncertain: 0, superseded, undeliverable_closed: undeliverableClosed },
+      meta: { total: jobs.length, claimed: claimedJobs.length, queue_pending: queuePending, delivery_uncertain: 0, superseded, undeliverable_closed: undeliverableClosed, deferred },
     });
 
-    return NextResponse.json({ processed: success, skipped: failed + superseded + undeliverableClosed, ...(superseded ? { superseded } : {}) });
+    return NextResponse.json({ processed: success, skipped: failed + superseded + undeliverableClosed, ...(superseded ? { superseded } : {}), ...(deferred ? { deferred } : {}) });
   } catch (e) {
     return cronError('webhook-retry', startedAt, e);
   }

@@ -98,6 +98,7 @@ export async function GET(request: Request) {
     let skipped = 0;
     let deferred = 0;
     let processingFailures = 0;
+    let truncatedFacilities = 0;
 
     // 今回の集計に現れなかったお客様の行を消す。失敗は false（呼び出し側で失敗として数える）。
     // 最終来店日が集計期間より前の行は、今回の集計に現れないのが当然なので消さない（長期離脱客の行を残す）。
@@ -170,6 +171,16 @@ export async function GET(request: Request) {
       // （1 施設の失敗で他施設を止めない best-effort・skip として計上）。
       if (bookingsError) {
         console.error('[customer-segment] bookings fetch failed', { facilityId: facility.id, err: bookingsError });
+        processingFailures++;
+        skipped++;
+        continue;
+      }
+
+      // 件数上限で打ち切った回は途中までの予約で RFM を計算することになるので、書き込まずに
+      // 失敗として残す（以前は不正確なセグメントを無音で上書きし success で終えていた・低 A148）。
+      if (bookingsTruncated) {
+        console.error('[customer-segment] bookings truncated; segments left unchanged', { facilityId: facility.id });
+        truncatedFacilities++;
         processingFailures++;
         skipped++;
         continue;
@@ -274,14 +285,14 @@ export async function GET(request: Request) {
         }
       }
 
-      // 書き込みが 1 つでも失敗した施設・予約を全件読めなかった施設では消さない
-      // （今回書けなかった・読めなかったお客様の行まで「古い行」として消えるため）。
-      if (!upsertFailed && !bookingsTruncated && !(await removeStaleSegments(facility.id))) processingFailures++;
+      // 書き込みが 1 つでも失敗した施設では消さない（今回書けなかったお客様の行まで「古い行」として消えるため）。
+      // 予約を全件読めなかった施設は上で書き込み前に打ち切っている。
+      if (!upsertFailed && !(await removeStaleSegments(facility.id))) processingFailures++;
 
       count++;
     }
 
-    const meta = { deferred, processingFailures };
+    const meta = { deferred, processingFailures, truncatedFacilities };
     // 時間切れで処理できなかった施設がある回は success にしない（後ろの施設が黙って更新されなくなる）。
     if (processingFailures || deferred > 0) return cronError(
       'customer-segment', startedAt, processingFailures ? 'Customer segment processing failed' : 'Customer segment deferred facilities (time budget)', {

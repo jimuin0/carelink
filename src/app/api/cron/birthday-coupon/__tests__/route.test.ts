@@ -105,6 +105,7 @@ function setupDefaultMocks(
   mockProfilesSelect = jest.fn().mockReturnValue({
     not: jest.fn().mockReturnValue({
       eq: mockProfilesEq,
+      in: mockProfilesEq,
     }),
   });
 
@@ -196,7 +197,7 @@ describe('GET /api/cron/birthday-coupon', () => {
   test('profiles 取得が DB エラー → error ログ＋500（無音スキップにしない）', async () => {
     mockProfilesSelect.mockReturnValue({
       not: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
+        in: jest.fn().mockReturnValue({
           range: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }),
         }),
       }),
@@ -261,7 +262,7 @@ describe('GET /api/cron/birthday-coupon', () => {
     // 旧テストは toHaveBeenCalled() のみで、todayMD 生成にバグが入っても気付けない偽陽性だった。
     // (2026-07-16) 旧 `.filter('birth_date::text','like',...)` は PostgREST が
     // 演算子不在(42883)で本番500を出していたため `.eq('birth_md', todayMD)` に切替。
-    expect(mockProfilesEq).toHaveBeenCalledWith('birth_md', '06-15');
+    expect(mockProfilesEq).toHaveBeenCalledWith('birth_md', ['06-15']);
   });
 
   test('inserts 100 points per user with reason=birthday_YYYY', async () => {
@@ -354,7 +355,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
+              in: jest.fn().mockReturnValue({
                 range: jest.fn().mockResolvedValue({
                   data: [{ id: 'user-1', email: 'user@example.com', display_name: null }],
                 }),
@@ -383,7 +384,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
+              in: jest.fn().mockReturnValue({
                 range: jest.fn().mockResolvedValue({
                   data: [{ id: 'user-1', email: 'user@example.com', display_name: '<a href="https://evil.example">x</a>&\'' }],
                 }),
@@ -414,7 +415,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
+              in: jest.fn().mockReturnValue({
                 range: jest.fn().mockResolvedValue({ data: [{ id: 'user-unsub', email: 'u@e.com', display_name: 'U', email_unsubscribed: true }] }),
               }),
             }),
@@ -644,7 +645,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
+              in: jest.fn().mockReturnValue({
                 range: jest.fn().mockResolvedValue({
                   data: [{ id: 'u1', email: null, display_name: 'No Email' }],
                 }),
@@ -824,4 +825,20 @@ describe('GET /api/cron/birthday-coupon', () => {
     warnSpy.mockRestore();
   });
 
+});
+
+// 2/29 生まれは平年の 2/28 に対象にする（低 A142）。閏年は 2/29 当日だけ。
+describe('2/29 生まれの扱い', () => {
+  test.each([
+    ['2027-02-28T03:00:00Z', ['02-28', '02-29']],
+    ['2028-02-28T03:00:00Z', ['02-28']],
+    ['2028-02-29T03:00:00Z', ['02-29']],
+    ['2100-02-28T03:00:00Z', ['02-28', '02-29']],
+    ['2000-02-28T03:00:00Z', ['02-28']],
+  ])('%s → %j', async (now, expected) => {
+    setupDefaultMocks(0);
+    jest.setSystemTime(new Date(now));
+    await GET(makeRequest() as any);
+    expect(mockProfilesEq).toHaveBeenCalledWith('birth_md', expected);
+  });
 });

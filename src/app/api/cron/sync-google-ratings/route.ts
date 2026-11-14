@@ -7,7 +7,7 @@ import { releaseMismatchedGbpPlace } from '@/lib/gbp-place-release';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertWarning } from '@/lib/alert';
 
-// Vercel Cron: runs every Sunday at 3:00 JST (18:00 UTC Saturday)
+// Render Cron: 毎週日曜 18:00 JST（`0 9 * * 0` UTC）。SSOT は src/lib/cron-jobs.data.json。
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
 // 既定の低い値を上書きし、下の SYNC_BUDGET_MS による予算ガードが確実に発火する既知の上限を与える。
@@ -135,10 +135,22 @@ export async function GET(request: Request) {
     );
   }
 
-  await logCronRun('sync-google-ratings', 'success', startedAt, {
+  // 更新・解除の失敗（DB 側）は 1 件でも警報する。全滅・DB 失敗のどちらも cron_logs を error、
+  // HTTP を 503 にして、cron_logs だけを見る監視からも正常に見えないようにする（低 A145）。
+  if (results.errors > 0) {
+    alertWarning(
+      `sync-google-ratings: 評価の保存・紐づけ解除に${results.errors}件失敗`,
+      { route: '/api/cron/sync-google-ratings', extra: { errors: results.errors, updated: results.updated } },
+    );
+  }
+  const degraded = allFailed || results.errors > 0;
+  await logCronRun('sync-google-ratings', degraded ? 'error' : 'success', startedAt, {
     processed: results.updated,
     skipped: results.skipped,
     meta: { errors: results.errors, fetchFailed: results.fetchFailed, deferred: results.deferred, mismatched: results.mismatched, allFailed },
   });
-  return NextResponse.json({ processed: results.updated, skipped: results.skipped, errors: results.errors, fetchFailed: results.fetchFailed, deferred: results.deferred, mismatched: results.mismatched });
+  return NextResponse.json(
+    { processed: results.updated, skipped: results.skipped, errors: results.errors, fetchFailed: results.fetchFailed, deferred: results.deferred, mismatched: results.mismatched },
+    { status: degraded ? 503 : 200 },
+  );
 }

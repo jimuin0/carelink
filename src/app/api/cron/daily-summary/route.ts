@@ -12,6 +12,7 @@ import { alertDeliveryFailures } from '@/lib/alert';
 import { todayJst, addDays } from '@/lib/admin-date';
 import { sendDailySummaryEmail } from '@/lib/email';
 import { fetchAllPaged } from '@/lib/paginate';
+import { selectInChunks } from '@/lib/select-in-chunks';
 
 export const dynamic = 'force-dynamic';
 // 1クエリの集合集計なので低い既定上限でも足りるが、念のため明示。
@@ -51,11 +52,11 @@ async function sendDailySummaryEmails(
   if (optedIn.length === 0) return { sent: 0, failed: 0, skipped: 0 };
   const facilityIds = optedIn.map((r) => r.facility_id);
 
-  const { data: summaries, error: summariesErr } = await supabase
+  const { data: summaries, error: summariesErr } = await selectInChunks(facilityIds, (ids) => supabase
     .from('daily_revenue_summary')
     .select('facility_id, total_revenue, booking_count, completed_count, cancelled_count, new_customer_count, repeat_customer_count')
     .eq('date', dateStr)
-    .in('facility_id', facilityIds);
+    .in('facility_id', ids));
   // 同上：daily_revenue_summary の取得失敗を「サマリ 0 件」と区別できず無音 skip するのを防ぐ。
   if (summariesErr) {
     console.error('[daily-summary] daily_revenue_summary fetch failed', { err: summariesErr, date: dateStr });
@@ -69,9 +70,9 @@ async function sendDailySummaryEmails(
   // ループ内はマップ参照のみにする(クエリ数はO(1)、件数に依存しない)。
   const summaryFacilityIds = [...new Set((summaries as Array<{ facility_id: string }>).map((s) => s.facility_id))];
 
-  const { data: owners, error: ownersError } = await supabase
+  const { data: owners, error: ownersError } = await selectInChunks(summaryFacilityIds, (ids) => supabase
     .from('facility_members').select('facility_id, user_id')
-    .in('facility_id', summaryFacilityIds).eq('role', 'owner');
+    .in('facility_id', ids).eq('role', 'owner'));
   if (ownersError) throw new Error('Daily summary owners lookup failed', { cause: ownersError });
   const ownerByFacility = new Map<string, string>();
   for (const o of (owners ?? []) as Array<{ facility_id: string; user_id: string }>) {
@@ -80,13 +81,13 @@ async function sendDailySummaryEmails(
 
   const ownerUserIds = [...new Set(ownerByFacility.values())];
   const { data: profs, error: profilesError } = ownerUserIds.length
-    ? await supabase.from('profiles').select('id, email').in('id', ownerUserIds)
+    ? await selectInChunks(ownerUserIds, (ids) => supabase.from('profiles').select('id, email').in('id', ids))
     : { data: [] as Array<{ id: string; email: string | null }>, error: null };
   if (profilesError) throw new Error('Daily summary owner profiles lookup failed', { cause: profilesError });
   const emailByUserId = new Map((profs ?? []).map((p) => [p.id as string, p.email as string | null]));
 
-  const { data: facs, error: facilitiesError } = await supabase
-    .from('facility_profiles').select('id, name').in('id', summaryFacilityIds);
+  const { data: facs, error: facilitiesError } = await selectInChunks(summaryFacilityIds, (ids) => supabase
+    .from('facility_profiles').select('id, name').in('id', ids));
   if (facilitiesError) throw new Error('Daily summary facilities lookup failed', { cause: facilitiesError });
   const nameByFacility = new Map((facs ?? []).map((f) => [f.id as string, f.name as string | null]));
 
