@@ -2,7 +2,7 @@
  * 点検 B9-1：facility_profiles の SELECT 権を列単位にした（stripe_account_id を anon / authenticated から隠す）。
  * 列単位 GRANT の下では select('*') が権限エラーになり、列を足したのに一覧へ足し忘れると
  * 画面から新しい列が読めない。ここで次の 3 点を CI で固定する。
- *  1. 読める列の一覧 = schema-snapshot.json の facility_profiles 列 − stripe_account_id
+ *  1. 読める列の一覧 = schema-snapshot.json の facility_profiles 列（stripe_account_id は 2026年11月14日に列ごと撤去）
  *  2. ブラウザ権限のクライアントで facility_profiles を select('*') しない
  *  3. migration が stripe_account_id を除いて列単位 GRANT している
  */
@@ -27,10 +27,10 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 describe('facility_profiles の列単位 SELECT（B9-1）', () => {
-  test('読める列の一覧は schema-snapshot の全列から stripe_account_id だけを除いたもの', () => {
+  test('読める列の一覧は schema-snapshot の全列と一致する（撤去した stripe_account_id は含まない）', () => {
     const listed = FACILITY_PROFILE_READABLE_COLUMNS.split(',').map(c => c.trim()).sort();
-    const expected = snapshot.facility_profiles.filter(c => c !== 'stripe_account_id').sort();
-    expect(snapshot.facility_profiles).toContain('stripe_account_id');
+    const expected = [...snapshot.facility_profiles].sort();
+    expect(snapshot.facility_profiles).not.toContain('stripe_account_id');
     expect(listed).toEqual(expected);
     expect(listed).not.toContain('stripe_account_id');
   });
