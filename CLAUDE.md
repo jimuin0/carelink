@@ -342,7 +342,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 ## API ルート一覧（`src/app/api/`）
 - 公開・来院者系：`public`（祝日情報）`facilities` `facility` `salons` `availability` `slots` `booking` `waitlist` `options` `symptoms` `stations` `recommendations` `ab-test` `referral` `review` `nps` `report` `favorites` `preferred-staff`（指名スタッフの登録・解除）`profile` `account` `chat` `intake` `contact` `inquiry` `unsubscribe` `health` `og` `v1` `push` `[...notfound]`（未定義 API パスの catch-all）
 - 認証・LINE：`auth` `liff` `line`
-- 決済：`payment` `stripe`
+- 決済：`payment` `stripe` `payjp`（`api/payjp/webhook`＝広告枠の月額サブスクの webhook・2026年11月13日）
 - 管理（`api/admin/`・施設オーナー／プラットフォーム）：`bookings` `booking-status` `booking-checkout` `booking-adjust-request` `customers` `staff` `menus` `catalog` `coupons` `packages` `user-packages` `subscription-plans` `user-subscriptions` `payments-settings` `accounting-export` `settings` `facility-verify` `registrations` `jobs` `job-applications` `featured-ads` `features` `feature-flags` `blog` `platform-blog` `qa` `review-summary` `review-replies` `moderation` `newsletter` `inquiries` `report` `gbp` `hpb-menus` `ai-support` `api-keys` `backup` `chain` `white-label` `photos` `notification-reconciliation` `mail` `reviews` `listing-verification` `special-hours`（本数は書かない。実ディレクトリとの一致は `src/__tests__/claude-md-matches-code.test.ts` が `api/admin/` 配下まで検査する）
 - cron（`api/cron/`・Render Cron Jobs から Bearer 認証で起動。一覧は下記スケジュール表＝実ディレクトリと同テストが突合）：下記スケジュール参照
 - 運用・監視：`alert-check`（`ALERT_CHECK_TOKEN` で保護）・`admin`（管理画面用API群は下記）
@@ -424,6 +424,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | OPERATOR_NOTIFY_EMAIL | 運営向けメール通知の宛先（カンマ区切りで複数可・`sendOperatorNotification`）。未設定なら送信せず false |
 | NEWSLETTER_UNSUBSCRIBE_SECRET | ニュースレター配信停止リンクの HMAC 署名鍵（手動配信 `api/admin/newsletter/[id]`／`unsubscribe` 共通・一度設定したら変更しない） |
 | STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET | 決済・Stripe webhook 署名検証 |
+| PAYJP_SECRET_KEY / PAYJP_WEBHOOK_TOKEN / NEXT_PUBLIC_PAYJP_PUBLIC_KEY / PAYJP_FEATURED_PLAN_ID | 広告枠（`/admin/featured-ads`）の PAY.JP 月額サブスク（2026年11月13日・点検 B2-1）。秘密鍵（`sk_`）・webhook の照合トークン（`whook_`・`X-Payjp-Webhook-Token`）・payjp.js の公開鍵（`pk_`・ビルド時に埋め込む公開値＝GitHub のリポジトリ変数）・税込 10,780 円/月のプラン ID。**4 つ揃ったときだけ**販売 UI・API・webhook が動く（`isPayjpEnabled()`・`src/lib/integration-availability.ts`）。未設定でも配信は止めたくないので `tools/cloudflare/required-worker-secrets.json` には載せない。申込時に PAY.JP のプラン金額が税込表示と一致するかを確かめ、食い違えば売らない |
 | LINE_CHANNEL_ACCESS_TOKEN_CARELINK / LINE_CHANNEL_SECRET / LINE_CHANNEL_SECRET_CARELINK / LINE_LOGIN_CHANNEL_ID / NEXT_PUBLIC_LIFF_ID / NEXT_PUBLIC_LINE_CHANNEL_ID | LINE Messaging／LINE Login／LIFF |
 | LINE_WORKS_BOT_ID / LINE_WORKS_CLIENT_ID / LINE_WORKS_CLIENT_SECRET / LINE_WORKS_PRIVATE_KEY / LINE_WORKS_SERVICE_ACCOUNT | LINE WORKS 連携 |
 | SLACK_BOT_TOKEN / SLACK_SIGNING_SECRET / SLACK_DEFAULT_CHANNEL / SLACK_ADMIN_CHANNEL_ID | Slack 通知・スラッシュコマンド署名検証。Render の `carelink-health-check` は共有グループ `slack-gyomu-bot`（`SLACK_BOT_TOKEN`・`SLACK_ADMIN_CHANNEL_ID`）から受け取り、`SLACK_DEFAULT_CHANNEL` が無ければ `SLACK_ADMIN_CHANNEL_ID` へ通報する |

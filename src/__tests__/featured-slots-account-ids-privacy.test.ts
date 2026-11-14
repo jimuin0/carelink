@@ -261,20 +261,28 @@ describe('アプリのコード', () => {
   const usesServiceRole = (text: string) => text.includes('createServiceRoleClient()');
   const isClientComponent = (text: string) => /^\s*['"]use client['"]/.test(text);
 
-  test('featured_slots へ書くのは service_role の API と Stripe webhook だけ', () => {
+  test('featured_slots へ書くのは service_role の API と PAY.JP webhook だけ', () => {
     expect(sources.length).toBeGreaterThan(500); // 空振りしていない
     const writes = statementsOn('featured_slots').filter((s) => WRITE.test(s.statement));
     expect([...new Set(writes.map((s) => s.file))].sort()).toEqual([
       'src/app/api/admin/featured-ads/route.ts',
-      'src/app/api/stripe/webhook/route.ts',
+      // 2026年11月13日（点検 B2-1）から有効化は PAY.JP webhook（/api/payjp/webhook → この関数）。Stripe webhook からは撤去。
+      'src/lib/featured-ads-payjp.ts',
     ]);
+    // featured-ads-payjp.ts は webhook が作った service_role のクライアントを受け取って書く。
+    const webhook = sources.find((s) => s.file === 'src/app/api/payjp/webhook/route.ts')!.text;
+    expect(usesServiceRole(webhook)).toBe(true);
+    expect(webhook).toContain('applyPayjpEvent(admin, event)');
     for (const { file, text } of writes) {
-      expect([file, usesServiceRole(text)]).toEqual([file, true]);
+      const serviceRole = file === 'src/lib/featured-ads-payjp.ts'
+        ? text.includes('type Admin = ReturnType<typeof createServiceRoleClient>;')
+        : usesServiceRole(text);
+      expect([file, serviceRole]).toEqual([file, true]);
       expect([file, isClientComponent(text)]).toEqual([file, false]);
     }
     // 正規の作成は未払い（is_active=false）。有効化は決済後の webhook だけ
     const route = sources.find((s) => s.file === 'src/app/api/admin/featured-ads/route.ts')!.text;
-    expect(route).toMatch(/is_active: false, \/\/ becomes active after payment/);
+    expect(route).toMatch(/is_active: false, \/\/ 有効化待ち/);
   });
 
   test('featured_slots をブラウザ（クライアントコンポーネント）から触らない。検索の表示は読み取りだけ', () => {

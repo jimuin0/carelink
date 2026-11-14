@@ -2228,6 +2228,27 @@ export type Database = {
           },
         ]
       }
+      facility_payjp_customers: {
+        Row: {
+          created_at: string
+          facility_id: string
+          payjp_customer_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          payjp_customer_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          payjp_customer_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       facility_photos: {
         Row: {
           caption: string | null
@@ -2906,6 +2927,42 @@ export type Database = {
           key?: string
           metadata?: Json | null
           rollout_pct?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      featured_slot_payjp_subscriptions: {
+        Row: {
+          created_at: string
+          current_period_end: string | null
+          facility_id: string
+          last_event_at: string | null
+          payjp_customer_id: string
+          payjp_subscription_id: string | null
+          slot_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_period_end?: string | null
+          facility_id: string
+          last_event_at?: string | null
+          payjp_customer_id: string
+          payjp_subscription_id?: string | null
+          slot_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_period_end?: string | null
+          facility_id?: string
+          last_event_at?: string | null
+          payjp_customer_id?: string
+          payjp_subscription_id?: string | null
+          slot_id?: string
+          status?: string
           updated_at?: string
         }
         Relationships: []
@@ -4274,6 +4331,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      payjp_webhook_events: {
+        Row: {
+          error: string | null
+          event_id: string
+          event_type: string
+          processed_at: string | null
+          received_at: string
+        }
+        Insert: {
+          error?: string | null
+          event_id: string
+          event_type: string
+          processed_at?: string | null
+          received_at?: string
+        }
+        Update: {
+          error?: string | null
+          event_id?: string
+          event_type?: string
+          processed_at?: string | null
+          received_at?: string
+        }
+        Relationships: []
       }
       platform_blog_posts: {
         Row: {
@@ -7368,6 +7449,10 @@ export type Database = {
       equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
       facility_booking_ready: {
         Args: { p_facility_id: string }
+        Returns: boolean
+      }
+      facility_photo_url_is_own_storage: {
+        Args: { p_facility_id: string; p_url: string }
         Returns: boolean
       }
       facility_shortest_booking_minutes: {

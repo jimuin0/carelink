@@ -25,7 +25,6 @@ const ADMIN = join(ROOT, 'src/app/admin');
 
 /** 免除台帳（src/app/admin からの相対パス → 理由）。 */
 const ALLOW: Record<string, string> = {
-  'featured-ads/page.tsx': '有料掲載枠は決済手段が未導入のため販売停止中（ローンチ時非表示）。販売を再開するときに店舗選択を入れる',
   'onboarding/page.tsx': '店舗を選ぶためではなく「既にどこかの店舗に所属しているか」の有無だけを見る（施設作成前の導線）',
 };
 
@@ -37,6 +36,8 @@ const SELECTING_PAGES = [
   'accounting/page.tsx', 'qrcode/page.tsx', 'api-keys/page.tsx', 'funnel/page.tsx', 'usage-stats/page.tsx',
   // 2026年10月23日: HPB メニュー取り込み（店舗IDの保存・取得・一括反映が選んだ店舗に効く）
   'hpb-menus/page.tsx',
+  // 2026年11月13日: 広告枠（PAY.JP の月額サブスク・契約は店舗ごと）
+  'featured-ads/page.tsx',
 ];
 
 function walk(dir: string): string[] {

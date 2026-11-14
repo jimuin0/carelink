@@ -112,12 +112,15 @@ function buildCspHeader(nonce: string): string {
     // https://*.clarity.ms は Clarity の送信先（u.clarity.ms / g.clarity.ms 等の /collect。
     // Microsoft は負荷分散で [a-z].clarity.ms を使い分けると明記）。www.clarity.ms だけだと
     // 録画・ヒートマップの送信が CSP で拒否され、本番で 1 件も記録されていなかった（2026年10月22日）。
-    `connect-src 'self' ${getSupabaseConnectSrc()} https://*.google-analytics.com https://www.clarity.ms https://*.clarity.ms https://cloudflareinsights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp`,
+    `connect-src 'self' ${getSupabaseConnectSrc()} https://*.google-analytics.com https://www.clarity.ms https://*.clarity.ms https://cloudflareinsights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp https://api.pay.jp`,
     "worker-src 'self'",
     "manifest-src 'self'",
     // GOOGLE_MAPS_EMBED_ORIGIN は施設ページ「アクセス」タブの地図埋め込み用（src/lib/map-embed.ts）。
     // これが無いと地図の iframe が CSP で拒否され、本番では常に空白だった（2026年10月22日）。
-    `frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com ${GOOGLE_MAPS_EMBED_ORIGIN}`,
+    // https://js.pay.jp は広告枠の申込（/admin/featured-ads）のカード入力欄（payjp.js v2 の iframe）、
+    // https://api.pay.jp（connect-src）はそのカードのトークン化の送信先（カード番号は CareLink を通らない・点検 B2-1）。
+    // payjp.js 本体は nonce 付きのアプリのスクリプトが差し込むので、'strict-dynamic' により script-src の追加は要らない。
+    `frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com ${GOOGLE_MAPS_EMBED_ORIGIN} https://js.pay.jp`,
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",

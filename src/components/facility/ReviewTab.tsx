@@ -6,7 +6,6 @@ import type { FacilityReview } from '@/types';
 import ReviewList from './ReviewList';
 import ReviewForm from './ReviewForm';
 import StarRating from './StarRating';
-import ReviewSummary from './ReviewSummary';
 import Button from '@/components/ui/Button';
 
 interface Props {
@@ -118,9 +117,6 @@ export default function ReviewTab({ facilityId, facilitySlug, facilityName, init
           )}
         </div>
       )}
-
-      {/* AI Review Summary */}
-      <ReviewSummary reviews={reviews} facilityId={facilityId} />
 
       {/* Review list */}
       <ReviewList reviews={reviews} />

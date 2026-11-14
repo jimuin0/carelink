@@ -534,37 +534,7 @@ describe('POST /api/stripe/webhook', () => {
       );
     });
 
-    test('checkout.session.completed with slot_id → activates featured slot', async () => {
-      setupEventMock('checkout.session.completed', {
-        id: 'cs_slot_001',
-        payment_intent: 'pi_slot',
-        metadata: { slot_id: 'slot_abc123' },
-      });
-      const res = await POST(makeRequest('{}') as any);
-      expect(res.status).toBe(200);
-      expect(mockFeaturedSlotsUpdate).toHaveBeenCalledWith({ is_active: true });
-    });
 
-    test('checkout.session.completed slot update error → 500・processed を立てず再送させる', async () => {
-      const { createServiceRoleClient } = require('@/lib/supabase-server');
-      createServiceRoleClient.mockReturnValue({
-        from: jest.fn((table: string) => {
-          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
-          if (table === 'stripe_sessions') return { update: mockStripeSessionsUpdate };
-          if (table === 'featured_slots') return { update: chainableUpdate({ error: { message: 'slot error' } }) };
-          return { update: chainableUpdate({ error: null }) };
-        }),
-      });
-      setupEventMock('checkout.session.completed', {
-        id: 'cs_slot_err',
-        payment_intent: 'pi_slot_err',
-        metadata: { slot_id: 'slot_err_123' },
-      });
-      const res = await POST(makeRequest('{}') as any);
-      expect(res.status).toBe(500);
-      // 処理済みにしない（＝Stripe の再送で再処理される）。2026年11月13日 点検 高-3
-      expect(mockUpdate).not.toHaveBeenCalledWith({ processed: true });
-    });
 
     test('charge.dispute.created with non-string payment_intent → no DB update', async () => {
       setupEventMock('charge.dispute.created', {
@@ -640,7 +610,7 @@ describe('POST /api/stripe/webhook', () => {
 
     // ─── affected-rows チェック（.select('id') 追加分）の 0 行分岐 ───
     // stripe_sessions に行を作るのは booking 系フロー（payment/checkout・stripe/checkout）のみ。
-    // featured-ads（metadata=slot_id）・options/checkout（metadata=option_key）は行を作らないため、
+    // options/checkout（metadata=option_key）は行を作らないため、
     // 0 行の異常判定は【meta.booking_id がある場合のみ】throw し、無い場合は console.warn で継続する。
 
     /** stripe_sessions 更新が0行を返す状況の共通セットアップ。 */
@@ -683,10 +653,7 @@ describe('POST /api/stripe/webhook', () => {
       expect(res.status).toBe(500);
     });
 
-    test('stripe_sessions 0行更新・slot_id のみ（booking_id 無し＝featured-ads決済）→ 200 かつ featured_slots が有効化される', async () => {
-      // 敵対検証で確定した構造バグの回帰テスト：featured-ads / options 由来の checkout は
-      // stripe_sessions に行が無く 0 行が【正常系】。無条件 throw だと 500→Stripe 再送ループになり
-      // featured_slots 有効化コードに永久に到達しない（広告枠が is_active=false のまま）。
+    test('slot_id だけの checkout（旧 Stripe 広告枠）→ 200 で継続し featured_slots には触れない（点検 B2-1 で PAY.JP へ移行）', async () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const slotUpdate = chainableUpdate({ error: null });
       setupSessionZeroRows(null, slotUpdate);
@@ -697,12 +664,7 @@ describe('POST /api/stripe/webhook', () => {
       });
       const res = await POST(makeRequest('{}') as any);
       expect(res.status).toBe(200);
-      // 0 行でも throw せず featured_slots 有効化に正常到達すること
-      expect(slotUpdate).toHaveBeenCalledWith({ is_active: true });
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('stripe_sessions update matched 0 rows (non-booking checkout; booking_id/payment_type いずれも無し; continuing)'),
-        expect.objectContaining({ sessionId: 'cs_ad_slot_only' }),
-      );
+      expect(slotUpdate).not.toHaveBeenCalled();
       warnSpy.mockRestore();
     });
 
@@ -902,49 +864,7 @@ describe('POST /api/stripe/webhook', () => {
       );
     });
 
-    test('featured_slots 0行更新（data:null）→ 500・processed を立てず再送させる', async () => {
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-      const { createServiceRoleClient } = require('@/lib/supabase-server');
-      createServiceRoleClient.mockReturnValue({
-        from: jest.fn((table: string) => {
-          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
-          if (table === 'stripe_sessions') return { update: chainableUpdate({ error: null }) };
-          if (table === 'featured_slots') return { update: chainableUpdate({ error: null, data: null }) };
-          return { update: chainableUpdate({ error: null }) };
-        }),
-      });
-      setupEventMock('checkout.session.completed', {
-        id: 'cs_slot_0rows_null',
-        payment_intent: 'pi_slot_0rows_null',
-        metadata: { slot_id: 'slot_missing_null' },
-      });
-      const res = await POST(makeRequest('{}') as any);
-      expect(res.status).toBe(500);
-      expect(mockUpdate).not.toHaveBeenCalledWith({ processed: true });
-      errorSpy.mockRestore();
-    });
 
-    test('featured_slots 0行更新（data:[]）→ 500・processed を立てず再送させる', async () => {
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-      const { createServiceRoleClient } = require('@/lib/supabase-server');
-      createServiceRoleClient.mockReturnValue({
-        from: jest.fn((table: string) => {
-          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
-          if (table === 'stripe_sessions') return { update: chainableUpdate({ error: null }) };
-          if (table === 'featured_slots') return { update: chainableUpdate({ error: null, data: [] }) };
-          return { update: chainableUpdate({ error: null }) };
-        }),
-      });
-      setupEventMock('checkout.session.completed', {
-        id: 'cs_slot_0rows_empty',
-        payment_intent: 'pi_slot_0rows_empty',
-        metadata: { slot_id: 'slot_missing_empty' },
-      });
-      const res = await POST(makeRequest('{}') as any);
-      expect(res.status).toBe(500);
-      expect(mockUpdate).not.toHaveBeenCalledWith({ processed: true });
-      errorSpy.mockRestore();
-    });
   });
 
   test('constructEvent throws non-Error → 400 with unknown error', async () => {

@@ -17,6 +17,7 @@ import { isPlatformSupportPath } from '@/lib/platform-support-path';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { isUnofferedAdminHref } from '@/lib/feature-toggles';
+import { isPayjpEnabled } from '@/lib/integration-availability';
 
 export const metadata: Metadata = {
   title: { default: '管理画面', template: '%s | 管理画面 | CareLink' },
@@ -273,10 +274,9 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
 
   const isPlatformAdmin = profile?.is_platform_admin === true;
 
-  // 【ローンチ時非表示】決済手段（Stripe/PAY.JP）未導入のため、有料掲載枠（featured-ads）の
-  // 販売導線を全ロールで一時的に隠す。決済導入時に LAUNCH_HIDDEN_HREFS から外すだけで復活する
-  // （nav 定義・ページ・API はそのまま温存＝症状ブロックでなく設定1箇所で可逆制御）。
-  const LAUNCH_HIDDEN_HREFS = new Set<string>(['/admin/featured-ads']);
+  // 有料掲載枠（featured-ads）は PAY.JP の月額サブスクで販売する（2026年11月13日・点検 B2-1）。
+  // 4 つの設定（isPayjpEnabled）が揃うまでは販売導線を全ロールで隠す。設定を入れれば自動で出る。
+  const LAUNCH_HIDDEN_HREFS = new Set<string>(isPayjpEnabled() ? [] : ['/admin/featured-ads']);
   // 回数券・月額プラン・求人（求人応募）は「今はなし」（2026年10月23日 神原さん判断）。
   // 出し分けは src/lib/feature-toggles.ts の SHOW_* に従属させ、true に戻すだけで復活する。
   const isHiddenHref = (href: string) => LAUNCH_HIDDEN_HREFS.has(href) || NOT_READY_FOR_OWNERS_HREFS.has(href) || isUnofferedAdminHref(href);

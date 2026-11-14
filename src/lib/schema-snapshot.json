@@ -534,6 +534,12 @@
     "facility_id",
     "id"
   ],
+  "facility_payjp_customers": [
+    "created_at",
+    "facility_id",
+    "payjp_customer_id",
+    "updated_at"
+  ],
   "facility_photos": [
     "caption",
     "coupon_id",
@@ -710,6 +716,17 @@
     "key",
     "metadata",
     "rollout_pct",
+    "updated_at"
+  ],
+  "featured_slot_payjp_subscriptions": [
+    "created_at",
+    "current_period_end",
+    "facility_id",
+    "last_event_at",
+    "payjp_customer_id",
+    "payjp_subscription_id",
+    "slot_id",
+    "status",
     "updated_at"
   ],
   "featured_slots": [
@@ -1060,6 +1077,13 @@
     "notes",
     "used_at",
     "user_package_id"
+  ],
+  "payjp_webhook_events": [
+    "error",
+    "event_id",
+    "event_type",
+    "processed_at",
+    "received_at"
   ],
   "platform_blog_posts": [
     "author_name",

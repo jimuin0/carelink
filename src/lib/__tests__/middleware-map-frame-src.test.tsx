@@ -74,7 +74,8 @@ beforeEach(() => {
 
 test('施設ページの CSP は地図埋め込みのオリジンだけを frame-src に足している', async () => {
   const csp = await facilityPageCsp();
-  expect(csp.get('frame-src')).toEqual(["'self'", 'https://www.youtube.com', 'https://www.youtube-nocookie.com', 'https://www.google.com']);
+  // https://js.pay.jp は広告枠のカード入力欄（payjp.js の iframe・2026年11月13日 点検 B2-1）。
+  expect(csp.get('frame-src')).toEqual(["'self'", 'https://www.youtube.com', 'https://www.youtube-nocookie.com', 'https://www.google.com', 'https://js.pay.jp']);
   expect(GOOGLE_MAPS_EMBED_ORIGIN).toBe('https://www.google.com');
 });
 
@@ -111,6 +112,8 @@ test('地図以外のディレクティブは変えていない（自サイト�
     // Clarity の送信先（2026年10月22日追加・middleware-clarity-csp.test.ts が詳細を固定）。
     'https://*.clarity.ms',
     'https://cloudflareinsights.com', 'https://access.line.me', 'https://api.line.me', 'https://zipcloud.ibsnet.co.jp',
+    // 広告枠のカードのトークン化（payjp.js → PAY.JP・2026年11月13日 点検 B2-1）。
+    'https://api.pay.jp',
   ]);
 });
 

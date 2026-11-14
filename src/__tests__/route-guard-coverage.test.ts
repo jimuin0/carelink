@@ -62,6 +62,11 @@ const ALLOW: Record<string, Exemption> = {
     csrf: 'Slack からのサーバ間 POST。verifySlackRequest（署名＋タイムスタンプ）が本人性の根拠',
     rateLimit: '同上。署名不一致は本体処理の前に落ちる',
   },
+  'payjp/webhook/route.ts': {
+    csrf: 'PAY.JP からのサーバ間 POST。X-Payjp-Webhook-Token をダッシュボードの値と定数時間で照合するのが本人性の根拠',
+    rateLimit: '同上。トークン不一致は本体処理の前に 401 で落ちる',
+    auth: '同上。ログイン利用者ではなく PAY.JP が送るので、トークンの照合で代える',
+  },
   'stripe/webhook/route.ts': {
     csrf: 'Stripe からのサーバ間 POST。constructEvent の署名検証が本人性の根拠',
     rateLimit: '同上。署名不一致は本体処理の前に 400 で落ちる',

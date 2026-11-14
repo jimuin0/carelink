@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { SbBadge, SbPageHeader } from '@/components/admin/SbUi';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import AdminFacilityScope, { type AdminFacilityScopeValue } from '@/components/admin/AdminFacilityScope';
 import { businessTypeLabel } from '@/lib/business-type-label';
 
 type FeaturedSlot = {
@@ -19,92 +20,187 @@ type FeaturedSlot = {
   impressions: number;
   clicks: number;
   is_active: boolean;
+  billing_status: string | null;
+  current_period_end: string | null;
 };
 
-const SLOT_LABELS: Record<string, string> = {
-  search_top: '検索結果上位',
-  area_banner: 'エリアバナー',
-  category_top: 'カテゴリートップ',
+type Sales =
+  | { enabled: false }
+  | { enabled: true; publicKey: string; priceTaxExcluded: number; priceTaxIncluded: number };
+
+/** payjp.js v2（https://js.pay.jp/v2/pay.js）のうち、ここで使う部分だけの型。 */
+type PayjpCardElement = { mount: (selector: string) => void; unmount: () => void };
+type PayjpClient = {
+  elements: () => { create: (type: 'card') => PayjpCardElement };
+  createToken: (element: PayjpCardElement) => Promise<{ id?: string; error?: { message?: string } }>;
+};
+declare global {
+  interface Window { Payjp?: (publicKey: string) => PayjpClient }
+}
+
+const PAYJP_JS = 'https://js.pay.jp/v2/pay.js';
+
+const BILLING_LABELS: Record<string, string> = {
+  pending: '決済の確認中',
+  active: '掲載中（毎月自動更新）',
+  trial: '開始待ち',
+  paused: 'お支払いが停止中',
+  canceled: '解約予約済み（期間末まで掲載）',
+  deleted: '契約終了',
 };
 
-const PLANS = [
-  { type: 'search_top', label: '検索結果上位表示', price: 9800, desc: '指定エリア・業種の検索結果最上位に表示' },
-  { type: 'area_banner', label: 'エリアページバナー', price: 4900, desc: 'エリア一覧ページの上部バナー枠' },
-  { type: 'category_top', label: 'カテゴリートップ', price: 7800, desc: '業種別一覧の最上位固定表示' },
-];
-
-// 【ローンチ時非表示】決済手段（Stripe/PAY.JP）未導入のため、有料掲載枠の販売を停止中。
-// nav（admin/layout.tsx の LAUNCH_HIDDEN_HREFS）で導線を隠しているが、直リンク／ブックマーク
-// での到達時に「決済へ進む」→鍵の無い Stripe に飛ばさないよう、ここでもゲートする。
-// 決済導入時に true へ戻すだけで販売UIが復活する（: boolean 明示で「常に偽」lint を回避）。
-const FEATURED_ADS_ENABLED: boolean = false;
+/** payjp.js はカード入力欄を PAY.JP の iframe で描く（カード番号は CareLink を通らない）。読み込みは 1 回だけ。 */
+function loadPayjp(): Promise<NonNullable<Window['Payjp']>> {
+  if (window.Payjp) return Promise.resolve(window.Payjp);
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${PAYJP_JS}"]`);
+    const script = existing ?? document.createElement('script');
+    script.addEventListener('load', () => (window.Payjp ? resolve(window.Payjp) : reject(new Error('payjp.js unavailable'))));
+    script.addEventListener('error', () => reject(new Error('payjp.js failed to load')));
+    if (!existing) {
+      script.src = PAYJP_JS;
+      script.async = true;
+      document.head.appendChild(script);
+    }
+  });
+}
 
 export default function FeaturedAdsPage() {
+  return <AdminFacilityScope title="広告・上位表示" path="/admin/featured-ads">{(scope) => <FeaturedAds {...scope} />}</AdminFacilityScope>;
+}
+
+// 広告枠は 2026年11月13日（点検 B2-1）から PAY.JP の月額サブスクで販売する。販売できるか（4 つの設定が
+// 揃っているか）はサーバーが判定して GET の sales で返し、揃っていなければ「準備中」だけを出す。
+function FeaturedAds({ facilityId, choices }: AdminFacilityScopeValue) {
   const [slots, setSlots] = useState<FeaturedSlot[]>([]);
+  const [sales, setSales] = useState<Sales | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [showCreate, setShowCreate] = useState(false);
-  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [selectedPlan, setSelectedPlan] = useState<string>('search_top');
-  const [form, setForm] = useState({ area: '', business_type: '', starts_at: '', ends_at: '' });
-  const [facilityId, setFacilityId] = useState<string | null>(null);
-  const searchParams = useSearchParams();
-  const paymentStatus = searchParams.get('payment');
-
-  // retry は再取得を state（reloadKey）経由で駆動する。load/reload をイベントハンドラからも
-  // effect からも呼べる形にすると React Compiler の set-state-in-effect 検出対象になるため、
-  // 実処理は effect 側にだけ inline し、イベントハンドラ側は reloadKey を進めるだけにする。
   const [reloadKey, setReloadKey] = useState(0);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({ area: '', business_type: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [cardReady, setCardReady] = useState(false);
+  const [canceling, setCanceling] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
+  const payjpRef = useRef<{ client: PayjpClient; card: PayjpCardElement } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoadError(false);
-      const supabase = createBrowserSupabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (cancelled) return;
-      if (!user) { setLoadError(true); setLoading(false); return; }
-      const { data: membership, error: memErr } = await supabase
-        .from('facility_members').select('facility_id').eq('user_id', user.id)
-        .in('role', ['owner', 'admin']).limit(1).single();
-      if (cancelled) return;
-      if (memErr || !membership?.facility_id) { setLoadError(true); setLoading(false); return; }
-      setFacilityId(membership.facility_id as string);
-      // GET /api/admin/featured-ads は facility_id 必須。従来このページは facility_id を取得・付与して
-      // いなかったため常に 400→LoadError になり広告機能が丸ごと使用不能だった。
       try {
-        const r = await fetch(`/api/admin/featured-ads?facility_id=${membership.facility_id as string}`);
+        const r = await fetch(`/api/admin/featured-ads?facility_id=${encodeURIComponent(facilityId)}`);
         if (!r.ok) throw new Error();
         const d = await r.json();
         if (cancelled) return;
         setSlots(d.slots || []);
-        setLoading(false);
+        setSales(d.sales ?? { enabled: false });
       } catch {
-        if (cancelled) return;
-        setLoadError(true);
-        setLoading(false);
+        if (!cancelled) setLoadError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [reloadKey]);
+  }, [facilityId, reloadKey]);
 
-  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+  const reload = useCallback(() => { setLoading(true); setReloadKey((k) => k + 1); }, []);
+
+  // 申込フォームを開いたときだけ payjp.js を読み込み、カード入力欄を差し込む。
+  const publicKey = sales?.enabled ? sales.publicKey : null;
+  useEffect(() => {
+    if (!showCreate || !publicKey) return;
+    let disposed = false;
+    loadPayjp().then((Payjp) => {
+      if (disposed) return;
+      const client = Payjp(publicKey);
+      const card = client.elements().create('card');
+      card.mount('#featured-ads-card');
+      payjpRef.current = { client, card };
+      setCardReady(true);
+    }).catch(() => {
+      if (!disposed) setToast({ type: 'error', message: 'カード入力欄を読み込めませんでした。再読み込みしてください' });
+    });
+    return () => {
+      disposed = true;
+      payjpRef.current?.card.unmount();
+      payjpRef.current = null;
+      setCardReady(false);
+    };
+  }, [showCreate, publicKey]);
+
+  const hasContract = slots.some((s) => s.billing_status && ['pending', 'active', 'trial', 'paused', 'canceled'].includes(s.billing_status));
+
+  const submit = async () => {
+    const payjp = payjpRef.current;
+    if (submitting || !payjp) return;
+    setSubmitting(true);
+    try {
+      const tokenResult: { id?: string; error?: { message?: string } } = await payjp.client.createToken(payjp.card).catch(() => ({ error: {} }));
+      if (!tokenResult.id) {
+        setToast({ type: 'error', message: tokenResult.error?.message || 'カード情報を確認できませんでした' });
+        return;
+      }
+      const res = await fetch('/api/admin/featured-ads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ facility_id: facilityId, token: tokenResult.id, area: form.area || null, business_type: form.business_type || null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setToast({ type: 'error', message: data.error || '申込みに失敗しました' });
+        return;
+      }
+      setSlots((prev) => [data.slot, ...prev]);
+      setShowCreate(false);
+      setToast({ type: 'success', message: 'お申し込みを受け付けました。決済の確認後に掲載が始まります' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const cancel = async (slotId: string) => {
+    if (canceling) return;
+    setCanceling(slotId);
+    try {
+      const res = await fetch(`/api/admin/featured-ads?facility_id=${encodeURIComponent(facilityId)}&slot_id=${encodeURIComponent(slotId)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setToast({ type: 'error', message: data.error || '解約できませんでした' }); return; }
+      setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, billing_status: 'canceled' } : s)));
+      setToast({ type: 'success', message: '解約を受け付けました。期間の終わりまで掲載されます' });
+    } finally {
+      setCanceling(null);
+    }
+  };
 
   const ctr = (slot: FeaturedSlot) =>
     slot.impressions > 0 ? ((slot.clicks / slot.impressions) * 100).toFixed(1) : '0.0';
 
-  const selectedPlanData = PLANS.find((p) => p.type === selectedPlan);
-
-  // 【ローンチ時非表示ゲート】決済手段未導入のため、販売UI（プラン・購入・決済導線）を出さず
-  // 「準備中」表示に差し替える。全フックはこの上で無条件に評価済み＝rules-of-hooks 準拠。
-  if (!FEATURED_ADS_ENABLED) {
+  if (loading) {
     return (
       <div className="max-w-4xl space-y-6">
-        <SbPageHeader
-          title="広告・上位表示"
-          description="検索結果の上位表示・バナー広告枠"
-        />
+        <SbPageHeader title="広告・上位表示" description="検索結果の上位表示" />
+        <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/featured-ads" />
+        <div className="p-8 text-center text-gray-500">読み込み中...</div>
+      </div>
+    );
+  }
+  if (loadError || !sales) {
+    return (
+      <div className="max-w-4xl space-y-6">
+        <SbPageHeader title="広告・上位表示" description="検索結果の上位表示" />
+        <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/featured-ads" />
+        <LoadError onRetry={reload} message="広告枠の読み込みに失敗しました" />
+      </div>
+    );
+  }
+  // 販売できない（PAY.JP の設定が揃っていない）間は、販売 UI を一切出さない。
+  if (!sales.enabled) {
+    return (
+      <div className="max-w-4xl space-y-6">
+        <SbPageHeader title="広告・上位表示" description="検索結果の上位表示・バナー広告枠" />
         <div className="bg-white rounded-xl border p-8 text-center text-gray-600">
           <p className="font-semibold text-gray-900">この機能は現在準備中です</p>
           <p className="mt-2 text-sm">有料掲載枠のお申し込みは現在受け付けておりません。</p>
@@ -116,187 +212,101 @@ export default function FeaturedAdsPage() {
   return (
     <div className="max-w-4xl space-y-6">
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
-      {paymentStatus === 'success' && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800 font-medium">
-          決済が完了しました。広告枠が有効化されました。
-        </div>
-      )}
-      {paymentStatus === 'cancel' && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
-          決済がキャンセルされました。再度お試しください。
-        </div>
-      )}
+      <ConfirmDialog
+        open={confirmCancel !== null}
+        title="広告枠を解約しますか？"
+        message="支払い済みの期間の終わりまでは掲載され、以後の請求は止まります。"
+        confirmLabel="解約する"
+        variant="danger"
+        onCancel={() => setConfirmCancel(null)}
+        onConfirm={() => { const id = confirmCancel; setConfirmCancel(null); if (id) void cancel(id); }}
+      />
       <SbPageHeader
         title="広告・上位表示"
-        description="検索結果の上位表示・バナー広告枠を管理します"
-        actions={
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="btn-primary px-4! py-2! text-sm"
-          >
-            広告枠を購入
+        description="検索結果の上位に店舗を表示します（月額・自動更新）"
+        actions={hasContract ? undefined : (
+          <button type="button" onClick={() => setShowCreate(true)} className="btn-primary px-4! py-2! text-sm">
+            広告枠を申し込む
           </button>
-        }
+        )}
       />
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/featured-ads" />
 
-      {/* Plans */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {PLANS.map((plan) => (
-          <div key={plan.type} className="bg-white rounded-xl border p-5">
-            <div className="font-semibold text-gray-900">{plan.label}</div>
-            <div className="text-2xl font-bold text-primary mt-2">¥{plan.price.toLocaleString()}<span className="text-sm font-normal text-gray-500">/月</span></div>
-            <p className="text-xs text-gray-500 mt-2">{plan.desc}</p>
-          </div>
-        ))}
+      <div className="bg-white rounded-xl border p-5">
+        <div className="font-semibold text-gray-900">検索結果上位表示</div>
+        <div className="text-2xl font-bold text-primary mt-2">
+          ¥{sales.priceTaxIncluded.toLocaleString()}<span className="text-sm font-normal text-gray-500">/月（税込・税抜¥{sales.priceTaxExcluded.toLocaleString()}）</span>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">指定エリア・業種の検索結果の最上位に表示します。毎月同じ日に自動で更新・請求され、いつでも解約できます（解約後も支払い済みの期間の終わりまで掲載）。</p>
       </div>
 
-      {/* Create form */}
       {showCreate && (
         <div className="bg-white rounded-xl border p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">広告枠を申し込む</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {PLANS.map((plan) => (
-              <button
-                key={plan.type}
-                type="button"
-                onClick={() => setSelectedPlan(plan.type)}
-                className={`p-3 rounded-lg border text-left transition-colors ${
-                  selectedPlan === plan.type ? 'border-primary bg-sky-50' : 'border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                <div className="text-sm font-medium">{plan.label}</div>
-                <div className="text-sm text-primary font-bold mt-0.5">¥{plan.price.toLocaleString()}/月</div>
-              </button>
-            ))}
-          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="ads-area" className="block text-xs font-medium text-gray-700 mb-1">対象エリア（任意）</label>
-              <input
-                id="ads-area"
-                type="text"
-                value={form.area}
+              <input id="ads-area" type="text" value={form.area} maxLength={50} placeholder="例: 豊中市"
                 onChange={(e) => setForm((f) => ({ ...f, area: e.target.value }))}
-                placeholder="例: 豊中市"
-                maxLength={50}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              />
+                className="w-full border rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
               <label htmlFor="ads-business-type" className="block text-xs font-medium text-gray-700 mb-1">対象業種（任意）</label>
-              <input
-                id="ads-business-type"
-                type="text"
-                value={form.business_type}
+              <input id="ads-business-type" type="text" value={form.business_type} maxLength={50} placeholder="例: 鍼灸院"
                 onChange={(e) => setForm((f) => ({ ...f, business_type: e.target.value }))}
-                placeholder="例: 鍼灸院"
-                maxLength={50}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label htmlFor="ads-starts-at" className="block text-xs font-medium text-gray-700 mb-1">掲載開始日</label>
-              <input
-                id="ads-starts-at"
-                type="date"
-                value={form.starts_at}
-                onChange={(e) => setForm((f) => ({ ...f, starts_at: e.target.value }))}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label htmlFor="ads-ends-at" className="block text-xs font-medium text-gray-700 mb-1">掲載終了日</label>
-              <input
-                id="ads-ends-at"
-                type="date"
-                value={form.ends_at}
-                onChange={(e) => setForm((f) => ({ ...f, ends_at: e.target.value }))}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              />
+                className="w-full border rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
-          {selectedPlanData && (
-            <div className="bg-sky-50 rounded-lg p-4 text-sm">
-              <div className="font-medium text-gray-900">{selectedPlanData.label}</div>
-              <div className="text-primary font-bold mt-1">¥{selectedPlanData.price.toLocaleString()}/月（税込¥{Math.round(selectedPlanData.price * 1.1).toLocaleString()}）</div>
-              <p className="text-gray-600 text-xs mt-1">{selectedPlanData.desc}</p>
-            </div>
-          )}
+          <div>
+            <p className="block text-xs font-medium text-gray-700 mb-1">クレジットカード</p>
+            <div id="featured-ads-card" className="border rounded-lg px-3 py-3 bg-white min-h-[44px]" />
+            <p className="text-xs text-gray-500 mt-1">カード情報は決済代行の PAY.JP に直接送られ、CareLink のサーバーには保存されません。</p>
+          </div>
+          <div className="bg-sky-50 rounded-lg p-4 text-sm">
+            <div className="font-medium text-gray-900">お支払い：毎月 ¥{sales.priceTaxIncluded.toLocaleString()}（税込）</div>
+            <p className="text-gray-600 text-xs mt-1">申し込むと初回分が請求され、決済の確認後に掲載が始まります。</p>
+          </div>
           <div className="flex gap-3">
-            <button
-              type="button"
-              disabled={submitting || !form.starts_at || !form.ends_at}
-              onClick={async () => {
-                if (submitting) return;
-                if (!facilityId) { setToast({ type: 'error', message: '施設情報の取得に失敗しました。再読み込みしてください' }); return; }
-                setSubmitting(true);
-                try {
-                  // POST も facility_id 必須。従来 body に含めず常に 400 になっていた。
-                  const res = await fetch('/api/admin/featured-ads', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ facility_id: facilityId, slot_type: selectedPlan, ...form }),
-                  });
-                  const data = await res.json().catch(() => ({}));
-                  if (!res.ok) {
-                    setToast({ type: 'error', message: data.error || '申込みに失敗しました' });
-                  } else if (data.checkout_url && /^https:\/\/checkout\.stripe\.com\//.test(data.checkout_url)) {
-                    window.location.href = data.checkout_url;
-                  } else {
-                    setSlots((prev) => [data.slot, ...prev]);
-                    setShowCreate(false);
-                  }
-                } finally {
-                  setSubmitting(false);
-                }
-              }}
-              className="btn-primary px-4! py-2! text-sm"
-            >
-              {submitting ? '処理中...' : '決済へ進む'}
+            <button type="button" disabled={submitting || !cardReady} onClick={submit} className="btn-primary px-4! py-2! text-sm">
+              {submitting ? '処理中...' : `月額 ¥${sales.priceTaxIncluded.toLocaleString()}（税込）で申し込む`}
             </button>
-            <button
-              type="button"
-              onClick={() => setShowCreate(false)}
-              className="px-4 py-2 rounded-lg text-sm border hover:bg-gray-50 transition-colors"
-            >
+            <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 rounded-lg text-sm border hover:bg-gray-50 transition-colors">
               キャンセル
             </button>
           </div>
         </div>
       )}
 
-      {/* Active slots */}
       <div className="bg-white rounded-xl border overflow-hidden">
         <div className="px-6 py-4 border-b">
-          <h2 className="font-semibold text-gray-900">掲載中・予定の広告枠</h2>
+          <h2 className="font-semibold text-gray-900">広告枠の契約</h2>
         </div>
-        {loading ? (
-          <div className="p-8 text-center text-gray-500">読み込み中...</div>
-        ) : loadError ? (
-          <div className="p-6"><LoadError onRetry={() => { setLoading(true); reload(); }} message="広告枠の読み込みに失敗しました" /></div>
-        ) : slots.length === 0 ? (
+        {slots.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
             <p>まだ広告枠がありません</p>
-            <p className="text-xs mt-2">上位表示で予約を増やしましょう</p>
           </div>
         ) : (
           <div className="divide-y">
             {slots.map((slot) => (
               <div key={slot.id} className="px-6 py-4">
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-900">{SLOT_LABELS[slot.slot_type] || slot.slot_type}</span>
-                      <SbBadge tone={slot.is_active ? 'success' : 'neutral'}>
-                        {slot.is_active ? '掲載中' : '停止中'}
-                      </SbBadge>
+                      <span className="text-sm font-medium text-gray-900">検索結果上位表示</span>
+                      <SbBadge tone={slot.is_active ? 'success' : 'neutral'}>{slot.is_active ? '掲載中' : '停止中'}</SbBadge>
                     </div>
                     <div className="text-xs text-gray-500 mt-1 space-x-2">
+                      {slot.billing_status && <span>{BILLING_LABELS[slot.billing_status] ?? slot.billing_status}</span>}
                       {slot.area && <span>エリア: {slot.area}</span>}
                       {slot.business_type && <span>業種: {businessTypeLabel(slot.business_type)}</span>}
-                      <span>{new Date(slot.starts_at).toLocaleDateString('ja-JP')} 〜 {new Date(slot.ends_at).toLocaleDateString('ja-JP')}</span>
+                      {slot.current_period_end && <span>今期の終わり: {new Date(slot.current_period_end).toLocaleDateString('ja-JP')}</span>}
                     </div>
+                    {slot.billing_status && ['active', 'trial', 'paused'].includes(slot.billing_status) && (
+                      <button type="button" disabled={canceling === slot.id} onClick={() => setConfirmCancel(slot.id)}
+                        className="mt-2 text-xs text-gray-600 underline hover:text-gray-900">
+                        {canceling === slot.id ? '解約中...' : '解約する'}
+                      </button>
+                    )}
                   </div>
                   <div className="text-right text-xs text-gray-600 space-y-0.5">
                     <div>表示: <strong>{slot.impressions.toLocaleString()}</strong></div>
