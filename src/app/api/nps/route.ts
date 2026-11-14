@@ -61,6 +61,10 @@ async function submitNps(request: NextRequest) {
     // Unauthenticated users cannot claim a booking
     verifiedBookingId = null;
   }
+  // 未ログインの回答は施設の評価に紐づけない（任意の施設の NPS を匿名で積み増せないようにする）。
+  if (!user && verifiedFacilityId) {
+    return NextResponse.json({ error: '施設の評価にはログインが必要です' }, { status: 401 });
+  }
 
   const { error } = await admin.from('nps_surveys').insert({
     user_id: user?.id ?? null,
@@ -77,6 +81,8 @@ async function submitNps(request: NextRequest) {
   if (error) {
     // 重複エラーは無視（同月回答済み）
     if (error.code === '23505') return NextResponse.json({ message: 'already_submitted' });
+    // 存在しない施設・予約の指定は入力誤りであって障害ではない（500・Slack にしない）。
+    if (error.code === '23503') return NextResponse.json({ error: '指定された施設が見つかりません' }, { status: 400 });
     return serverError('nps-post', error, '/api/nps', '送信に失敗しました');
   }
 

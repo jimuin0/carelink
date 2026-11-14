@@ -26,6 +26,14 @@ jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
 jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 // Slack 通知は同一サーバー内の sendNotify を直接呼ぶ（HTTP 往復しない・/api/notify 廃止）。
 jest.mock('@/lib/notify', () => ({ sendNotify: jest.fn() }));
+// 既定は実物と同じ「その場で実行して完了を返す」。B3-10 の検査だけ登録を捕まえる。
+let mockCapturedTasks: (() => PromiseLike<unknown>)[] | null = null;
+jest.mock('@/lib/after-response', () => ({
+  runAfterResponse: (t: () => PromiseLike<unknown>) => {
+    if (mockCapturedTasks) { mockCapturedTasks.push(t); return Promise.resolve(); }
+    return Promise.resolve(t()).then(() => undefined);
+  },
+}));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -446,4 +454,20 @@ describe('Slack通知（sendNotify 直接呼び出し・fire-and-forget）', () 
     const res = await POST(makeRequest(validInquiry) as any);
     expect(res.status).toBe(200);
   });
+});
+
+// B3-10: オーナーへのメール送信は応答の前に await しない（runAfterResponse に載せる）
+test('B3-10: オーナー通知メールは応答後の副作用として登録され、応答前には送られない', async () => {
+  setupDefaultMocks({ ownerUserIds: ['owner-1'], ownerEmails: ['owner1@example.com'] });
+  const tasks: (() => PromiseLike<unknown>)[] = [];
+  mockCapturedTasks = tasks;
+  try {
+    const res = await POST(makeRequest(validInquiry) as any);
+    expect(res.status).toBe(200);
+    expect(sendNewInquiryNotification).not.toHaveBeenCalled();
+    for (const t of tasks) await t();
+    expect(sendNewInquiryNotification).toHaveBeenCalledTimes(1);
+  } finally {
+    mockCapturedTasks = null;
+  }
 });

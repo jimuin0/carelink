@@ -57,6 +57,10 @@ export const POST = withRoute(async (request) => {
     .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.length <= 2000)
     .slice(-10)
     .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content.slice(0, 2000) }));
+  // The Messages API expects the conversation to start with a user turn.
+  // Drop leading assistant turns (e.g. the UI greeting, or a cut by slice)
+  // so a malformed history never spends the paid daily quota on a 4xx.
+  while (validMessages.length > 0 && validMessages[0].role === 'assistant') validMessages.shift();
 
   if (validMessages.length === 0) {
     return NextResponse.json({ error: 'No valid messages' }, { status: 400 });

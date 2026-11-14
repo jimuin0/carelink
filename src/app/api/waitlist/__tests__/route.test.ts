@@ -112,7 +112,7 @@ function makeDeleteRequest(id: string, ip = '192.168.1.1') {
 const FACILITY_UUID = '550e8400-e29b-41d4-a716-446655440000';
 const validWaitlist = {
   facility_id: FACILITY_UUID,
-  date: '2026-05-01',
+  date: '2099-05-01',
   start_time: '10:00',
   end_time: '11:00',
   customer_name: 'Test Customer',
@@ -120,6 +120,36 @@ const validWaitlist = {
 };
 
 describe('POST /api/waitlist', () => {
+  test('B1-4: 過去日（JST）→ 400・保存しない', async () => {
+    const res = await POST(makePostRequest({ ...validWaitlist, date: '2000-01-01' }));
+    expect(res.status).toBe(400);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  test('B1-4: 他施設のメニュー・スタッフ → 400・保存しない', async () => {
+    for (const extra of [{ menu_id: '650e8400-e29b-41d4-a716-446655440001' }, { staff_id: '750e8400-e29b-41d4-a716-446655440002' }]) {
+      setupMocks(true, false, true);
+      mockMaybeSingle.mockResolvedValueOnce({ data: null, error: null });
+      const res = await POST(makePostRequest({ ...validWaitlist, ...extra }));
+      expect(res.status).toBe(400);
+      expect(mockInsert).not.toHaveBeenCalled();
+    }
+  });
+
+  test('B1-4: 自施設のメニュー・スタッフ → 登録できる', async () => {
+    setupMocks(true, false, true);
+    mockMaybeSingle.mockResolvedValueOnce({ data: { id: 'm' }, error: null }).mockResolvedValueOnce({ data: { id: 's' }, error: null });
+    const res = await POST(makePostRequest({ ...validWaitlist, menu_id: '650e8400-e29b-41d4-a716-446655440001', staff_id: '750e8400-e29b-41d4-a716-446655440002' }));
+    expect(res.status).toBe(200);
+  });
+
+  test('B1-4: メニュー確認で DB エラー → 500', async () => {
+    setupMocks(true, false, true);
+    mockMaybeSingle.mockResolvedValueOnce({ data: null, error: { message: 'db' } });
+    const res = await POST(makePostRequest({ ...validWaitlist, menu_id: '650e8400-e29b-41d4-a716-446655440001' }));
+    expect(res.status).toBe(500);
+  });
+
   test('CSRF check failed → returns error', async () => {
     const csrfError = new Response(JSON.stringify({ error: 'CSRF failed' }), { status: 403 });
     (checkCsrf as jest.Mock).mockReturnValue(csrfError);

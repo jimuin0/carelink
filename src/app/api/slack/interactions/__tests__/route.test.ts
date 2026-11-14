@@ -10,6 +10,9 @@
  */
 
 import { createHmac } from 'crypto';
+
+const mockRunAfterResponse = jest.fn((t: () => PromiseLike<unknown>) => Promise.resolve(t()).then(() => undefined));
+jest.mock('@/lib/after-response', () => ({ runAfterResponse: (t: () => PromiseLike<unknown>) => mockRunAfterResponse(t) }));
 import { POST } from '../route';
 
 const SECRET = 'test-signing-secret';
@@ -110,5 +113,17 @@ describe('POST /api/slack/interactions', () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
     expect((await res.json()).ok).toBe(true);
+  });
+
+  test('B3-18: action_id が Object.prototype のキー（constructor）でも handler として呼ばない', async () => {
+    mockRunAfterResponse.mockClear();
+    {
+      for (const id of ['constructor', 'toString', '__proto__']) {
+        const payload = { type: 'block_actions', actions: [{ type: 'button', action_id: id, value: 'v' }] };
+        const res = await POST(makeSignedRequest(`payload=${encodeURIComponent(JSON.stringify(payload))}`));
+        expect(res.status).toBe(200);
+      }
+      expect(mockRunAfterResponse).not.toHaveBeenCalled();
+    }
   });
 });
