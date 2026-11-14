@@ -32,6 +32,7 @@ test('取得成功 → 通常表示しエラーは出さない（正常系不変
   mockFetch(true, { bookings: [] });
   render(<LiffBookingsPage />);
   expect(await screen.findByText('予約確認')).toBeInTheDocument();
+  expect(await screen.findByText('予約はありません')).toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 

@@ -144,20 +144,19 @@ describe('POST /api/favorites', () => {
     expect(res.status).toBe(400);
   });
 
-  test('facility not found → 404', async () => {
+  // 「施設が無い」「非公開」の区別は RPC toggle_user_favorite_atomic の内部（status 判定）にあり、
+  // どちらも P0002 で返る。route 側で確かめられるのは「P0002 を 404 に写す」ことと
+  // 「判定を RPC に委ね、別経路で書き込まない」ことだけなので、1 本にまとめて結果を主張する。
+  test('RPC が P0002（施設なし・非公開）→ 404・RPC には検証済みユーザーと施設IDだけを渡す', async () => {
     setupDefaultMocks(true, false);
+    const facilityId = '11111111-1111-1111-1111-111111111111';
 
-    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
+    const res = await POST(makeRequest({ facilityId }) as any);
 
     expect(res.status).toBe(404);
-  });
-
-  test('facility not published → 404', async () => {
-    setupDefaultMocks(true, false);
-
-    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
-
-    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe('施設が見つかりません');
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledWith('toggle_user_favorite_atomic', { p_actor_id: expect.any(String), p_facility_id: facilityId });
   });
 
   test('add favorite → 200 with isFavorited=true', async () => {

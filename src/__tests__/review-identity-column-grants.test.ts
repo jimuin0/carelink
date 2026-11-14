@@ -46,15 +46,26 @@ function privileges(list: string): { name: string; columns: string[] | null }[] 
 
 /** migration を順に適用し、facility_reviews の SELECT 権限の最終状態を返す。 */
 function selectAccess(files: string[]): Record<(typeof ROLES)[number], Access> {
+  return selectAccessFromSql(files.map((file) => readFileSync(join(DIR, file), 'utf8')));
+}
+
+/** SQL 本文の列を適用順に読み、facility_reviews の SELECT 権限の最終状態を返す（自己検証用に分離）。 */
+function selectAccessFromSql(sources: string[]): Record<(typeof ROLES)[number], Access> {
   const state = { anon: { table: false, columns: new Set<string>() }, authenticated: { table: false, columns: new Set<string>() } };
   const statement = /\b(GRANT|REVOKE)\s+([^;]*?)\s+ON\s+(?:TABLE\s+)?((?:public\.)?"?facility_reviews"?(?![\w(])|ALL TABLES IN SCHEMA public)\s+(?:TO|FROM)\s+([^;]+);/gi;
-  for (const file of files) {
-    for (const m of code(readFileSync(join(DIR, file), 'utf8')).matchAll(statement)) {
+  for (const source of sources) {
+    for (const m of code(source).matchAll(statement)) {
       const roles = ROLES.filter((role) => new RegExp(`\\b${role}\\b`).test(m[4]));
       for (const privilege of privileges(m[2])) {
         if (privilege.name !== 'SELECT' && !privilege.name.startsWith('ALL')) continue;
         for (const role of roles) {
-          if (m[1].toUpperCase() === 'REVOKE') { state[role].table = false; state[role].columns.clear(); }
+          // PostgreSQL の意味論どおりに扱う:
+          //   - 列リスト付き REVOKE は、その列の列権限だけを外す（テーブル権限・他の列はそのまま）
+          //   - テーブル単位の REVOKE は、テーブル権限と全列の列権限をまとめて外す
+          if (m[1].toUpperCase() === 'REVOKE') {
+            if (privilege.columns) privilege.columns.forEach((c) => state[role].columns.delete(c));
+            else { state[role].table = false; state[role].columns.clear(); }
+          }
           else if (privilege.columns) privilege.columns.forEach((c) => state[role].columns.add(c));
           else state[role].table = true;
         }
@@ -65,6 +76,26 @@ function selectAccess(files: string[]): Record<(typeof ROLES)[number], Access> {
 }
 
 const files = readdirSync(DIR).filter((f) => f.endsWith('.sql')).sort();
+
+test('列リスト付き REVOKE は指定した列だけを外す（他の列・再付与した列を消えたことにしない）', () => {
+  const access = selectAccessFromSql([
+    'REVOKE SELECT ON public.facility_reviews FROM authenticated;',
+    'GRANT SELECT (id, rating, comment, reviewer_ip) ON public.facility_reviews TO authenticated;',
+    'REVOKE SELECT (rating) ON facility_reviews FROM authenticated;',
+  ]).authenticated;
+  expect(access.table).toBe(false);
+  expect([...access.columns].sort()).toEqual(['comment', 'id', 'reviewer_ip']);
+});
+
+test('テーブル単位の REVOKE はテーブル権限と列権限をまとめて外す', () => {
+  const access = selectAccessFromSql([
+    'GRANT SELECT ON facility_reviews TO anon, authenticated;',
+    'GRANT SELECT (id) ON facility_reviews TO authenticated;',
+    'REVOKE SELECT ON facility_reviews FROM authenticated;',
+  ]);
+  expect(access.authenticated).toEqual({ table: false, columns: new Set() });
+  expect(access.anon.table).toBe(true);
+});
 
 test('走査は空振りしていない（移行前は authenticated にテーブル単位の SELECT が付いていた）', () => {
   expect(selectAccess(files.filter((f) => f < MIGRATION)).authenticated.table).toBe(true);

@@ -116,6 +116,9 @@ function claimChain(result: jest.Mock) {
  *      .eq('status','processing').or('claimed_at.lt....,and(claimed_at.is.null,scheduled_at.lt....)')
  *      へ変更＝claim 時刻基準・null フォールバック付き）
  */
+const jobsQueryArgs: { eq: unknown[][]; lte: unknown[][]; order: unknown[][]; limit: unknown[][] } = { eq: [], lte: [], order: [], limit: [] };
+beforeEach(() => { for (const k of Object.keys(jobsQueryArgs) as Array<keyof typeof jobsQueryArgs>) jobsQueryArgs[k] = []; });
+
 function makeWebhookRetryQueueTable(overrides: {
   jobsSelect: jest.Mock;
   claimUpdate: jest.Mock;
@@ -161,13 +164,26 @@ function makeWebhookRetryQueueTable(overrides: {
           }),
         };
       }
+      // ジョブ取得クエリの各段の引数を記録し、上限・並び順・期限条件を検証できるようにする。
       return {
-        eq: jest.fn().mockReturnValue({
-          lte: jest.fn().mockReturnValue({
-            order: jest.fn().mockReturnValue({
-              limit: overrides.jobsSelect,
+        eq: jest.fn((...eqArgs: unknown[]) => {
+          jobsQueryArgs.eq.push(eqArgs);
+          return {
+            lte: jest.fn((...lteArgs: unknown[]) => {
+              jobsQueryArgs.lte.push(lteArgs);
+              return {
+                order: jest.fn((...orderArgs: unknown[]) => {
+                  jobsQueryArgs.order.push(orderArgs);
+                  return {
+                    limit: jest.fn((...limitArgs: unknown[]) => {
+                      jobsQueryArgs.limit.push(limitArgs);
+                      return overrides.jobsSelect(...limitArgs);
+                    }),
+                  };
+                }),
+              };
             }),
-          }),
+          };
         }),
       };
     }),
@@ -1152,14 +1168,23 @@ describe('GET /api/cron/webhook-retry', () => {
     await GET(makeRequest() as any);
 
     expect(mockJobsSelect).toHaveBeenCalled();
+    expect(jobsQueryArgs.eq).toEqual([['status', 'pending']]);
+    expect(jobsQueryArgs.limit).toEqual([[50]]);
   });
 
-  test('orders by scheduled_at ascending', async () => {
+  test('orders by scheduled_at ascending（期限到来分＝scheduled_at <= 現在 のみ）', async () => {
     setupDefaultMocks(1);
+    const before = Date.now();
 
     await GET(makeRequest() as any);
 
-    expect(mockJobsSelect).toHaveBeenCalled();
+    expect(jobsQueryArgs.order).toEqual([['scheduled_at', { ascending: true }]]);
+    expect(jobsQueryArgs.lte).toHaveLength(1);
+    const [column, at] = jobsQueryArgs.lte[0] as [string, string];
+    expect(column).toBe('scheduled_at');
+    const t = Date.parse(at);
+    expect(t).toBeGreaterThanOrEqual(before - 1000);
+    expect(t).toBeLessThanOrEqual(Date.now() + 1000);
   });
 
   test('exception during processing → 500', async () => {

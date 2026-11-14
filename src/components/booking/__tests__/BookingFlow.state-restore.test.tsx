@@ -227,12 +227,19 @@ test('15分より古いドラフトは復元されない（陳腐化データに
 
 test('破損した sessionStorage データは無視され通常フローを継続する（例外を投げない）', async () => {
   sessionStorage.setItem(draftKey(), 'not-valid-json{{{');
+  const errorSpy = jest.spyOn(console, 'error');
 
-  expect(() => {
-    render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
-  }).not.toThrow();
+  // render は effect 内の非同期例外を投げないので not.toThrow では何も確かめられない。
+  // 代わりに「ドラフトが消費・削除された」「エラー表示が出ない」「メニュー選択のまま」を結果として見る。
+  render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
 
+  await waitFor(() => expect(sessionStorage.getItem(draftKey())).toBeNull());
   await screen.findByText('次へ（日時を選ぶ）');
+  expect(screen.queryByText('日時を選択')).not.toBeInTheDocument();
+  expect(screen.queryByText(BOOKING_DRAFT_STORAGE_FAILED)).not.toBeInTheDocument();
+  expect(screen.queryByText(BOOKING_DRAFT_OBSOLETE)).not.toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(errorSpy.mock.calls.filter((c) => !String(c[0]).includes('act('))).toEqual([]);
 });
 
 test('他施設のドラフトは復元されない（facility.id でスコープされる）', async () => {

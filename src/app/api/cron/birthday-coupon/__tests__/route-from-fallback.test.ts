@@ -1,13 +1,13 @@
 /**
  * @jest-environment node
  *
- * birthday-coupon/route.ts 行23 の FROM 定数フォールバック専用テスト。
- * `const FROM = process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>'`
+ * birthday-coupon の送信元フォールバック専用テスト。
  *
- * FROM はモジュールスコープ定数のため、EMAIL_FROM 未設定の状態でモジュールをロードする必要がある。
- * jest.setup.js は setupFiles で先に評価されて EMAIL_FROM を設定するため、
- * import（静的 ESM）では FROM が setupFiles 後に評価されてしまう。
- * jest.resetModules() + require() で明示的に再ロードし、EMAIL_FROM 未設定状態での評価を実現する。
+ * 送信元は SSOT の `fromEnv()`（src/lib/email-from.ts）を【送信のたびに】呼んで解決する。
+ * 以前のようなモジュールスコープの `const FROM = process.env.EMAIL_FROM || ...` は存在しない。
+ * jest.setup.js が EMAIL_FROM を設定するため、ここでは送信直前に env を消して既定値へ倒れること、
+ * および route を読み込んだ後に設定した env がそのまま使われる（＝読み込み時に固定されない）ことを確かめる。
+ * resetModules + require は歴史的経緯で残している（再読込しても結果は変わらない）。
  */
 
 const mockSendFallback = jest.fn().mockResolvedValue({ success: true });
@@ -58,10 +58,8 @@ afterAll(() => {
   jest.useRealTimers();
 });
 
-describe('birthday-coupon FROM 定数フォールバック（行23・EMAIL_FROM 未設定時）', () => {
+describe('birthday-coupon 送信元フォールバック（fromEnv・EMAIL_FROM 未設定時）', () => {
   test('EMAIL_FROM 未設定 → デフォルト差出人 CareLink <noreply@carelink-jp.com> でメール送信', async () => {
-    // jest.resetModules() で全モジュールキャッシュをクリアし、
-    // EMAIL_FROM 未設定状態で route.ts を再 require する（FROM 定数の再評価）。
     delete process.env.EMAIL_FROM;
     jest.resetModules();
 
@@ -91,9 +89,24 @@ describe('birthday-coupon FROM 定数フォールバック（行23・EMAIL_FROM 
 
     await freshGET(req as any);
 
-    // EMAIL_FROM 未設定 → FROM = 'CareLink <noreply@carelink-jp.com>' でメール送信
+    // EMAIL_FROM 未設定 → fromEnv() の既定値 'CareLink <noreply@carelink-jp.com>' でメール送信
     expect(mockSendFallback).toHaveBeenCalledWith(expect.objectContaining({
       from: 'CareLink <noreply@carelink-jp.com>',
     }));
+
+    // 読み込み後に設定した EMAIL_FROM が次回の送信で使われる（読み込み時の固定値ではない）
+    mockSendFallback.mockClear();
+    process.env.EMAIL_FROM = 'CareLink Support <support@carelink-jp.com>';
+    try {
+      await freshGET(new Request('http://localhost/api/cron/birthday-coupon', {
+        method: 'GET',
+        headers: { authorization: 'Bearer cron-secret' },
+      }) as any);
+      expect(mockSendFallback).toHaveBeenCalledWith(expect.objectContaining({
+        from: 'CareLink Support <support@carelink-jp.com>',
+      }));
+    } finally {
+      delete process.env.EMAIL_FROM;
+    }
   });
 });

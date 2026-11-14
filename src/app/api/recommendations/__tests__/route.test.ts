@@ -295,10 +295,10 @@ describe('GET /api/recommendations', () => {
     expect(eqColumns).not.toContain('is_published');
   });
 
-  test('rate limit params (30 req/min per IP)', () => {
+  test('rate limit params (30 req/min per IP)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
-    GET(makeRequest(6, undefined, '192.168.1.1') as any);
+    await GET(makeRequest(6, undefined, '192.168.1.1') as any);
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
@@ -307,10 +307,10 @@ describe('GET /api/recommendations', () => {
     expect(call[4]).toBe('recommendations');
   });
 
-  test('extracts last (trusted) IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
-    GET(makeRequest(6, undefined, '10.0.0.1, 192.168.1.1') as any);
+    await GET(makeRequest(6, undefined, '10.0.0.1, 192.168.1.1') as any);
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
@@ -328,11 +328,11 @@ describe('GET /api/recommendations', () => {
     expect(mockFavoritesSelect().eq().limit).toHaveBeenCalledWith(20);
   });
 
-  test('x-forwarded-for ヘッダーなし → "unknown" を使用', () => {
+  test('x-forwarded-for ヘッダーなし → "unknown" を使用', async () => {
     (checkRateLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/recommendations', { method: 'GET' });
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    GET(req as any);
+    await GET(req as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('unknown');
   });

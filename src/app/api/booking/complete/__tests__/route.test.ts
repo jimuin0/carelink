@@ -35,6 +35,10 @@ test('確定したDBポイント数を返し、別の台帳INSERTは実行しな
  const res=await POST(request());expect(res.status).toBe(200);expect(await res.json()).toEqual({success:true,points_earned:42,replayed:false});
  expect(mockRpc).toHaveBeenCalledWith('complete_booking_with_points_atomic',{p_actor_id:actor,p_booking_id:id,p_expected_status:'confirmed'});
  expect(mockFrom).not.toHaveBeenCalledWith('user_points'); expect(mockFrom).not.toHaveBeenCalledWith('customer_visits');
+ // 成功時は監査ログ（confirmed→completed）と紹介ボーナス付与が必ず走る
+ expect(writeAuditLog).toHaveBeenCalledTimes(1);
+ expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({userId:actor,facilityId:'f1',action:'confirm',tableName:'bookings',recordId:id,oldValues:{status:'confirmed'},newValues:{status:'completed'}}));
+ expect(jest.requireMock('@/lib/referral').awardReferralPointsOnCompletion).toHaveBeenCalledWith(expect.anything(),'customer');
 });
 test.each([['BOOKING_PERMISSION_DENIED',403],['BOOKING_REVISION_CONFLICT',409],['BOOKING_NOT_STARTED',400],['SYNTHETIC_POINT_FAILURE',500],['SYNTHETIC_VISIT_FAILURE',500]])('transaction失敗%sは成功監査にしない',async(message,status)=>{
  mockRpc.mockResolvedValue({data:null,error:{message}});expect((await POST(request())).status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();

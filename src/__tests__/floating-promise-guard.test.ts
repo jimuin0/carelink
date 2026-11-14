@@ -33,10 +33,15 @@ function walk(dir: string, accept: (p: string) => boolean): string[] {
   return out;
 }
 
-const isTest = (p: string) => p.includes(`${sep}__tests__${sep}`) || p.endsWith('.test.ts');
+const isTest = (p: string) => p.includes(`${sep}__tests__${sep}`) || /\.test\.tsx?$/.test(p);
 
-/** 文の先頭の `void <なにか>(` ＝ 呼び出しを投げっぱなしにしている形。 */
-const FLOATING_RE = /^[ \t]*void\s+[^;\n]*\(/m;
+/**
+ * `void <なにか>(` ＝ 呼び出しを投げっぱなしにしている形。行頭だけでなく、
+ * `if (x) void f();`・`else void f();`・`a(); void f();`・`() => void f()` のような
+ * 文の途中に置いた形も拾う（直前が行頭・; { } ) => else のいずれか）。
+ * `(): void` や `() => void` のような型注釈は、直後が識別子か ( でないので拾わない。
+ */
+const FLOATING_RE = /(?:^|[;{}]|\belse\b|\)|=>)[ \t]*void[ \t]+[A-Za-z_$(][^;\n]*\(/m;
 
 /**
  * `void writeAuditLog(...)` は 83 箇所あるが、writeAuditLog 自身が内部で
@@ -44,19 +49,21 @@ const FLOATING_RE = /^[ \t]*void\s+[^;\n]*\(/m;
  * 「解決済み Promise を捨てている」だけで実害が無い。呼び出し側 83 箇所を書き換える
  * 変更のほうがリスクが高いので、ここで明示的に許す。
  */
-const ALLOWED = /^[ \t]*void\s+writeAuditLog\(/;
+const ALLOWED = /\bvoid[ \t]+writeAuditLog\(/;
 
 function floatingLines(src: string): string[] {
   return src
     .split('\n')
-    .filter((l) => /^[ \t]*void\s+[^;\n]*\(/.test(l))
-    .filter((l) => !ALLOWED.test(l));
+    .filter((l) => FLOATING_RE.test(l))
+    // 許可は writeAuditLog だけ。同じ行に別の投げっぱなしが並んでいれば、それは許さない。
+    .filter((l) => FLOATING_RE.test(l.replace(new RegExp(ALLOWED.source, 'g'), 'writeAuditLog(')));
 }
 
 describe('浮いた Promise を残さない', () => {
   const files = [
-    ...walk(join(ROOT, 'src/app/api'), (p) => p.endsWith('.ts') && !isTest(p)),
-    ...walk(join(ROOT, 'src/lib'), (p) => p.endsWith('.ts') && !isTest(p)),
+    // JSX を返す Route Handler やサーバー用ヘルパーもあるので .tsx も対象にする
+    ...walk(join(ROOT, 'src/app/api'), (p) => /\.tsx?$/.test(p) && !isTest(p)),
+    ...walk(join(ROOT, 'src/lib'), (p) => /\.tsx?$/.test(p) && !isTest(p)),
   ];
 
   it('走査対象が存在する（空振りを緑にしない）', () => {
@@ -74,6 +81,24 @@ describe('浮いた Promise を残さない', () => {
     // 正しい形は検出しない
     expect(FLOATING_RE.test('    runAfterResponse(() => enqueueWebhook({')).toBe(false);
     expect(FLOATING_RE.test('    await enqueueWebhook({')).toBe(false);
+  });
+
+  it('行頭以外に置いた投げっぱなしも検出し、型注釈の void は検出しない（負の対照つき）', () => {
+    expect(FLOATING_RE.test('    if (ok) void enqueueWebhook({')).toBe(true);
+    expect(FLOATING_RE.test('    else void notify(x);')).toBe(true);
+    expect(FLOATING_RE.test('    a(); void notify(x);')).toBe(true);
+    expect(FLOATING_RE.test('  const f = () => void notify(x);')).toBe(true);
+    expect(FLOATING_RE.test('  { void notify(x); }')).toBe(true);
+    // 型注釈
+    expect(FLOATING_RE.test('export function f(): void {')).toBe(false);
+    expect(FLOATING_RE.test('  onDone: () => void;')).toBe(false);
+    expect(FLOATING_RE.test('  const cb: (x: string) => void = noop;')).toBe(false);
+    expect(FLOATING_RE.test('  run(cb: () => void, opts?: Options): Promise<void> {')).toBe(false);
+  });
+
+  it('writeAuditLog の許可は同じ行の別の投げっぱなしを見逃さない', () => {
+    expect(floatingLines('  if (!replay) void writeAuditLog({')).toEqual([]);
+    expect(floatingLines('  void writeAuditLog(a); void notify(b);')).toHaveLength(1);
   });
 
   it('src/app/api と src/lib に投げっぱなしが残っていない', () => {

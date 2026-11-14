@@ -211,11 +211,13 @@ describe('POST /api/nps', () => {
     expect(res.status).toBe(400);
   });
 
-  test('score 0-10 → accepted', async () => {
+  test.each([0, 5, 10])('score %i（0〜10 の範囲内）→ 201 で保存する', async (score) => {
     const { POST } = await import('../route');
-    const res = await POST(makePostRequest({ score: 5 }) as any);
+    const res = await POST(makePostRequest({ score }) as any);
 
-    expect([200, 201, 400, 500]).toContain(res.status);
+    expect(res.status).toBe(201);
+    expect(mockInsert).toHaveBeenCalledTimes(1);
+    expect(mockInsert.mock.calls[0][0]).toEqual(expect.objectContaining({ score }));
   });
 
   test('invalid facility_id UUID → 400', async () => {
@@ -323,10 +325,11 @@ describe('POST /api/nps', () => {
     const { POST } = await import('../route');
     await POST(makePostRequest({ score: 8 }) as any);
 
-    if (mockInsert.mock.calls.length > 0) {
-      const call = mockInsert.mock.calls[0];
-      expect(call[0].ip_hash).toBeNull();
-    }
+    // insert が呼ばれなければ空振りになるので、呼ばれたこと自体を先に主張する
+    expect(mockInsert).toHaveBeenCalledTimes(1);
+    const row = mockInsert.mock.calls[0][0];
+    expect(row).toHaveProperty('ip_hash', null);
+    expect(JSON.stringify(row)).not.toMatch(/192\.168\.|ip_address/);
   });
 
   test('POST: missing x-forwarded-for → uses "unknown"', async () => {

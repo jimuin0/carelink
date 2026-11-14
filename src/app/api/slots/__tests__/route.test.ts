@@ -163,10 +163,12 @@ describe('GET /api/slots', () => {
     expect(json.slots).toEqual([]);
   });
 
-  test('invalid date format (invalid month) → 200 (route only validates format, not semantics)', async () => {
-    // Route regex /^\d{4}-\d{2}-\d{2}$/ passes month=13; RPC handles semantic validation
-    const res = await GET(makeRequest(VALID_UUID, VALID_UUID, '2026-13-15') as any);
+  // route は isValidIsoDate で実在する暦日かまで検証し、RPC を呼ばずに空の slots を返す
+  test.each(['2026-13-15', '2026-02-30'])('実在しない暦日 %s → RPC を呼ばず 200 with empty slots', async (date) => {
+    const res = await GET(makeRequest(VALID_UUID, VALID_UUID, date) as any);
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ slots: [] });
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 
   test('duration < 15 → clamped to 15', async () => {

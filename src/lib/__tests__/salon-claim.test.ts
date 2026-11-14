@@ -104,7 +104,15 @@ describe('salon-claim（POST /api/salons の所有権 claim Cookie）', () => {
   it('TTL 内は有効', () => {
     const now = Math.floor(Date.now() / 1000);
     const signed = signSalonClaim(SALON_ID, now)!;
-    expect(verifySalonClaim(signed, now + SALON_CLAIM_TTL_SECONDS)).toBe(SALON_ID);
+    expect(verifySalonClaim(signed, now + SALON_CLAIM_TTL_SECONDS - 1)).toBe(SALON_ID);
+    expect(verifySalonClaimDetails(signed, now + SALON_CLAIM_TTL_SECONDS - 1)?.receiptId).toBe(SALON_ID);
+  });
+
+  it('発行から TTL 秒ちょうどで両方の検証が同時に失効する（境界の食い違いを作らない）', () => {
+    const now = Math.floor(Date.now() / 1000);
+    const signed = signSalonClaim(SALON_ID, now)!;
+    expect(verifySalonClaim(signed, now + SALON_CLAIM_TTL_SECONDS)).toBeNull();
+    expect(verifySalonClaimDetails(signed, now + SALON_CLAIM_TTL_SECONDS)).toBeNull();
   });
 
   it('🔴 サーバー側で独立に判定される TTL 超過は null（Cookie の maxAge を自己申告として信じない）', () => {

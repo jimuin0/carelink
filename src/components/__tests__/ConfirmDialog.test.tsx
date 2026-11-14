@@ -52,11 +52,28 @@ describe('ConfirmDialog', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
-  test('キャンセル・背景クリック・ESC で onCancel', () => {
-    const { onCancel } = setup();
+  test('キャンセルボタンで onCancel', () => {
+    const { onCancel, onConfirm } = setup();
     fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  test('ESC で onCancel', () => {
+    const { onCancel } = setup();
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(onCancel).toHaveBeenCalledTimes(2);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  test('背景（オーバーレイ）クリックで onCancel・ダイアログ本体のクリックでは閉じない', () => {
+    const { onCancel, onConfirm } = setup();
+    const overlay = screen.getByRole('dialog').querySelector('div.fixed.inset-0[aria-hidden="true"]');
+    expect(overlay).not.toBeNull();
+    fireEvent.click(overlay!);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByText('この操作は取り消せません'));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
   test('confirmDisabled=true → 確定ボタンが無効化され、クリックしても onConfirm が呼ばれない（二重発火防止）', () => {

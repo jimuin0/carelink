@@ -68,3 +68,14 @@ test.each([
 
 test('overnight booking ends on the next calendar day in Japan',async()=>{found.data={...booking,start_time:'23:30:00',end_time:'01:00:00',end_date:'2030-01-08'};expect((await POST(req())).status).toBe(200);const event=mockRun.mock.calls[0][1].payload;expect(event.start.dateTime).toBe('2030-01-07T14:30:00.000Z');expect(event.end.dateTime).toBe('2030-01-07T16:00:00.000Z');});
 test('invalid booking times are not sent to a calendar',async()=>{found.data={...booking,start_time:'bad'};expect((await POST(req())).status).toBe(500);expect(mockRun).not.toHaveBeenCalled();});
+
+// 旧 src/app/api/google-calendar/__tests__/sync-route.test.ts（成功経路を確かめない重複テスト）から、
+// このファイルに無かったレート制限の引数と信頼できる IP の取り出しだけを移した。
+test.each([['POST','gcal-sync'],['DELETE','gcal-sync-delete']])('%s rate limit uses the last trusted IP, 20 req/min',async(method,prefix)=>{
+ const r=method==='POST'
+  ?new NextRequest('http://localhost/api/google-calendar/sync',{method,headers:{'Content-Type':'application/json','x-forwarded-for':'10.0.0.1, 192.168.1.1'},body:JSON.stringify({bookingId:BOOK,operationId:OP})})
+  :new NextRequest('http://localhost/api/google-calendar/sync?'+new URLSearchParams({bookingId:BOOK,operationId:OP}),{method,headers:{'x-forwarded-for':'10.0.0.1, 192.168.1.1'}});
+ const res=method==='POST'?await POST(r):await DELETE(r);
+ expect(res.status).toBe(200);
+ expect(checkRateLimit).toHaveBeenCalledWith(null,'192.168.1.1',20,60000,prefix);
+});

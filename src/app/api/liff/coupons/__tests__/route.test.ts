@@ -234,23 +234,35 @@ describe('GET /api/liff/coupons', () => {
     });
     const res = await GET(req as any);
     expect(res.status).toBe(200);
+    // bookings / favorites の絞り込みに渡った user_id を取り出す（attacker ではなく検証済みの user-123）
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    const from = createServiceRoleClient.mock.results.at(-1).value.from as jest.Mock;
+    const eqArgsFor = (table: string) => from.mock.calls
+      .map(([t], i) => [t, from.mock.results[i].value] as const)
+      .filter(([t]) => t === table)
+      .flatMap(([, chain]) => chain.select.mock.results.flatMap((r: any) => r.value.eq.mock.calls));
+    expect(eqArgsFor('bookings')).toEqual([['user_id', 'user-123']]);
+    expect(eqArgsFor('favorites')).toEqual([['user_id', 'user-123']]);
+    expect(JSON.stringify(from.mock.calls)).not.toContain('attacker');
   });
 
   test('includes coupon metadata (name, description, discount)', async () => {
     const res = await GET(makeRequest() as any);
     const json = await res.json();
-    if (json.coupons.length > 0) {
-      const coupon = json.coupons[0];
-      expect(coupon.id).toBeDefined();
-      expect(coupon.name).toBeDefined();
-      expect(coupon.description).toBeDefined();
-      expect(coupon.discount_type).toBeDefined();
-    }
+    expect(json.coupons.length).toBeGreaterThan(0);
+    const coupon = json.coupons[0];
+    expect(coupon).toEqual(expect.objectContaining({
+      id: 'coupon-1',
+      name: 'Summer Sale',
+      description: '20% off',
+      discount_type: 'percentage',
+      discount_value: 20,
+    }));
   });
 
-  test('rate limit params (30 req/min per IP)', () => {
+  test('rate limit params (30 req/min per IP)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    GET(makeRequest('valid-token', '192.168.1.1') as any);
+    await GET(makeRequest('valid-token', '192.168.1.1') as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
     expect(call[2]).toBe(30);
@@ -258,19 +270,19 @@ describe('GET /api/liff/coupons', () => {
     expect(call[4]).toBe('liff-coupons');
   });
 
-  test('extracts last (trusted) IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    GET(makeRequest('valid-token', '10.0.0.1, 192.168.1.1') as any);
+    await GET(makeRequest('valid-token', '10.0.0.1, 192.168.1.1') as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
   });
 
-  test('uses unknown IP when x-forwarded-for missing', () => {
+  test('uses unknown IP when x-forwarded-for missing', async () => {
     (checkRateLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/liff/coupons', {
       headers: { Authorization: 'Bearer valid-token' },
     });
-    GET(req as any);
+    await GET(req as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('unknown');
   });

@@ -316,20 +316,29 @@ describe('GET /api/cron/birthday-coupon', () => {
     expect(res.status).toBe(200);
   });
 
-  test('email includes 100pt amount in subject', async () => {
-    setupDefaultMocks(1);
+  test('件名は誕生日の挨拶・本文に 100ポイント付与を明記する', async () => {
+    setupDefaultMocks(1, 0);
+    const emailSend = jest.fn().mockResolvedValue({ data: { id: 'sent' } });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
 
     await GET(makeRequest() as any);
 
-    // Email should include "100ポイント" or similar
+    expect(emailSend).toHaveBeenCalledTimes(1);
+    const sent = emailSend.mock.calls[0][0];
+    expect(sent.subject).toBe('🎂 お誕生日おめでとうございます！CareLink より');
+    expect(sent.html).toContain('<strong>100ポイント</strong>をプレゼントしました');
   });
 
-  test('email includes points confirmation link', async () => {
-    setupDefaultMocks(1);
+  test('メール本文にポイント確認ページ（/mypage/points）へのリンクを入れる', async () => {
+    setupDefaultMocks(1, 0);
+    const emailSend = jest.fn().mockResolvedValue({ data: { id: 'sent' } });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
 
     await GET(makeRequest() as any);
 
-    // Email should include mypage/points link
+    expect(emailSend.mock.calls[0][0].html).toContain('href="https://carelink-jp.com/mypage/points"');
   });
 
   test('メール本文に display_name を使う', async () => {
@@ -432,12 +441,13 @@ describe('GET /api/cron/birthday-coupon', () => {
     expect(emailSend).not.toHaveBeenCalled();     // メールは送らない
   });
 
-  test('limits profile query to 500', async () => {
-    setupDefaultMocks(500);
+  test('同日誕生日が 500 人を超えても打ち切らず全員に付与する（旧 .limit(500) の撤去）', async () => {
+    setupDefaultMocks(501);
 
     await GET(makeRequest() as any);
 
-    // Should process up to 500 profiles
+    expect(mockPointsInsert).toHaveBeenCalledTimes(501);
+    expect(mockPointsInsert).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'user-500' }));
   });
 
   test('(c) email送信throw → claim は先に成立済み・claim DELETE で解放される（翌 run で再送）', async () => {
