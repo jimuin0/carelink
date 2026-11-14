@@ -255,3 +255,18 @@ test('mail sync advances past unconfirmed operations with a validated keyset cur
   expect(selected.or).toHaveBeenCalledWith('and(or(delivery_status.is.null,delivery_status.in.(accepted,scheduled,sent,delayed)),or(updated_at.gt.' + at + ',and(updated_at.eq.' + at + ',id.gt.' + id + ')))');
   expect((await call({ action: 'sync', cursor: { at: 'injected', id } })).status).toBe(400);
 });
+// 片方だけ観測を確定できたとき、エラー応答にも確定済みの結果を載せる（低 A131）。
+test('sync partial failure still reports the confirmed observation', async () => {
+  const second = '33333333-3333-4333-8333-333333333333';
+  const sentRow = { ...base, state: 'sent', envelope, reserved_at: at, provider_message_id: other, accepted_at: at, delivery_status: 'accepted' };
+  mockList = { data: [sentRow, { ...sentRow, id: second }], error: null };
+  mockQueue = [
+    { data: sentRow, error: null }, { data: { ...sentRow, id: second }, error: null },
+    { data: { ...sentRow, delivery_status: 'delivered' }, error: null }, { data: null, error: { code: 'XX000' } },
+  ];
+  const result = await call({ action: 'sync' });
+  expect(result.status).toBe(500);
+  const body = await result.json();
+  expect(body.error).toBeDefined();
+  expect(body.observations).toEqual([expect.objectContaining({ id, delivery_status: 'delivered' })]);
+});

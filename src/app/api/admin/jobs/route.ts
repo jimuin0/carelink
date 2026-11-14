@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
       .in('facility_id', facilityIds)
       .order('created_at', { ascending: false });
 
-    if (error) return serverError('admin-jobs-list-query', error, '/api/admin/jobs', '取得に失敗しました');
+    if (error) return serverError('admin-jobs-list-query', databaseDiagnostic(error), '/api/admin/jobs', '取得に失敗しました');
     return NextResponse.json({ jobs: data ?? [] });
   } catch (e) {
     const response = serverError('admin-jobs-list', databaseDiagnostic(e), '/api/admin/jobs', 'サーバーエラー');

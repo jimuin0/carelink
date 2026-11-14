@@ -119,11 +119,13 @@ export async function GET(request: NextRequest) {
   );
   const menuNameMap = new Map<string, string>();
   if (multiMenuIds.length > 0) {
-    const { data: menuRows } = await admin
+    const { data: menuRows, error: menuError } = await admin
       .from('facility_menus')
       .select('id, name')
       .eq('facility_id', facilityId)
       .in('id', multiMenuIds);
+    // 読み取り失敗を「名前なし」として先頭メニュー名だけの CSV を成功扱いにしない（低 A118）。
+    if (menuError) return serverError('admin-accounting-export-menus', menuError, '/api/admin/accounting-export');
     for (const m of (menuRows ?? []) as { id: string; name: string }[]) {
       menuNameMap.set(m.id, m.name);
     }

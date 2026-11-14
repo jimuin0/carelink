@@ -56,17 +56,19 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   // 🔴 Record<string, unknown> だと列名のタイポが tsc を素通りし、PostgREST が
   // 「そんな列は無い」で失敗しても error を握り潰していれば無音で保存されないままになる。
   // テーブルの Update 型を当てて、存在しない列名をここで落とす。
-  const updateFields: StaffProfileUpdate = {
-    name: parsed.data.name,
-    position: parsed.data.position ?? null,
-    bio: parsed.data.bio ?? null,
-    specialties: parsed.data.specialties ?? [],
-    years_experience: parsed.data.years_experience ?? null,
-    instagram_url: parsed.data.instagram_url || null,
-    nomination_fee: parsed.data.nomination_fee ?? 0,
-    line_works_channel_id: parsed.data.line_works_channel_id ?? null,
-    line_works_notify_all: parsed.data.line_works_notify_all ?? false,
-  };
+  // 🔴 送られていない列は載せない（RPC は jsonb_populate_record で現在値に重ねるので、
+  //   載せなければ現在値のまま）。以前は未指定の bio・specialties 等を null/[]/0/false で
+  //   上書きし、名前だけ直すと他の項目が無言で消えていた（低 A133）。
+  const d = parsed.data;
+  const updateFields: StaffProfileUpdate = { name: d.name };
+  if (d.position !== undefined) updateFields.position = d.position;
+  if (d.bio !== undefined) updateFields.bio = d.bio;
+  if (d.specialties !== undefined) updateFields.specialties = d.specialties;
+  if (d.years_experience !== undefined) updateFields.years_experience = d.years_experience;
+  if (d.instagram_url !== undefined) updateFields.instagram_url = d.instagram_url || null;
+  if (d.nomination_fee !== undefined) updateFields.nomination_fee = d.nomination_fee;
+  if (d.line_works_channel_id !== undefined) updateFields.line_works_channel_id = d.line_works_channel_id;
+  if (d.line_works_notify_all !== undefined) updateFields.line_works_notify_all = d.line_works_notify_all;
   if (parsed.data.is_active !== undefined) updateFields.is_active = parsed.data.is_active;
   const data = await saveAdminStaff({
     actorId: auth.userId, facilityId: auth.facilityId, staffId: params.id,

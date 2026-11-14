@@ -38,11 +38,13 @@ const updateSchema = z.object({
   target_menu_ids: z.array(z.string().uuid()).max(100).optional(),
 }).superRefine(validateCouponDiscountFields).superRefine(validateCouponDates).transform(data=>normalizeCouponDateFields(normalizeCouponDiscountFields(data)));
 
-async function verifyCouponAdmin(couponId: string, userId: string): Promise<string | null> {
+// クーポンが無いときは所属なし（401）と区別して 404 を返すため NOT_FOUND を返す（低 A122）。
+const COUPON_NOT_FOUND = Symbol('coupon-not-found');
+async function verifyCouponAdmin(couponId: string, userId: string): Promise<string | null | typeof COUPON_NOT_FOUND> {
   const admin = createServiceRoleClient();
   const { data: coupon, error: couponError } = await admin.from('coupons').select('facility_id').eq('id', couponId).maybeSingle();
   if (couponError) throw databaseDiagnostic(couponError);
-  if (!coupon) return null;
+  if (!coupon) return COUPON_NOT_FOUND;
 
   const supabase = await createServerSupabaseAuthClient();
   const { data: mem, error: memberError } = await supabase
@@ -72,7 +74,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (identity.state === 'unavailable') return NextResponse.json(AUTH_UNAVAILABLE_BODY, { status: 503 });
   if (identity.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const user = identity.user;
-  let facilityId: string | null;
+  let facilityId: string | null | typeof COUPON_NOT_FOUND;
   if(new URL(request.url).searchParams.has('facility_id')){
     const context=await getAdminApiContext(new NextRequest(request.url));
     if(context instanceof NextResponse)return context;
@@ -82,6 +84,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     try { facilityId = await verifyCouponAdmin(params.id,user.id); }
     catch(error){return serverError('admin-coupons-access',error,'/api/admin/coupons/[id]');}
   }
+  if (facilityId === COUPON_NOT_FOUND) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
@@ -138,7 +141,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (identity.state === 'unavailable') return NextResponse.json(AUTH_UNAVAILABLE_BODY, { status: 503 });
   if (identity.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const user = identity.user;
-  let facilityId: string | null;
+  let facilityId: string | null | typeof COUPON_NOT_FOUND;
   if(new URL(request.url).searchParams.has('facility_id')){
     const context=await getAdminApiContext(new NextRequest(request.url));
     if(context instanceof NextResponse)return context;
@@ -148,6 +151,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     try { facilityId = await verifyCouponAdmin(params.id,user.id); }
     catch(error){return serverError('admin-coupons-access',error,'/api/admin/coupons/[id]');}
   }
+  if (facilityId === COUPON_NOT_FOUND) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();

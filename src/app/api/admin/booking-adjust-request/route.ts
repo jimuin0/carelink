@@ -96,9 +96,10 @@ export async function POST(request: Request) {
       .eq('id', booking.facility_id)
       .maybeSingle();
     const facilityName = facility?.name ?? '';
+    // メール・LINE とも施設名が読めないまま空の文面を送らない（低 A119）。
+    if (facilityError || !facilityName) return serverError('booking-adjust-facility', facilityError ?? new Error('facility unavailable'), '/api/admin/booking-adjust-request');
 
     if (channel === 'email') {
-      if (facilityError || !facilityName) return serverError('booking-adjust-facility', facilityError ?? new Error('facility unavailable'), '/api/admin/booking-adjust-request');
       // メール送信は無料
       const { buildTimeAdjustRequestEnvelope } = await import('@/lib/email');
       const envelope = booking.email ? buildTimeAdjustRequestEnvelope({
