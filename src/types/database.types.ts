@@ -7938,6 +7938,12 @@ export type Database = {
           id: string
         }[]
       }
+      list_published_stations: {
+        Args: { p_query?: string }
+        Returns: {
+          nearest_station: string
+        }[]
+      }
       list_recoverable_salon_receipts: {
         Args: { p_after_id?: string; p_user_id: string }
         Returns: {

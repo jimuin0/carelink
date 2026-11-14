@@ -1,282 +1,80 @@
 /**
  * @jest-environment node
  *
- * Tests for GET /api/stations - Rate limiting
+ * Tests for GET /api/stations
+ * 駅候補は RPC list_published_stations（公開施設・重複なし・最大 200 件）から取る（点検 B3-4）。
  */
 
 jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
 import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
-// クエリビルダ。ilike の呼び出し有無と引数（エスケープ・切り詰め）を結果として検証する
-let chainable: any;
+let mockRpc: jest.Mock;
+
+function request(q?: string, headers: Record<string, string> = { 'x-forwarded-for': '192.168.1.1' }) {
+  const url = `http://localhost/api/stations${q === undefined ? '' : `?q=${encodeURIComponent(q)}`}`;
+  const req = new Request(url, { headers });
+  Object.defineProperty(req, 'nextUrl', { value: new URL(url), writable: true });
+  return req as any;
+}
 
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
-
+  mockRpc = jest.fn().mockResolvedValue({ data: [], error: null });
   const { createServerSupabaseClient } = require('@/lib/supabase-server');
-  chainable = {};
-  Object.assign(chainable, {
-    eq: jest.fn().mockReturnValue(chainable),
-    not: jest.fn().mockReturnValue(chainable),
-    ilike: jest.fn().mockReturnValue(chainable),
-    limit: jest.fn().mockResolvedValue({ data: [], error: null }),
-    select: jest.fn().mockReturnValue(chainable),
-  });
-  createServerSupabaseClient.mockReturnValue({
-    from: jest.fn().mockReturnValue(chainable),
-  });
+  createServerSupabaseClient.mockReturnValue({ rpc: mockRpc });
 });
 
 describe('GET /api/stations', () => {
-  test('rate limiting → 429', async () => {
+  test('rate limiting → 429（IP とレート上限を渡す）', async () => {
     (checkRateLimit as jest.Mock).mockReturnValue(true);
-    const res = await GET(new Request('http://localhost/api/stations', {
-      headers: { 'x-forwarded-for': '192.168.1.1' },
-    }) as any);
+    const res = await GET(request(undefined, { 'x-forwarded-for': '10.0.0.1, 192.168.1.1' }));
     expect(res.status).toBe(429);
-  });
-
-  test('valid request → 200', async () => {
-    const req = new Request('http://localhost/api/stations', {
-      headers: { 'x-forwarded-for': '192.168.1.1' },
-    });
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    const res = await GET(req as any);
-    expect(res.status).toBe(200);
-  });
-
-  test('rate limit params', async () => {
-    (checkRateLimit as jest.Mock).mockClear();
-    await GET(new Request('http://localhost/api/stations', {
-      headers: { 'x-forwarded-for': '192.168.1.1' },
-    }) as any);
-    const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[2]).toBe(30);
-  });
-
-  test('IP extraction', async () => {
-    (checkRateLimit as jest.Mock).mockClear();
-    await GET(new Request('http://localhost/api/stations', {
-      headers: { 'x-forwarded-for': '10.0.0.1, 192.168.1.1' },
-    }) as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(30);
+    expect(mockRpc).not.toHaveBeenCalled();
   });
-});
 
-  test('q パラメーターで駅名フィルタリング', async () => {
-    const { createServerSupabaseClient } = require('@/lib/supabase-server');
-    const ilikeMock = jest.fn().mockReturnValue({
-      limit: jest.fn().mockResolvedValue({ data: [{ nearest_station: '渋谷駅' }], error: null }),
-    });
-    createServerSupabaseClient.mockReturnValue({
-      from: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            not: jest.fn().mockReturnValue({ ilike: ilikeMock }),
-          }),
-        }),
-      }),
-    });
-
-    const req = new Request('http://localhost/api/stations?q=渋谷', { headers: { 'x-forwarded-for': '192.168.1.1' } });
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    const res = await GET(req as any);
+  test('q なしは絞り込まずに RPC を呼び、駅名の配列を返す', async () => {
+    mockRpc.mockResolvedValue({ data: [{ nearest_station: '渋谷駅' }, { nearest_station: '新宿駅' }], error: null });
+    const res = await GET(request());
     expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.stations).toContain('渋谷駅');
+    expect(mockRpc).toHaveBeenCalledWith('list_published_stations', {});
+    expect(await res.json()).toEqual({ stations: ['渋谷駅', '新宿駅'] });
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=3600, s-maxage=3600');
   });
 
-  test('重複する駅名がデデュープされる', async () => {
-    const { createServerSupabaseClient } = require('@/lib/supabase-server');
-    createServerSupabaseClient.mockReturnValue({
-      from: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            not: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
-                data: [
-                  { nearest_station: '渋谷駅' },
-                  { nearest_station: '渋谷駅' },
-                  { nearest_station: '新宿駅' },
-                ],
-                error: null,
-              }),
-            }),
-          }),
-        }),
-      }),
-    });
-
-    const req = new Request('http://localhost/api/stations', { headers: { 'x-forwarded-for': '192.168.1.1' } });
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    const res = await GET(req as any);
-    const json = await res.json();
-    expect(json.stations.filter((s: string) => s === '渋谷駅').length).toBe(1);
+  test('空白だけの q は絞り込まない', async () => {
+    await GET(request('   '));
+    expect(mockRpc).toHaveBeenCalledWith('list_published_stations', {});
   });
 
-  test('駅名がソートされて返る', async () => {
-    const { createServerSupabaseClient } = require('@/lib/supabase-server');
-    createServerSupabaseClient.mockReturnValue({
-      from: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            not: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
-                data: [
-                  { nearest_station: '池袋駅' },
-                  { nearest_station: '渋谷駅' },
-                  { nearest_station: '新宿駅' },
-                ],
-                error: null,
-              }),
-            }),
-          }),
-        }),
-      }),
-    });
-
-    const req = new Request('http://localhost/api/stations', { headers: { 'x-forwarded-for': '192.168.1.1' } });
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    const res = await GET(req as any);
-    const json = await res.json();
-    expect(json.stations).toEqual([...json.stations].sort());
+  test('q は前後の空白を除き 50 文字に切り詰めて渡す（エスケープは RPC が行う）', async () => {
+    await GET(request(` ${'あ'.repeat(60)}%_ `));
+    expect(mockRpc).toHaveBeenCalledWith('list_published_stations', { p_query: 'あ'.repeat(50) });
+    await GET(request('渋谷'));
+    expect(mockRpc).toHaveBeenLastCalledWith('list_published_stations', { p_query: '渋谷' });
   });
 
-  test('Cache-Control ヘッダーが設定されている', async () => {
-    const req = new Request('http://localhost/api/stations', { headers: { 'x-forwarded-for': '192.168.1.1' } });
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    const res = await GET(req as any);
-    const cc = res.headers.get('Cache-Control') || res.headers.get('cache-control');
-    expect(cc).toContain('max-age');
+  test('data が null でも空配列・空の駅名は除く', async () => {
+    mockRpc.mockResolvedValueOnce({ data: null, error: null });
+    expect(await (await GET(request())).json()).toEqual({ stations: [] });
+    mockRpc.mockResolvedValueOnce({ data: [{ nearest_station: '' }, { nearest_station: '池袋駅' }], error: null });
+    expect(await (await GET(request())).json()).toEqual({ stations: ['池袋駅'] });
   });
 
-  test('DB 例外 → 500', async () => {
-    const { createServerSupabaseClient } = require('@/lib/supabase-server');
-    createServerSupabaseClient.mockImplementation(() => { throw new Error('DB error'); });
-    const req = new Request('http://localhost/api/stations', { headers: { 'x-forwarded-for': '192.168.1.1' } });
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    const res = await GET(req as any);
+  test('DB 障害 → 500・キャッシュさせない', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { code: '08006', message: 'down' } });
+    const res = await GET(request());
     expect(res.status).toBe(500);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
   });
-
-  test('q が空文字の場合は全件返す（ilike 呼ばれない）', async () => {
-    const req = new Request('http://localhost/api/stations?q=', { headers: { 'x-forwarded-for': '192.168.1.1' } });
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    const res = await GET(req as any);
-    expect(res.status).toBe(200);
-    expect(chainable.ilike).not.toHaveBeenCalled();
-    expect(chainable.limit).toHaveBeenCalledWith(200);
-  });
-
-  test('q が 50 文字超でも安全に処理（スライス）', async () => {
-    const longQ = 'あ'.repeat(100);
-    const req = new Request(`http://localhost/api/stations?q=${encodeURIComponent(longQ)}`, {
-      headers: { 'x-forwarded-for': '192.168.1.1' },
-    });
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    const res = await GET(req as any);
-    expect(res.status).toBe(200);
-    expect(chainable.ilike).toHaveBeenCalledWith('nearest_station', `%${'あ'.repeat(50)}%`);
-  });
-
-  test('q に SQL injection 文字が含まれても安全', async () => {
-    const req = new Request(`http://localhost/api/stations?q=${encodeURIComponent('%_\\')}`, {
-      headers: { 'x-forwarded-for': '192.168.1.1' },
-    });
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    const res = await GET(req as any);
-    expect(res.status).toBe(200);
-    // % _ \ はそれぞれバックスラッシュでエスケープされ、ワイルドカードとして効かない
-    expect(chainable.ilike).toHaveBeenCalledWith('nearest_station', '%\\%\\_\\\\%');
-  });
-
-  test('unknown IP（x-forwarded-for なし）でもレートリミット動作', async () => {
-    (checkRateLimit as jest.Mock).mockClear();
-    const req = new Request('http://localhost/api/stations');
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    await GET(req as any);
-    const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('unknown');
-  });
-
-  test('data が null でも空配列で返る', async () => {
-    const { createServerSupabaseClient } = require('@/lib/supabase-server');
-    createServerSupabaseClient.mockReturnValue({
-      from: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            not: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({ data: null, error: null }),
-            }),
-          }),
-        }),
-      }),
-    });
-    const req = new Request('http://localhost/api/stations', { headers: { 'x-forwarded-for': '192.168.1.1' } });
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    const res = await GET(req as any);
-    const json = await res.json();
-    expect(json.stations).toEqual([]);
-  });
-
-  test('falsy nearest_station 行はフィルタされる', async () => {
-    const { createServerSupabaseClient } = require('@/lib/supabase-server');
-    createServerSupabaseClient.mockReturnValue({
-      from: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            not: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
-                data: [
-                  { nearest_station: '' },
-                  { nearest_station: null },
-                  { nearest_station: '新宿駅' },
-                ],
-                error: null,
-              }),
-            }),
-          }),
-        }),
-      }),
-    });
-    const req = new Request('http://localhost/api/stations', { headers: { 'x-forwarded-for': '192.168.1.1' } });
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    const res = await GET(req as any);
-    const json = await res.json();
-    expect(json.stations).toEqual(['新宿駅']);
-  });
-
-  test('レスポンスが { stations: string[] } 形式', async () => {
-    const req = new Request('http://localhost/api/stations', { headers: { 'x-forwarded-for': '192.168.1.1' } });
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    const res = await GET(req as any);
-    const json = await res.json();
-    expect(Array.isArray(json.stations)).toBe(true);
-  });
-
-// 中 A24：DB 障害を「駅候補なし」として CDN に 1 時間配らない。
-test('DB 障害 → 500・キャッシュさせない', async () => {
-  const { createServerSupabaseClient } = require('@/lib/supabase-server');
-  const chainable: any = {};
-  Object.assign(chainable, {
-    eq: jest.fn().mockReturnValue(chainable),
-    not: jest.fn().mockReturnValue(chainable),
-    ilike: jest.fn().mockReturnValue(chainable),
-    limit: jest.fn().mockResolvedValue({ data: null, error: { code: '08006', message: 'down' } }),
-    select: jest.fn().mockReturnValue(chainable),
-  });
-  createServerSupabaseClient.mockReturnValue({ from: jest.fn().mockReturnValue(chainable) });
-  const req = new Request('http://localhost/api/stations', { headers: { 'x-forwarded-for': '192.168.1.1' } });
-  Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-  const res = await GET(req as any);
-  expect(res.status).toBe(500);
-  expect(res.headers.get('Cache-Control')).toBe('no-store');
 });

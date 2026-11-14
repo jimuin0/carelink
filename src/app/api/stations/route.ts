@@ -16,22 +16,14 @@ export async function GET(request: NextRequest) {
     const q = request.nextUrl.searchParams.get('q')?.trim() || '';
     const supabase = createServerSupabaseClient();
 
-    let query = supabase
-      .from('facility_profiles')
-      .select('nearest_station')
-      .eq('status', 'published')
-      .not('nearest_station', 'is', null);
-
-    if (q.length > 0) {
-      const escaped = q.slice(0, 50).replace(/[%_\\]/g, '\\$&');
-      query = query.ilike('nearest_station', `%${escaped}%`);
-    }
-
-    const { data, error } = await query.limit(200);
+    // 公開施設の最寄り駅を DB 側で重複なしにして最大 200 件取る（点検 B3-4・migration 20261114300300）。
+    // 以前は DISTINCT なしで 200 行読んでから重複を除いていたため、同じ駅の施設が多いと他の駅が欠けた。
+    // 部分一致のエスケープも RPC が行う。
+    const { data, error } = await supabase.rpc('list_published_stations', q.length > 0 ? { p_query: q.slice(0, 50) } : {});
     // DB 障害を「駅候補なし」として CDN に 1 時間配らない（catch で 500・no-store・通知・中 A24）。
     if (error) throw error;
 
-    const stations = Array.from(new Set((data || []).map((r) => r.nearest_station).filter(Boolean) as string[])).sort();
+    const stations = (data ?? []).map((r) => r.nearest_station).filter(Boolean);
 
     return NextResponse.json(
       { stations },
