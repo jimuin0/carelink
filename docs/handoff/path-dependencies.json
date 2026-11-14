@@ -1,10 +1,23 @@
 {
   "lfs_pointers": [],
-  "mac_path_candidates": [
-    "scripts/check-booking-create-concurrency.mjs",
-    "scripts/check-manual-booking-concurrency.mjs",
-    "scripts/check-newsletter-delivery-concurrency.mjs",
-    "scripts/check-salon-intent-concurrency.mjs"
-  ],
-  "interpretation": "Candidates require review; historical/operator examples are not automatically runtime dependencies."
+  "mac_path_candidates": [],
+  "explicit_local_paths": {
+    "CARELINK_LOCAL_PSQL": {
+      "meaning": "--local-docker-shadow で使う psql の絶対パス。未設定ならその経路は起動前に止まる",
+      "scripts": [
+        "scripts/check-booking-create-concurrency.mjs",
+        "scripts/check-manual-booking-concurrency.mjs"
+      ]
+    },
+    "CARELINK_LOCAL_DOCKER_HOST": {
+      "meaning": "専用 Docker ソケット（unix:///<絶対パス>.sock）。DOCKER_HOST と完全一致し、共有の既定ソケットでないときだけ通す。未設定ならその経路は止まる（scripts/local-docker-host.mjs）",
+      "scripts": [
+        "scripts/check-moderation-photo-concurrency.mjs",
+        "scripts/check-newsletter-delivery-concurrency.mjs",
+        "scripts/check-review-atomic-concurrency.mjs",
+        "scripts/check-salon-intent-concurrency.mjs"
+      ]
+    }
+  },
+  "interpretation": "個人環境のパス（/Users/<名前>/ やホーム配下の特定フォルダ）を直書きしたスクリプトは無い（src/__tests__/concurrency-scripts-no-fixed-home.test.ts が固定）。ローカル実行は上記の環境変数で明示する。CI は GitHub の使い捨て PG17 経路を使い、これらの変数を必要としない。"
 }

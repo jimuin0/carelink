@@ -25,7 +25,7 @@ F: 他案件は探索対象外。旧版を自動で不要にはしない。旧Ca
 
 ## 追加確認
 
-Git LFS pointerは追跡ファイルに0。submodule/追跡symlinkの件数はGit棚卸しに記録。4本の過去競合検証スクリプトに旧Mac専用Docker/psqlモードが存在する。安全ガードを外さず、通常の`psql`/CIローカルDBモードを使用する。現行アプリ・npm ciの必須依存ではない。path-dependencies.jsonに対象を記録。
+Git LFS pointerは追跡ファイルに0。submodule/追跡symlinkの件数はGit棚卸しに記録。競合検証スクリプトのローカルDocker/psqlモードは個人環境のパスを持たず、`CARELINK_LOCAL_PSQL`・`CARELINK_LOCAL_DOCKER_HOST`で明示したときだけ動く（未設定なら止まる）。CIは使い捨てPG17モードを使う。現行アプリ・npm ciの必須依存ではない。path-dependencies.jsonに対象を記録。
 
 入れ子worktree2件も確認し、一方のdocs/carelink-resume-status.mdに未保存差分1件がある。元checkoutを変更せず保持し、公開レビュー前なのでC。全refのGit bundleをローカル作成・git bundle verify成功。hashをprivate-history-preservation.jsonに保存。これは別Macへの移転完了ではない。
 

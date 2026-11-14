@@ -1,6 +1,7 @@
 // Synthetic-only PG17 race contracts. No HTTP, Storage, provider or production I/O.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { requireDedicatedDockerHost } from './local-docker-host.mjs';
 const shadowDocker = process.argv[2] === '--local-docker-shadow';
 const localDocker = shadowDocker || process.argv[2] === '--local-docker';
 const database = process.env.CARELINK_REVIEW_TEST_DB || 'carelink_shadow';
@@ -9,7 +10,7 @@ assert.ok(process.argv.length <= 3 && (!process.argv[2] || localDocker), 'unsupp
 if (process.env.PGSERVICE || process.env.PGSERVICEFILE || process.env.PGHOSTADDR) throw new Error('alternate connection refused');
 let binary, args, dbEnv;
 if (localDocker) {
-  assert.match(process.env.DOCKER_HOST || '', /^unix:\/\/\/Users\/kam\/\.carelink-vm-20261008\/\.docker\/run\/docker\.sock$/);
+  requireDedicatedDockerHost();
   binary = 'docker'; args = ['exec', '-i', 'supabase_db_carelink', 'psql', '-U', 'postgres', '-d', database];
   dbEnv = { PATH: process.env.PATH, DOCKER_HOST: process.env.DOCKER_HOST, DOCKER_CONFIG: process.env.DOCKER_CONFIG };
 } else {

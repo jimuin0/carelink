@@ -32,3 +32,11 @@ test.each(['', 'unix:///other/docker.sock', 'tcp://production.invalid:2375'])('l
   expect(result.stdout).toBe('');
   expect(result.stderr).toBe('Registration concurrency contract failed; no production probe was authorized.\n');
 });
+
+test('local shadow refuses a DOCKER_HOST that differs from the declared CARELINK_LOCAL_DOCKER_HOST', () => {
+  const result = spawnSync(process.execPath, [script, '--local-docker-shadow'], {
+    env: { ...isolated, CARELINK_LOCAL_DOCKER_HOST: 'unix:///opt/carelink-shadow/docker.sock', DOCKER_HOST: 'unix:///other/docker.sock' },
+    encoding: 'utf8' });
+  expect(result.status).toBe(1);
+  expect(result.stderr).toBe('Registration concurrency contract failed; no production probe was authorized.\n');
+});
