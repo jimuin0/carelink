@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import JobForm from '@/components/admin/JobForm';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import type { JobFormInput, JobFormValues } from '@/lib/jobs';
+import { toSalaryUnit, type JobFormInput, type JobFormValues } from '@/lib/jobs';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import LoadError from '@/components/admin/LoadError';
 
@@ -50,6 +50,7 @@ export default function EditJobPage() {
           salary_min: job.salary_min ?? '',
           salary_max: job.salary_max ?? '',
           salary_note: job.salary_note ?? '',
+          salary_unit: toSalaryUnit(job.salary_unit),
           description: job.description ?? '',
           requirements: job.requirements ?? '',
           benefits: job.benefits ?? '',

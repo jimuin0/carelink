@@ -494,6 +494,7 @@
     "salary_max",
     "salary_min",
     "salary_note",
+    "salary_unit",
     "title",
     "updated_at"
   ],

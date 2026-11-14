@@ -114,6 +114,7 @@ export async function POST(request: Request) {
       salary_min: v.salary_min,
       salary_max: v.salary_max,
       salary_note: v.salary_note || null,
+      salary_unit: v.salary_unit,
       description: v.description || null,
       requirements: v.requirements || null,
       benefits: v.benefits || null,

@@ -336,3 +336,26 @@ describe('jobFormSchema — salary refine null-coalescing branches (line 26)', (
     expect(r.success).toBe(true);
   });
 });
+
+describe('給与の単位（点検 B8-L5）', () => {
+  const { SALARY_UNITS, SALARY_UNIT_LABELS, SALARY_UNIT_LD, toSalaryUnit, jobFormSchema: schema } = jest.requireActual('../jobs');
+  const base = { title: 'T', job_type: '美容師', employment_type: '正社員' };
+
+  test('単位は DB の CHECK と同じ 4 種で、表示名と JSON-LD の値を持つ', () => {
+    expect(SALARY_UNITS).toEqual(['monthly', 'hourly', 'daily', 'yearly']);
+    expect(SALARY_UNIT_LABELS).toEqual({ monthly: '月給', hourly: '時給', daily: '日給', yearly: '年俸' });
+    expect(SALARY_UNIT_LD).toEqual({ monthly: 'MONTH', hourly: 'HOUR', daily: 'DAY', yearly: 'YEAR' });
+  });
+
+  test.each([['hourly', 'hourly'], ['yearly', 'yearly'], ['weekly', 'monthly'], ['', 'monthly'], [null, 'monthly'], [undefined, 'monthly']])(
+    'toSalaryUnit(%p) → %p', (input, expected) => { expect(toSalaryUnit(input)).toBe(expected); },
+  );
+
+  test('未指定は月給、指定した単位はそのまま、未知の単位は拒否', () => {
+    expect(schema.parse(base).salary_unit).toBe('monthly');
+    expect(schema.parse({ ...base, salary_unit: 'daily' }).salary_unit).toBe('daily');
+    const r = schema.safeParse({ ...base, salary_unit: 'weekly' });
+    expect(r.success).toBe(false);
+    expect(r.error.issues[0].message).toBe('給与の単位を選択してください');
+  });
+});

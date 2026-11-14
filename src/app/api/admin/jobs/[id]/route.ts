@@ -93,7 +93,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     const v = parsed.data;
     const data = await manageAdminContent({actorId:userId,facilityId:job.facility_id,recordId:job.id,kind:'job:update',values:{
       title:v.title,job_type:v.job_type,employment_type:v.employment_type,salary_min:v.salary_min,salary_max:v.salary_max,
-      salary_note:v.salary_note || null,description:v.description || null,requirements:v.requirements || null,benefits:v.benefits || null,
+      salary_note:v.salary_note || null,salary_unit:v.salary_unit,description:v.description || null,requirements:v.requirements || null,benefits:v.benefits || null,
     }});
     if (data instanceof NextResponse) return data;
 

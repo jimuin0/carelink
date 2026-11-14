@@ -1989,6 +1989,7 @@ export type Database = {
           salary_max: number | null
           salary_min: number | null
           salary_note: string | null
+          salary_unit: string
           title: string
           updated_at: string | null
         }
@@ -2005,6 +2006,7 @@ export type Database = {
           salary_max?: number | null
           salary_min?: number | null
           salary_note?: string | null
+          salary_unit?: string
           title: string
           updated_at?: string | null
         }
@@ -2021,6 +2023,7 @@ export type Database = {
           salary_max?: number | null
           salary_min?: number | null
           salary_note?: string | null
+          salary_unit?: string
           title?: string
           updated_at?: string | null
         }
