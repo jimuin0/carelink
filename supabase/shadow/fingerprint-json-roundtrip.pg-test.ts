@@ -16,9 +16,8 @@ it('actual RPC JSON preserves literals through generator, cron engine and CLI', 
   const cli = await import(join(root, 'scripts/schema-diff.mjs'));
   const sql = `BEGIN;
     DO $$ BEGIN
-      -- Replay leaves no facilities: the 10 synthetic facilities from 20260321000004
-      -- are removed again by 20261114400000.
-      IF EXISTS (SELECT 1 FROM public.facility_profiles)
+      -- Replay includes 10 synthetic facilities from 20260321000004.
+      IF (SELECT count(*) FROM public.facility_profiles) <> 10
         OR EXISTS (SELECT 1 FROM public.contacts) OR EXISTS (SELECT 1 FROM auth.users)
         OR EXISTS (SELECT 1 FROM public.bookings)
       THEN RAISE EXCEPTION 'not the isolated migration replay fixture'; END IF;
