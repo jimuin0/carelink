@@ -17,7 +17,10 @@
  *   - ADMIN_HEARTBEAT_TOKEN  同上
  */
 
+import { readFileSync } from 'node:fs';
 import { isHealthy, formatHealthSummary } from '../src/lib/render-cron.mjs';
+import { monitorPlan } from '../src/lib/cron-dispatch.mjs';
+import { callCron } from './cron-request.mjs';
 
 const TIMEOUT_MS = 30_000;
 const ADMIN_HEARTBEAT_JOB_ID = 'health-check';
@@ -62,7 +65,31 @@ async function postSlack(text) {
   }
 }
 
-async function main() {
+// cron-heartbeat shares this service (see MONITOR_RUNNER). It runs only at its
+// canonical slots, independently of the health result, and any failure makes the
+// Render run fail. Response bodies and credentials are never logged.
+async function runDueMonitorJobs() {
+  const jobs = JSON.parse(readFileSync(new URL('../src/lib/cron-jobs.data.json', import.meta.url), 'utf8'));
+  let plan;
+  try {
+    plan = monitorPlan(jobs, new Date());
+  } catch {
+    console.error('[health-check] cron-heartbeat の実行枠を判定できません（詳細は記録しません）');
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`[health-check] slot=${plan.slot} jobs=${plan.jobs.join(',') || 'none'}`);
+  for (const name of plan.jobs) {
+    try {
+      await callCron(name, jobs.map((job) => job.name));
+    } catch {
+      console.error(`[health-check] ${name} 失敗（詳細は記録しません）`);
+      process.exitCode = 1;
+    }
+  }
+}
+
+async function checkHealth() {
   const base = process.env.CARELINK_BASE_URL;
   if (!base) {
     console.error('[health-check] CARELINK_BASE_URL 未設定');
@@ -90,6 +117,11 @@ async function main() {
   await postSlack(`🔴 CareLink production unhealthy（Render 監視）\n> ${formatHealthSummary(httpStatus, body)}`);
   await pushAdminHeartbeat('fail');
   process.exitCode = 1;
+}
+
+async function main() {
+  await checkHealth();
+  await runDueMonitorJobs();
 }
 
 main().catch((e) => {
