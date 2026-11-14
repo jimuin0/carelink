@@ -96,6 +96,7 @@ jobs:
           NEXT_PUBLIC_LINE_CHANNEL_ID: ${{ vars.NEXT_PUBLIC_LINE_CHANNEL_ID }}
           NEXT_PUBLIC_RECRUIT_URL: ${{ vars.NEXT_PUBLIC_RECRUIT_URL }}
           NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ vars.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          NEXT_PUBLIC_PAYJP_PUBLIC_KEY: ${{ vars.NEXT_PUBLIC_PAYJP_PUBLIC_KEY }}
       - name: Verify the live version and pages
         if: steps.target.outputs.skip == 'false'
         run: node "$RUNNER_TEMP/deploy-tools/verify-live.mjs"
