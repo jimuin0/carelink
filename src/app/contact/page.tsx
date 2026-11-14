@@ -99,6 +99,8 @@ function ContactPageContent() {
 
       const res = await fetch('/api/contact', {
         method: 'POST',
+        // 応答が返らないまま「送信中」で固まらないよう時間を区切る（時間切れは下の「確認できない」案内へ）。
+        signal: AbortSignal.timeout(20_000),
         headers: {
           'Content-Type': 'application/json',
         },
