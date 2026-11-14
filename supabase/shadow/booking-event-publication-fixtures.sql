@@ -19,7 +19,8 @@ INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
 SELECT pg_temp.approve_synthetic_listing('e2000000-0000-4000-8000-000000000001','e1000000-0000-4000-8000-000000000001');
 INSERT INTO public.bookings(id,facility_id,booking_date,start_time,end_time,customer_name,email,status,updated_at) VALUES
 ('e4000000-0000-4000-8000-000000000001','e2000000-0000-4000-8000-000000000001','2030-01-07','10:00','11:00','Synthetic','event@example.invalid','pending','2026-10-01T00:00:00Z'),
-('e4000000-0000-4000-8000-000000000002','e2000000-0000-4000-8000-000000000001','2030-01-07','11:00','12:00','Synthetic',NULL,'confirmed','2026-10-01T00:00:00Z');
+('e4000000-0000-4000-8000-000000000002','e2000000-0000-4000-8000-000000000001','2030-01-07','11:00','12:00','Synthetic',NULL,'confirmed','2026-10-01T00:00:00Z'),
+('e4000000-0000-4000-8000-000000000003','e2000000-0000-4000-8000-000000000001','2030-01-07','13:00','14:00','Synthetic','event@example.invalid','confirmed','2026-10-01T00:00:00Z');
 CREATE FUNCTION pg_temp.event_envelope() RETURNS jsonb LANGUAGE sql AS $$ SELECT
   '{"from":"sender@example.invalid","to":"event@example.invalid","subject":"Synthetic only","html":"<p>fixture</p>"}'::jsonb; $$;
 CREATE FUNCTION pg_temp.event_save(next_status text DEFAULT NULL) RETURNS TABLE(operation_id uuid,replayed boolean,notification text)
@@ -54,6 +55,16 @@ DO $$ DECLARE first uuid; second uuid; repeated boolean; BEGIN
  BEGIN UPDATE public.webhook_retry_queue SET booking_event_revision=now() WHERE id=first;
   RAISE EXCEPTION 'identity rewrite accepted';
  EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'BOOKING_EMAIL_EVENT_IMMUTABLE' THEN RAISE; END IF; END;
+ -- Regression (B9-4): a shop cancellation stays deliverable after a later note edit moves updated_at.
+ PERFORM public.save_booking_email_event_atomic('e1000000-0000-4000-8000-000000000001',
+  'e4000000-0000-4000-8000-000000000003','confirmed','2026-10-01T00:00:00Z','cancelled',pg_temp.event_envelope());
+ SELECT id INTO second FROM public.webhook_retry_queue WHERE booking_event_id='e4000000-0000-4000-8000-000000000003';
+ PERFORM pg_temp.assert_event((SELECT payload->>'new_status'='cancelled' FROM public.webhook_retry_queue WHERE id=second),'status event records the new status');
+ UPDATE public.bookings SET note='Edited after cancellation',updated_at=clock_timestamp()+interval '1 second'
+  WHERE id='e4000000-0000-4000-8000-000000000003';
+ UPDATE public.webhook_retry_queue SET status='processing',claimed_at='2026-10-01T00:01:00Z' WHERE id=second;
+ PERFORM pg_temp.assert_event((SELECT outcome='ready' FROM public.start_booking_email_event(second,'2026-10-01T00:01:00Z')),
+  'cancellation notice survives a later edit of the cancelled booking');
  PERFORM public.save_booking_email_event_atomic('e1000000-0000-4000-8000-000000000001',
   'e4000000-0000-4000-8000-000000000002','confirmed','2026-10-01T00:00:00Z','arrived',NULL);
  PERFORM pg_temp.assert_event(NOT EXISTS(SELECT 1 FROM public.webhook_retry_queue

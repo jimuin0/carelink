@@ -94,6 +94,13 @@ BEGIN
  UPDATE public.webhook_retry_queue SET email_envelope=jsonb_build_object('from','a@example.invalid','to',q.target_id,'subject','Synthetic','html','Synthetic') WHERE id=q.id;
  SELECT * INTO fence FROM public.start_customer_booking_transition_email(q.id,now());
  PERFORM pg_temp.assert_transition(fence.outcome='superseded' AND fence.started_at IS NULL,'old change cannot dispatch after cancellation');
+ -- Regression (B9-4): a note edit (or any trigger) after the cancellation moves updated_at.
+ -- The cancellation notice must still go out because the booking is still cancelled.
+ UPDATE public.bookings SET note='Edited after cancellation',updated_at=clock_timestamp()+interval '1 second'
+  WHERE id='be130000-0000-4000-8000-000000000001';
+ PERFORM pg_temp.assert_transition((SELECT updated_at IS DISTINCT FROM (q2.payload->'snapshot'->>'bookingRevision')::timestamptz
+  FROM public.bookings, public.webhook_retry_queue q2 WHERE bookings.id='be130000-0000-4000-8000-000000000001'
+  AND q2.payload->>'kind'='cancelled' AND q2.payload->>'role'='customer'),'the booking revision really moved after the cancellation');
  SELECT * INTO q FROM public.webhook_retry_queue WHERE payload->>'kind'='cancelled' AND payload->>'role'='customer';
  PERFORM public.claim_webhook_retry_queue_v2(ARRAY[q.id],now());
  UPDATE public.webhook_retry_queue SET email_envelope=jsonb_build_object('from','a@example.invalid','to',q.target_id,'subject','Synthetic','html','Synthetic') WHERE id=q.id;
