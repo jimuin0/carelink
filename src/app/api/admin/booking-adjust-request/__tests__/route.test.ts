@@ -30,6 +30,9 @@ import { writeAuditLog } from '@/lib/audit-logger';
 
 const BOOKING_UUID = '11111111-1111-1111-1111-111111111111';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
+const LINE_OP = '44444444-4444-4444-8444-444444444444';
+const mockLineClaim = jest.fn();
+const mockLinePrior = jest.fn();
 
 type Booking = {
   id: string; facility_id: string; user_id: string | null;
@@ -128,6 +131,12 @@ function setup() {
           }),
         };
       }
+      if (table === 'booking_adjust_line_operations') {
+        return {
+          insert: mockLineClaim,
+          select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: mockLinePrior }) }),
+        };
+      }
       throw new Error(`unexpected table: ${table}`);
     }),
   });
@@ -142,6 +151,8 @@ function setup() {
     return message ? { data:null,error:{ message } } : { data:[{ operation_id:BOOKING_UUID,replayed:false,notification:'queued' }],error:null };
   });
 
+  mockLineClaim.mockResolvedValue({ error: null });
+  mockLinePrior.mockResolvedValue({ data: null, error: null });
   const lineModule = require('@/lib/line');
   mockSendLineText = jest.fn().mockResolvedValue(true);
   lineModule.sendLineText = mockSendLineText;
@@ -200,7 +211,7 @@ test.each(['data-with-error', 'throw'])('adjustment permission %s cannot create 
 });
 test('closed LINE request is rejected before delivery', async () => {
   cfg.booking=bookingRow({status:'cancelled'});
-  expect((await POST(makeRequest({bookingId:BOOKING_UUID,channel:'line'}))).status).toBe(400);
+  expect((await POST(makeRequest({bookingId:BOOKING_UUID,channel:'line',operationId:LINE_OP}))).status).toBe(400);
   expect(mockSendLineText).not.toHaveBeenCalled();
 });
 test('actual queue database error is not successful acceptance', async () => {
@@ -369,7 +380,7 @@ test('old operation is reconciled even after the booking is cancelled', async ()
 });
 
 test('line: オプション未購入 → 403（有料ゲート）', async () => {
-  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line' }));
+  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line', operationId: LINE_OP }));
   expect(res.status).toBe(403);
   expect(mockSendLineText).not.toHaveBeenCalled();
 });
@@ -377,20 +388,20 @@ test('line: オプション未購入 → 403（有料ゲート）', async () => 
 test('line: 購入済みだが顧客 user_id なし → 400', async () => {
   cfg.entitlements = [{ facility_id: 'fac-1', option_key: 'time_adjust_line' }];
   cfg.booking = bookingRow({ user_id: null });
-  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line' }));
+  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line', operationId: LINE_OP }));
   expect(res.status).toBe(400);
 });
 
 test('line: LINE 連携なし（link なし）→ 400', async () => {
   cfg.entitlements = [{ facility_id: 'fac-1', option_key: 'time_adjust_line' }];
   cfg.lineLink = null;
-  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line' }));
+  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line', operationId: LINE_OP }));
   expect(res.status).toBe(400);
 });
 
 test('line 正常系: 購入済み＋連携あり → 施設名・日時入りで送信', async () => {
   cfg.entitlements = [{ facility_id: 'fac-1', option_key: 'time_adjust_line' }];
-  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line' }));
+  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line', operationId: LINE_OP }));
   expect(res.status).toBe(200);
   const [lineId, text, opts] = mockSendLineText.mock.calls[0];
   expect(lineId).toBe('LINE-1');
@@ -404,7 +415,7 @@ test('line 正常系: 購入済み＋連携あり → 施設名・日時入り�
 test('line: 送信失敗（false）→ 502・自動再送案内（手動リトライを誘導しない）', async () => {
   cfg.entitlements = [{ facility_id: 'fac-1', option_key: 'time_adjust_line' }];
   mockSendLineText.mockResolvedValue(false);
-  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line' }));
+  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line', operationId: LINE_OP }));
   expect(res.status).toBe(502);
   // 失敗分は enqueueOnFailure で webhook_retry_queue に自動登録され15分毎に再送されるため、
   // 手動リトライを促すと自動再送と両方走って確定二重送信になる（文言の回帰固定）。
@@ -427,7 +438,56 @@ test('予期しない例外 → 500（内部情報は漏らさない）', async 
 test('line: 施設名が読めない → 500 で送信しない', async () => {
   cfg.entitlements = [{ facility_id: 'fac-1', option_key: 'time_adjust_line' }];
   cfg.facility = null;
-  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line' }));
+  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line', operationId: LINE_OP }));
   expect(res.status).toBe(500);
   expect(mockSendLineText).not.toHaveBeenCalled();
+});
+
+describe('LINE 経路の操作番号（点検 A119）', () => {
+  beforeEach(() => { cfg.entitlements = [{ facility_id: 'fac-1', option_key: 'time_adjust_line' }]; });
+  const req = () => makeRequest({ bookingId: BOOKING_UUID, channel: 'line', operationId: LINE_OP });
+
+  test.each([undefined, 'invalid'])('操作番号 %s は送らずに 400', async operationId => {
+    expect((await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line', operationId }))).status).toBe(400);
+    expect(mockSendLineText).not.toHaveBeenCalled();
+  });
+
+  test('送る前に操作番号を台帳へ記録する', async () => {
+    expect((await POST(req())).status).toBe(200);
+    expect(mockLineClaim).toHaveBeenCalledWith({ operation_id: LINE_OP, actor_id: USER_ID, booking_id: BOOKING_UUID });
+    expect(mockSendLineText).toHaveBeenCalledTimes(1);
+  });
+
+  test('同じ操作番号の 2 回目は送らずに受付済みを返す', async () => {
+    mockLineClaim.mockResolvedValue({ error: { code: '23505', message: 'dup' } });
+    mockLinePrior.mockResolvedValue({ data: { actor_id: USER_ID, booking_id: BOOKING_UUID }, error: null });
+    const res = await POST(req());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, notification: 'already_accepted' });
+    expect(mockSendLineText).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['記録が読めない', null],
+    ['別の操作者', { actor_id: 'other', booking_id: BOOKING_UUID }],
+    ['別の予約', { actor_id: USER_ID, booking_id: 'other' }],
+  ])('操作番号の使い回し（%s）は 409 で送らない', async (_l, prior) => {
+    mockLineClaim.mockResolvedValue({ error: { code: '23505', message: 'dup' } });
+    mockLinePrior.mockResolvedValue({ data: prior, error: null });
+    expect((await POST(req())).status).toBe(409);
+    expect(mockSendLineText).not.toHaveBeenCalled();
+  });
+
+  test('記録の失敗は 500 で送らない', async () => {
+    mockLineClaim.mockResolvedValue({ error: { code: '08006', message: 'down' } });
+    expect((await POST(req())).status).toBe(500);
+    expect(mockSendLineText).not.toHaveBeenCalled();
+  });
+
+  test('既存記録の読み取り失敗は 500 で送らない', async () => {
+    mockLineClaim.mockResolvedValue({ error: { code: '23505', message: 'dup' } });
+    mockLinePrior.mockResolvedValue({ data: null, error: { code: '08006', message: 'down' } });
+    expect((await POST(req())).status).toBe(500);
+    expect(mockSendLineText).not.toHaveBeenCalled();
+  });
 });

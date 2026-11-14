@@ -320,6 +320,22 @@ describe('POST /api/waitlist', () => {
     expect(json.id).toBe('entry-123');
   });
 
+  test('並行登録で一意違反（23505）になったら既登録として 409（点検 A167）', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const singleFn = jest.fn().mockResolvedValue({ data: null, error: { code: '23505', message: 'dup' } });
+    const insertFn = jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ single: singleFn }) });
+    const maybeSingleFn = jest.fn().mockResolvedValue({ data: { id: 'fac-1', name: 'Test Salon' } });
+    const selectFn = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: maybeSingleFn }) }) });
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) },
+      from: jest.fn((table: string) => table === 'facility_profiles' ? { select: selectFn } : { insert: insertFn }),
+    });
+
+    const res = await POST(makePostRequest(validWaitlist));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('登録済み');
+  });
+
   test('auth user + duplicate registration → 409', async () => {
     const { createServerClient } = require('@supabase/ssr');
     const dupMaybeSingle = jest.fn().mockResolvedValue({ data: { id: 'dup-1' } });

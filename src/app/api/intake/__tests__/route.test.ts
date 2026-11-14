@@ -327,6 +327,67 @@ describe('POST /api/intake', () => {
       user_id: 'user-123',
       customer_name: 'Test User',
       responses: { condition: 'healthy' },
+      idempotency_key: null,
+    });
+  });
+
+  describe('冪等キー（点検 B6-6）', () => {
+    const KEY = '22222222-2222-4222-8222-222222222222';
+    const ID = '11111111-1111-1111-1111-111111111111';
+    function client(insertResult: unknown, existing: unknown[]) {
+      const { createServerClient } = require('@supabase/ssr');
+      const maybeSingle = jest.fn().mockResolvedValueOnce({ data: { id: 'tpl-1' }, error: null });
+      for (const r of existing) maybeSingle.mockResolvedValueOnce(r);
+      const insertFn = jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue(insertResult) }) });
+      createServerClient.mockReturnValue({
+        auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) },
+        from: jest.fn(() => ({ select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle, insert: insertFn })),
+      });
+      return insertFn;
+    }
+    async function post(extra: Record<string, unknown>) {
+      const { POST } = await import('../route');
+      return POST(new Request('http://localhost/api/intake', {
+        method: 'POST',
+        body: JSON.stringify({ template_id: ID, customer_name: 'Test', facility_id: ID, ...extra }),
+      }) as any);
+    }
+
+    test.each([['UUID でない', 'abc'], ['文字列でない', 123]])('%s冪等キーは 400', async (_l, key) => {
+      const res = await post({ idempotency_key: key });
+      expect(res.status).toBe(400);
+    });
+
+    test('キーを保存列に渡す', async () => {
+      const insertFn = client({ data: { id: 'r-1' }, error: null }, []);
+      const res = await post({ idempotency_key: KEY });
+      expect(res.status).toBe(200);
+      expect(insertFn).toHaveBeenCalledWith(expect.objectContaining({ idempotency_key: KEY }));
+    });
+
+    test('同じキーの再送は 2 件目を作らず保存済みの行を返す', async () => {
+      client({ data: null, error: { code: '23505' } }, [{ data: { id: 'r-first' }, error: null }]);
+      const res = await post({ idempotency_key: KEY });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ success: true, id: 'r-first' });
+    });
+
+    test('同じキーが別の店舗・問診票で使われていたら 409', async () => {
+      client({ data: null, error: { code: '23505' } }, [{ data: null, error: null }]);
+      const res = await post({ idempotency_key: KEY });
+      expect(res.status).toBe(409);
+    });
+
+    test('保存済みの行の読み取りに失敗したら 500', async () => {
+      client({ data: null, error: { code: '23505' } }, [{ data: null, error: { code: 'XX000', message: 'x' } }]);
+      const res = await post({ idempotency_key: KEY });
+      expect(res.status).toBe(500);
+    });
+
+    test('キー無しの一意違反は再送扱いにせず 500', async () => {
+      client({ data: null, error: { code: '23505' } }, []);
+      const res = await post({});
+      expect(res.status).toBe(500);
     });
   });
 

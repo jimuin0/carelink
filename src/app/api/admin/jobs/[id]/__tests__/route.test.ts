@@ -33,6 +33,6 @@ for(const method of ['GET','PATCH','DELETE']){
 }
 test.each([{...body,title:''},{...body,employment_type:'invalid'},null])('invalid PATCH input causes no mutation %p',async value=>{expect((await PATCH(req('PATCH',value),{params:Promise.resolve({id})})).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
 test('malformed PATCH JSON',async()=>{expect((await PATCH(new Request('http://localhost/api/admin/jobs/'+id,{method:'PATCH',body:'{'}),{params:Promise.resolve({id})})).status).toBe(400);});
-test('PATCH full optional fields retain values',async()=>{const value={...body,salary_min:100,salary_max:200,salary_note:'Note',description:'Desc',requirements:'Req',benefits:'Benefits'};await PATCH(req('PATCH',value),{params:Promise.resolve({id})});expect(mockRpc.mock.calls[0][1].p_values).toEqual(value);});
+test('PATCH full optional fields retain values',async()=>{const value={...body,salary_min:100,salary_max:200,salary_note:'Note',salary_unit:'hourly',description:'Desc',requirements:'Req',benefits:'Benefits'};await PATCH(req('PATCH',value),{params:Promise.resolve({id})});expect(mockRpc.mock.calls[0][1].p_values).toEqual(value);});
 
 test.each([{salary_min:0.5},{salary_max:2147483648}])('PATCH salary outside database domain is rejected before RPC %p',async salary=>{expect((await PATCH(req('PATCH',{...body,...salary}),{params:Promise.resolve({id})})).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});

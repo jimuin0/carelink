@@ -16,6 +16,8 @@ const grantSchema = z.object({
   user_id: z.string().uuid(),
   package_id: z.string().uuid(),
   notes: z.string().max(200).optional(),
+  // 付与操作ごとの UUID。再送で二重付与しないために必須（点検 B9-8）。
+  operation_id: z.string().uuid(),
 });
 
 const useSchema = z.object({
@@ -115,6 +117,7 @@ export async function POST(request: NextRequest) {
     userId: parsed.data.user_id,
     itemId: parsed.data.package_id,
     notes: parsed.data.notes,
+    operationId: parsed.data.operation_id,
   });
   if (data instanceof NextResponse) return data;
 

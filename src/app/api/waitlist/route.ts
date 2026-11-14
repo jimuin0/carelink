@@ -124,6 +124,11 @@ export async function POST(request: Request) {
       .select('id')
       .single();
 
+    // 重複確認と INSERT の間に同じ人の登録が先に入った（並行送信）。部分ユニークインデックス
+    // uq_waitlist_user_slot_waiting（20260809000002）が拒否するので、既登録として扱う（点検 A167）。
+    if (error?.code === '23505') {
+      return NextResponse.json({ error: 'この日時はすでにキャンセル待ちに登録済みです' }, { status: 409 });
+    }
     if (error || !entry) {
       return serverError(
         'waitlist-post-insert',

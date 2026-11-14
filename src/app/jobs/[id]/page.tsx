@@ -7,6 +7,7 @@ import { SITE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/json-ld';
 import { SHOW_JOBS } from '@/lib/feature-toggles';
 import { formatFacilityAddress, formatFacilityLocality } from '@/lib/facility-location';
+import { SALARY_UNIT_LABELS, SALARY_UNIT_LD, toSalaryUnit } from '@/lib/jobs';
 
 export const revalidate = 3600;
 
@@ -23,6 +24,7 @@ interface JobRow {
   salary_min: number | null;
   salary_max: number | null;
   salary_note: string | null;
+  salary_unit: string;
   description: string | null;
   requirements: string | null;
   benefits: string | null;
@@ -48,7 +50,7 @@ async function getJob(id: string): Promise<JobRow | null> {
   const { data, error } = await supabase
     .from('facility_jobs')
     .select(
-      `id, facility_id, title, job_type, employment_type, salary_min, salary_max, salary_note,
+      `id, facility_id, title, job_type, employment_type, salary_min, salary_max, salary_note, salary_unit,
        description, requirements, benefits, created_at, updated_at,
        facility_profiles!inner ( id, name, slug, business_type, prefecture, city, address, postal_code, website_url, main_photo_url, status )`
     )
@@ -68,10 +70,12 @@ function mapEmploymentType(jp: string): string {
   return 'OTHER';
 }
 
-function formatSalary(min: number | null, max: number | null, note: string | null): string {
-  if (min && max) return `月給 ¥${min.toLocaleString()} 〜 ¥${max.toLocaleString()}`;
-  if (min) return `月給 ¥${min.toLocaleString()} 〜`;
-  if (max) return `月給 〜 ¥${max.toLocaleString()}`;
+// 単位は求人ごとの salary_unit（点検 B8-L5。以前は「月給」固定で時給の求人も月給と出ていた）。
+function formatSalary(min: number | null, max: number | null, note: string | null, unit: string): string {
+  const label = SALARY_UNIT_LABELS[toSalaryUnit(unit)];
+  if (min && max) return `${label} ¥${min.toLocaleString()} 〜 ¥${max.toLocaleString()}`;
+  if (min) return `${label} ¥${min.toLocaleString()} 〜`;
+  if (max) return `${label} 〜 ¥${max.toLocaleString()}`;
   return note || '応相談';
 }
 
@@ -157,7 +161,7 @@ export default async function JobDetailPage(props: Props) {
         '@type': 'QuantitativeValue',
         ...(job.salary_min && { minValue: job.salary_min }),
         ...(job.salary_max && { maxValue: job.salary_max }),
-        unitText: 'MONTH',
+        unitText: SALARY_UNIT_LD[toSalaryUnit(job.salary_unit)],
       },
     };
   }
@@ -212,7 +216,7 @@ export default async function JobDetailPage(props: Props) {
           </div>
           <div className="mt-4 bg-sky-50 rounded-xl p-4">
             <p className="text-xs text-gray-500 mb-1">給与</p>
-            <p className="text-lg font-bold text-sky-700">{formatSalary(job.salary_min, job.salary_max, job.salary_note)}</p>
+            <p className="text-lg font-bold text-sky-700">{formatSalary(job.salary_min, job.salary_max, job.salary_note, job.salary_unit)}</p>
             {job.salary_note && (job.salary_min || job.salary_max) && (
               <p className="text-xs text-gray-500 mt-1">{job.salary_note}</p>
             )}
@@ -258,7 +262,7 @@ export default async function JobDetailPage(props: Props) {
               <div className="flex"><span className="text-gray-500 w-24 shrink-0">職種</span><span>{job.job_type}</span></div>
               <div className="flex"><span className="text-gray-500 w-24 shrink-0">雇用形態</span><span>{job.employment_type}</span></div>
               <div className="flex"><span className="text-gray-500 w-24 shrink-0">勤務地</span><span>{formatFacilityAddress(f)}</span></div>
-              <div className="flex"><span className="text-gray-500 w-24 shrink-0">給与</span><span>{formatSalary(job.salary_min, job.salary_max, job.salary_note)}</span></div>
+              <div className="flex"><span className="text-gray-500 w-24 shrink-0">給与</span><span>{formatSalary(job.salary_min, job.salary_max, job.salary_note, job.salary_unit)}</span></div>
               <div className="flex"><span className="text-gray-500 w-24 shrink-0">掲載日</span><span>{new Date(job.created_at).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}</span></div>
             </div>
           </section>

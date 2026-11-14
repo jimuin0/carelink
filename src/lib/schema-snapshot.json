@@ -85,6 +85,12 @@
     "title",
     "updated_at"
   ],
+  "booking_adjust_line_operations": [
+    "actor_id",
+    "booking_id",
+    "created_at",
+    "operation_id"
+  ],
   "booking_adjust_operations": [
     "actor_id",
     "booking_id",
@@ -486,6 +492,7 @@
     "salary_max",
     "salary_min",
     "salary_note",
+    "salary_unit",
     "title",
     "updated_at"
   ],
@@ -863,6 +870,7 @@
     "customer_name",
     "facility_id",
     "id",
+    "idempotency_key",
     "responses",
     "submitted_at",
     "template_id",
@@ -1551,6 +1559,7 @@
   "user_packages": [
     "expires_at",
     "facility_id",
+    "grant_operation_id",
     "id",
     "notes",
     "package_id",
@@ -1578,6 +1587,7 @@
     "created_at",
     "ends_at",
     "facility_id",
+    "grant_operation_id",
     "id",
     "month_reset_at",
     "notes",

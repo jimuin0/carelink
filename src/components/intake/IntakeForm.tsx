@@ -33,6 +33,8 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 冪等キー（点検 B6-6）。この画面での送信は何度押しても同じキーを送り、サーバーは 1 件だけ保存する。
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
 
   // DB の fields は Json 型のため、配列でない（null・オブジェクト等）異常データでも
   // .map / .filter で例外→白画面にならないよう、ここで配列に正規化する。
@@ -71,6 +73,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
           booking_id: bookingId,
           customer_name: customerName,
           responses,
+          idempotency_key: idempotencyKey,
         }),
       });
       // 監査 A404: 本文が JSON でない失敗応答（502 の HTML 等）を「通信エラー」と取り違えない。

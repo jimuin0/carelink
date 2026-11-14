@@ -2,7 +2,7 @@
 
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { jobFormSchema, EMPLOYMENT_TYPES, type JobFormInput, type JobFormValues } from '@/lib/jobs';
+import { jobFormSchema, EMPLOYMENT_TYPES, SALARY_UNITS, SALARY_UNIT_LABELS, type JobFormInput, type JobFormValues } from '@/lib/jobs';
 
 export type JobFormProps = {
   defaultValues?: Partial<JobFormInput>;
@@ -34,6 +34,7 @@ export default function JobForm({
       salary_min: '',
       salary_max: '',
       salary_note: '',
+      salary_unit: 'monthly',
       description: '',
       requirements: '',
       benefits: '',
@@ -70,6 +71,15 @@ export default function JobForm({
           </select>
           {errors.employment_type && <p role="alert" className="text-xs text-red-500 mt-1">{errors.employment_type.message}</p>}
         </div>
+      </div>
+
+      <div>
+        <label htmlFor="salary-unit" className="form-label">給与の単位</label>
+        <select id="salary-unit" {...register('salary_unit')} className="form-input">
+          {SALARY_UNITS.map((u) => (
+            <option key={u} value={u}>{SALARY_UNIT_LABELS[u]}</option>
+          ))}
+        </select>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
