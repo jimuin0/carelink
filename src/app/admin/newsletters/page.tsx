@@ -35,6 +35,8 @@ const STATUS_LABELS: Record<string, { label: string; tone: SbBadgeTone }> = {
   cancelled: { label: 'キャンセル', tone: 'danger' },
 };
 
+// 全宛先の結果が確定すると、恒久失敗を含んでいても「処理完了」になる（B9-5）。失敗件数はバッジと内訳で示す。
+const failedCount=(c:Campaign)=>c.status==='sent'&&c.stats.delivery_mode==='newsletter_outbox_v1'?Number(c.stats.failed)||0:0;
 const validCampaign=(c:Campaign)=>c&&typeof c.id==='string'&&typeof c.subject==='string'&&typeof c.updated_at==='string'&&typeof c.created_at==='string'&&Object.hasOwn(STATUS_LABELS,c.status)&&Object.hasOwn(TYPE_LABELS,c.campaign_type)&&c.stats&&typeof c.stats==='object'&&!Array.isArray(c.stats);
 
 export default function NewslettersPage() {
@@ -260,8 +262,8 @@ export default function NewslettersPage() {
                       <SbBadge tone="info">
                         {TYPE_LABELS[c.campaign_type]}
                       </SbBadge>
-                      <SbBadge tone={STATUS_LABELS[c.status].tone}>
-                        {STATUS_LABELS[c.status].label}
+                      <SbBadge tone={failedCount(c) > 0 ? 'warning' : STATUS_LABELS[c.status].tone}>
+                        {STATUS_LABELS[c.status].label}{failedCount(c) > 0 ? `（失敗 ${failedCount(c)} 件）` : ''}
                       </SbBadge>
                     </div>
                     <div className="font-medium text-gray-900 mt-1 truncate">{c.subject}</div>
@@ -274,6 +276,7 @@ export default function NewslettersPage() {
                       <div className="mt-2 text-xs text-gray-600 space-y-1">
                         <p>対象 {c.stats.total} / 待機 {c.stats.queued} / 結果未確認 {c.stats.unconfirmed} / 提供元受理 {c.stats.accepted} / 配信停止・対象外 {c.stats.suppressed} / 失敗 {c.stats.failed}</p>
                         <p>提供元の受理はメール到達の確認ではありません。開封・クリックは未計測です。</p>
+                        {failedCount(c) > 0 && <p className="text-amber-700">失敗した {failedCount(c)} 件の宛先には届いていません。自動では再送しません。</p>}
                       </div>
                     ) : c.status === 'sent' || c.status === 'sending' ? (
                       <p className="mt-2 text-xs text-gray-600">旧方式の記録です。実際の到達・開封は未確認です。結果不明の配信は自動再送しません。</p>

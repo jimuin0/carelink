@@ -58,6 +58,7 @@ describe('subjectTable — 行がどのテーブルの話か', () => {
   it('テーブルに紐づく種別を解釈する', () => {
     expect(subjectTable('relation|facilities|r|rls=t|force=f')).toBe('facilities');
     expect(subjectTable('column|facilities.id|uuid|notnull=t')).toBe('facilities');
+    expect(subjectTable('colgrant|facilities.status|authenticated|UPDATE')).toBe('facilities');
     expect(subjectTable('constraint|facilities|p|pk|PRIMARY KEY (id)')).toBe('facilities');
     expect(subjectTable('index|facilities|idx|CREATE INDEX')).toBe('facilities');
     expect(subjectTable('policy|facilities|p1|cmd=r')).toBe('facilities');
@@ -72,6 +73,7 @@ describe('subjectTable — 行がどのテーブルの話か', () => {
     // 2026年8月11日追加: 関数の EXECUTE 権限もテーブルに紐づかない（誤って
     // known-prod-only のテーブル台帳で握りつぶされない ＝ 権限昇格の死角を再現しない）。
     expect(subjectTable('functiongrant|foo()|anon|EXECUTE')).toBeNull();
+    expect(subjectTable('storagepolicy|objects|p1|cmd=r')).toBeNull();
   });
 
   it('壊れた行でも落ちない', () => {
