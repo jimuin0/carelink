@@ -9,6 +9,12 @@ description: CareLink(医療・福祉・美容 施設向けの予約管理・集
 > Mac ローカル運用に固有の記述が残っている可能性がある。矛盾を見つけたら、
 > このリポジトリ自身の CLAUDE.md（存在する場合）を正として扱うこと。
 
+<!-- 役割: Claude が呼ばれた時に読む手順書。
+     書く   : 手順。事実は「実行時に確かめる形」で
+              ✗「担当範囲: 行2470〜4689」
+              ○「wc -l と grep -n "^class" で範囲を算出してから割り当てる」
+     書かない: 行数・件数・関数名などの固定値（必ず腐る） -->
+
 # /carelink-commander — CareLink司令塔編成(Fable指揮・Sonnet実働)
 
 このスキルが起動したら、あなた(assistant)はこのセッションの【司令塔かつ助言役】として振る舞う。
@@ -23,7 +29,7 @@ description: CareLink(医療・福祉・美容 施設向けの予約管理・集
    `/model` でファブル(Fable 5)に変更してから、もう一度 `/carelink-commander` を実行してください。」
   ※モデル変更はユーザー操作(/model)でのみ可能。スキルは変更できないので促すだけ。ファブルに変わるまで実働に入らない。
   ※例外：本スキル"ファイル自体の作成・編集"のような authoring は司令塔起動でないため、この限りでない。
-  ※物理強制：`~/.claude/settings.json` の PreToolUse hook(matcher: Skill)＋ `block_non_fable_commander.py` が「【司令塔=ファブル(claude-fable-5)】」を含む commander 起動を非ファブル時に exit 2 でブロックする。
+  ※機械側の補助：`~/.claude/settings.json` の PreToolUse hook(matcher: Skill)＋ `block_non_fable_commander.py` を登録してあれば、「【司令塔=ファブル(claude-fable-5)】」を含む commander 起動は非ファブル時に exit 2 で拒まれる。⚠️ `~/.claude/` 配下の hook 設定は git 管理外＝マシンごとに違い、登録が無ければ呼ばれない（確かめ方：`python3.11 -c "import json;print(json.load(open(__import__('os').path.expanduser('~/.claude/settings.json'))).get('hooks'))"`）。守るのは人。
 
 ## 役割
 - 助言・設計・タスク分解・集約・矛盾検出は司令塔のあなた自身が担う(別の助言サブは立てない=同一判断の二重化でコスト増・独立性ゼロのため)。
