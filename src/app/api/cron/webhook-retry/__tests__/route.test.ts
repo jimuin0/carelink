@@ -898,6 +898,24 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(mockSendLineText).toHaveBeenCalled();
   });
 
+  // 低 A150: 実行上限の手前で新しい送信を始めずに打ち切り、残りは stale reclaim に任せる。
+  test('送信の時間予算を超えたら残りのジョブは送らず deferred として記録する', async () => {
+    setupDefaultMocks(1);
+    let clock = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => clock);
+    mockSendLineText.mockImplementation(async () => { clock += 60_000; return true; });
+    const { Resend } = require('resend');
+    const sendEmail = jest.fn();
+    (Resend as jest.Mock).mockImplementation(() => ({ emails: { send: sendEmail } }));
+    const res = await GET(makeRequest() as any);
+    nowSpy.mockRestore();
+    expect(mockSendLineText).toHaveBeenCalledTimes(1);
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect((await res.json()).deferred).toBe(1);
+    expect(logCronRun).toHaveBeenCalledWith('webhook-retry', expect.any(String), expect.any(Date),
+      expect.objectContaining({ meta: expect.objectContaining({ deferred: 1 }) }));
+  });
+
   test('email webhook → sends via Resend', async () => {
     setupDefaultMocks(1);
 

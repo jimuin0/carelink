@@ -455,3 +455,9 @@ describe('障害時の応答', () => {
     expect(res.status).toBe(404);
   });
 });
+
+// JSON の null・配列を分割代入して 500 にしない（低 A120）。
+test.each([null, [], 1])('本文が %j → 400（500 にしない）', async (body) => {
+  const res = await POST(makeRequest(body));
+  expect(res.status).toBe(400);
+});

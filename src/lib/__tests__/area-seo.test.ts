@@ -45,6 +45,18 @@ beforeEach(() => {
 });
 
 describe('getAreaSeoContent', () => {
+  // 低 A213: 各段の読み取り失敗を「テキスト無し」として次段へ落とさず throw する。
+  test.each([
+    ['level 1', ['osaka', 'kita', 'nail']],
+    ['level 2', ['osaka', 'kita']],
+    ['level 3', ['osaka', null, 'nail']],
+    ['level 4', ['osaka']],
+  ] as const)('%s の読み取り失敗 → throw', async (_label, args) => {
+    const { mockMaybeSingle } = buildSupabaseMock(null);
+    mockMaybeSingle.mockResolvedValue({ data: null, error: { message: 'db down' } });
+    await expect(getAreaSeoContent(...(args as [string, string?, string?]))).rejects.toThrow('getAreaSeoContent failed');
+  });
+
   test('returns null when no data at any fallback level', async () => {
     buildSupabaseMock(null);
     const result = await getAreaSeoContent('tokyo');

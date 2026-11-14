@@ -327,6 +327,35 @@ describe('POST /api/waitlist', () => {
     expect(json.error).toContain('施設が見つかりません');
   });
 
+  // 低 A167: 読み取り失敗を「未登録」「施設なし」に偽装せず 500 にする。
+  test('重複確認の読み取り失敗 → 500（登録へ進まない）', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const insert = jest.fn();
+    const chain: any = { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), insert,
+      maybeSingle: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }) };
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-123' } } }) },
+      from: jest.fn(() => chain),
+    });
+    const res = await POST(makePostRequest(validWaitlist));
+    expect(res.status).toBe(500);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  test('施設確認の読み取り失敗 → 500（404 にしない）', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const insert = jest.fn();
+    const chain: any = { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), insert,
+      maybeSingle: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }) };
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) },
+      from: jest.fn(() => chain),
+    });
+    const res = await POST(makePostRequest(validWaitlist));
+    expect(res.status).toBe(500);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
   test('insert error → 500', async () => {
     const { createServerClient } = require('@supabase/ssr');
     const singleFn = jest.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } });

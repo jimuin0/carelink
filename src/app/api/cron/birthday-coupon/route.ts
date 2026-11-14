@@ -57,8 +57,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 // 送信ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら graceful に打ち切って
 // deferred 件数を LOUD にログする。ポイント付与(reason=birthday_YYYY の unique index)と
-// birthday_notifications はいずれも年内冪等のため、deferred が出た日は workflow_dispatch で
-// 同日中に再実行すれば既処理ユーザーは 23505 / notifiedSet で skip され、残りだけ処理される。
+// birthday_notifications はいずれも年内冪等のため、deferred が出た日は Render の当該 cron
+// ジョブ（Dashboard の Trigger Run）で同日中に再実行すれば既処理ユーザーは 23505 / notifiedSet で skip され、残りだけ処理される。
 const SEND_BUDGET_MS = 50 * 1000;
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://carelink-jp.com';
@@ -85,6 +85,11 @@ export async function GET(request: Request) {
     const month = (jstNow.getUTCMonth() + 1).toString().padStart(2, '0');
     const day = jstNow.getUTCDate().toString().padStart(2, '0');
     const todayMD = `${month}-${day}`;
+    // 2/29 生まれは平年だと一致する日が無く、特典が一切届かなかった（低 A142）。
+    // 平年は 2/28 に 2/29 生まれも対象にする（年内冪等なので閏年に二重付与はしない）。
+    const jstYear = jstNow.getUTCFullYear();
+    const isLeapYear = (jstYear % 4 === 0 && jstYear % 100 !== 0) || jstYear % 400 === 0;
+    const targetMDs = todayMD === '02-28' && !isLeapYear ? ['02-28', '02-29'] : [todayMD];
 
     // birth_dateが今日（月日一致）のプロフィールを取得。
     //
@@ -110,7 +115,7 @@ export async function GET(request: Request) {
           .from('profiles')
           .select('id, email, display_name, email_unsubscribed')
           .not('birth_date', 'is', null)
-          .eq('birth_md', todayMD)
+          .in('birth_md', targetMDs)
           .range(offset, offset + limit - 1);
         return { data: data as BirthdayProfile[] | null, error };
       },
@@ -136,12 +141,14 @@ export async function GET(request: Request) {
 
     // 【claim-first 設計・2026-07-17】
     // 旧実装（v8.15）は「run 開始時に birthday_notifications を一括 SELECT → notifiedSet 判定
-    // → 送信を先に実行 → 送信後に INSERT」という send-then-flag 構成だった。cron は三重化
-    // （GitHub Actions + pg_cron + Render）で毎日 23:00 JST 頃にほぼ同時発火するため、複数 run が
+    // → 送信を先に実行 → 送信後に INSERT」という send-then-flag 構成だった。当時の cron は三重化
+    // （GitHub Actions + pg_cron + Render）で毎日 23:00 JST 頃にほぼ同時発火したため、複数 run が
     // 同時に走ると各 run の notifiedSet は互いの結果を見られず両方とも空のまま送信してしまい、
     // 誕生日メール/LINE の二重送信が発生していた。INSERT の PK(user_id,year,channel) は片方が
     // 23505 になるが、それは両 run の送信が両方完了した後にしか効かず無意味だった。
     // review-request cron（review_request_sent_at への CAS UPDATE）と同型の「claim-first」に揃える。
+    // （現在の実働スケジューラは Render のみ。pg_cron は撤去済み・cron.yml は無効。それでも
+    //   手動の再実行や Render の重複起動と重なり得るので claim-first は維持する。）
     // 送信の直前に INSERT で「送信権」を claim し、PK 違反(23505)なら他 run が先取り済みとして
     // 送信をスキップする。送信が失敗したら claim を解放（DELETE）して翌 run に再送を委ねる。
     // クラッシュ等で解放自体が失敗した場合はその1件・当年のみ通知がロストし得る（稀・許容トレード

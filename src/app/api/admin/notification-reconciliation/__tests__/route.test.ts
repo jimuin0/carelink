@@ -103,3 +103,12 @@ test('generic v1 email can be reconciled, legacy email cannot', async () => {
   chain.maybeSingle.mockReset().mockResolvedValue({ data: { ...row, webhook_type: 'email', payload: {} } });
   expect((await POST(req() as never)).status).toBe(409);
 });
+// 入力検証は認証の後（低 A129）。未認証・権限なしには形の正否に関係なく 401/403 だけを返す。
+test('unauthenticated malformed input is 401, not 400', async () => {
+  mockUser.mockResolvedValue({ data: { user: null }, error: null });
+  expect((await POST(req({}) as never)).status).toBe(401);
+});
+test('non-admin malformed input is 403, not 400', async () => {
+  authChain.maybeSingle = jest.fn().mockResolvedValue({ data: { is_platform_admin: false }, error: null });
+  expect((await POST(req({}) as never)).status).toBe(403);
+});

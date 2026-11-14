@@ -136,12 +136,19 @@ async function syncMailbox(db: DB, actor: string, cursor: z.infer<typeof cursorS
     return confirmed;
   }));
   const denied = results.find(result => result instanceof NextResponse);
-  if (denied instanceof NextResponse) return denied;
+  const confirmed = results.filter((result): result is PlatformMailRecord => typeof result === 'object' && !(result instanceof NextResponse));
+  const observations = confirmed.map(({ id, revision, state, delivery_status, updated_at }) => ({ id, revision, state, delivery_status, updated_at }));
+  if (denied instanceof NextResponse) {
+    // 片方は DB へ反映済みのことがある。エラー応答にもその観測結果を載せ、画面が古い状態のまま
+    // 「失敗」とだけ表示しないようにする（低 A131）。通知済みヘッダー等は元の応答から引き継ぐ。
+    if (observations.length === 0) return denied;
+    const body = await denied.json() as Record<string, unknown>;
+    return NextResponse.json({ ...body, observations }, { status: denied.status, headers: denied.headers });
+  }
   const last = batch[batch.length - 1];
-  const confirmed = results.filter((result): result is PlatformMailRecord => typeof result === 'object');
   return json({ checked: confirmed.length,
     unconfirmed: results.length - confirmed.length, remaining: records.data.length > 2,
-    observations: confirmed.map(({ id, revision, state, delivery_status, updated_at }) => ({ id, revision, state, delivery_status, updated_at })),
+    observations,
     nextCursor: records.data.length > 2 ? { at: last.updated_at, id: last.id } : null });
 }
 

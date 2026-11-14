@@ -1,6 +1,7 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { setupFacilityAtomically, type FacilitySetupClaim } from '../facility-setup-atomic';
 import { businessTypes } from '../constants';
+import { FACILITY_INPUT_LIMITS } from '../facility-input-limits';
 import { medicalBusinessTypes } from '../medical-business-types';
 import { salonIntentProofHash } from '../salon-submission-proof';
 import type { createServiceRoleClient } from '../supabase-server';
@@ -24,11 +25,16 @@ test.each(medicalBusinessTypes)('medical category %s reaches the atomic setup RP
 test.each([null, [], {}, { ...body, license_warranted: false }, { ...body, user_id: user },
   { ...body, facility_name: 7 }, { ...body, facility_name: 'x'.repeat(201) },
   { ...body, business_type: 'wrong' }, { ...body, phone: 'x'.repeat(21) },
-  { ...body, prefecture: 'x'.repeat(21) }, { ...body, city: 'x'.repeat(51) },
-  { ...body, address: 'x'.repeat(201) },
+  { ...body, prefecture: 'x'.repeat(21) }, { ...body, city: 'x'.repeat(FACILITY_INPUT_LIMITS.city + 1) },
+  { ...body, address: 'x'.repeat(FACILITY_INPUT_LIMITS.address + 1) },
 ])('invalid input is rejected before RPC %#', async value => {
   expect(await setupFacilityAtomically(db, user, value, { mode: 'none' })).toEqual({ state: 'invalid' });
   expect(rpc).not.toHaveBeenCalled();
+});
+// 低 A217: 管理画面で保存できる長さ（FACILITY_INPUT_LIMITS）は作成時にも受け付ける。
+test('city/address up to the management limits are accepted', async () => {
+  await setupFacilityAtomically(db, user, { ...body, city: 'x'.repeat(FACILITY_INPUT_LIMITS.city), address: 'x'.repeat(FACILITY_INPUT_LIMITS.address) }, { mode: 'none' });
+  expect(rpc).toHaveBeenCalled();
 });
 test('non-user identifier cannot be persisted', async () => {
   expect(await setupFacilityAtomically(db, 'bad', body, { mode: 'none' })).toEqual({ state: 'invalid' });

@@ -2,7 +2,7 @@
 
 # CareLink
 
-医療・福祉・美容 特化型 採用×集客プラットフォーム
+医療・福祉・美容 施設向けの予約管理・集客・採用を統合したマルチテナント SaaS（施設オーナーが予約枠・メニュー・スタッフ・クーポンを管理し、来院者が検索・予約・問診・口コミを行う）
 
 ## セットアップ
 
@@ -37,19 +37,24 @@ supabase start       # または: supabase db reset --local
 
 ## 技術スタック
 
-- Next.js 14（App Router）
+- Next.js 16（App Router・16.3.0 以上を強制。実際の版は package-lock.json）
 - TypeScript
 - Tailwind CSS
 - react-hook-form + zod
-- Supabase
+- Supabase（Postgres・Auth・Storage・RLS）
+
+詳しい構成・運用上の注意は [CLAUDE.md](CLAUDE.md) を参照。
 
 ## ページ構成
 
 | パス | 説明 |
 |------|------|
-| `/` | トップページ |
-| `/salon` | 施設向け集客LP |
-| `/jobs` | 求職者向け転職LP |
+| `/` | トップページ（来院者向け） |
+| `/search` | 施設検索 |
+| `/facility/[slug]` | 施設詳細・予約 |
+| `/mypage` | 予約者マイページ（要ログイン） |
+| `/register` | 店舗向けの掲載案内・申込（店舗向けの入口はここ 1 本。旧 `/salon` は 308 転送） |
+| `/admin` | 施設オーナー管理画面（要ログイン・owner/admin のみ） |
 | `/privacy` | プライバシーポリシー |
 | `/terms` | 利用規約 |
 | `/contact` | お問い合わせ |

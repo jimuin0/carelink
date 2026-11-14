@@ -19,7 +19,7 @@ export const revalidate = 0;
  * Degraded 依存（NG でも 200 を維持、deps に状態のみ報告）:
  *   - PAY.JP / Resend / Slack（決済・通知系、即時致命ではないがダッシュボード可視化）
  *
- * UptimeRobot等の外形監視はこのエンドポイントを 60s 間隔で監視し、
+ * 外形監視（Render の carelink-health-check＝scripts/health-check.mjs・5分毎）はこのエンドポイントを見て、
  * ステータス + JSON body の deps を見て障害種別を切り分ける。
  */
 

@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: 'ok', reply_delivery: replyUnknown ? 'unknown' : attempted ? 'sent' : 'not_attempted' });
   } catch (e) {
     if (e instanceof SyntaxError) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-    return serverError('line-webhook-follow', new Error('Follow acceptance unavailable'), '/api/line/webhook');
+    return serverError('line-webhook-follow', new Error('Follow/unfollow acceptance unavailable'), '/api/line/webhook');
   }
 }
 
@@ -142,6 +142,8 @@ async function handleUnfollow(lineUserId: string) {
   // （user_id・proof_version・verified_at）まで消え、再フォローしても連携し直すまで通知が届かなかった。
   // unfollowed_at を記録し、送信側（src/lib/line-link.ts ほか）は unfollowed_at のある行を除外する。
   // 再フォロー時は handleFollow が unfollowed_at を NULL に戻す。署名検証済みのため LINE 由来イベントのみ到達する。
+  // 失敗は握り潰さず throw し、follow と同じく 5xx で LINE に再送させる（握り潰すと 200 で再送されず、
+  // ブロックしたユーザーが送信対象に残り続ける・低 A157）。LINE のユーザーIDはログに出さない。
   try {
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -151,10 +153,8 @@ async function handleUnfollow(lineUserId: string) {
       .from('line_user_links')
       .update({ unfollowed_at: new Date().toISOString() })
       .eq('line_user_id', lineUserId);
-    if (error) {
-      console.error('[LINE Webhook] Unfollow handler update failed', { lineUserId, err: error.message });
-    }
-  } catch (e) {
-    console.error('[LINE Webhook] Unfollow handler error:', e);
+    if (error) throw new Error('LINE unfollow storage unavailable');
+  } catch {
+    throw new Error('LINE unfollow acceptance unavailable');
   }
 }

@@ -108,11 +108,11 @@ function usageLogSelectChain(existing: unknown) {
 }
 
 // booking 検証用の maybeSingle チェーン
-function bookingChain(data: unknown) {
+function bookingChain(data: unknown, error: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
   };
 }
 
@@ -719,7 +719,8 @@ test('PATCH: booking_id が存在しない → 404', async () => {
   expect(res.status).toBe(404);
 });
 
-test('PATCH: booking_id が施設の予約に一致 → 正常 (200)', async () => {
+// 低 A136: 同じ施設でも他人の予約では消費記録できない（本人かつ契約施設の予約だけ）。
+test('PATCH: booking_id が同施設だが他人の予約 → 400', async () => {
   let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
@@ -730,7 +731,7 @@ test('PATCH: booking_id が施設の予約に一致 → 正常 (200)', async () 
     return insertChain();
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(400);
 });
 
 test('PATCH: 月リセット境界でも RPC が原子的に処理 → 200', async () => {
@@ -758,7 +759,7 @@ test('PATCH: facility_id なしサブスク (subscription_plans が null) → �
   expect(res.status).toBe(200);
 });
 
-test('PATCH: booking_id が本サブスクのuser_id所属 → 200', async () => {
+test('PATCH: booking_id が本人の予約だが別施設 → 400', async () => {
   let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
@@ -769,7 +770,7 @@ test('PATCH: booking_id が本サブスクのuser_id所属 → 200', async () =>
     return insertChain();
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(400);
 });
 
 // Branch coverage: line 137 — PATCH で !user → 401
@@ -891,4 +892,30 @@ test('PATCH: 利用記録の事前照会が DB 障害 → 500（素通りさせ�
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
   expect(res.status).toBe(500);
   expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+
+test('PATCH: booking_id が本人かつ契約施設の予約 → 200', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildActiveSub());
+    if (callNum === 2) return bookingChain({ id: BOOKING_UUID, user_id: USER_ID, facility_id: FACILITY_UUID });
+    if (callNum === 3) return usageLogSelectChain(null);
+    return insertChain();
+  });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: 予約の読み取り失敗 → 500（見つからない扱いにしない）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildActiveSub());
+    return bookingChain(null, { message: 'db down' });
+  });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
+  expect(res.status).toBe(500);
 });

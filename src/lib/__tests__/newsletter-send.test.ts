@@ -1,7 +1,10 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { collectNewsletterRecipients, inspectNewsletterOperation, publishNewsletterOperation } from '../newsletter-send';
 jest.mock('@/lib/newsletter-unsub', () => ({ newsletterUnsubUrl: jest.fn((email: string) => `https://carelink-jp.com/unsubscribe?n=opaque-${email}`) }));
-jest.mock('@/lib/email-from', () => ({ newsletterFromEnv: () => 'CareLink <newsletter@carelink-jp.com>' }));
+const mockSender = { from: 'CareLink <newsletter@carelink-jp.com>', fellBack: false, rawDomain: 'carelink-jp.com', formatOk: true, domainOk: true };
+jest.mock('@/lib/email-from', () => ({ resolvedNewsletterFromEnv: () => mockSender }));
+const mockAlertWarning = jest.fn();
+jest.mock('@/lib/alert', () => ({ alertWarning: (...args: unknown[]) => mockAlertWarning(...args) }));
 import { newsletterUnsubUrl } from '../newsletter-unsub';
 const id = 'e1000000-0000-4000-8000-000000000001';
 const actor = 'e1000000-0000-4000-8000-000000000002';
@@ -104,4 +107,15 @@ test.each([undefined, 'network', {}])('unstructured/missing RPC error fails safe
 test('publication RPC data plus concurrent audience error cannot return success', async () => {
   const c = client([ok(['a@example.com'])]); c.operationRpc.mockResolvedValue({ data: receipt, error: { code: '40001' } });
   await expect(publish(c)).rejects.toMatchObject({ status: 409 });
+});
+
+// 低 A219: 送信元が既定値へ倒れたら警報し、倒した値で配信を続ける。
+test('publication warns when the newsletter sender fell back, and sends with the fallback', async () => {
+  mockSender.fellBack = true;
+  try {
+    const c = client([ok(['a@example.com'])]);
+    await expect(publish(c)).resolves.toEqual(receipt);
+    expect(mockAlertWarning).toHaveBeenCalledWith(expect.stringContaining('NEWSLETTER_EMAIL_FROM'), expect.objectContaining({ route: 'newsletter-send' }));
+    expect(c.operationRpc).toHaveBeenCalledWith('publish_newsletter_send_operation', expect.objectContaining({ p_from: mockSender.from }));
+  } finally { mockSender.fellBack = false; }
 });

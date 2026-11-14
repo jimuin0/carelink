@@ -17,9 +17,13 @@ import {
 } from '@/lib/preview-capabilities';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
+/** pathname が base そのものか、その配下（base + '/…'）か。 */
+function isUnderPath(pathname: string, base: string): boolean {
+  return pathname === base || pathname.startsWith(`${base}/`);
+}
 
 // 管理者メンバーシップのクッキーキャッシュ
-// キー: _cm_mbr_{userId_first8chars}
+// キー: _cm_mbr_{userId のハイフンを除いた先頭16文字}（getMembershipCacheKey・admin-membership-cache-key.ts）
 // 値: "{0|1}.{発行時刻epoch秒}.{HMAC-SHA256 hex}"  — userId+値+発行時刻をHMACで署名し改ざん防止
 // TTL: 5分（頻繁なDB問い合わせを防ぐ）。Cookie の maxAge と、署名ペイロード内の発行時刻から
 // 算出する経過時間の両方をこの定数で判定する（SSOT）。ブラウザの maxAge だけに頼ると、
@@ -181,7 +185,9 @@ export async function middleware(request: NextRequest) {
   };
 
   // 公開ページは認証チェックをスキップ（パフォーマンス最適化）。CSP は全応答に付与する。
-  const isProtected = PROTECTED_PATHS.some((path) => pathname.startsWith(path));
+  // 区切り（/）で判定する。前方一致だけだと /mypageXXX・/administration のような同じ接頭辞の
+  // 公開ページまで保護対象になり、未ログインの人がログインへ飛ばされる（低 A277）。
+  const isProtected = PROTECTED_PATHS.some((path) => isUnderPath(pathname, path));
   const isAuthPage = pathname === '/auth/login' || pathname === '/auth/signup';
   if (!isProtected && !isAuthPage) {
     return setCsp(NextResponse.next({ request: { headers: requestHeaders } }));
@@ -279,7 +285,7 @@ export async function middleware(request: NextRequest) {
 
   // /admin ルートへの権限チェック（facility_members owner/admin のみ）
   // /admin/onboarding は除外（施設作成前のオーナーがアクセスする）
-  if (user && !platformSupportAccess && request.nextUrl.pathname.startsWith('/admin') && request.nextUrl.pathname !== '/admin/onboarding') {
+  if (user && !platformSupportAccess && isUnderPath(request.nextUrl.pathname, '/admin') && request.nextUrl.pathname !== '/admin/onboarding') {
     const cacheKey = getMembershipCacheKey(user.id);
     const cached = request.cookies.get(cacheKey)?.value;
 

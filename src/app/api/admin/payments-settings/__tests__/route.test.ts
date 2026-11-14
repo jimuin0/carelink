@@ -46,12 +46,12 @@ function makeRequest(body: object, facilityId: string | null = FACILITY_UUID) {
   });
 }
 
-function memberSingle(data: unknown) {
+function memberSingle(data: unknown, error: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     in: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
   };
 }
 
@@ -66,13 +66,13 @@ function updateEq(error: unknown = null) {
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
-  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } }, error: null });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
 });
 
 test('PATCH: 未認証 → 401', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
+  mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
   const res = await PATCH(makeRequest({ deposit_type: 'none', deposit_amount: 0 }));
   expect(res.status).toBe(401);
 });
@@ -189,4 +189,19 @@ test('PATCH: fixed で deposit_amount 100 (最小値) → 200', async () => {
   mockAdminFrom.mockReturnValue(updateEq(null));
   const res = await PATCH(makeRequest({ deposit_type: 'fixed', deposit_amount: 100 }));
   expect(res.status).toBe(200);
+});
+
+// 認証基盤・DB の障害を「未ログイン（401）」に化けさせない（低 A128）。
+test('PATCH: 認証基盤の障害 → 503（401 にしない）', async () => {
+  mockGetUser.mockRejectedValue(new Error('auth down'));
+  const res = await PATCH(makeRequest({ deposit_type: 'none', deposit_amount: 0 }));
+  expect(res.status).toBe(503);
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+
+test('PATCH: 所属確認の DB 障害 → 503（401 にしない）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle(null, { message: 'db down' }));
+  const res = await PATCH(makeRequest({ deposit_type: 'none', deposit_amount: 0 }));
+  expect(res.status).toBe(503);
+  expect(mockAdminFrom).not.toHaveBeenCalled();
 });

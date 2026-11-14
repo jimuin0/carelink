@@ -16,6 +16,7 @@ jest.mock('@/lib/hpb-menu', () => ({
   updateHpbMenuOverride: jest.fn(),
 }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
+jest.mock('@/lib/alert', () => ({ ...jest.requireActual('@/lib/alert'), alertCaughtError: jest.fn() }));
 
 const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
@@ -41,6 +42,7 @@ import {
   updateHpbMenuOverride,
 } from '@/lib/hpb-menu';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { alertCaughtError } from '@/lib/alert';
 
 function makeReq(method: string, facilityId: string | null = FACILITY_UUID) {
   const url = new URL('http://localhost/api/admin/hpb-menus');
@@ -211,6 +213,8 @@ test('POST: valid rows saved but upstream scrape incomplete → 502 with safe pa
   expect(res.status).toBe(502);
   expect(json).toMatchObject({ saved: 3, complete: false, stop_reason: 'fetch_error', unresolved_items: 1 });
   expect(json.error).toContain('一部を保存しました');
+  // 502 でも通知が出ること（低 A121）。
+  expect(alertCaughtError).toHaveBeenCalledWith('admin-hpb-menus-incomplete', expect.any(Error), '/api/admin/hpb-menus');
 });
 
 test('POST: save failure takes priority over fetch incompleteness → 500', async () => {

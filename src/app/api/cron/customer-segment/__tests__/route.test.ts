@@ -1089,14 +1089,19 @@ describe('今回の集計に現れなかったお客様の行は消す', () => {
     errorSpy.mockRestore();
   });
 
-  test('予約を件数上限で打ち切った回は消さない（読めなかったお客様の行を消さない）', async () => {
+  // 低 A148: 打ち切った回は途中までのデータで RFM を上書きせず、消しもせず、失敗として残す。
+  test('予約を件数上限で打ち切った回は書き込まず・消さず・error で残す', async () => {
     setupDefaultMocks(1, 0);
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const fullPage = Array(1000).fill(bOnly[0]);
     mockBookingsIn.mockReturnValue({ gte: () => ({ range: async () => ({ data: fullPage, error: null }) }) });
     useStore(initialRows());
     const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
-    expect(mockUpsert).toHaveBeenCalled();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ truncatedFacilities: 1, processingFailures: 1 });
+    expect(logCronRun).toHaveBeenCalledWith('customer-segment', 'error', expect.any(Date), expect.anything());
+    errorSpy.mockRestore();
+    expect(mockUpsert).not.toHaveBeenCalled();
     expect(mockStaleDelete).not.toHaveBeenCalled();
     expect(store.some((r) => r.facility_id === 'fac-0' && r.customer_email === 'a@example.com')).toBe(true);
   });

@@ -8,6 +8,11 @@
  *   4. src/app/admin/cron-monitor/page.tsx の `EXPECTED_JOBS` ＋ `JOB_LABELS`
  * と 4 箇所に散在し、ジョブ追加/改名/スケジュール変更時に一部だけ更新するドリフトが起き得た。
  *
+ * 🔴 現状（CLAUDE.md「cron の現状」）: 実際に動いているスケジューラは Render（render.yaml）だけで、
+ *   cron.yml は GitHub 上で disabled_manually（発火しない）。以下の cron.yml の記述は
+ *   ファイル同士の整合の話であり、実働の保証ではない。Render 側との整合は
+ *   `src/__tests__/render-yaml-drift.test.ts` が担う。
+ *
  * TS 側（4）はここから導出し、YAML 側（1〜3）との整合は
  * `src/__tests__/cron-jobs-drift.test.ts` が cron.yml を実際に読んで突合し、
  * ドリフトを CI で物理的に検知する（発症前予防）。`schedule` / `intervalMinutes` は
@@ -49,11 +54,12 @@ export const CRON_JOB_LABELS: Record<string, string> = Object.fromEntries(
 /**
  * heartbeat が「停止」と判定する猶予（分）。
  * 期待間隔 × 2 に固定バッファ 30 分を足す。×2 は「1 回 miss しても即警報しない」ため、
- * +30 は GitHub Actions スケジューラの実行ジッタ（数分〜十数分遅延し得る）を吸収するため。
+ * +30 はスケジューラの実行ジッタを吸収するため（数値は GitHub Actions 運用時に決めたもの。
+ * 現在の実働は Render のみでジッタは小さいが、閾値を縮めるかは別途判断＝ここでは据え置き）。
  * これにより「一過性の遅延で誤警報」を構造的に避けつつ、複数回連続 miss（＝真の停止）は検知する。
  *
  * トレードオフ（意図的・断定）：×2 のため低頻度ジョブは検知が遅い。weekly（interval=10080）の閾値は
- * 20190分≈14日で、週次ジョブ停止の検知に最長約2週間かかる。これは GitHub Actions が
+ * 20190分≈14日で、週次ジョブ停止の検知に最長約2週間かかる。これは（当時の）GitHub Actions が
  * 「低頻度スケジュールほど遅延・スキップしやすい」既知挙動を持つため、weekly を短い閾値にすると
  * 正常な遅延で誤警報（さらに /api/health 経由で誤 page）するリスクの方が高いと判断し、
  * 検知の遅さより誤警報回避を優先している。weekly ジョブ（customer-segment / sync-google-ratings /

@@ -51,12 +51,16 @@ test.each([401, 422, 429])('definite rejection %s only resets same owned row for
   expect(chain.update).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'pending', delivery_started_at: null, attempt_count: 1 }));
   expect(chain.eq).toHaveBeenCalledWith('status', 'processing');
   expect(chain.eq).toHaveBeenCalledWith('delivery_started_at', expect.any(String));
+  // 自動再送へ回せたなら「結果未確認」の error 警報は出さない（低 A218）。
+  expect(mockAlert).not.toHaveBeenCalled();
 });
 test.each([{ data:null,error:null },{ data:{ id:OP },error:{} }])('lost rejection CAS stays uncertain without a second dispatch %j', async result => {
   send.mockResolvedValue({ data:null,error:{ statusCode:422 } });
   chain.maybeSingle.mockResolvedValueOnce({ data:{ id:OP },error:null }).mockResolvedValueOnce(result);
   expect(await sendDurableEventEmail(client(), envelope, 'synthetic')).toBe(false);
   expect(send).toHaveBeenCalledTimes(1); expect(chain.insert).toHaveBeenCalledTimes(1);
+  // 再送へ回せたか不明なら、これは結果未確認として警報する。
+  expect(mockAlert).toHaveBeenCalledWith(expect.objectContaining({ level: 'error' }));
 });
 test.each([null, { data: { id: 'invalid' }, error: null }])('malformed acceptance stays unknown %j', async value => {
   send.mockResolvedValue(value);

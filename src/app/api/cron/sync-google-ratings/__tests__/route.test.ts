@@ -440,9 +440,11 @@ describe('GET /api/cron/sync-google-ratings', () => {
     expect(json.skipped).toBe(0);
     expect(alertWarning).toHaveBeenCalledTimes(1);
     expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/全件失敗/);
+    // 全滅は cron_logs でも error・HTTP 503（低 A145）。
+    expect(res.status).toBe(503);
     expect(logCronRun).toHaveBeenCalledWith(
       'sync-google-ratings',
-      'success',
+      'error',
       expect.any(Date),
       expect.objectContaining({ meta: expect.objectContaining({ allFailed: true }) }),
     );
@@ -456,11 +458,27 @@ describe('GET /api/cron/sync-google-ratings', () => {
     let callCount = 0;
     (fetchPlaceDetails as jest.Mock).mockImplementation(() => {
       callCount++;
-      return callCount === 1 ? Promise.reject(new Error('API error')) : Promise.resolve({ rating: 4.5, user_ratings_total: 10 });
+      // fetchPlaceDetails は実運用で例外を投げず null を返す（API 一時失敗）。
+      return callCount === 1 ? Promise.resolve(null) : Promise.resolve({ rating: 4.5, user_ratings_total: 10 });
     });
 
-    await GET(makeRequest() as any);
+    const res = await GET(makeRequest() as any);
     expect(alertWarning).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+  });
+
+  // 保存・解除の失敗（errors）は全滅でなくても警報し、error・503 で残す（低 A145）。
+  test('errors だけが積み上がる → alertWarning・cron_logs error・503', async () => {
+    setupDefaultMocks(2, true, true);
+    let callCount = 0;
+    (fetchPlaceDetails as jest.Mock).mockImplementation(() => {
+      callCount++;
+      return callCount === 1 ? Promise.reject(new Error('unexpected')) : Promise.resolve({ rating: 4.5, user_ratings_total: 10 });
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(503);
+    expect(alertWarning).toHaveBeenCalledWith(expect.stringMatching(/1件失敗/), expect.anything());
+    expect(logCronRun).toHaveBeenCalledWith('sync-google-ratings', 'error', expect.any(Date), expect.anything());
   });
 });
 

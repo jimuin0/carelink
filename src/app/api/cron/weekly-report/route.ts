@@ -249,8 +249,9 @@ export async function GET(request: Request) {
       optedOut = r.optedOut;
     }
 
-    // skipped は「オーナー不在・メールアドレス未設定・claim失敗」で本来送るべきだったのに
-    // 送れなかった件数（従来は無音でカウントされておらず観測不能だった）。opt-out（施設が
+    // skipped は「オーナー不在・メールアドレス未設定」で本来送るべきだったのに送れなかった件数
+    // （従来は無音でカウントされておらず観測不能だった）。claim 失敗は 23505（別 run が送信済み）なら
+    // どちらにも数えず、それ以外は deliveryFailures（failed）に数える。opt-out（施設が
     // 明示的にOFF）は意図的な正常動作のため skipped とは別に optedOut として可視化する。
     await logCronRun('weekly-report', 'success', startedAt, { processed: emailsSent, skipped: emailsSkipped, meta: { start, end, optedOut } });
     // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。

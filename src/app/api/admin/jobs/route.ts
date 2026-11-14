@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
       .in('facility_id', facilityIds)
       .order('created_at', { ascending: false });
 
-    if (error) return serverError('admin-jobs-list-query', error, '/api/admin/jobs', '取得に失敗しました');
+    if (error) return serverError('admin-jobs-list-query', databaseDiagnostic(error), '/api/admin/jobs', '取得に失敗しました');
     // 配列でない応答を「求人 0 件」と表示しない（job-applications・newsletter・gbp と同じ扱い）。
     if (!Array.isArray(data)) return serverError('admin-jobs-list-query', new Error('facility_jobs result invalid'), '/api/admin/jobs', '取得に失敗しました');
     return NextResponse.json({ jobs: data });

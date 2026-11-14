@@ -13,6 +13,16 @@ beforeEach(() => {
 describe('getCatalogsByFacility', () => {
   const facilityId = 'fac-001';
 
+  // 低 A212: 取得失敗を「0件」に化けさせない。
+  it('throws when the read fails', async () => {
+    mockFrom.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }),
+    });
+    await expect(getCatalogsByFacility(facilityId)).rejects.toThrow('getCatalogsByFacility failed');
+  });
+
   it('returns catalogs ordered by created_at desc', async () => {
     const mockCatalogs = [
       { id: 'c1', facility_id: facilityId, title: 'ヘア1', created_at: '2026-04-10' },

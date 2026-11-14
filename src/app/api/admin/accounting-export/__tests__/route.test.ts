@@ -665,3 +665,19 @@ test('GET: 上限で打ち切られたら欠けた CSV を返さず 500（中 A8
   expect(res.status).toBe(500);
   jest.dontMock('@/lib/paginate');
 });
+
+// 名前解決クエリの失敗を「名前なし」として成功 CSV にしない（低 A118）。
+test('GET: 複数メニューの名前解決クエリが失敗 → 500（不完全な CSV を返さない）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(dispatchAdminFrom(
+    [{
+      id: 'b-multi-err', booking_date: '2026-05-04', menu: { name: 'カット' },
+      menu_ids: [MENU1, MENU2], total_amount: 5000, status: 'completed',
+    }],
+    null,
+    { message: 'db down' },
+  ));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(500);
+  expect(await res.text()).not.toContain('カット');
+});

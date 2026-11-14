@@ -195,7 +195,9 @@ describe('POST /api/line/webhook', () => {
     expect(mockEq).toHaveBeenCalledWith('line_user_id', VALID_LINE_USER_ID);
   });
 
-  test('unfollow event: 更新エラーでもログのみで 200 継続', async () => {
+  // 低 A157: unfollow の失敗も follow と同じく 5xx で LINE に再送させる（握り潰して 200 にしない）。
+  test('unfollow event: 更新エラー → 500（LINE が再送する）・ユーザーIDをログに出さない', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const mockEq = jest.fn().mockResolvedValue({ error: { message: 'update failed' } });
     mockFromDelegate.mockReturnValue({ update: jest.fn().mockReturnValue({ eq: mockEq }) });
 
@@ -205,11 +207,13 @@ describe('POST /api/line/webhook', () => {
       }) as any
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     expect(mockEq).toHaveBeenCalled();
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(VALID_LINE_USER_ID);
+    errorSpy.mockRestore();
   });
 
-  test('unfollow event: 例外でもログのみで 200 継続', async () => {
+  test('unfollow event: 例外 → 500（LINE が再送する）', async () => {
     mockFromDelegate.mockImplementation(() => { throw new Error('boom'); });
 
     const res = await POST(
@@ -218,7 +222,7 @@ describe('POST /api/line/webhook', () => {
       }) as any
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
   });
 
   test('message event → sends auto-reply', async () => {

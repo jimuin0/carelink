@@ -41,12 +41,14 @@ export async function GET(request: NextRequest) {
       { cookies: { getAll: () => cookieStore.getAll() } }
     );
 
-    const { data: template } = await supabase
+    const { data: template, error: templateError } = await supabase
       .from('intake_form_templates')
       .select('id, title, description, fields')
       .eq('facility_id', facilityId)
       .eq('is_active', true)
       .maybeSingle();
+    // 読み取り失敗を「問診なし」に化けさせない（低 A155）。
+    if (templateError) return serverError('intake-get-template', templateError, '/api/intake');
 
     if (!template) {
       return NextResponse.json({ template: null });
@@ -109,13 +111,15 @@ export async function POST(request: Request) {
       if (!user) {
         return NextResponse.json({ error: '予約IDを指定する場合は認証が必要です' }, { status: 401 });
       }
-      const { data: booking } = await supabase
+      const { data: booking, error: bookingError } = await supabase
         .from('bookings')
         .select('id')
         .eq('id', body.booking_id)
         .eq('user_id', user.id)
         .eq('facility_id', body.facility_id)
         .maybeSingle();
+      // 障害を「予約が見つかりません」（利用者の誤り）に見せない（低 A155）。
+      if (bookingError) return serverError('intake-post-booking', bookingError, '/api/intake');
       if (!booking) {
         return NextResponse.json({ error: '予約が見つかりません' }, { status: 403 });
       }
@@ -123,12 +127,13 @@ export async function POST(request: Request) {
 
     // template_id が指定 facility に属することを検証する。
     // （他施設のテンプレ定義 ID を facility_id=自施設で送り、越境テンプレへ回答をひも付ける攻撃を防止）
-    const { data: template } = await supabase
+    const { data: template, error: templateError } = await supabase
       .from('intake_form_templates')
       .select('id')
       .eq('id', body.template_id)
       .eq('facility_id', body.facility_id)
       .maybeSingle();
+    if (templateError) return serverError('intake-post-template', templateError, '/api/intake');
     if (!template) {
       return NextResponse.json({ error: 'テンプレートが見つかりません' }, { status: 403 });
     }

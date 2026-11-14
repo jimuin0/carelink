@@ -473,6 +473,17 @@ describe('POST /api/report', () => {
       expect(alertCaughtError).toHaveBeenCalledWith('report-moderation-target', { message: 'lookup failed' }, '/api/report');
     });
 
+    // 低 A162: 対象の読み取り失敗は通知する（facility_id=null の登録に黙って倒さない）。
+    test('target の読み取り失敗 → 通知しつつ通報は審査キューに残す', async () => {
+      const { alertCaughtError } = require('@/lib/alert');
+      targetFacilityId = null;
+      targetLookupError = { message: 'db down' };
+      const res = await POST(makeRequest(validReport) as any);
+      expect(res.status).toBe(200);
+      expect(alertCaughtError).toHaveBeenCalledWith('report-moderation-target', expect.anything(), '/api/report');
+      expect(rpcItem()).toBeDefined();
+    });
+
     test('enqueue_moderation 失敗 → 通報は 200 維持・監視通知に載せる（非ブロッキング）', async () => {
       const { alertCaughtError } = require('@/lib/alert');
       mockRpc.mockResolvedValueOnce({ error: { message: 'rpc failed' } });

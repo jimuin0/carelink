@@ -69,10 +69,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
     }
 
-    const body = await request.json().catch(() => ({}));
+    // JSON の null・配列・数値を分割代入して TypeError→500 にしない（低 A120）。
+    const raw: unknown = await request.json().catch(() => ({}));
+    const body = raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
     const { bookingId, items, paid_amount, complete, points_used: declaredPoints } = body;
 
-    if (!bookingId || !uuidRegex.test(bookingId)) {
+    if (typeof bookingId !== 'string' || !uuidRegex.test(bookingId)) {
       return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });
     }
     const charges = parseItems(items);

@@ -13,8 +13,6 @@ const inputSchema = z.object({ operationId: z.uuid(), providerMessageId: z.uuid(
 /** Operator-only acceptance reconciliation. This endpoint never sends, clears
  * an unknown fence, edits an envelope, or starts a new operation. */
 export const POST = withRoute(async request => {
-  const input = inputSchema.safeParse(await request.json().catch(() => null));
-  if (!input.success) return NextResponse.json({ error: '不正な照合情報です' }, { status: 400 });
   const auth = await createServerSupabaseAuthClient();
   const verification = await verifyAuthUser(auth.auth);
   if (verification.state === 'unavailable') return authUnavailable('notification-reconcile-auth', '/api/admin/notification-reconciliation');
@@ -23,6 +21,9 @@ export const POST = withRoute(async request => {
   const permission = await auth.from('profiles').select('is_platform_admin').eq('id', user.id).maybeSingle();
   if (permission.error) return serverError('notification-reconcile-permission', new Error('permission observation failed'), '/api/admin/notification-reconciliation');
   if (permission.data?.is_platform_admin !== true) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  // 入力の形は認証・権限の確認後に見る（未認証の相手に 400/401 の差で入力検証の結果を漏らさない）。
+  const input = inputSchema.safeParse(await request.json().catch(() => null));
+  if (!input.success) return NextResponse.json({ error: '不正な照合情報です' }, { status: 400 });
   const db = createServiceRoleClient();
   const found = await db.from('webhook_retry_queue').select('id,webhook_type,payload,email_envelope,status,claimed_at,delivery_started_at,provider_message_id')
     .eq('id', input.data.operationId).maybeSingle();

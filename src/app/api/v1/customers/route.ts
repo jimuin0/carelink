@@ -97,8 +97,22 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
   });
   if (error) return serverError('v1-customers-list', error, '/api/v1/customers', 'Internal Server Error');
 
-  const rows = (data ?? []) as { name: string; phone: string | null; email: string | null; total_count: number }[];
-  const total = rows.length > 0 ? Number(rows[0].total_count) : 0;
+  type CustomerRow = { name: string; phone: string | null; email: string | null; total_count: number };
+  const rows = (data ?? []) as CustomerRow[];
+  let total = rows.length > 0 ? Number(rows[0].total_count) : 0;
+  // 範囲外のページは行が無く total_count も取れない。0 と返すと「顧客0人」と誤認させるので、
+  // 先頭 1 件だけ読み直して総数を得る（低 A166）。
+  if (rows.length === 0 && offset > 0) {
+    const { data: head, error: headError } = await admin.rpc('get_facility_customers_v1', {
+      p_facility_id: principal.facility_id,
+      p_search: safeSearch,
+      p_limit: 1,
+      p_offset: 0,
+    });
+    if (headError) return serverError('v1-customers-total', headError, '/api/v1/customers', 'Internal Server Error');
+    const headRows = (head ?? []) as CustomerRow[];
+    total = headRows.length > 0 ? Number(headRows[0].total_count) : 0;
+  }
   const customers = rows.map((c) => ({ name: c.name, phone: c.phone, email: c.email }));
 
   return NextResponse.json({
