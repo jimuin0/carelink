@@ -1,6 +1,6 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { NextResponse } from 'next/server';
-import { requirePlatformAdmin } from '../platform-admin';
+import { requirePlatformAdmin, requirePlatformAdminApi } from '../platform-admin';
 const mockGetUser = jest.fn();
 const mockProfile = jest.fn();
 const mockFrom = jest.fn();
@@ -31,8 +31,6 @@ test.each(['auth-data-error','auth-null-error','auth-throw','profile-data-error'
 });
 
 describe('requirePlatformAdminApi（点検 A205）', () => {
- // eslint-disable-next-line @typescript-eslint/no-require-imports
- const { requirePlatformAdminApi } = require('../platform-admin') as typeof import('../platform-admin');
  test('運営はユーザーを返す',async()=>expect(await requirePlatformAdminApi()).toEqual(user));
  test('未ログインだけが 401',async()=>{
   mockGetUser.mockResolvedValue({data:{user:null},error:null});
