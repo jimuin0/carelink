@@ -378,6 +378,27 @@ export type Database = {
           },
         ]
       }
+      booking_adjust_line_operations: {
+        Row: {
+          actor_id: string
+          booking_id: string
+          created_at: string
+          operation_id: string
+        }
+        Insert: {
+          actor_id: string
+          booking_id: string
+          created_at?: string
+          operation_id: string
+        }
+        Update: {
+          actor_id?: string
+          booking_id?: string
+          created_at?: string
+          operation_id?: string
+        }
+        Relationships: []
+      }
       booking_adjust_operations: {
         Row: {
           actor_id: string
@@ -1962,6 +1983,7 @@ export type Database = {
           salary_max: number | null
           salary_min: number | null
           salary_note: string | null
+          salary_unit: string
           title: string
           updated_at: string | null
         }
@@ -1978,6 +2000,7 @@ export type Database = {
           salary_max?: number | null
           salary_min?: number | null
           salary_note?: string | null
+          salary_unit?: string
           title: string
           updated_at?: string | null
         }
@@ -1994,6 +2017,7 @@ export type Database = {
           salary_max?: number | null
           salary_min?: number | null
           salary_note?: string | null
+          salary_unit?: string
           title?: string
           updated_at?: string | null
         }
@@ -3399,6 +3423,7 @@ export type Database = {
           customer_name: string
           facility_id: string
           id: string
+          idempotency_key: string | null
           responses: Json
           submitted_at: string
           template_id: string
@@ -3411,6 +3436,7 @@ export type Database = {
           customer_name: string
           facility_id: string
           id?: string
+          idempotency_key?: string | null
           responses?: Json
           submitted_at?: string
           template_id: string
@@ -3423,6 +3449,7 @@ export type Database = {
           customer_name?: string
           facility_id?: string
           id?: string
+          idempotency_key?: string | null
           responses?: Json
           submitted_at?: string
           template_id?: string
@@ -6187,6 +6214,7 @@ export type Database = {
         Row: {
           expires_at: string | null
           facility_id: string
+          grant_operation_id: string | null
           id: string
           notes: string | null
           package_id: string
@@ -6198,6 +6226,7 @@ export type Database = {
         Insert: {
           expires_at?: string | null
           facility_id: string
+          grant_operation_id?: string | null
           id?: string
           notes?: string | null
           package_id: string
@@ -6209,6 +6238,7 @@ export type Database = {
         Update: {
           expires_at?: string | null
           facility_id?: string
+          grant_operation_id?: string | null
           id?: string
           notes?: string | null
           package_id?: string
@@ -6313,6 +6343,7 @@ export type Database = {
           created_at: string
           ends_at: string | null
           facility_id: string
+          grant_operation_id: string | null
           id: string
           month_reset_at: string
           notes: string | null
@@ -6326,6 +6357,7 @@ export type Database = {
           created_at?: string
           ends_at?: string | null
           facility_id: string
+          grant_operation_id?: string | null
           id?: string
           month_reset_at?: string
           notes?: string | null
@@ -6339,6 +6371,7 @@ export type Database = {
           created_at?: string
           ends_at?: string | null
           facility_id?: string
+          grant_operation_id?: string | null
           id?: string
           month_reset_at?: string
           notes?: string | null
@@ -7692,6 +7725,7 @@ export type Database = {
           p_actor_id: string
           p_facility_id: string
           p_notes?: string
+          p_operation_id?: string
           p_package_id: string
           p_user_id: string
         }
@@ -7702,6 +7736,7 @@ export type Database = {
           p_actor_id: string
           p_facility_id: string
           p_notes?: string
+          p_operation_id?: string
           p_plan_id: string
           p_user_id: string
         }
@@ -7762,6 +7797,12 @@ export type Database = {
           display_name: string
           email: string
           id: string
+        }[]
+      }
+      list_published_stations: {
+        Args: { p_query?: string }
+        Returns: {
+          nearest_station: string
         }[]
       }
       list_recoverable_salon_receipts: {

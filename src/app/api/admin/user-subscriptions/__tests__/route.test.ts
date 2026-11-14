@@ -48,7 +48,9 @@ function makeGetRequest(params: Record<string, string> = { facility_id: FACILITY
   return new NextRequest(url.toString(), { method: 'GET' });
 }
 
-function makePostRequest(body: object = { facility_id: FACILITY_UUID, user_id: TARGET_USER, plan_id: PLAN_UUID }) {
+const OPERATION_ID = '74000000-0000-4000-8000-0000000000aa';
+
+function makePostRequest(body: object = { facility_id: FACILITY_UUID, user_id: TARGET_USER, plan_id: PLAN_UUID, operation_id: OPERATION_ID }) {
   return new Request('http://localhost/api/admin/user-subscriptions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -309,7 +311,7 @@ test('POST: 正常付与 → 201 with subscription（判定と INSERT は RPC �
   expect(res.status).toBe(201);
   expect(json.subscription).toEqual({ id: SUB_UUID, user_id: TARGET_USER });
   expect(mockAdminRpc).toHaveBeenCalledWith('grant_user_subscription_atomic', {
-    p_actor_id: USER_ID, p_facility_id: FACILITY_UUID, p_user_id: TARGET_USER, p_plan_id: PLAN_UUID, p_notes: undefined,
+    p_actor_id: USER_ID, p_facility_id: FACILITY_UUID, p_user_id: TARGET_USER, p_plan_id: PLAN_UUID, p_notes: undefined, p_operation_id: OPERATION_ID,
   });
   expect(mockAdminFrom).not.toHaveBeenCalled();
   const { writeAuditLog } = require('@/lib/audit-logger');
@@ -648,6 +650,7 @@ test('POST: notes 付きで正常付与 → 201', async () => {
     facility_id: FACILITY_UUID,
     user_id: TARGET_USER,
     plan_id: PLAN_UUID,
+    operation_id: OPERATION_ID,
     notes: 'テスト用メモ',
   }));
   expect(res.status).toBe(201);

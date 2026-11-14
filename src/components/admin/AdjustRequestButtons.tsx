@@ -42,6 +42,7 @@ export default function AdjustRequestButtons({ bookingId, status }: { bookingId:
       // Save only an opaque operation ID, before I/O. A lost response/reload
       // must not create a new operation against a newer booking revision.
       const storageKey = `carelink-adjust-operation/${bookingId}`;
+      const lineStorageKey = `carelink-adjust-line-operation/${bookingId}`;
       let operationId: string | undefined;
       if (channel === 'email') {
         const saved = sessionStorage.getItem(storageKey);
@@ -50,12 +51,19 @@ export default function AdjustRequestButtons({ bookingId, status }: { bookingId:
         operationId = saved ?? crypto.randomUUID();
         sessionStorage.setItem(storageKey, operationId);
         window.dispatchEvent(new Event(OPERATION_CHANGED));
+      } else {
+        // LINE も操作番号で 1 回に限る（点検 A119）。応答を失った後の再送では同じ番号を使い、
+        // サーバーは 2 通目を送らない。応答を受け取ったら（成否を問わず）破棄する。
+        operationId = sessionStorage.getItem(lineStorageKey) ?? crypto.randomUUID();
+        if (!UUID_REGEX.test(operationId)) operationId = crypto.randomUUID();
+        sessionStorage.setItem(lineStorageKey, operationId);
       }
       const res = await fetch('/api/admin/booking-adjust-request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingId, channel, ...(operationId ? { operationId } : {}) }),
+        body: JSON.stringify({ bookingId, channel, operationId }),
       });
+      if (channel === 'line') sessionStorage.removeItem(lineStorageKey);
       const json = await res.json();
       if (res.ok && json?.ok === true && (channel !== 'email' || ['queued','already_queued'].includes(json.notification))) {
         if (channel === 'email') {
@@ -65,7 +73,8 @@ export default function AdjustRequestButtons({ bookingId, status }: { bookingId:
         setResult({ type: 'success', message: channel === 'email'
           ? json.notification === 'already_queued' ? 'この予約の調整依頼は受付済みです。重複送信は行いません。'
             : '調整依頼のメール送信を受け付けました。配達完了を保証するものではありません。'
-          : '時間調整のお願いをLINEで送信しました' });
+          : json.notification === 'already_accepted' ? 'このLINE依頼は受付済みです。重複送信は行いません。'
+            : '時間調整のお願いをLINEで送信しました' });
       } else {
         setResult({ type: 'error', message: json?.error || '通知の受付を確認できません' });
       }

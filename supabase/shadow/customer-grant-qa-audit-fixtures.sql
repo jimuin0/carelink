@@ -60,14 +60,14 @@ INSERT INTO public.service_packages(id, facility_id, name, session_count, bonus_
 -- 回数券・月額プランの付与
 -- ---------------------------------------------------------------------------
 SELECT pg_temp.assert_scope(
-  NOT has_function_privilege('anon', 'public.grant_user_subscription_atomic(uuid,uuid,uuid,uuid,text)', 'EXECUTE')
-  AND NOT has_function_privilege('authenticated', 'public.grant_user_subscription_atomic(uuid,uuid,uuid,uuid,text)', 'EXECUTE')
-  AND NOT has_function_privilege('anon', 'public.grant_user_package_atomic(uuid,uuid,uuid,uuid,text)', 'EXECUTE')
-  AND NOT has_function_privilege('authenticated', 'public.grant_user_package_atomic(uuid,uuid,uuid,uuid,text)', 'EXECUTE')
+  NOT has_function_privilege('anon', 'public.grant_user_subscription_atomic(uuid,uuid,uuid,uuid,text,uuid)', 'EXECUTE')
+  AND NOT has_function_privilege('authenticated', 'public.grant_user_subscription_atomic(uuid,uuid,uuid,uuid,text,uuid)', 'EXECUTE')
+  AND NOT has_function_privilege('anon', 'public.grant_user_package_atomic(uuid,uuid,uuid,uuid,text,uuid)', 'EXECUTE')
+  AND NOT has_function_privilege('authenticated', 'public.grant_user_package_atomic(uuid,uuid,uuid,uuid,text,uuid)', 'EXECUTE')
   AND NOT has_function_privilege('anon', 'public.list_facility_customer_profiles(uuid,uuid,uuid[])', 'EXECUTE')
   AND NOT has_function_privilege('authenticated', 'public.list_facility_customer_profiles(uuid,uuid,uuid[])', 'EXECUTE')
-  AND has_function_privilege('service_role', 'public.grant_user_subscription_atomic(uuid,uuid,uuid,uuid,text)', 'EXECUTE')
-  AND has_function_privilege('service_role', 'public.grant_user_package_atomic(uuid,uuid,uuid,uuid,text)', 'EXECUTE')
+  AND has_function_privilege('service_role', 'public.grant_user_subscription_atomic(uuid,uuid,uuid,uuid,text,uuid)', 'EXECUTE')
+  AND has_function_privilege('service_role', 'public.grant_user_package_atomic(uuid,uuid,uuid,uuid,text,uuid)', 'EXECUTE')
   AND has_function_privilege('service_role', 'public.list_facility_customer_profiles(uuid,uuid,uuid[])', 'EXECUTE'),
   'grant and list RPCs are service_role only');
 SELECT pg_temp.assert_scope(

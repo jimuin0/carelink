@@ -2,6 +2,18 @@ import { z } from 'zod';
 
 export const EMPLOYMENT_TYPES = ['正社員', '契約社員', 'アルバイト・パート', '業務委託', '派遣'] as const;
 
+/** 給与の単位（DB の CHECK と同じ並び・点検 B8-L5・migration 20261114300400）。 */
+export const SALARY_UNITS = ['monthly', 'hourly', 'daily', 'yearly'] as const;
+export type SalaryUnit = (typeof SALARY_UNITS)[number];
+export const SALARY_UNIT_LABELS: Record<SalaryUnit, string> = { monthly: '月給', hourly: '時給', daily: '日給', yearly: '年俸' };
+/** JSON-LD（schema.org QuantitativeValue.unitText）の値。 */
+export const SALARY_UNIT_LD: Record<SalaryUnit, string> = { monthly: 'MONTH', hourly: 'HOUR', daily: 'DAY', yearly: 'YEAR' };
+
+/** DB の値を単位に直す。未知の値・未設定は既定の月給として扱う。 */
+export function toSalaryUnit(value: string | null | undefined): SalaryUnit {
+  return (SALARY_UNITS as readonly string[]).includes(value ?? '') ? (value as SalaryUnit) : 'monthly';
+}
+
 export const jobFormSchema = z
   .object({
     title: z.string().trim().min(1, 'タイトルを入力してください').max(120, '120文字以内で入力してください'),
@@ -23,6 +35,7 @@ export const jobFormSchema = z
       .refine((v) => v === null || (Number.isInteger(v) && v >= 0), '0以上の整数を入力')
       .refine((v) => v === null || v <= 2147483647, '給与額が上限を超えています'),
     salary_note: z.string().trim().max(200).optional().or(z.literal('')),
+    salary_unit: z.enum(SALARY_UNITS, { message: '給与の単位を選択してください' }).default('monthly'),
     description: z.string().trim().max(4000).optional().or(z.literal('')),
     requirements: z.string().trim().max(2000).optional().or(z.literal('')),
     benefits: z.string().trim().max(2000).optional().or(z.literal('')),
@@ -48,6 +61,7 @@ export type FacilityJob = {
   salary_min: number | null;
   salary_max: number | null;
   salary_note: string | null;
+  salary_unit: string;
   description: string | null;
   requirements: string | null;
   benefits: string | null;
