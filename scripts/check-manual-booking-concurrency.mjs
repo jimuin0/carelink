@@ -1,5 +1,6 @@
 // Synthetic fixtures only. Observe real lock contention, not merely concurrent promises.
 import assert from 'node:assert/strict';
+import { homedir } from 'node:os';
 import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 
@@ -7,7 +8,10 @@ const localDockerShadow = process.argv[2] === '--local-docker-shadow';
 const root = localDockerShadow ? undefined : process.argv[2];
 const database = root ? (process.argv[3] || 'carelink_shadow') : 'carelink_shadow';
 assert.ok(['carelink_shadow', 'carelink_manual_20261001', 'carelink_shadow_m09_20261001', 'carelink_shadow_m09_final_20261001'].includes(database));
-const psql = localDockerShadow ? '/Users/kam/Projects/carelink-resume-evidence-20261008/runtime/pg-cli-bridge/psql' : 'psql';
+// 利用者ごとのホームディレクトリから組み立てる（特定の人のパスを固定しない）。CARELINK_SHADOW_PSQL で上書きできる。
+const psql = localDockerShadow
+  ? (process.env.CARELINK_SHADOW_PSQL || `${homedir()}/Projects/carelink-resume-evidence-20261008/runtime/pg-cli-bridge/psql`)
+  : 'psql';
 const args = ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose', '-d', database];
 const runPrefix = `mb-${process.pid}-${Date.now().toString(36).slice(-5)}`;
 const children = new Set();

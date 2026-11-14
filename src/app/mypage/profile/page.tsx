@@ -414,15 +414,12 @@ export default function ProfileEditPage() {
           setShowLineUnlinkConfirm(false);
           setLineUnlinking(true);
           try {
-            const supabase = createBrowserSupabaseClient();
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-              const { error: unlinkError } = await supabase.from('line_user_links').delete().eq('user_id', user.id);
-              if (unlinkError) throw unlinkError;
-              setLineLinked(false);
-              setLineDisplayName(null);
-              setToast({ type: 'success', message: 'LINE連携を解除しました' });
-            }
+            // 解除の入口は設定画面と同じ API に一本化する（連携記録と profiles の両方を外す・B8-L6）。
+            const res = await fetch('/api/liff/link', { method: 'DELETE' });
+            if (!res.ok) throw new Error('LINE unlink failed');
+            setLineLinked(false);
+            setLineDisplayName(null);
+            setToast({ type: 'success', message: 'LINE連携を解除しました' });
           } catch {
             setToast({ type: 'error', message: '解除に失敗しました' });
           } finally {

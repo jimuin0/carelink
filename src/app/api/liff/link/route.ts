@@ -69,6 +69,13 @@ export async function DELETE(req: NextRequest) {
     if (unlinkErr) {
       return serverError('liff-link-delete-update', unlinkErr, '/api/liff/link');
     }
+    // 連携の記録（line_user_links）も同時に外す。以前はマイページのプロフィール画面だけが
+    // ブラウザから line_user_links を消し、設定画面（この API）は profiles だけを消していたため、
+    // どちらで解除したかで残るものが違った（B8-L6）。解除の入口はこの API に一本化する。
+    const { error: linkErr } = await admin.from('line_user_links').delete().eq('user_id', user.id);
+    if (linkErr) {
+      return serverError('liff-link-delete-links', linkErr, '/api/liff/link');
+    }
 
     return NextResponse.json({ ok: true });
   } catch (e) {
