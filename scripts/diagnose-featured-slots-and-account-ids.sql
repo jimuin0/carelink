@@ -15,8 +15,7 @@
 --      webhook だけ。修正前は店舗のオーナー／管理者が PostgREST から直接作成・有効化・期限延長できた。
 --      本番は 0 行の想定。行があれば、監査ログの無い行（＝API を通っていない）から確認する
 --      （audit_logs は 2026年8月12日より前は取りこぼしが多いので、「無い＝自己付与」とは断定しない）。
---      ⚠️ featured_slots.stripe_session_id はどのコードも書いていない（webhook は is_active だけを更新する）
---      ので、NULL であることは「未払い」の印にならない。
+--      （featured_slots.stripe_session_id は 2026年11月14日に撤去。有効化は PAY.JP の webhook が行う。）
 --   ② 適用後の確認: ブラウザのロール（anon / authenticated）が featured_slots に書けないこと、
 --      facility_qa の user_id / answered_by と review_helpful を読めないこと。適用前は false が並ぶ。
 --   ③ 修正前に匿名で読めていた範囲（公開 Q&A の質問者 ID の件数・「役に立った」の件数）。
@@ -29,7 +28,6 @@
 -- @check featured_slots.starts_at
 -- @check featured_slots.ends_at
 -- @check featured_slots.is_active
--- @check featured_slots.stripe_session_id
 -- @check featured_slots.created_at
 -- @check facility_profiles.id
 -- @check facility_profiles.name
@@ -70,7 +68,7 @@ $connguard$;
 SELECT s.id, f.name AS facility_name, f.status AS facility_status, s.slot_type, s.area, s.business_type,
   s.starts_at, s.ends_at, s.is_active,
   (s.is_active AND s.starts_at <= now() AND s.ends_at >= now()) AS shown_as_sponsor_now,
-  s.stripe_session_id, s.created_at,
+  s.created_at,
   EXISTS (
     SELECT 1 FROM audit_logs a
     WHERE a.table_name = 'featured_slots' AND a.action = 'create' AND a.record_id = s.id::text
