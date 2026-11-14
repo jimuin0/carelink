@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toggle from '@/components/admin/Toggle';
 import LoadError from '@/components/admin/LoadError';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { isLineEnabled } from '@/lib/line-availability';
 import { loadPayjp, type PayjpCardElement, type PayjpClient } from '@/lib/payjp-client';
 
@@ -77,6 +78,9 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
   const [cardReady, setCardReady] = useState(false);
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // PAY.JP の定期課金の状態（解約予約済みかどうか）。サーバの GET /api/options/subscription から読む。
+  const [subStatus, setSubStatus] = useState<Record<string, { status: string; current_period_end: string | null }>>({});
+  const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
   const payjpRef = useRef<{ client: PayjpClient; card: PayjpCardElement } | null>(null);
 
   // カード入力欄を開いたときだけ payjp.js を読み込み、PAY.JP の iframe を差し込む（カード番号は CareLink を通らない）。
@@ -114,6 +118,11 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
         fetch('/api/options/catalog').then((r) => (r.ok ? r.json() : { options: [] })).catch(() => ({ options: [] })),
         supabase.from('facility_entitlements').select('option_key, status').eq('facility_id', facilityId).eq('status', 'active'),
       ]);
+      // 解約予約の表示に使うだけなので、読めなくても画面は出す（解約ボタンは押せば API が状態を確かめる）。
+      const subsRes = await fetch(`/api/options/subscription?facilityId=${encodeURIComponent(facilityId)}`)
+        .then((r) => (r.ok ? r.json() : { subscriptions: [] })).catch(() => ({ subscriptions: [] }));
+      const subs = (subsRes as { subscriptions?: { option_key: string; status: string; current_period_end: string | null }[] }).subscriptions ?? [];
+      setSubStatus(Object.fromEntries(subs.map((x) => [x.option_key, { status: x.status, current_period_end: x.current_period_end }])));
       const catalogRows = (catalogRes as { options?: CatalogOption[] }).options ?? [];
       setPublicKey((catalogRes as { publicKey?: string }).publicKey ?? null);
       if (settingsErr || entErr) {
@@ -229,6 +238,33 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
     }
   };
 
+  const handleCancel = async (optionKey: string) => {
+    setBuying(optionKey);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch('/api/options/subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ facilityId, optionKey }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error || '解約に失敗しました。');
+        return;
+      }
+      setSubStatus((prev) => ({ ...prev, [optionKey]: { status: 'canceled', current_period_end: json.periodEnd ?? null } }));
+      setNotice('解約を受け付けました。お支払い済みの期間の終わりまではご利用いただけます。');
+    } catch {
+      setError('通信に失敗しました。時間をおいて再度お試しください。');
+    } finally {
+      setBuying(null);
+    }
+  };
+
+  const untilLabel = (iso: string | null) =>
+    iso ? `${new Date(iso).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'long', day: 'numeric' })}まで利用可` : '期間末まで利用可';
+
   if (loading) return <div className="h-56 bg-gray-50 rounded-lg animate-pulse" data-testid="reminder-upsell-loading" />;
   if (loadFailed) {
     return <LoadError message="リマインダー設定の読み込みに失敗しました" onRetry={() => { setLoading(true); setReloadKey((k) => k + 1); }} />;
@@ -266,7 +302,7 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
       </div>
 
       <h3 className="text-sm font-bold text-gray-800 mb-1">有料オプション</h3>
-      <p className="text-xs text-gray-500 mb-4">必要な機能だけ月額で追加できます。カードで毎月自動でお支払いいただきます（解約はお問い合わせからご連絡ください）。</p>
+      <p className="text-xs text-gray-500 mb-4">必要な機能だけ月額で追加できます。カードで毎月自動でお支払いいただきます。解約はいつでもでき、お支払い済みの期間の終わりまでご利用いただけます。</p>
 
       <div className="space-y-3">
         {catalog.map((opt) => {
@@ -282,8 +318,20 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
                   {opt.contact_only && <span className="text-gray-500 font-normal">〜（個別お見積り）</span>}
                 </p>
               </div>
-              {owned ? (
-                <span className="shrink-0 text-xs font-bold text-emerald-600 border border-emerald-200 bg-emerald-50 rounded-sm px-2 py-1">利用中</span>
+              {owned && subStatus[opt.key]?.status === 'canceled' ? (
+                <span className="shrink-0 text-xs font-bold text-gray-600 border border-gray-200 bg-gray-50 rounded-sm px-2 py-1" data-testid={`canceling-${opt.key}`}>
+                  解約予約済み（{untilLabel(subStatus[opt.key].current_period_end)}）
+                </span>
+              ) : owned ? (
+                <span className="shrink-0 flex items-center gap-2">
+                  <span className="text-xs font-bold text-emerald-600 border border-emerald-200 bg-emerald-50 rounded-sm px-2 py-1">利用中</span>
+                  {subStatus[opt.key] && (
+                    <button type="button" onClick={() => setConfirmCancel(opt.key)} disabled={buying !== null}
+                      className="text-xs text-gray-600 border border-gray-200 hover:bg-gray-50 disabled:opacity-50 rounded-sm px-2 py-1">
+                      {buying === opt.key ? '処理中...' : '解約'}
+                    </button>
+                  )}
+                </span>
               ) : requested ? (
                 <span className="shrink-0 text-xs font-bold text-sky-600 border border-sky-200 bg-sky-50 rounded-sm px-2 py-1">申込み済み</span>
               ) : (
@@ -321,6 +369,16 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmCancel !== null}
+        title="オプションを解約しますか？"
+        message="お支払い済みの期間の終わりまではご利用いただけ、以後の請求は止まります。"
+        confirmLabel="解約する"
+        variant="danger"
+        onCancel={() => setConfirmCancel(null)}
+        onConfirm={() => { const key = confirmCancel; setConfirmCancel(null); if (key) void handleCancel(key); }}
+      />
 
       {saving && <p className="text-xs text-gray-500 mt-2">保存中...</p>}
       {notice && <p className="text-xs text-emerald-700 mt-2" role="status">{notice}</p>}

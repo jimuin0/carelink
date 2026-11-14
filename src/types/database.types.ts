@@ -707,7 +707,6 @@ export type Database = {
           staff_id: string | null
           start_time: string
           status: string
-          stripe_payment_intent_id: string | null
           total_price: number | null
           updated_at: string | null
           user_id: string | null
@@ -741,7 +740,6 @@ export type Database = {
           staff_id?: string | null
           start_time: string
           status?: string
-          stripe_payment_intent_id?: string | null
           total_price?: number | null
           updated_at?: string | null
           user_id?: string | null
@@ -775,7 +773,6 @@ export type Database = {
           staff_id?: string | null
           start_time?: string
           status?: string
-          stripe_payment_intent_id?: string | null
           total_price?: number | null
           updated_at?: string | null
           user_id?: string | null
@@ -1880,7 +1877,6 @@ export type Database = {
           id: string
           option_key: string
           status: string
-          stripe_subscription_id: string | null
           updated_at: string
         }
         Insert: {
@@ -1890,7 +1886,6 @@ export type Database = {
           id?: string
           option_key: string
           status?: string
-          stripe_subscription_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -1900,7 +1895,6 @@ export type Database = {
           id?: string
           option_key?: string
           status?: string
-          stripe_subscription_id?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -2531,8 +2525,6 @@ export type Database = {
           staff_breakdown: Json | null
           staff_count: number | null
           status: string | null
-          stripe_account_id: string | null
-          stripe_enabled: boolean
           updated_at: string | null
           verified_at: string | null
           verified_type: string | null
@@ -2604,8 +2596,6 @@ export type Database = {
           staff_breakdown?: Json | null
           staff_count?: number | null
           status?: string | null
-          stripe_account_id?: string | null
-          stripe_enabled?: boolean
           updated_at?: string | null
           verified_at?: string | null
           verified_type?: string | null
@@ -2677,8 +2667,6 @@ export type Database = {
           staff_breakdown?: Json | null
           staff_count?: number | null
           status?: string | null
-          stripe_account_id?: string | null
-          stripe_enabled?: boolean
           updated_at?: string | null
           verified_at?: string | null
           verified_type?: string | null
@@ -3091,7 +3079,6 @@ export type Database = {
           is_active: boolean
           slot_type: string
           starts_at: string
-          stripe_session_id: string | null
           updated_at: string
         }
         Insert: {
@@ -3107,7 +3094,6 @@ export type Database = {
           is_active?: boolean
           slot_type: string
           starts_at: string
-          stripe_session_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -3123,7 +3109,6 @@ export type Database = {
           is_active?: boolean
           slot_type?: string
           starts_at?: string
-          stripe_session_id?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -5788,133 +5773,6 @@ export type Database = {
           },
         ]
       }
-      stripe_events: {
-        Row: {
-          id: string
-          processed_at: string
-          type: string | null
-        }
-        Insert: {
-          id: string
-          processed_at?: string
-          type?: string | null
-        }
-        Update: {
-          id?: string
-          processed_at?: string
-          type?: string | null
-        }
-        Relationships: []
-      }
-      stripe_sessions: {
-        Row: {
-          amount: number
-          booking_id: string | null
-          created_at: string
-          currency: string
-          expires_at: string | null
-          facility_id: string
-          id: string
-          metadata: Json | null
-          payment_type: string
-          refund_amount: number | null
-          refunded_at: string | null
-          status: string
-          stripe_payment_intent_id: string | null
-          stripe_session_id: string
-          updated_at: string
-          user_id: string | null
-        }
-        Insert: {
-          amount: number
-          booking_id?: string | null
-          created_at?: string
-          currency?: string
-          expires_at?: string | null
-          facility_id: string
-          id?: string
-          metadata?: Json | null
-          payment_type?: string
-          refund_amount?: number | null
-          refunded_at?: string | null
-          status?: string
-          stripe_payment_intent_id?: string | null
-          stripe_session_id: string
-          updated_at?: string
-          user_id?: string | null
-        }
-        Update: {
-          amount?: number
-          booking_id?: string | null
-          created_at?: string
-          currency?: string
-          expires_at?: string | null
-          facility_id?: string
-          id?: string
-          metadata?: Json | null
-          payment_type?: string
-          refund_amount?: number | null
-          refunded_at?: string | null
-          status?: string
-          stripe_payment_intent_id?: string | null
-          stripe_session_id?: string
-          updated_at?: string
-          user_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "stripe_sessions_booking_id_fkey"
-            columns: ["booking_id"]
-            isOneToOne: false
-            referencedRelation: "bookings"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "stripe_sessions_facility_id_fkey"
-            columns: ["facility_id"]
-            isOneToOne: false
-            referencedRelation: "facility_card_view"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "stripe_sessions_facility_id_fkey"
-            columns: ["facility_id"]
-            isOneToOne: false
-            referencedRelation: "facility_profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      stripe_webhook_logs: {
-        Row: {
-          created_at: string
-          error: string | null
-          event_id: string
-          event_type: string
-          id: string
-          payload: Json
-          processed: boolean
-        }
-        Insert: {
-          created_at?: string
-          error?: string | null
-          event_id: string
-          event_type: string
-          id?: string
-          payload: Json
-          processed?: boolean
-        }
-        Update: {
-          created_at?: string
-          error?: string | null
-          event_id?: string
-          event_type?: string
-          id?: string
-          payload?: Json
-          processed?: boolean
-        }
-        Relationships: []
-      }
       subscription_plans: {
         Row: {
           created_at: string
@@ -8135,7 +7993,6 @@ export type Database = {
           staff_id: string | null
           start_time: string
           status: string
-          stripe_payment_intent_id: string | null
           total_price: number | null
           updated_at: string | null
           user_id: string | null
