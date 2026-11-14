@@ -271,3 +271,10 @@ test('GET: 3件あるが1件は本文が空 → summary: null（要約しない�
   expect(res.status).toBe(200);
   expect(json.summary).toBeNull();
 });
+
+test('GET: 口コミの取得結果が null → summary: null', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(reviewsChain(null as never));
+  const res = await GET(makeRequest());
+  expect((await res.json()).summary).toBeNull();
+});

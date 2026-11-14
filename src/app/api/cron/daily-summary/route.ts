@@ -75,7 +75,7 @@ async function sendDailySummaryEmails(
     .in('facility_id', ids).eq('role', 'owner'));
   if (ownersError) throw new Error('Daily summary owners lookup failed', { cause: ownersError });
   const ownerByFacility = new Map<string, string>();
-  for (const o of (owners ?? []) as Array<{ facility_id: string; user_id: string }>) {
+  for (const o of owners as Array<{ facility_id: string; user_id: string }>) {
     if (!ownerByFacility.has(o.facility_id)) ownerByFacility.set(o.facility_id, o.user_id);
   }
 
@@ -84,12 +84,12 @@ async function sendDailySummaryEmails(
     ? await selectInChunks(ownerUserIds, (ids) => supabase.from('profiles').select('id, email').in('id', ids))
     : { data: [] as Array<{ id: string; email: string | null }>, error: null };
   if (profilesError) throw new Error('Daily summary owner profiles lookup failed', { cause: profilesError });
-  const emailByUserId = new Map((profs ?? []).map((p) => [p.id as string, p.email as string | null]));
+  const emailByUserId = new Map(profs.map((p) => [p.id as string, p.email as string | null]));
 
   const { data: facs, error: facilitiesError } = await selectInChunks(summaryFacilityIds, (ids) => supabase
     .from('facility_profiles').select('id, name').in('id', ids));
   if (facilitiesError) throw new Error('Daily summary facilities lookup failed', { cause: facilitiesError });
-  const nameByFacility = new Map((facs ?? []).map((f) => [f.id as string, f.name as string | null]));
+  const nameByFacility = new Map(facs.map((f) => [f.id as string, f.name as string | null]));
 
   let sent = 0;
   let failed = 0;
