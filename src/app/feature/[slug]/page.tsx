@@ -9,6 +9,7 @@ import { searchFacilities } from '@/lib/facilities';
 import Breadcrumb from '@/components/Breadcrumb';
 import { featureBannerImage } from '@/lib/feature-banner';
 import FacilityCard from '@/components/search/FacilityCard';
+import { featureArticleSearchHref } from '@/lib/search-href';
 
 export const revalidate = 3600;
 
@@ -131,7 +132,7 @@ export default async function FeatureDetailPage({ params }: Props) {
             <p className="text-xs text-gray-500 mt-1">条件にぴったりのサロンが見つかります</p>
           </div>
           <Button
-            href={`/search?${feature.filter_type ? `type=${encodeURIComponent(feature.filter_type)}` : ''}${feature.filter_keyword ? `&keyword=${encodeURIComponent(feature.filter_keyword)}` : ''}`}
+            href={featureArticleSearchHref(feature)}
             prefetch="auto"
             className="whitespace-nowrap"
           >
@@ -170,7 +171,7 @@ export default async function FeatureDetailPage({ params }: Props) {
             </div>
             <div className="text-center mt-8">
               <Button
-                href={`/search?${feature.filter_type ? `type=${encodeURIComponent(feature.filter_type)}` : ''}${feature.filter_keyword ? `&keyword=${encodeURIComponent(feature.filter_keyword)}` : ''}`}
+                href={featureArticleSearchHref(feature)}
                 prefetch="auto"
               >
                 すべての施設を見る

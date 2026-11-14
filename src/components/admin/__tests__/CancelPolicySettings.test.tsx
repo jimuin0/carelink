@@ -118,3 +118,13 @@ test('ポリシーをまだ保存していない店舗は DB の既定値（24�
   expect(screen.getByLabelText('キャンセル料（施術料金の%）')).toHaveValue('50');
   expect(await savedRow(upsert)).toMatchObject({ cancel_rule: 'free_window', free_cancel_hours: 24, late_cancel_rate: 50, no_show_rate: 100 });
 });
+
+// 監査 A268: 保存が例外（通信断）で終わると saving が戻らずボタンが押せなくなり、失敗も出なかった。
+test('upsert が通信断 → エラーを表示し、保存ボタンを押せる状態に戻す', async () => {
+  const { upsert } = mockClient(null);
+  upsert.mockImplementationOnce(() => Promise.reject(new TypeError('Failed to fetch')));
+  render(<CancelPolicySettings facilityId="f1" />);
+  fireEvent.click(await screen.findByText('ポリシーを保存'));
+  expect(await screen.findByRole('alert')).toHaveTextContent('保存に失敗しました');
+  expect(screen.getByText('ポリシーを保存').closest('button')).not.toBeDisabled();
+});

@@ -234,3 +234,29 @@ describe('公開・非表示の切り替え', () => {
     expect(await screen.findByText('更新に失敗しました')).toBeInTheDocument();
   });
 });
+
+// 監査 A179: filter 用の effect が別にあり切り替えごとに API を 2 回呼び、中止も無かったため
+// 古い絞り込みの応答が後から届くと新しい絞り込みの一覧を上書きし得た。
+test('絞り込みの切り替えは1回だけ読み、遅れて届いた古い応答で一覧を上書きしない', async () => {
+  mockSelection.mockResolvedValue({ choices: [choices[0]], selectedId: A });
+  render(<AdminReviewsPage />);
+  expect(await screen.findByText('店舗Bのお客様')).toBeInTheDocument();
+  expect(listCalls()).toHaveLength(1);
+
+  let releaseHidden: (v: unknown) => void = () => {};
+  mockFetch.mockImplementation((url: string) => {
+    if (String(url).includes('filter=hidden')) return new Promise((resolve) => { releaseHidden = resolve; });
+    if (String(url).includes('filter=published')) return json(200, { reviews: [review(R2, '公開中の新しい結果', 'published', 'none')] });
+    return json(200, { reviews });
+  });
+  fireEvent.click(screen.getByRole('button', { name: '非表示' }));
+  await waitFor(() => expect(listCalls().filter(([u]) => String(u).includes('filter=hidden'))).toHaveLength(1));
+  fireEvent.click(screen.getByRole('button', { name: '公開中' }));
+  expect(await screen.findByText('公開中の新しい結果')).toBeInTheDocument();
+  expect(listCalls().filter(([u]) => String(u).includes('filter=published'))).toHaveLength(1);
+
+  releaseHidden({ ok: true, status: 200, json: () => Promise.resolve({ reviews: [review(R3, '古い非表示の結果', 'hidden', 'none')] }) });
+  await new Promise((r) => setTimeout(r, 20));
+  expect(screen.queryByText('古い非表示の結果')).not.toBeInTheDocument();
+  expect(screen.getByText('公開中の新しい結果')).toBeInTheDocument();
+});

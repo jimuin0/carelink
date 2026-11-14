@@ -10,6 +10,7 @@ import { CookieConsent } from "@/components/DynamicRootComponents";
 import { safeJsonLd } from "@/lib/json-ld";
 import ClientLocalDataCleanup from "@/components/ClientLocalDataCleanup";
 import AnalyticsGate from "@/components/AnalyticsGate";
+import { supabasePreconnectOrigin } from "@/lib/supabase-build-env";
 
 import "./globals.css";
 
@@ -70,6 +71,7 @@ export default async function RootLayout({
   // middleware が付与した per-request nonce を読み、インライン JSON-LD に適用する
   // （nonce ベース CSP で 'unsafe-inline' を排除しても CSP 違反にならないようにする）。
   const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const supabaseOrigin = supabasePreconnectOrigin();
 
   return (
     <html lang="ja">
@@ -77,7 +79,7 @@ export default async function RootLayout({
         {/* トップのヒーロー画像（hero-tiny.webp）は全ページに preload しない。使うのはトップだけで、
             他のページでは「preload したのに使わない」警告と無駄な転送になっていた。トップでは
             <img fetchPriority="high"> が HTML の先頭近くにあり、プリロードスキャナがすぐに拾う。 */}
-        <link rel="preconnect" href="https://xzafxiupbflvgbarrihe.supabase.co" />
+        {supabaseOrigin && <link rel="preconnect" href={supabaseOrigin} />}
         {gaId && <link rel="dns-prefetch" href="https://www.googletagmanager.com" />}
         {clarityId && <link rel="dns-prefetch" href="https://www.clarity.ms" />}
       </head>

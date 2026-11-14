@@ -135,7 +135,7 @@ export default async function MyPackagesPage() {
 
                     {pkg.expires_at && (
                       <p className={`text-xs mt-2 ${expiringSoon ? 'text-amber-600 font-medium' : 'text-gray-500'}`}>
-                        有効期限: {new Date(pkg.expires_at).toLocaleDateString('ja-JP')}
+                        有効期限: {new Date(pkg.expires_at).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}
                       </p>
                     )}
                   </div>

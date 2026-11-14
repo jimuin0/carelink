@@ -7,6 +7,7 @@ import Flags from '../feature-flags/layout';
 import Experiments from '../ab-tests/layout';
 import Moderation from '../moderation/layout';
 import CronMonitor from '../cron-monitor/layout';
+import Uptime from '../uptime/layout';
 const mockGetUser=jest.fn(),mockProfile=jest.fn(),mockFrom=jest.fn();
 jest.mock('@/lib/supabase-server-auth',()=>({createServerSupabaseAuthClient:async()=>({auth:{getUser:mockGetUser},from:mockFrom})}));
 jest.mock('next/navigation',()=>({notFound:()=>{throw new Error('NEXT_NOT_FOUND');}}));
@@ -16,7 +17,7 @@ beforeEach(()=>{
  jest.clearAllMocks();mockGetUser.mockResolvedValue({data:{user},error:null});mockProfile.mockResolvedValue({data:{is_platform_admin:true},error:null});
  mockFrom.mockReturnValue({select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),single:mockProfile,maybeSingle:mockProfile});
 });
-describe.each([['email guide',EmailGuide],['LINE guide',LineGuide],['features',Features],['flags',Flags],['experiments',Experiments],['moderation',Moderation],['cron monitor',CronMonitor]] as const)('%s layout',(_name,Layout)=>{
+describe.each([['email guide',EmailGuide],['LINE guide',LineGuide],['features',Features],['flags',Flags],['experiments',Experiments],['moderation',Moderation],['cron monitor',CronMonitor],['uptime',Uptime]] as const)('%s layout',(_name,Layout)=>{
  test('confirmed platform access preserves private children',async()=>{
   const html=renderToStaticMarkup(await Layout({children:<div>private-controls</div>}));expect(html).toContain('private-controls');expect(html).not.toContain('role="alert"');
  });

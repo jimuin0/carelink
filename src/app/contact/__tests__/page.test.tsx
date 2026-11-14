@@ -144,3 +144,21 @@ test('送信APIがエラーレスポンス → エラーメッセージをトー
 
   await waitFor(() => expect(screen.getByText('Bot検知: 時間をおいて再度お試しください')).toBeInTheDocument());
 });
+
+// 監査 A192: 通信断で英語の内部メッセージ（Failed to fetch）が出て、送信できたのか分からなかった。
+test('通信断 → 英語の内部メッセージを出さず、送信できたか確認できなかったと伝える', async () => {
+  global.fetch = jest.fn(() => Promise.reject(new TypeError('Failed to fetch'))) as unknown as typeof fetch;
+
+  render(<ContactPage />);
+  fireEvent.change(screen.getByLabelText(/お名前/), { target: { value: '山田太郎' } });
+  fireEvent.change(screen.getByLabelText(/メールアドレス/), { target: { value: 'test@example.com' } });
+  fireEvent.change(screen.getByLabelText(/お問い合わせ種別/), { target: { value: 'その他' } });
+  fireEvent.change(screen.getByLabelText(/内容/), { target: { value: 'テスト内容です。' } });
+  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('button', { name: '送信する' }));
+  const dialog = await screen.findByRole('dialog');
+  fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
+
+  expect(await screen.findByText(/送信できたか確認できませんでした/)).toBeInTheDocument();
+  expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
+});

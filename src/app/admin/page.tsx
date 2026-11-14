@@ -66,7 +66,7 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
     { data: monthCompletedRows, error: monthRevErr },
     { count: monthNoShowCount, error: noShowErr },
   ] = await Promise.all([
-    readWithinDeadline('dashboard-bookings-today', supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('booking_date', today)),
+    readWithinDeadline('dashboard-bookings-today', supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('booking_date', today).neq('status', 'cancelled')),
     readWithinDeadline('dashboard-bookings-pending', supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'pending')),
     readWithinDeadline('dashboard-bookings-week', supabase.from('bookings').select('booking_date').eq('facility_id', facilityId).neq('status', 'cancelled')
       .gte('booking_date', weekDates[0]).lte('booking_date', weekDates[13])),

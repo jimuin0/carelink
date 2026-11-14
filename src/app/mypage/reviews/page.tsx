@@ -63,6 +63,9 @@ export default function MyReviewsPage() {
       }
       setReviews((prev) => prev.filter((r) => r.id !== id));
       setToast({ type: 'success', message: '口コミを削除しました' });
+    } catch {
+      // 通信断でも何も起きなかったように見せない（監査 A194）
+      setToast({ type: 'error', message: '通信に失敗しました。削除されていない可能性があります' });
     } finally {
       setDeletingId(null);
     }

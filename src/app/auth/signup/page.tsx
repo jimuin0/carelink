@@ -14,6 +14,7 @@ import Toast from '@/components/Toast';
 import { isLineLoginEnabled } from '@/lib/line-availability';
 import { LINE_CONSENT_REQUIRED_ERROR, LINE_SIGNUP_CONSENT_AGREED, LINE_SIGNUP_INTENT } from '@/lib/line-oauth';
 import { safeRedirect } from '@/lib/safe-redirect';
+import { loginDestination } from '@/lib/post-login-landing';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { useClientReady } from '@/lib/use-client-ready';
 import { isShopAccountSetupRedirect } from '@/lib/salon-browser-context';
@@ -105,7 +106,9 @@ function SignupContent() {
   // （外部化される値は常にどの origin を基準にしても不一致になる）、
   // SSR と CSR とで redirect の計算結果がずれてハイドレーション不整合を起こすことはない。
   const origin = typeof window !== 'undefined' ? window.location.origin : SITE_URL;
-  let redirect = safeRedirect(searchParams.get('redirect'), origin);
+  // 戻り先の指定が無いときは login と同じく /auth/landing（店舗を管理できるアカウントは /admin・それ以外は /mypage）。
+  // 以前は /mypage 固定で、既存の店舗オーナーが redirect なしの登録画面から Google で入ると /admin へ振り分けられなかった。
+  let redirect = loginDestination(searchParams.get('redirect'), origin);
   // onboarding時はfacility_name/business_typeをredirectに含める
   const facilityName = searchParams.get('facility_name');
   const businessType = searchParams.get('business_type');

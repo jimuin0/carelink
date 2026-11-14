@@ -89,19 +89,20 @@ export default async function UptimePage() {
           </div>
 
           <div>
-            <h3 className="text-sm font-bold text-sky-700 mb-2">2. Vercel Cron（内部監視）</h3>
+            <h3 className="text-sm font-bold text-sky-700 mb-2">2. 内部の外形監視（Render）</h3>
             <p className="text-xs text-gray-600 mb-2">
-              本システムは既に <code className="bg-gray-100 px-1 rounded-sm text-xs">/api/health</code> エンドポイントを提供しています。
-              Vercelの「Monitoring」タブからも確認可能です。
+              Render の Cron Job <code className="bg-gray-100 px-1 rounded-sm text-xs">carelink-health-check</code>（<code className="bg-gray-100 px-1 rounded-sm text-xs">scripts/health-check.mjs</code>）が
+              5分ごとに <code className="bg-gray-100 px-1 rounded-sm text-xs">/api/health</code> を確認し、異常時は Slack へ通報します。
             </p>
           </div>
 
           <div>
             <h3 className="text-sm font-bold text-sky-700 mb-2">3. Slack アラート（内蔵・Sentry は廃止済み）</h3>
             <p className="text-xs text-gray-600 mb-2">
-              API ルートの 500 級例外は <code className="bg-gray-100 px-1 rounded-sm text-xs">instrumentation.ts</code> の
-              onRequestError 経由で自動的に Slack へ通知されます（<code className="bg-gray-100 px-1 rounded-sm text-xs">SLACK_BOT_TOKEN</code> と
-              <code className="bg-gray-100 px-1 rounded-sm text-xs">SLACK_DEFAULT_CHANNEL</code> が必要）。外部の Sentry 連携は不要です。
+              API ルートの 500 応答は、<code className="bg-gray-100 px-1 rounded-sm text-xs">withRoute</code> で包んだルートなら例外を投げた場合も 500 を返した場合も
+              Slack へ通知されます（<code className="bg-gray-100 px-1 rounded-sm text-xs">SLACK_BOT_TOKEN</code> と
+              <code className="bg-gray-100 px-1 rounded-sm text-xs">SLACK_DEFAULT_CHANNEL</code> が必要）。それ以外の未捕捉例外は
+              <code className="bg-gray-100 px-1 rounded-sm text-xs">instrumentation.ts</code> の onRequestError が通知します。外部の Sentry 連携は不要です。
             </p>
             <ol className="text-xs text-gray-600 space-y-1 list-decimal list-inside">
               <li>Vercel 環境変数に SLACK_BOT_TOKEN / SLACK_DEFAULT_CHANNEL を設定</li>

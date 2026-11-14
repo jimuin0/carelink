@@ -14,3 +14,21 @@ export function featureSearchHref(feature: string, scope: { type?: string; area?
   params.set('features', feature);
   return `/search?${params.toString()}`;
 }
+
+/**
+ * 特集ページの「サロンを探す」「すべての施設を見る」の検索リンク。
+ * 特集本文の一覧（filter_type / filter_keyword / filter_prefecture）と同じ条件で検索させる。
+ * 以前は都道府県を落としており全国の結果が出ていた。type が無いと `/search?&keyword=` にもなっていた。
+ */
+export function featureArticleSearchHref(filters: {
+  filter_type?: string | null;
+  filter_keyword?: string | null;
+  filter_prefecture?: string | null;
+}): string {
+  const params = new URLSearchParams();
+  if (filters.filter_type) params.set('type', filters.filter_type);
+  if (filters.filter_prefecture) params.set('area', filters.filter_prefecture);
+  if (filters.filter_keyword) params.set('keyword', filters.filter_keyword);
+  const query = params.toString();
+  return query ? `/search?${query}` : '/search';
+}

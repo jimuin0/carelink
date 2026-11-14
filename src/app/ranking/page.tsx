@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/BrowseLink';
 import Button from '@/components/ui/Button';
 import type { Metadata } from 'next';
 import { getRankedFacilities } from '@/lib/rankings';
