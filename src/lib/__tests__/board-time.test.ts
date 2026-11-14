@@ -6,7 +6,20 @@ import {
   endExceedsClose,
   assignLanes,
   computeBoardHourRange,
+  clipBookingToDay,
 } from '@/lib/board-time';
+
+test('日付をまたぐ予約を開始日と翌日に分け、深夜0時終了は翌日に表示しない', () => {
+  const b={booking_date:'2030-01-07',end_date:'2030-01-08',start_time:'23:30',end_time:'00:30'};
+  expect(clipBookingToDay(b,'2030-01-07')).toEqual({...b,end_time:'24:00',continuesFromPrevious:false,continuesToNext:true});
+  expect(clipBookingToDay(b,'2030-01-08')).toEqual({...b,start_time:'00:00',continuesFromPrevious:true,continuesToNext:false});
+  expect(clipBookingToDay(b,'2030-01-09')).toBeNull();
+  expect(clipBookingToDay({...b,end_time:'00:00'},'2030-01-07')?.continuesToNext).toBe(false);
+  expect(clipBookingToDay({...b,end_time:'00:00'},'2030-01-08')).toBeNull();
+  expect(clipBookingToDay({...b,end_date:null,end_time:'24:00'},'2030-01-07')?.end_time).toBe('24:00');
+  expect(clipBookingToDay({...b,end_date:'2030-01-07',end_time:'23:45'},'2030-01-07')?.continuesToNext).toBe(false);
+  expect(clipBookingToDay({...b,booking_date:'2030-01-09'},'2030-01-08')).toBeNull();
+});
 
 describe('timeToMinutes', () => {
   it('正常な HH:MM を分に変換', () => {

@@ -273,12 +273,30 @@ test('platform registration search traverses over 100 real rows and rejects stal
   expect(aba.status()).toBe(409);
   const afterAba = await service.from('salons').select('status,review_revision').eq('id', target).single();
   expect(afterAba.error).toBeNull(); expect(afterAba.data).toEqual({ status: 'pending', review_revision: 2 });
+  // 2026-10-29 の CI（Mobile Safari）で、入力した検索値が送信前に消え、空欄のまま検索されて
+  // 90 秒の時間切れになった。何が値を消すのかは未特定なので、再試行では隠さず、次に起きたときに
+  // 「どの時点で消えたか」「再読み込みか、部品の作り直しか」が失敗の文面に残るようにしてある。
+  let mainFrameNavigations = 0;
+  const pageErrors: string[] = [];
+  page.on('framenavigated', frame => { if (frame === page.mainFrame()) mainFrameNavigations += 1; });
+  page.on('pageerror', error => { pageErrors.push(error.message); });
+  const searchInput = page.getByLabel('検索値', { exact: true });
+  const diagnosis = async (stage: string) => `${stage}（検索値=${JSON.stringify(await searchInput.inputValue().catch(() => '<読めない>'))}`
+    + ` 画面遷移=${mainFrameNavigations}回 ページのエラー=${JSON.stringify(pageErrors)}）`;
+  const initialList = page.waitForResponse(response => response.url().endsWith('/api/admin/registrations')
+    && response.request().method() === 'POST' && response.request().postDataJSON()?.query === '', { timeout: 30_000 });
   await page.goto('/admin/registrations');
-  await page.getByLabel('検索値', { exact: true }).fill(marker);
+  await initialList;
+  await searchInput.fill(marker);
   const searched = page.waitForRequest(request => request.url().endsWith('/api/admin/registrations')
-    && request.method() === 'POST' && request.postDataJSON()?.query === marker);
+    && request.method() === 'POST' && request.postDataJSON()?.query === marker, { timeout: 15_000 });
+  searched.catch(() => undefined);
+  const beforeClick = await searchInput.inputValue();
+  if (beforeClick !== marker) throw new Error(await diagnosis('入力した検索値が、押す前に消えた'));
   await page.getByRole('button', { name: '検索する', exact: true }).click();
-  expect((await searched).postDataJSON()).toEqual({ ...query, cursor: null });
+  const sent = await searched.catch(async () => { throw new Error(await diagnosis('押した後、入力した検索値での検索が送られなかった')); });
+  // 画面からの検索は「表示する申込」（既定は通常の申込）も送る。
+  expect(sent.postDataJSON()).toEqual({ ...query, cursor: null, visibility: 'visible' });
   await expect(page.getByText(marker, { exact: true })).toHaveCount(50);
   await page.getByRole('button', { name: '次の50件' }).click();
   await expect(page.getByText('2ページ目')).toBeVisible();
@@ -379,7 +397,7 @@ test('profile empty date is stored as NULL and a missing own profile cannot repo
   }
 });
 
-test('authenticated setup commits one selected receipt and reconciles a lost response without merging branches', async ({ page, context, browser }) => {
+test('authenticated setup recovers a lost response and separately adds a second verified branch', async ({ page, context, browser }) => {
   const { userId, email } = await loginSyntheticOwner(context);
   const headers = { origin: 'https://localhost:3000', 'x-real-ip': `198.18.${Math.floor(Math.random() * 254)}.${Math.floor(Math.random() * 254)}` };
   const request = context.request;
@@ -428,9 +446,21 @@ test('authenticated setup commits one selected receipt and reconciles a lost res
   const welcome = await service.from('webhook_retry_queue').select('payload').eq('webhook_type', 'facility_welcome').eq('target_id', facilityId);
   expect(welcome.error).toBeNull(); expect(welcome.data).toEqual([{ payload: { user_id: userId, template_version: 1 } }]);
   const separate = await request.post('/api/facility/setup', { headers, data: { intentId: otherIntent, license_warranted: true } });
-  expect(separate.status()).toBe(409); expect((await separate.json()).code).toBe('ALREADY_MEMBER');
-  const untouched = await service.from('salons').select('claimed_by_user_id,claimed_facility_id').eq('id', secondId).single();
-  expect(untouched.error).toBeNull(); expect(untouched.data).toEqual({ claimed_by_user_id: null, claimed_facility_id: null });
+  expect(separate.status()).toBe(201);
+  const branch = await separate.json();
+  expect(branch).toMatchObject({ success: true, state: 'created' });
+  expect(branch.facilityId).not.toBe(facilityId);
+  const secondClaim = await service.from('salons').select('claimed_by_user_id,claimed_facility_id').eq('id', secondId).single();
+  expect(secondClaim.error).toBeNull(); expect(secondClaim.data).toEqual({ claimed_by_user_id: userId, claimed_facility_id: branch.facilityId });
+  const both = await service.from('facility_members').select('facility_id,role').eq('user_id', userId);
+  expect(both.error).toBeNull(); expect(both.data).toEqual(expect.arrayContaining([
+    { facility_id: facilityId, role: 'owner' }, { facility_id: branch.facilityId, role: 'owner' },
+  ]));
+  expect(both.data).toHaveLength(2);
+  await page.unroute('**/api/facility/setup');
+  await page.goto('/admin');
+  await expect(page.getByText('編集する店舗を選択してください')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Synthetic second branch', exact: true })).toBeVisible();
   const stranger = await browser.newContext({ ignoreHTTPSErrors: true });
   try {
     await loginSyntheticOwner(stranger);

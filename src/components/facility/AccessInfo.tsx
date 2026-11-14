@@ -1,4 +1,4 @@
-import { formatBusinessDay } from '@/lib/business-hours';
+import { businessPeriods, formatBusinessDay, periodWindow } from '@/lib/business-hours';
 import Link from 'next/link';
 import type { Facility } from '@/types';
 import { dayOrder, dayLabels } from '@/lib/constants';
@@ -6,8 +6,9 @@ import { featureSearchHref } from '@/lib/search-href';
 import { formatFacilityAddress } from '@/lib/facility-location';
 import { isDialablePhone } from '@/lib/facility-contact';
 import { GOOGLE_MAPS_EMBED_REFERRER_POLICY, googleMapsEmbedUrl } from '@/lib/map-embed';
+import type { PublicSpecialHours } from '@/lib/public-special-hours';
 
-export default function AccessInfo({ facility }: { facility: Facility }) {
+export default function AccessInfo({ facility, specialHours = null, specialHoursAvailable = true }: { facility: Facility; specialHours?: PublicSpecialHours | null; specialHoursAvailable?: boolean }) {
   // 監査T1: prefecture/city/address は手書き Facility 型では non-null 宣言だが、DB(facility_profiles)は
   // 実際には nullable。null 行を素で埋め込むと「null」という文字列が公開ページの住所欄・地図URLに
   // 出るため formatFacilityAddress が空文字にする（DB側 NOT NULL 化は別途 SQL を神原さんへ提示）。
@@ -54,15 +55,23 @@ export default function AccessInfo({ facility }: { facility: Facility }) {
             <span className="w-1 h-5 bg-sky-500 rounded-full" />
             営業時間
           </h3>
+          <p className="mb-2 text-xs text-gray-600">翌日までの営業は、開始した曜日に表示しています。</p>
+          {!specialHoursAvailable && <p className="mb-2 text-sm text-gray-600">臨時休業を確認できません。施設へお問い合わせください。</p>}
+          {specialHours?.close_on_public_holidays && <p className="mb-2 text-sm">祝日は休業します。</p>}
+          {specialHours?.closed_dates.length ? <p className="mb-2 text-sm">臨時休業日：{specialHours.closed_dates.join('、')}</p> : null}
+          {specialHours?.reception_cutoff_minutes != null && <p className="mb-2 text-sm">受付終了：営業終了の{specialHours.reception_cutoff_minutes}分前</p>}
           <table className="w-full text-sm">
             <tbody>
-              {dayOrder.map((day) => {
+              {dayOrder.map((day, index) => {
                 const hours = facility.business_hours?.[day];
+                const previous = facility.business_hours?.[dayOrder[(index + 6) % 7]];
+                const carry = (businessPeriods(previous) ?? []).find(period => periodWindow(period)!.end > 1440);
                 return (
                   <tr key={day} className="border-b border-gray-100">
                     <td className="py-2.5 pr-4 text-gray-500 w-16 font-medium">{dayLabels[day]}</td>
                     <td className="py-2.5">
-                      {hours ? formatBusinessDay(hours) : <span className="text-gray-500">休み</span>}
+                      {formatBusinessDay(hours)}
+                      {carry && <span className="block text-xs text-gray-600">前日から{carry.close}まで営業</span>}
                     </td>
                   </tr>
                 );

@@ -289,3 +289,42 @@ describe('withRoute', () => {
     expect(order).toEqual(['csrf', 'rl', 'handler']);
   });
 });
+
+describe('withRoute in the public read-only Preview', () => {
+  const original = process.env;
+  afterEach(() => { process.env = original; });
+  const asPreview = (key?: string) => {
+    process.env = { ...original, VERCEL_ENV: 'preview' };
+    if (key) process.env.SUPABASE_SERVICE_ROLE_KEY = key;
+    else delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  };
+
+  test('a write is refused before CSRF, rate limit, auth and the handler, without an alert', async () => {
+    asPreview();
+    const handler = jest.fn();
+    const res = await withRoute(handler, {
+      requireAuth: true,
+      rateLimit: { limiter: null, limit: 1, windowMs: 1000, prefix: 'p' },
+    })(makeReq());
+    expect(res.status).toBe(403);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect((await res.json()).code).toBe('preview_read_only');
+    expect(handler).not.toHaveBeenCalled();
+    expect(checkCsrf).not.toHaveBeenCalled();
+    expect(checkRateLimit).not.toHaveBeenCalled();
+    expect(createServerSupabaseAuthClient).not.toHaveBeenCalled();
+    expect(alertCaughtError).not.toHaveBeenCalled();
+  });
+
+  test('a public read still reaches the handler', async () => {
+    asPreview();
+    const res = await withRoute(async () => NextResponse.json({ ok: true }), { csrf: false })(makeReq({ method: 'GET' }));
+    expect(res.status).toBe(200);
+  });
+
+  test('a Preview with its own isolated service credentials keeps writes', async () => {
+    asPreview('isolated-preview-key');
+    const res = await withRoute(async () => NextResponse.json({ ok: true }))(makeReq());
+    expect(res.status).toBe(200);
+  });
+});

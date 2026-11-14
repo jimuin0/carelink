@@ -24,6 +24,8 @@ INSERT INTO public.staff_schedules(staff_id, day_of_week, start_time, end_time)
  SELECT 'cd130000-0000-4000-8000-000000000001'::uuid, d, '08:00', '20:00' FROM generate_series(0, 6) d;
 INSERT INTO public.facility_photos(facility_id, photo_url, photo_type)
  VALUES ('cd110000-0000-4000-8000-000000000001'::uuid, 'https://example.invalid/change-window.jpg', 'other');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('cd110000-0000-4000-8000-000000000001');
 UPDATE public.facility_profiles SET status = 'published',
  business_hours = '{"mon":{"open":"08:00","close":"20:00"},"tue":{"open":"08:00","close":"20:00"},"wed":{"open":"08:00","close":"20:00"},"thu":{"open":"08:00","close":"20:00"},"fri":{"open":"08:00","close":"20:00"},"sat":{"open":"08:00","close":"20:00"},"sun":{"open":"08:00","close":"20:00"}}'
  WHERE id = 'cd110000-0000-4000-8000-000000000001'::uuid;

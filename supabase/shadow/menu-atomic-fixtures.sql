@@ -6,8 +6,12 @@ DO $$ BEGIN IF current_database() NOT LIKE 'carelink_shadow%' THEN RAISE EXCEPTI
 CREATE FUNCTION pg_temp.assert_menu(ok boolean,label text) RETURNS void LANGUAGE plpgsql AS $$ BEGIN IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'menu fixture: %',label; END IF; END $$;
 SELECT pg_temp.assert_menu(NOT has_function_privilege('anon','public.delete_admin_menu_atomic(uuid,uuid,uuid)','EXECUTE') AND NOT has_function_privilege('authenticated','public.reorder_admin_menus_atomic(uuid,uuid,uuid[],uuid[],text)','EXECUTE') AND has_function_privilege('service_role','public.read_admin_menu_snapshot(uuid,uuid)','EXECUTE'),'service only');
 INSERT INTO auth.users(id,email,email_confirmed_at) VALUES('fa780000-0000-4000-8000-000000000001','menu-owner@example.invalid',now()),('fa780000-0000-4000-8000-000000000002','menu-other@example.invalid',now());
-INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES('fa780001-0000-4000-8000-000000000001','Menu fixture','synthetic-menu-atomic','その他','検証県','検証市','検証住所','published');
+INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES('fa780001-0000-4000-8000-000000000001','Menu fixture','synthetic-menu-atomic','その他','検証県','検証市','検証住所','draft');
 INSERT INTO public.facility_members(user_id,facility_id,role) VALUES('fa780000-0000-4000-8000-000000000001','fa780001-0000-4000-8000-000000000001','owner');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('fa780001-0000-4000-8000-000000000001' , 'fa780000-0000-4000-8000-000000000001');
+UPDATE public.facility_profiles SET status='published' WHERE id IN ('fa780001-0000-4000-8000-000000000001');
+
 INSERT INTO public.facility_menus(id,facility_id,category,name,sort_order,price) VALUES
  ('fa780002-0000-4000-8000-000000000001','fa780001-0000-4000-8000-000000000001','その他','A',0,1000),
  ('fa780002-0000-4000-8000-000000000002','fa780001-0000-4000-8000-000000000001','その他','B',0,2000);

@@ -4,7 +4,11 @@ CREATE FUNCTION pg_temp.assert_coupon(ok boolean,label text) RETURNS void LANGUA
 BEGIN IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'coupon fixture failed: %',label; END IF; END $$;
 INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status,business_hours)
 VALUES('f8600000-0000-4000-8000-000000000001','Synthetic coupon facility','coupon-fixture','その他',
-  '検証県','検証市','検証住所','published','{"mon":{"open":"09:00","close":"18:00"}}');
+  '検証県','検証市','検証住所','draft','{"mon":{"open":"09:00","close":"18:00"}}');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('f8600000-0000-4000-8000-000000000001');
+UPDATE public.facility_profiles SET status='published' WHERE id IN ('f8600000-0000-4000-8000-000000000001');
+
 SELECT pg_temp.assert_coupon(NOT has_table_privilege('anon','public.customer_coupon_email_operations','SELECT'),'operations private');
 SELECT pg_temp.assert_coupon(NOT has_table_privilege('authenticated','public.customer_coupon_email_operations','INSERT'),'no member operation creation');
 SELECT pg_temp.assert_coupon(NOT has_function_privilege('anon','public.reserve_customer_coupon_email_atomic(uuid,text,date)','EXECUTE'),'no anonymous reservation');

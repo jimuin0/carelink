@@ -8,7 +8,7 @@ import { hasSlotStarted } from '@/lib/booking-slot-rules';
  * 返してしまうと、テストを実行する時刻によっては「過ぎた枠」を選ぶことになり、画面とサーバーが
  * 断るはずの操作を前提にしたテストになる。
  */
-export type SlotLike = { slot_start: string; slot_end: string; staff_id?: string };
+export type SlotLike = { slot_start: string; slot_end: string; staff_id?: string; end_date?: string };
 
 export function slotsWeekBody(url: string, slots: SlotLike[] | ((staffId: string, date: string) => SlotLike[])) {
   const params = new URL(url, 'http://localhost').searchParams;

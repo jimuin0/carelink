@@ -71,6 +71,39 @@ describe('postToSlack', () => {
     expect(body.text).toBe('hello');
   });
 
+  test('明示したリンクと画像のプレビュー設定を Slack に渡す', async () => {
+    await postToSlack({ text: 'https://example.invalid', unfurl_links: false, unfurl_media: false });
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.unfurl_links).toBe(false);
+    expect(body.unfurl_media).toBe(false);
+  });
+
+  test.each([
+    ['公開閲覧専用の Preview（service role なし）は送らない', 'preview', undefined, false],
+    ['service role を持つ Preview は送る', 'preview', 'isolated-preview-key', true],
+    ['本番は送る', 'production', undefined, true],
+  ])('%s', async (_label, environment, serviceRole, sends) => {
+    const originalEnv = process.env.VERCEL_ENV;
+    const originalKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    process.env.VERCEL_ENV = environment;
+    if (serviceRole === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    else process.env.SUPABASE_SERVICE_ROLE_KEY = serviceRole;
+    try {
+      const res = await postToSlack({ text: 'x' });
+      expect(res.ok).toBe(sends);
+      if (sends) expect(mockFetch).toHaveBeenCalledTimes(1);
+      else {
+        expect(res.error).toBe('preview_read_only');
+        expect(mockFetch).not.toHaveBeenCalled();
+      }
+    } finally {
+      if (originalEnv === undefined) delete process.env.VERCEL_ENV;
+      else process.env.VERCEL_ENV = originalEnv;
+      if (originalKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+      else process.env.SUPABASE_SERVICE_ROLE_KEY = originalKey;
+    }
+  });
+
   test('SLACK_BOT_TOKEN 未設定 → ok:false, error: not_configured', async () => {
     delete process.env.SLACK_BOT_TOKEN;
     const res = await postToSlack({ text: 'x' });

@@ -12,6 +12,16 @@ export const DISPATCH_GROUPS = [
       'hpb-menu-scrape', 'schema-drift-check', 'threads-token-refresh'] },
 ];
 
+// Both monitors run on one Render service (carelink-health-check). The health
+// probe runs on every tick; cron-heartbeat keeps its canonical 7,37 business
+// slots. Ticks are offset by two minutes so both heartbeat minutes are ticks.
+// Monitors stay separate from the business runners they watch.
+export const MONITOR_RUNNER = {
+  service: 'carelink-health-check',
+  schedule: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *',
+  jobs: ['cron-heartbeat'],
+};
+
 // Deliberately support only the registry's reviewed UTC syntax; fail closed
 // instead of silently interpreting future calendar/range extensions incorrectly.
 export function matchesSchedule(schedule, date) {
@@ -68,6 +78,16 @@ export function dispatchPlan(groupName, jobs, now, cutover) {
   const slot = scheduledSlot(group.schedule, now);
   const names = slot.getTime() < cutover ? [group.legacy] : group.jobs;
   const selected = names.map(name => {
+    const job = jobs.find(j => j.name === name);
+    if (!job) throw new Error('Missing cron registry job');
+    return job;
+  }).filter(job => matchesSchedule(job.schedule, slot));
+  return { slot: slot.toISOString(), jobs: selected.map(job => job.name) };
+}
+
+export function monitorPlan(jobs, now) {
+  const slot = scheduledSlot(MONITOR_RUNNER.schedule, now);
+  const selected = MONITOR_RUNNER.jobs.map(name => {
     const job = jobs.find(j => j.name === name);
     if (!job) throw new Error('Missing cron registry job');
     return job;

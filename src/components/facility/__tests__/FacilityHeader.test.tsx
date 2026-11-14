@@ -22,6 +22,11 @@ const baseFacility = {
   view_count: 0,
 } as unknown as Facility;
 
+test('登録された複数の診療科を施設ページに表示する', () => {
+  render(<FacilityHeader facility={{ ...baseFacility, medical_specialties:['内科','耳鼻咽喉科'] }} />);
+  expect(screen.getByText('診療科：内科・耳鼻咽喉科')).toBeInTheDocument();
+});
+
 test('google_review_count>0 かつ google_rating=null → 「0.0」を表示せず Google バッジを出さない（回帰防止）', () => {
   render(
     <FacilityHeader facility={{ ...baseFacility, google_review_count: 5, google_rating: null }} />,

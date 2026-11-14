@@ -2,8 +2,10 @@ import type { CSSProperties } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import RegisterForm from '@/components/register/RegisterForm';
+import ListingPreviewIllustration from '@/components/register/ListingPreviewIllustration';
+import RegistrationFlow from '@/components/register/RegistrationFlow';
 import { SHOW_JOBS } from '@/lib/feature-toggles';
-import { LISTING_PUBLISH_ITEMS, LISTING_PUBLISH_REQUIREMENT, REGISTER_PHOTO_REQUIREMENT } from '@/lib/register-photo-policy';
+import { LISTING_PUBLISH_REQUIREMENT, REGISTER_PHOTO_REQUIREMENT } from '@/lib/register-photo-policy';
 
 /**
  * 店舗・施設向けの掲載ページ（/register）の本体。店舗向けの入口はこの 1 ページだけ
@@ -48,7 +50,7 @@ export const PAID_PLAN_NOTICE = '将来、有料プランを設ける場合は�
  * 現状（電話と紙の台帳）と CareLink の違い。競合サービスとの比較ではない。
  *
  * 🔴 「24時間」とだけ書かない。ネット予約は営業時間・メニュー等の設定が終わるまで使えない
- * （下の「お申し込み前のご確認」と同じ事実）。登録した瞬間から 24 時間受け付けると読める書き方は誤り。
+ * （下の「よくある質問」と同じ事実）。登録した瞬間から 24 時間受け付けると読める書き方は誤り。
  *
  * ⚠️ ここに載せてよいのは施設が管理画面から実際に使える機能だけ。LINE通知連携（LIFF 未設定で
  * 顧客が連携できない）・症状別検索（facility_symptoms へ書き込む管理 UI が無い）・
@@ -88,14 +90,6 @@ const ICON_PATHS: Record<'calendar' | 'card' | 'people' | 'list', string> = {
   list: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
 };
 
-/** 番号は算用数字にする。ローマ数字（Ⅰ Ⅱ Ⅲ）も試したが、小サイズだと細い棒が並んで
- *  見え、何番か判読できなかった（実機のスクリーンショットで確認）。 */
-const STEPS = [
-  { n: '01', title: '基本情報を入力', body: '店舗名・業種・連絡先などを入力' },
-  { n: '02', title: 'アカウントを作成', body: '登録内容を確認して管理画面へ進む' },
-  { n: '03', title: '掲載を準備', body: `${LISTING_PUBLISH_ITEMS}を設定して無料掲載を公開。ネット予約の設定は別に行います` },
-];
-
 /**
  * 主 CTA。16px 太字・高さ 52px（親指で確実に押せる大きさ）・くすみローズの塗り。
  * hover で透明にしない（写真の上では地が暗く、文字色のローズが読めなくなるため）。
@@ -103,7 +97,7 @@ const STEPS = [
 const CTA_CLASS =
   'inline-flex h-[52px] w-full items-center justify-center bg-(--ecru-accent) px-6 text-base font-bold tracking-[0.12em] text-white transition-colors hover:bg-(--primary-dark) sm:w-[320px]';
 
-export default function RegisterLanding({ listingAreas = [] }: { listingAreas?: string[] }) {
+export default function RegisterLanding() {
   return (
     <div className="theme-ecru bg-(--ecru-bg) text-(--ecru-text)" style={serifStyle}>
       <div className="jp-wrap">
@@ -141,13 +135,6 @@ export default function RegisterLanding({ listingAreas = [] }: { listingAreas?: 
                 <p className="mt-4 text-sm font-medium tracking-widest text-white sm:text-base">
                   掲載料・予約手数料 0円
                 </p>
-                {/* 掲載エリアは DB の実在値（公開中の施設の都道府県）。トップページの
-                    「現在のご紹介エリア」と同じ取り方で、ハードコードしない（実態と必ずズレるため）。 */}
-                {listingAreas.length > 0 && (
-                  <p className="mt-1.5 text-sm text-white">
-                    現在の主な掲載エリア：{listingAreas.join('・')}（順次拡大中）
-                  </p>
-                )}
                 <a href="#register-form" className={`mt-6 ${CTA_CLASS}`}>
                   {REGISTER_CTA_LABEL}
                 </a>
@@ -213,6 +200,16 @@ export default function RegisterLanding({ listingAreas = [] }: { listingAreas?: 
           </div>
         </section>
 
+        {/* ===== 掲載後の見え方（模式図。実在の店舗の画面は載せない） ===== */}
+        <section className="mt-16 px-7 sm:mt-24 sm:px-12">
+          <div className="mx-auto max-w-3xl">
+            <h2 className="text-center font-(family-name:--font-serif-jp) text-lg tracking-[0.12em] sm:text-2xl">
+              掲載すると、こう見えます
+            </h2>
+            <ListingPreviewIllustration className="mt-8" />
+          </div>
+        </section>
+
         {/* ===== 比較 ===== */}
         <section className="mt-16 px-7 sm:mt-24 sm:px-12">
           <div className="mx-auto max-w-3xl">
@@ -260,19 +257,12 @@ export default function RegisterLanding({ listingAreas = [] }: { listingAreas?: 
             <h2 className="text-center font-(family-name:--font-serif-jp) text-lg tracking-[0.12em] sm:text-2xl">
               掲載までの流れ
             </h2>
-            <ol className="mt-8 divide-y divide-(--ecru-line) border-y border-(--ecru-line) sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-              {STEPS.map((s) => (
-                <li key={s.n} className="flex items-baseline gap-5 py-6 sm:flex-col sm:gap-3 sm:px-7">
-                  <span className="font-(family-name:--font-serif-jp) text-base text-(--ecru-muted)">
-                    {s.n}
-                  </span>
-                  <div>
-                    <p className="text-sm tracking-widest">{s.title}</p>
-                    <p className="mt-1.5 text-sm text-(--ecru-muted)">{s.body}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            {/* 手順は文章ではなく図で見せる（src/components/register/RegistrationFlow.tsx が単一ソース。
+                /register/guide・受付完了・管理画面も同じ図を出すので、手順の数が画面ごとに食い違わない）。 */}
+            <RegistrationFlow detailed className="mt-10" />
+            <p className="mt-6 text-center text-sm">
+              <Link href="/register/guide" className="underline underline-offset-4">図で見る、掲載までの流れ</Link>
+            </p>
             {/* 流れを読み終えた位置にも同じ申し込み導線を置く（ヒーローまで戻らせない）。 */}
             <div className="mt-10 flex justify-center">
               <a href="#register-form" className={CTA_CLASS}>
@@ -285,27 +275,28 @@ export default function RegisterLanding({ listingAreas = [] }: { listingAreas?: 
         <section aria-labelledby="registration-help" className="mt-16 px-7 sm:mt-24 sm:px-12">
           <div className="mx-auto max-w-3xl">
             <h2 id="registration-help" className="text-center font-(family-name:--font-serif-jp) text-lg sm:text-2xl">
-              お申し込み前のご確認
+              よくある質問
             </h2>
+            {/* 答えは 1〜2 文に絞る。手順の詳しい説明は /register/guide の図に寄せ、ここで繰り返さない。 */}
             <dl className="mt-8 divide-y divide-(--ecru-line) border-y border-(--ecru-line) text-sm">
               <div className="py-5">
-                <dt className="font-medium">この申し込みで料金は発生しますか？</dt>
-                <dd className="mt-2 leading-relaxed">掲載料・予約手数料は無料です。この掲載申込で有料プランや決済契約を申し込むことはありません。{PAID_PLAN_NOTICE}</dd>
+                <dt className="font-medium">料金はかかりますか？</dt>
+                <dd className="mt-2 leading-relaxed">掲載料・予約手数料は無料です。この申込で有料プランの契約にはなりません。</dd>
               </div>
               <div className="py-5">
-                <dt className="font-medium">受付が完了したら、すぐに公開されますか？</dt>
-                <dd className="mt-2 leading-relaxed">受付完了と一般公開は別の手続きです。アカウントを作成し、管理画面で設定して掲載公開してください。{LISTING_PUBLISH_REQUIREMENT}無料掲載にメニュー・スタッフの登録は必須ではありません。{REGISTER_PHOTO_REQUIREMENT}ネット予約はメニュー・スタッフ等の設定完了まで利用できません。</dd>
+                <dt className="font-medium">申し込むとすぐ公開されますか？</dt>
+                <dd className="mt-2 leading-relaxed">いいえ。上の4ステップを終えると公開されます。{LISTING_PUBLISH_REQUIREMENT}{REGISTER_PHOTO_REQUIREMENT}</dd>
               </div>
               <div className="py-5">
-                <dt className="font-medium">複数店舗はどのように登録しますか？</dt>
-                <dd className="mt-2 leading-relaxed">店舗ごとに掲載申込が必要です。現在、自己登録できる店舗オーナーアカウントは1アカウントにつき1店舗です。複数店舗の管理権限や既存掲載の統合は、登録前に運営へお問い合わせください。</dd>
+                <dt className="font-medium">複数の店舗があります</dt>
+                <dd className="mt-2 leading-relaxed">店舗ごとに申し込み、1つのアカウントでまとめて管理できます。</dd>
               </div>
               <div className="py-5">
-                <dt className="font-medium">送信後にエラーが出た場合、再送してよいですか？</dt>
-                <dd className="mt-2 leading-relaxed">受付完了を確認できない場合は、重複を避けるため連続送信せず、画面に表示された確認方法に従ってください。解決しない場合は、店舗名と送信した日時を添えて運営へお問い合わせください。</dd>
+                <dt className="font-medium">送信後にエラーが出ました</dt>
+                <dd className="mt-2 leading-relaxed">続けて送信せず、画面の案内に従ってください。</dd>
               </div>
             </dl>
-            <Link href="/contact" className="mt-5 inline-block underline underline-offset-4">施設掲載について運営に問い合わせる</Link>
+            <Link href="/contact" className="mt-5 inline-block underline underline-offset-4">運営に問い合わせる</Link>
           </div>
         </section>
       </div>

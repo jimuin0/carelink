@@ -22,6 +22,8 @@ INSERT INTO public.staff_schedules(staff_id, day_of_week, start_time, end_time) 
  ('bc130000-0000-4000-8000-000000000001', 1, '09:00', '17:00');
 INSERT INTO public.facility_photos(facility_id, photo_url, photo_type)
  VALUES ('bc110000-0000-4000-8000-000000000001', 'https://example.invalid/slot-start.jpg', 'other');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('bc110000-0000-4000-8000-000000000001');
 UPDATE public.facility_profiles SET status = 'published',
  business_hours = '{"mon":{"open":"09:00","close":"17:00"},"tue":{"open":"09:00","close":"17:00"},"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}'
  WHERE id = 'bc110000-0000-4000-8000-000000000001';

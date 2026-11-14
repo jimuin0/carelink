@@ -1,3 +1,4 @@
+import { approveSyntheticListing } from './listing-verification-fixture';
 // オーナー設定保存／パッケージ作成 E2E のセットアップ。
 // 1) CI の隔離 Supabase（supabase start の一時 DB）に service role でオーナー＋施設＋owner権限を seed。
 // 2) 実 UI（/auth/login）でオーナーとしてログインし、認証済み storageState を保存する。
@@ -27,7 +28,7 @@ setup('provision owner for settings/packages', async ({ page }) => {
   // 公開施設
   const { data: fac, error: fe } = await sb.from('facility_profiles').insert({
     name: `E2E設定店舗_${ts}`, slug: `e2e-batch-${ts}`, business_type: 'ヘアサロン',
-    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'published',
+    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'draft',
   }).select('id').single();
   if (fe) throw new Error('seed facility: ' + fe.message);
   const facilityId = fac.id as string;
@@ -42,6 +43,7 @@ setup('provision owner for settings/packages', async ({ page }) => {
   // オーナー権限（middleware の /admin 認可・各 admin API の membership 検証に必須）
   const { error: me } = await sb.from('facility_members').insert({ user_id: userId, facility_id: facilityId, role: 'owner' });
   if (me) throw new Error('seed member: ' + me.message);
+  await approveSyntheticListing(sb, facilityId, userId);
 
   // 実 UI でログイン（@supabase/ssr の認証 Cookie を確立）
   await page.goto('/auth/login?redirect=/admin');

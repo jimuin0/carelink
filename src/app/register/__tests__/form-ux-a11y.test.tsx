@@ -47,12 +47,12 @@ async function toStep3() {
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
   await screen.findByLabelText(/^郵便番号/);
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-  await screen.findByRole('button', { name: '登録する' });
+  await screen.findByRole('button', { name: '申し込む' });
 }
 async function submitAndReadPayload() {
   screen.getAllByRole('checkbox').forEach(box => { if (!(box as HTMLInputElement).checked) fireEvent.click(box); });
-  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
-  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '送信する' }));
+  fireEvent.click(screen.getByRole('button', { name: '申し込む' }));
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'この内容で申し込む' }));
   await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
   return JSON.parse(mockFetch.mock.calls.find(([url]) => url === '/api/salons')![1].body);
 }
@@ -65,9 +65,9 @@ describe('下書き・バックアップ欄', () => {
     expect(details.open).toBe(false);
     expect(details.querySelector('summary')).toHaveTextContent('入力途中の内容を保存する（任意）');
     // 説明文と操作はすべて details の中に入っている。
-    expect(details).toContainElement(screen.getByRole('button', { name: '端末の下書きを削除' }));
-    expect(details).toContainElement(screen.getByRole('button', { name: '入力と元の写真をバックアップ' }));
-    expect(details).toContainElement(screen.getByLabelText('バックアップから入力を復元'));
+    expect(details).toContainElement(screen.getByRole('button', { name: '下書きを削除' }));
+    expect(details).toContainElement(screen.getByRole('button', { name: '保存ファイルを作る' }));
+    expect(details).toContainElement(screen.getByLabelText('保存ファイルから復元'));
     // フォームより前に置いた要素は details だけ（ステップ表示を除く）。
     const form = document.querySelector('form:not([action])')!;
     expect(details.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -75,15 +75,15 @@ describe('下書き・バックアップ欄', () => {
 
   test('ブラウザー既定のファイル選択欄（Choose File）を見せず、日本語のボタンの裏に隠す', async () => {
     await mount();
-    const input = screen.getByLabelText('バックアップから入力を復元');
+    const input = screen.getByLabelText('保存ファイルから復元');
     expect(input).toHaveClass('sr-only');
-    expect(input.closest('label')).toHaveTextContent('バックアップから入力を復元');
+    expect(input.closest('label')).toHaveTextContent('保存ファイルから復元');
   });
 
   test('操作は押せる大きさのボタンで、取り消せない「削除」だけ見た目を分ける', async () => {
     await mount();
-    const remove = screen.getByRole('button', { name: '端末の下書きを削除' });
-    const backup = screen.getByRole('button', { name: '入力と元の写真をバックアップ' });
+    const remove = screen.getByRole('button', { name: '下書きを削除' });
+    const backup = screen.getByRole('button', { name: '保存ファイルを作る' });
     expect(remove.className).toMatch(/min-h-11/);
     expect(backup.className).toMatch(/min-h-11/);
     expect(remove.className).toMatch(/text-red-700/);
@@ -93,6 +93,21 @@ describe('下書き・バックアップ欄', () => {
 });
 
 describe('ステップの切り替え', () => {
+  test('医療機関を選ぶと複数の診療科を選べ、次の画面から戻っても保持する', async () => {
+    await mount(); fillStep1();
+    const select = screen.getByLabelText(/^業種/) as HTMLSelectElement;
+    expect(screen.queryByLabelText('耳鼻咽喉科')).not.toBeInTheDocument();
+    fireEvent.change(select, { target: { value: 'その他の医療機関' } });
+    fireEvent.click(screen.getByLabelText('耳鼻咽喉科'));
+    fireEvent.click(screen.getByLabelText('内科'));
+    fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+    await screen.findByLabelText(/^郵便番号/);
+    fireEvent.click(screen.getByRole('button', { name: '戻る' }));
+    expect(await screen.findByLabelText(/^業種/)).toHaveValue('内科');
+    expect(screen.getByLabelText('耳鼻咽喉科')).toBeChecked();
+    expect(screen.getByLabelText('内科')).toBeChecked();
+  });
+
   test('「次へ」「戻る」で現在のステップ表示へスクロールし、フォーカスを移す', async () => {
     await mount(); fillStep1();
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));
@@ -113,7 +128,7 @@ describe('ステップの切り替え', () => {
     const stepHeight = heightOf('次へ');
     expect(stepHeight).toHaveLength(1);
     await toStep3();
-    expect(heightOf('登録する')).toEqual(stepHeight);
+    expect(heightOf('申し込む')).toEqual(stepHeight);
     expect(heightOf('戻る')).toEqual(stepHeight);
   });
 });
@@ -213,7 +228,7 @@ describe('入力補助', () => {
     fireEvent.blur(postal);
     expect(postal).toHaveValue('590-0075');
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-    await screen.findByRole('button', { name: '登録する' });
+    await screen.findByRole('button', { name: '申し込む' });
     const payload = await submitAndReadPayload();
     expect(payload.postal_code).toBe('590-0075');
   });
@@ -241,7 +256,7 @@ describe('詳細情報', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '駐車場あり' }));
     fireEvent.click(within(group).getByRole('button', { name: /個室あり/ }));
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-    await screen.findByRole('button', { name: '登録する' });
+    await screen.findByRole('button', { name: '申し込む' });
     const payload = await submitAndReadPayload();
     expect(payload.has_parking).toBe(true);
     expect(payload.features).toEqual(expect.arrayContaining(['駐車場あり', '個室あり']));
@@ -254,7 +269,7 @@ describe('詳細情報', () => {
     const parking = screen.getByRole('checkbox', { name: '駐車場あり' });
     fireEvent.click(parking); fireEvent.click(parking);
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-    await screen.findByRole('button', { name: '登録する' });
+    await screen.findByRole('button', { name: '申し込む' });
     const payload = await submitAndReadPayload();
     expect(payload.has_parking).toBe(false);
     expect(payload.features).not.toContain('駐車場あり');

@@ -18,6 +18,8 @@ FIXED_IMAGES = {
     # The CI fresh-apply gate also tries Docker Hub when both mirrors are limited.
     'docker.io/supabase/postgrest:v14.15',
     'supabase/postgrest:v14.15',
+    # Supabase CLI 2.104.0 uses the upstream official image on Docker Hub.
+    'postgrest/postgrest:v14.15',
 }
 
 

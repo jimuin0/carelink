@@ -22,6 +22,8 @@ INSERT INTO public.staff_schedules(staff_id,day_of_week,start_time,end_time)
  VALUES('be160000-0000-4000-8000-000000000001',1,'09:00','17:00');
 INSERT INTO public.facility_photos(facility_id,photo_url,photo_type)
  VALUES('be120000-0000-4000-8000-000000000001','https://example.invalid/transition.jpg','other');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('be120000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000002');
 UPDATE public.facility_profiles SET status='published',business_hours='{"mon":{"open":"09:00","close":"17:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}'
  WHERE id='be120000-0000-4000-8000-000000000001';
 INSERT INTO public.user_points(user_id,points,reason) VALUES('be110000-0000-4000-8000-000000000001',500,'Synthetic seed');
@@ -82,7 +84,7 @@ BEGIN
  PERFORM pg_temp.assert_transition((SELECT sum(points)=500 FROM public.user_points WHERE user_id='be110000-0000-4000-8000-000000000001'),
   'refund remains atomic with cancellation and notification');
  -- Snapshot is not rebuilt from a renamed shop/menu or a changed policy.
- UPDATE public.facility_profiles SET name='Changed clinic' WHERE id='be120000-0000-4000-8000-000000000001';
+ UPDATE public.facility_profiles SET status='draft',name='Changed clinic' WHERE id='be120000-0000-4000-8000-000000000001';
  UPDATE public.facility_menus SET name='Changed menu' WHERE id='be150000-0000-4000-8000-000000000001';
  PERFORM pg_temp.assert_transition(NOT EXISTS(SELECT 1 FROM public.webhook_retry_queue WHERE payload->>'customer_booking_transition_version'='1'
   AND (payload->'snapshot'->>'facilityName'<>'Original clinic' OR payload->'snapshot'->>'menuName'<>'Original menu')),'immutable original content');
@@ -111,6 +113,7 @@ RESET ROLE;
 -- Removing the last owner above suspended the listing; restore an owner and the listing.
 INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
  ('be110000-0000-4000-8000-000000000002','be120000-0000-4000-8000-000000000001','owner');
+SELECT pg_temp.approve_synthetic_listing('be120000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000002');
 UPDATE public.facility_profiles SET status='published' WHERE id='be120000-0000-4000-8000-000000000001';
 SET LOCAL ROLE service_role;
 INSERT INTO public.bookings(id,facility_id,user_id,staff_id,menu_id,booking_date,start_time,end_time,customer_name,email,status,total_price,points_used)

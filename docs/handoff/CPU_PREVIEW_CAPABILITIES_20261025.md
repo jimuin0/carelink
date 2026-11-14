@@ -39,3 +39,33 @@ Production and configured isolated Preview environments retain the full
 existing DB/RPC/provider/cron health checks. Missing production private
 credentials remain failures. Keep the distinction between public Preview
 readiness, full health and actual production deployment verification.
+
+## 2026-10-28: sign-in and writes closed in the public Preview
+
+A read-only check of a live Preview (`scope: public-preview`) showed the login,
+signup and Google buttons were fully usable and its CSP `connect-src` pointed at
+the production project, so a sign-in there would have acted on real production
+accounts.
+
+What keeps the public Preview from writing to production is the combination of:
+
+1. No production session can exist on the Preview origin. Only when
+   `VERCEL_ENV=preview` and the service-role key is absent, `middleware`
+   refuses `/auth/*`, `/mypage`, `/admin` and `/liff` (fixed notice, 403,
+   no-store, noindex, no scripts) before the cookie-auth client is created,
+   and expires any `sb-*-auth-token` cookie (chunks and PKCE verifier included)
+   on every page response, so a session left from before cannot be reused by
+   browser clients.
+2. The service-role key is absent.
+3. Production grants (read-only check, 2026-10-28): every anon/public write
+   policy in `public` and `storage` requires `auth.uid()` or is `false`; the only
+   anon-executable SECURITY DEFINER app function is the read-only
+   `published_special_hours`; the only RLS-less anon-writable table is
+   `spatial_ref_sys` (the PostGIS issue, reachable from anywhere, not
+   Preview-specific).
+
+As defense in depth, routes built on `withRoute` also refuse non-GET/HEAD/OPTIONS
+requests and `/api/auth/*` up front (JSON 403 `preview_read_only`, no alert).
+Routes not built on `withRoute` rely on 1–3 above. Production and a Preview with
+its own isolated service credentials are unchanged. Successful hosted sign-in
+and writes against an isolated backend are still unmeasured.

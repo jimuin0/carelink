@@ -1,0 +1,42 @@
+{
+  "name": "CareLink collection crawler CPU guard",
+  "description": "Production collection GET/HEAD blocked before Functions; robots.txt remains readable.",
+  "active": true,
+  "conditionGroup": [
+    {
+      "conditions": [
+        {
+          "op": "re",
+          "type": "user_agent",
+          "value": "(?:^|[\\s(;])(?:GoogleOther|Amazonbot|Reflectionbot|AhrefsBot|meta-externalagent)(?:[\\s/;)-]|$)"
+        },
+        {
+          "op": "inc",
+          "type": "method",
+          "value": [
+            "GET",
+            "HEAD"
+          ]
+        },
+        {
+          "op": "neq",
+          "type": "path",
+          "value": "/robots.txt"
+        },
+        {
+          "op": "eq",
+          "type": "environment",
+          "value": "production"
+        }
+      ]
+    }
+  ],
+  "action": {
+    "mitigate": {
+      "action": "deny",
+      "actionDuration": null,
+      "rateLimit": null,
+      "redirect": null
+    }
+  }
+}

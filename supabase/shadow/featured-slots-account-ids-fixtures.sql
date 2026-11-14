@@ -42,12 +42,17 @@ INSERT INTO auth.users(id, email, email_confirmed_at) VALUES
 UPDATE public.profiles SET is_platform_admin = true WHERE id = 'fb9c0000-0000-4000-8000-000000000003';
 -- A and B are published (anyone can publish their own shop after onboarding); C is a draft.
 INSERT INTO public.facility_profiles(id, name, slug, business_type, prefecture, city, address, status) VALUES
-  ('fb9c0001-0000-4000-8000-000000000001', 'Synthetic featured A', 'synthetic-featured-a', 'その他', '検証県', '検証市', '検証住所', 'published'),
-  ('fb9c0001-0000-4000-8000-000000000002', 'Synthetic featured B', 'synthetic-featured-b', 'その他', '検証県', '検証市', '検証住所', 'published'),
+  ('fb9c0001-0000-4000-8000-000000000001', 'Synthetic featured A', 'synthetic-featured-a', 'その他', '検証県', '検証市', '検証住所', 'draft'),
+  ('fb9c0001-0000-4000-8000-000000000002', 'Synthetic featured B', 'synthetic-featured-b', 'その他', '検証県', '検証市', '検証住所', 'draft'),
   ('fb9c0001-0000-4000-8000-000000000003', 'Synthetic featured C', 'synthetic-featured-c', 'その他', '検証県', '検証市', '検証住所', 'draft');
 INSERT INTO public.facility_members(user_id, facility_id, role) VALUES
   ('fb9c0000-0000-4000-8000-000000000001', 'fb9c0001-0000-4000-8000-000000000001', 'owner'),
   ('fb9c0000-0000-4000-8000-000000000002', 'fb9c0001-0000-4000-8000-000000000002', 'owner');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('fb9c0001-0000-4000-8000-000000000001' , 'fb9c0000-0000-4000-8000-000000000001');
+SELECT pg_temp.approve_synthetic_listing('fb9c0001-0000-4000-8000-000000000002' , 'fb9c0000-0000-4000-8000-000000000002');
+UPDATE public.facility_profiles SET status='published' WHERE id IN ('fb9c0001-0000-4000-8000-000000000001','fb9c0001-0000-4000-8000-000000000002');
+
 
 -- ---------------------------------------------------------------------------
 -- featured_slots
@@ -257,12 +262,21 @@ SELECT pg_temp.assert_ids(
     WHERE schemaname = 'public' AND tablename = 'review_helpful') = ARRAY['review_helpful_user_manage'],
   'only the own-row policy remains on helpful votes');
 SELECT pg_temp.assert_ids(
-  (SELECT prosecdef AND proconfig = ARRAY['search_path=""'] FROM pg_proc
+  (SELECT NOT prosecdef AND proconfig = ARRAY['search_path=""'] FROM pg_proc
     WHERE oid = 'public.get_review_helpful_counts(uuid[])'::regprocedure)
+  AND (SELECT prosecdef AND proconfig = ARRAY['search_path=""'] FROM pg_proc
+    WHERE oid = 'carelink_review_private.get_review_helpful_counts(uuid[])'::regprocedure)
+  AND NOT has_schema_privilege('anon', 'carelink_review_private', 'CREATE')
+  AND NOT has_schema_privilege('authenticated', 'carelink_review_private', 'CREATE')
+  AND NOT EXISTS (SELECT 1 FROM pg_proc p, LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+    WHERE p.oid = 'carelink_review_private.get_review_helpful_counts(uuid[])'::regprocedure
+      AND a.grantee = 0 AND a.privilege_type = 'EXECUTE')
+  AND has_function_privilege('anon', 'carelink_review_private.get_review_helpful_counts(uuid[])', 'EXECUTE')
+  AND has_function_privilege('authenticated', 'carelink_review_private.get_review_helpful_counts(uuid[])', 'EXECUTE')
   AND has_function_privilege('anon', 'public.get_review_helpful_counts(uuid[])', 'EXECUTE')
   AND has_function_privilege('authenticated', 'public.get_review_helpful_counts(uuid[])', 'EXECUTE')
   AND has_function_privilege('service_role', 'public.get_review_helpful_counts(uuid[])', 'EXECUTE'),
-  'count function is a definer with a fixed search_path, callable by the pages');
+  'count RPC uses an invoker wrapper and a restricted definer helper with fixed search_path');
 
 -- 01 public review of A, 02 hidden review of A, 03 flagged review of A, 04 review of the draft shop C.
 SET LOCAL ROLE service_role;
@@ -346,5 +360,38 @@ SELECT set_config('request.jwt.claim.sub', 'fb9c0000-0000-4000-8000-000000000007
 SET LOCAL ROLE authenticated;
 SELECT pg_temp.assert_ids(NOT EXISTS(SELECT 1 FROM public.review_helpful WHERE review_id::text LIKE 'fb9c0004-%'),
   'a signed-in stranger reads no vote rows');
+RESET ROLE;
+-- Special hours: an invoker public RPC over a restricted definer helper, so the
+-- Security Advisor no longer lists an anon-executable SECURITY DEFINER in public.
+SELECT pg_temp.assert_ids(
+  (SELECT NOT prosecdef AND proconfig = ARRAY['search_path=""'] FROM pg_proc
+    WHERE oid = 'public.published_special_hours(uuid)'::regprocedure)
+  AND (SELECT prosecdef AND proconfig = ARRAY['search_path=""'] FROM pg_proc
+    WHERE oid = 'carelink_schedule_private.published_special_hours(uuid)'::regprocedure)
+  AND NOT has_schema_privilege('anon', 'carelink_schedule_private', 'CREATE')
+  AND NOT has_schema_privilege('authenticated', 'carelink_schedule_private', 'CREATE')
+  AND NOT EXISTS (SELECT 1 FROM pg_proc p, LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+    WHERE p.oid = 'carelink_schedule_private.published_special_hours(uuid)'::regprocedure
+      AND a.grantee = 0 AND a.privilege_type = 'EXECUTE')
+  AND NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname IN ('public', 'graphql_public') AND p.proname = 'published_special_hours' AND p.prosecdef),
+  'special hours RPC uses an invoker wrapper and a restricted definer helper');
+SET LOCAL ROLE service_role;
+INSERT INTO public.facility_special_hours(facility_id, closed_dates, close_on_public_holidays, reception_cutoff_minutes) VALUES
+  ('fb9c0001-0000-4000-8000-000000000001', ARRAY['2030-01-02']::date[], true, 30),
+  ('fb9c0001-0000-4000-8000-000000000003', ARRAY['2030-01-03']::date[], false, 15);
+RESET ROLE;
+SET LOCAL ROLE anon;
+SELECT pg_temp.assert_ids(
+  public.published_special_hours('fb9c0001-0000-4000-8000-000000000001')
+    = '{"closed_dates":["2030-01-02"],"close_on_public_holidays":true,"reception_cutoff_minutes":30}'::jsonb
+  AND public.published_special_hours('fb9c0001-0000-4000-8000-000000000003') IS NULL
+  AND (SELECT special_hours->>'reception_cutoff_minutes' = '30' FROM public.facility_card_view
+    WHERE id = 'fb9c0001-0000-4000-8000-000000000001'),
+  'anon sees special hours of published shops only, also through the card view');
+DO $$ BEGIN
+  PERFORM 1 FROM public.facility_special_hours;
+  RAISE EXCEPTION 'anon read special hours directly';
+EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
 RESET ROLE;
 ROLLBACK;

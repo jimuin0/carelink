@@ -16,6 +16,7 @@ import {
 import ShopContactNotice from '@/components/booking/ShopContactNotice';
 import { bookingStaffLabel, isNominatedBooking } from '@/lib/booking-nomination';
 import { needsSlotReselection, rescheduleDurationMinutes } from '@/lib/booking-slot-rules';
+import { bookingInterval } from '@/lib/booking-interval';
 
 // 予約の実所要時間（分）は start_time/end_time の差から求める（rescheduleDurationMinutes）。
 // 単一 menu_id の duration_minutes では複数メニュー予約（例: カット+カラー120分）の実長を表せず、
@@ -36,7 +37,7 @@ function jstDateOptions(nowMs: number, days: number): string[] {
 type ChangeableBooking = {
   id: string; facility_id: string; staff_id: string | null; staff_auto_assigned: boolean;
   menu_id: string | null; menu_ids: string[] | null;
-  booking_date: string; start_time: string; end_time: string; total_price: number | null;
+  booking_date: string; end_date?: string | null; start_time: string; end_time: string; total_price: number | null;
   facility_name: string; menu_name: string; staff_name: string; duration: number;
   /** 店舗への連絡手段（無料キャンセルの期限を過ぎた予約で「店舗へ直接ご連絡ください」と一緒に出す）。 */
   facility_slug: string | null; facility_phone: string | null;
@@ -121,7 +122,7 @@ export default function BookingChangePage() {
 
         const { data: b, error: bErr } = await supabase
           .from('bookings')
-          .select('id, facility_id, staff_id, staff_auto_assigned, menu_id, menu_ids, booking_date, start_time, end_time, total_price, status')
+          .select('id, facility_id, staff_id, staff_auto_assigned, menu_id, menu_ids, booking_date, end_date, start_time, end_time, total_price, status')
           .eq('id', bookingId)
           .eq('user_id', user.id)
           .single();
@@ -150,6 +151,8 @@ export default function BookingChangePage() {
           : { data: null };
 
         if (cancelled) return;
+        const datedInterval = b.end_date ? bookingInterval(b.booking_date, b.start_time, b.end_date, b.end_time) : null;
+        if (b.end_date && !datedInterval) { setLoadError(true); setLoading(false); return; }
         setBooking({
           ...b,
           facility_name: facility?.name || '',
@@ -157,7 +160,7 @@ export default function BookingChangePage() {
           facility_phone: facility?.phone || null,
           menu_name: menu?.name || '',
           staff_name: staff?.name || '',
-          duration: rescheduleDurationMinutes(b.start_time, b.end_time),
+          duration: datedInterval ? datedInterval.end - datedInterval.start : rescheduleDurationMinutes(b.start_time, b.end_time),
         });
         setChangeWindowClosed(!policyErr
           && isPastFreeCancelWindow(policy as CancelPolicy | null, hoursUntilBookingStart(b.booking_date, b.start_time, Date.now())));
@@ -244,6 +247,7 @@ export default function BookingChangePage() {
           booking_date: selectedDate,
           start_time: selectedSlot.slot_start,
           end_time: selectedSlot.slot_end,
+          ...(selectedSlot.end_date && selectedSlot.end_date !== selectedDate ? { end_date: selectedSlot.end_date } : {}),
         }),
         // 監査F10: 新規予約(BookingFlow)と同様にタイムアウトを付与。
         // 未設定だとサーバ/プロキシのハング時に「変更中...」のまま無限待機になる。
@@ -359,6 +363,9 @@ export default function BookingChangePage() {
         </div>
       )}
 
+      {selectedSlot?.end_date && selectedSlot.end_date !== selectedDate && (
+        <p className="text-sm text-gray-700">終了は翌日 {selectedSlot.slot_end.slice(0, 5)} です。</p>
+      )}
       {selectedSlot && (
         <div className="flex gap-3">
           <button type="button" onClick={() => router.back()} className="flex-1 py-3 text-sm text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">キャンセル</button>

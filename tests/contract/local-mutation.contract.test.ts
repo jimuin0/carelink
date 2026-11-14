@@ -11,6 +11,45 @@ new globalThis.URL(URL);
 const anon = createClient(URL, ANON);
 const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
 describe('isolated local mutation contracts', () => {
+    test('診療科のDB制約は一覧外と重複を拒否し、匿名利用を許さない', async () => {
+      const admin = createClient(URL!, SRK!);
+      const valid = await admin.rpc('valid_medical_specialties', { p_values: ['内科', '耳鼻咽喉科'] });
+      const duplicate = await admin.rpc('valid_medical_specialties', { p_values: ['内科', '内科'] });
+      const invalid = await admin.rpc('valid_medical_specialties', { p_values: ['架空科'] });
+      expect(valid.error).toBeNull(); expect(valid.data).toBe(true);
+      expect(duplicate.error).toBeNull(); expect(duplicate.data).toBe(false);
+      expect(invalid.error).toBeNull(); expect(invalid.data).toBe(false);
+      expect((await anon.rpc('valid_medical_specialties', { p_values: ['内科'] })).error?.code).toBe('42501');
+    });
+
+    test('店舗確認の書類は非公開バケットに置き、匿名で一覧を読めない', async () => {
+      const admin = createClient(URL!, SRK!);
+      const bucket = await admin.storage.getBucket('listing-verification');
+      expect(bucket.error).toBeNull(); expect(bucket.data?.public).toBe(false);
+      const denied = await anon.from('listing_verification_documents').select('id').limit(1);
+      expect(denied.error?.code).toBe('42501');
+    });
+
+    test('未確認の新規施設はDBへ直接公開できず、匿名で審査も行えない', async () => {
+      const admin = createClient(URL!, SRK!);
+      const denied = await admin.from('facility_profiles').insert({
+        name: 'isolated verification probe', slug: 'isolated-verification-probe', business_type: 'ヘアサロン',
+        prefecture: '大阪府', city: '大阪市北区', address: '合成1-1', status: 'published',
+      });
+      expect(denied.error?.code).toBe('23514');
+      expect(denied.error?.message).toContain('published_listing_verification_required');
+      const anonymousReview = await anon.rpc('approve_listing_verification', {
+        p_actor_id: ZERO_UUID, p_facility_id: ZERO_UUID, p_document_ids: [ZERO_UUID], p_expected_identity: {},
+        p_document_verified: true, p_authority_verified: true,
+      });
+      expect(anonymousReview.error?.code).toBe('42501');
+      const missingConfirmation = await admin.rpc('approve_listing_verification', {
+        p_actor_id: ZERO_UUID, p_facility_id: ZERO_UUID, p_document_ids: [ZERO_UUID], p_expected_identity: {},
+        p_document_verified: true, p_authority_verified: false,
+      });
+      expect(missingConfirmation.error?.message).toContain('LISTING_VERIFICATION_CONFIRMATION_REQUIRED');
+    });
+
     test('enqueue_moderation はanonを拒否し、serviceの空batchは0件（隔離local）', async () => {
       const denied = await anon.rpc('enqueue_moderation', { p_items: [] });
       expect(denied.error?.code).toBe('42501');

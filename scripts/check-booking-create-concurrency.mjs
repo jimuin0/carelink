@@ -107,6 +107,7 @@ async function main(){
  assert.equal(query(`SELECT count(*) FROM auth.users WHERE id IN ('${owner}','${actor}','${other}','${fourth}')`),'0');
  const fixture=readFileSync(new URL('../supabase/shadow/booking-create-receipt-fixtures.sql',import.meta.url),'utf8');
  let seed=fixture.slice(fixture.indexOf('INSERT INTO auth.users'),fixture.indexOf('CREATE FUNCTION pg_temp.receipt_create')).replaceAll('bea4','bcb4').replaceAll('receipt-synthetic','receipt-concurrency-synthetic').replaceAll('receipt-staff','receipt-concurrency-staff');
+ seed=seed.replace('\\ir listing-verification-setup.sql',() => readFileSync(new URL('../supabase/shadow/listing-verification-setup.sql',import.meta.url),'utf8'));
  seed=seed.replace("('bcb40000-0000-4000-8000-000000000003','receipt-other@example.invalid',now());",`('${other}','receipt-other@example.invalid',now()),('${fourth}','receipt-fourth@example.invalid',now());`);
  query(`BEGIN;${seed}COMMIT;`);fixtureOwned=true;
  prepare(1);let results=await ordered('same-key-one-booking',booking(1),booking(1));assert.equal(results[0],results[1].value);assert.match(results[0],/^[a-f0-9-]{36}$/);
@@ -137,9 +138,28 @@ async function main(){
  assert.match(results[1].error,/BOOKING_NOTIFICATION_TARGET_CHANGED/);
  assert.equal(query(`SELECT count(*) FROM public.bookings WHERE facility_id='${facility}'`),'2');
 
+ // Two different customers move overnight bookings onto the same staff slot.
+ // The second transaction must actually wait on the first and then reject the overlap.
+ // The preceding owner-revocation scenario deliberately suspends its synthetic
+ // facility. Restore its published state for this separate booking scenario.
+ query(`${readFileSync(new URL('../supabase/shadow/listing-verification-setup.sql',import.meta.url),'utf8')}\nSELECT pg_temp.approve_synthetic_listing('${facility}','${other}');`);
+ query(`UPDATE public.facility_profiles SET status='published',business_hours='{"mon":{"open":"18:00","close":"05:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}' WHERE id='${facility}';
+ UPDATE public.staff_schedules SET start_time='18:00',end_time='24:00' WHERE staff_id='${staff}' AND day_of_week=1;
+ INSERT INTO public.staff_schedules(staff_id,day_of_week,start_time,end_time) VALUES('${staff}',2,'00:00','05:00');
+ INSERT INTO public.facility_special_hours(facility_id,allow_overnight_bookings) VALUES('${facility}',true);
+ INSERT INTO public.bookings(id,facility_id,staff_id,user_id,menu_id,booking_date,start_time,end_date,end_time,customer_name,email,status) VALUES
+ ('bcb45000-0000-4000-8000-000000000001','${facility}','${staff}','${actor}','${menu}','2030-01-14','23:30','2030-01-15','00:30','Synthetic','actor@example.invalid','confirmed'),
+ ('bcb45000-0000-4000-8000-000000000002','${facility}','${staff}','${other}','${menu}','2030-01-21','23:30','2030-01-22','00:30','Synthetic','other@example.invalid','confirmed');`);
+ const move=(id,user)=>`SET ROLE service_role;SELECT replayed FROM public.change_customer_booking_dated_atomic('${id}','${user}','2030-01-28','23:30','2030-01-29','00:30',NULL,NULL,NULL);`;
+ results=await ordered('dated-change-conflict',move('bcb45000-0000-4000-8000-000000000001',actor),move('bcb45000-0000-4000-8000-000000000002',other));
+ assert.equal(results[0],'f');assert.match(results[1].error,/BOOKING_CONFLICT/);
+ assert.equal(query(`SELECT count(*) FROM public.bookings WHERE facility_id='${facility}' AND booking_date='2030-01-28' AND start_time='23:30'`),'1');
+
 }
 try{await main();console.log(JSON.stringify({observed:true,checks:proof}));}
 finally{
  for(const c of children)stop(c);
- if(fixtureOwned){query(`BEGIN;DELETE FROM public.webhook_retry_queue WHERE facility_id='${facility}';DELETE FROM public.booking_create_operations WHERE facility_id='${facility}';DELETE FROM public.facility_profiles WHERE id='${facility}' AND slug='receipt-concurrency-synthetic';DELETE FROM auth.users WHERE id IN ('${owner}','${actor}','${other}','${fourth}');COMMIT;`);console.log('Synthetic booking/referral/claim fixtures removed');}
+ if(fixtureOwned){query(`BEGIN;DELETE FROM public.webhook_retry_queue WHERE facility_id='${facility}';DELETE FROM public.booking_create_operations WHERE facility_id='${facility}';
+ DELETE FROM public.listing_verification_approval_documents WHERE facility_id='${facility}'; DELETE FROM public.listing_verification_approvals WHERE facility_id='${facility}'; DELETE FROM storage.objects WHERE bucket_id='listing-verification' AND name IN (SELECT object_path FROM public.listing_verification_documents WHERE facility_id='${facility}'); DELETE FROM public.listing_verification_documents WHERE facility_id='${facility}';
+ DELETE FROM public.facility_profiles WHERE id='${facility}' AND slug='receipt-concurrency-synthetic';DELETE FROM auth.users WHERE id IN ('${owner}','${actor}','${other}','${fourth}');COMMIT;`);console.log('Synthetic booking/referral/claim fixtures removed');}
 }

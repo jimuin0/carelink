@@ -16,6 +16,8 @@ INSERT INTO public.facility_menus(id,facility_id,category,name,price,duration_mi
 INSERT INTO public.staff_profiles(id,facility_id,name,slug,is_active) VALUES('bed33000-0000-4000-8000-000000000001','bed31000-0000-4000-8000-000000000001','Synthetic','receipt-line-staff',true);
 INSERT INTO public.staff_schedules(staff_id,day_of_week,start_time,end_time) VALUES('bed33000-0000-4000-8000-000000000001',1,'09:00','17:00');
 INSERT INTO public.facility_photos(facility_id,photo_url,photo_type) VALUES('bed31000-0000-4000-8000-000000000001','https://example.invalid/receipt.jpg','other');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('bed31000-0000-4000-8000-000000000001','bed30000-0000-4000-8000-000000000001');
 UPDATE public.facility_profiles SET status='published' WHERE id='bed31000-0000-4000-8000-000000000001';
 INSERT INTO public.user_points(user_id,points,reason) VALUES('bed30000-0000-4000-8000-000000000002',500,'Synthetic seed');
 UPDATE public.profiles SET email=NULL WHERE id='bed30000-0000-4000-8000-000000000001';

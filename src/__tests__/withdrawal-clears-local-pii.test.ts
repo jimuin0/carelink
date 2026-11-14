@@ -40,7 +40,11 @@ describe('退会時の端末側 PII 消去', () => {
     const source = readFileSync(join(process.cwd(), file), 'utf8');
 
     // 空振り防止: そもそも全リロードしている画面であることを先に確かめる。
-    const reloadIndex = source.indexOf("window.location.href = '/'");
+    // 絶対 URL への assign はクライアント遷移ではなく全ページ再読み込みになる（メモリ上の認証情報も破棄される）。
+    // 削除リクエストの後にある再読み込みを対象にする（「トップへ進む」リンクにも同じ式がある）。
+    const deleteIndex = source.indexOf("fetch('/api/account/delete'");
+    const reloadIndex = source.indexOf('window.location.assign(window.location.origin);', deleteIndex);
+    expect(deleteIndex).toBeGreaterThan(-1);
     expect(reloadIndex).toBeGreaterThan(-1);
 
     const clearIndex = source.indexOf('await clearAccountLocalData()');

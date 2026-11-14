@@ -64,4 +64,7 @@ test.each(['http-error','json-error','network-error','deadline'])('refresh %s st
 test.each([
  {facility_profiles:[{name:'Array facility',address:'Array address'}],menu:[{name:'Array menu'}]},
  {facility_profiles:[],menu:[]},{facility_profiles:null,menu:null},{facility_profiles:[{}],menu:[{}]},{facility_profiles:{},menu:{}},
-])('event formatting retains existing fallback semantics %j',async fields=>{found.data={...booking,...fields};expect((await POST(req())).status).toBe(200);const event=mockRun.mock.calls[0][1].payload;expect(event.start).toEqual({dateTime:new Date(booking.booking_date+'T'+booking.start_time).toISOString(),timeZone:'Asia/Tokyo'});expect(event.end.dateTime).toBe(new Date(booking.booking_date+'T'+booking.end_time).toISOString());});
+])('event formatting retains existing fallback semantics %j',async fields=>{found.data={...booking,...fields};expect((await POST(req())).status).toBe(200);const event=mockRun.mock.calls[0][1].payload;expect(event.start).toEqual({dateTime:'2030-01-07T01:00:00.000Z',timeZone:'Asia/Tokyo'});expect(event.end.dateTime).toBe('2030-01-07T02:00:00.000Z');});
+
+test('overnight booking ends on the next calendar day in Japan',async()=>{found.data={...booking,start_time:'23:30:00',end_time:'01:00:00',end_date:'2030-01-08'};expect((await POST(req())).status).toBe(200);const event=mockRun.mock.calls[0][1].payload;expect(event.start.dateTime).toBe('2030-01-07T14:30:00.000Z');expect(event.end.dateTime).toBe('2030-01-07T16:00:00.000Z');});
+test('invalid booking times are not sent to a calendar',async()=>{found.data={...booking,start_time:'bad'};expect((await POST(req())).status).toBe(500);expect(mockRun).not.toHaveBeenCalled();});

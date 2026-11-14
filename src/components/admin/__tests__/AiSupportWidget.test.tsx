@@ -51,3 +51,20 @@ test('500 → 「エラーが発生しました」を表示し偽装しない（
     await screen.findByText('エラーが発生しました。もう一度お試しください。'),
   ).toBeInTheDocument();
 });
+
+test('スマホ幅では下部メニュー（「その他」）に重ならないよう、ボタンと窓を下部メニューの上に出す', () => {
+  render(<AiSupportWidget />);
+  const button = screen.getByRole('button', { name: 'AIサポート' });
+  // lg 未満は下部メニューの上（5rem）、lg 以上は従来どおり bottom-6。
+  expect(button.className).toContain('bottom-[calc(5rem+env(safe-area-inset-bottom))]');
+  expect(button.className).toContain('lg:bottom-6');
+  expect(button.className).not.toMatch(/(^|\s)bottom-6(\s|$)/);
+  // 「その他」のシート（z-50 の全面オーバーレイ）より下に重ねる。lg 以上は従来どおり z-50。
+  expect(button.className).toMatch(/(^|\s)z-40(\s|$)/);
+  expect(button.className).toContain('lg:z-50');
+  fireEvent.click(button);
+  const panel = button.parentElement!.querySelector('div.fixed')!;
+  expect(panel.className).toContain('bottom-[calc(9.5rem+env(safe-area-inset-bottom))]');
+  expect(panel.className).toContain('lg:bottom-24');
+  expect(panel.className).toMatch(/(^|\s)z-40(\s|$)/);
+});

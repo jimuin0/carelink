@@ -1,7 +1,7 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database-overrides';
-import { loginDestination, landingPathFor, readManagedFacilityName, readStoreAccess,
+import { loginDestination, landingPathFor, readManagedFacilityName, readStoreAccess, hasRecoverableRegistration,
   POST_LOGIN_LANDING_PATH, STORE_ADMIN_PATH } from '../post-login-landing';
 
 // 戻り先を指定せずにログインした店舗オーナーが、来院者向けの /mypage に固定されていた不具合の回帰テスト。
@@ -74,5 +74,42 @@ describe('readManagedFacilityName', () => {
     expect(await readManagedFacilityName(membershipClient({ data: null, error: null }).client, 'u1')).toBeNull();
     expect(await readManagedFacilityName(membershipClient({ data: { facility_profiles: { name: 'x' } }, error: { message: 'x' } }).client, 'u1')).toBeNull();
     expect(await readManagedFacilityName(membershipClient(() => { throw new Error('network'); }).client, 'u1')).toBeNull();
+  });
+});
+
+// 2026-11-03: 申込者が戻り先なしでログインすると /mypage に着地し、店舗の作成へ進めずに止まっていた。
+// 数えるのは、運営が承認し、まだ誰も店舗を作っていない申込だけ（第三者が他人の着地点を変えられないように）。
+describe('引き継げる掲載申込がある申込者は申込の続きへ', () => {
+  const rpcClient = (result: Result | (() => never)) => {
+    const rpc = jest.fn(async () => (typeof result === 'function' ? result() : result));
+    return { service: { rpc } as unknown as SupabaseClient<Database>, rpc };
+  };
+  test('店舗が無く、引き継げる申込があれば /register/recover', async () => {
+    const { client } = membershipClient({ data: null, error: null });
+    const { service, rpc } = rpcClient({ data: true, error: null });
+    expect(await landingPathFor(client, 'u1', service)).toBe('/register/recover');
+    expect(rpc).toHaveBeenCalledWith('has_claimable_approved_salon_receipt', { p_user_id: 'u1' });
+  });
+  test('店舗を持つアカウントは申込の有無を見ずに /admin', async () => {
+    const { client } = membershipClient({ data: { role: 'owner' }, error: null });
+    const { service, rpc } = rpcClient({ data: true, error: null });
+    expect(await landingPathFor(client, 'u1', service)).toBe(STORE_ADMIN_PATH);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+  test('店舗の有無が確認できないときは申込も見ずに /mypage', async () => {
+    const { client } = membershipClient({ data: null, error: { message: 'x' } });
+    const { service, rpc } = rpcClient({ data: true, error: null });
+    expect(await landingPathFor(client, 'u1', service)).toBe('/mypage');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+  test.each([
+    [{ data: false, error: null }], [{ data: null, error: null }], [{ data: [{ receipt_id: 'r1' }], error: null }],
+    [{ data: true, error: { code: '42501' } }],
+    [() => { throw new Error('network'); }],
+  ] as const)('申込が無い・確認できないときは /mypage %#', async result => {
+    const { client } = membershipClient({ data: null, error: null });
+    const { service } = rpcClient(result as Result | (() => never));
+    expect(await hasRecoverableRegistration(service, 'u1')).toBe(false);
+    expect(await landingPathFor(client, 'u1', service)).toBe('/mypage');
   });
 });

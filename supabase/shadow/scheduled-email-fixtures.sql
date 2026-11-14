@@ -8,8 +8,12 @@ INSERT INTO auth.users(id,email,created_at) VALUES
  ('ce110000-0000-4000-8000-000000000002','scheduled-two@example.invalid',now()),
  ('ce110000-0000-4000-8000-000000000003','scheduled-three@example.invalid',now());
 INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES
- ('ce120000-0000-4000-8000-000000000001','Public clinic','scheduled-public','その他','検証県','検証市','検証住所','published'),
+ ('ce120000-0000-4000-8000-000000000001','Public clinic','scheduled-public','その他','検証県','検証市','検証住所','draft'),
  ('ce120000-0000-4000-8000-000000000002','Hidden clinic','scheduled-hidden','その他','検証県','検証市','検証住所','draft');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('ce120000-0000-4000-8000-000000000001');
+UPDATE public.facility_profiles SET status='published' WHERE id IN ('ce120000-0000-4000-8000-000000000001');
+
 INSERT INTO public.facility_menus(id,facility_id,category,name,price,duration_minutes,is_published) VALUES
  ('ce140000-0000-4000-8000-000000000001','ce120000-0000-4000-8000-000000000001','synthetic','Public menu',500,30,true),
  ('ce140000-0000-4000-8000-000000000002','ce120000-0000-4000-8000-000000000001','synthetic','Private menu',500,30,false),

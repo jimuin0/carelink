@@ -38,7 +38,7 @@ export const POST = withRoute(async (request, ctx) => {
   const result = await setupFacilityAtomically(createServiceRoleClient(), ctx.user!.id, parsed.data, claim);
   if (result.state === 'unknown') return NextResponse.json({ code: 'SETUP_RESULT_UNKNOWN', error: '作成結果を確認できていません。申込を新しく送信せず、この画面から同じ内容で確認してください。' }, { status: 202, headers });
   if (result.state === 'invalid') return NextResponse.json({ code: 'INVALID_INPUT', error: '施設名・業種などの入力内容を確認してください。' }, { status: 400, headers });
-  if (result.state === 'unverified') return NextResponse.json({ code: 'HANDOFF_UNVERIFIED', error: '引き継ぎ対象の申込を確認できません。新たに送信せず、お問い合わせください。' }, { status: 403, headers });
+  if (result.state === 'unverified') return NextResponse.json({ code: 'HANDOFF_UNVERIFIED', error: '引き継ぎ対象の申込を確認できません。申込時のメールアドレスでログインし、メール確認を完了してください。解決しない場合は新たに送信せず、お問い合わせください。' }, { status: 403, headers });
   if (result.state === 'conflict') return NextResponse.json({ code: 'HANDOFF_CONFLICT', error: 'この申込は取り込み済み、または確認が必要な状態です。別の施設として再作成せず、お問い合わせください。' }, { status: 409, headers });
   if (result.state === 'already_member' && claim.mode !== 'none') return NextResponse.json({
     code: 'ALREADY_MEMBER', facilityId: result.facilityId,

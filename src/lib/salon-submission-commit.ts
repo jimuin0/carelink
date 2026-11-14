@@ -8,6 +8,8 @@ import { readSalonIntentStatus } from './salon-submission-intent';
 import { isMissingSalonPhoto, matchesSalonPhoto, salonPhotoInput, salonPhotoPath, SALON_PHOTO_BUCKET } from './salon-photo-contract';
 import { validateFacilityPrText } from './medical-ad-guard';
 import { SALON_PR_TEXT_PROHIBITED_MESSAGE } from './salon-field-errors';
+import { medicalBusinessTypes } from './medical-business-types';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const salonCommitInput = z.object({
   intentId: z.uuid(),
@@ -40,6 +42,7 @@ export async function commitSalonSubmission(db: Database, value: unknown, proof:
   if (!parsed.success) return { state: 'invalid' };
   if (!isSalonIntentProof(proof)) return { state: 'unverified' };
   const input = parsed.data;
+  if (input.registration.medical_specialties?.length && !medicalBusinessTypes.includes(input.registration.business_type)) return { state:'invalid' };
   let attemptedCommit = false;
   try {
     // Verify capability before reading any selected manifest, including an
@@ -99,7 +102,10 @@ export async function commitSalonSubmission(db: Database, value: unknown, proof:
     // A fresh transaction always calls the declaration-recording wrapper.
     const result = input.consent === undefined
       ? await db.rpc('commit_salon_submission', args)
-      : await db.rpc('commit_salon_submission_with_consent', { ...args, p_terms_sha256: REGISTRATION_TERMS_SHA256 });
+      : input.registration.medical_specialties?.length
+        // The generated database types are refreshed from an isolated DB before merge.
+        ? await (db as SupabaseClient).rpc('commit_salon_submission_with_specialties', { ...args, p_terms_sha256: REGISTRATION_TERMS_SHA256 })
+        : await db.rpc('commit_salon_submission_with_consent', { ...args, p_terms_sha256: REGISTRATION_TERMS_SHA256 });
     if (result.error !== null) return { state: 'unknown' };
     const response = z.array(receipt).length(1).safeParse(result.data);
     if (!response.success) return { state: 'unknown' };

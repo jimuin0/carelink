@@ -78,6 +78,13 @@ test('an unknown cancellation rule in a snapshot is rejected rather than guessed
   expect(from).not.toHaveBeenCalled();
 });
 const previous = { bookingDate:'2030-01-06', startTime:'10:00:00', endTime:'11:00:00' };
+test('変更前後が日付をまたぐとき、施設への通知に両方の終了日を表示する', async () => {
+  const before = { bookingDate: '2030-01-06', startTime: '23:30:00', endDate: '2030-01-07', endTime: '00:30:00' };
+  const after = { ...snapshot, bookingDate: '2030-01-07', startTime: '23:30:00', endDate: '2030-01-08', endTime: '00:30:00', previous: before };
+  const envelope = await prepareCustomerBookingTransitionEnvelope(db, { ...job, target_id: 'owner@example.invalid', payload: { ...job.payload, kind: 'rescheduled', role: 'owner', snapshot: after } });
+  expect(envelope.html).toContain('2030年1月6日（日） 23:30〜2030年1月7日（月） 00:30');
+  expect(envelope.html).toContain('2030年1月7日（月） 23:30〜2030年1月8日（火） 00:30');
+});
 // Regression: a customer change emailed only the customer; the shop kept waiting at the old time.
 test('shop change email shows the previous and the new date/time to the owner address',async()=>{
   const input={...job,target_id:'owner@example.invalid',payload:{...job.payload,kind:'rescheduled',role:'owner',snapshot:{...snapshot,previous}}};

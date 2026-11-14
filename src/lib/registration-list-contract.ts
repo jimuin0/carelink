@@ -8,6 +8,8 @@ export const registrationListInput = z.object({
   query: z.string().trim().max(254).default(''),
   status: z.enum(['all', 'pending', 'approved', 'rejected', 'unknown']).default('all'),
   cursor: registrationCursor.nullable().default(null),
+  // 一覧から隠した申込は既定では出さない。'hidden' で隠した申込だけを表示する。
+  visibility: z.enum(['visible', 'hidden']).default('visible'),
 }).strict().superRefine((input, context) => {
   if (input.field === 'receipt' && input.query && !z.uuid().safeParse(input.query).success) {
     context.addIssue({ code: 'custom', path: ['query'], message: '受付番号を確認してください' });
@@ -19,9 +21,18 @@ export const registrationListInput = z.object({
 });
 export const registrationListRow = z.object({
   id: z.uuid(), name: z.string(), email: z.string(), phone: z.string().nullable(),
+  // register＝掲載申込フォーム。承認のお知らせメールは register の申込にだけ送る（DB のトリガと同じ条件）。
+  source: z.enum(['register', 'recruit']).nullable(),
   status: z.string().nullable(), created_at: timestamp.nullable(),
   claimed_at: timestamp.nullable(), claimed_facility_id: z.uuid().nullable(),
   review_revision: z.number().int().min(0).max(2147483647),
+  classification: z.enum(['test', 'real', 'unknown']).nullable(), classification_revision: z.number().int().min(0),
+  hidden: z.boolean(),
+  // 承認のお知らせメール：none＝積まれていない（承認前・メールの仕組みより前の承認・フォーム以外）、queued＝送信待ち、
+  // sent＝送信済み、uncertain＝送信を始めたが結果が分からない（照合が要る）、failed＝送れなかった。
+  approval_notice: z.enum(['none', 'queued', 'sent', 'uncertain', 'failed']),
+  // 「書類は後から」：付いている申込から作られた店舗は、書類の確認前でも公開できる。
+  documents_deferred: z.boolean(),
 }).strict();
 export const registrationListResponse = z.object({
   salons: z.array(registrationListRow).max(50), nextCursor: registrationCursor.nullable(),

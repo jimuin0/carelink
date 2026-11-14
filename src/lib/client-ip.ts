@@ -14,14 +14,30 @@
  *      クライアントが詐称できる先頭値ではなく末尾を信頼する。
  *   3. いずれも無ければ 'unknown'
  *
+ * Cloudflare Workers で配信するとき（`CARELINK_EDGE=cloudflare`）は、
+ * Cloudflare が必ず上書きする `cf-connecting-ip` を最優先にする。
+ * Cloudflare は `x-real-ip` を上書きしないため、ここで `x-real-ip` を信じると
+ * 利用者が送った値がそのままレート制限・監査ログの IP になる。
+ * 逆に Vercel では `cf-connecting-ip` を誰も上書きしないので、Cloudflare 以外では見ない。
+ *
  * @returns 正規化済み（trim 済み）の IP 文字列。取得不能時は 'unknown'
  */
 export function getClientIp(request: Request | { headers: Headers }): string {
   const headers = request.headers;
 
+  if (process.env.CARELINK_EDGE === 'cloudflare') {
+    const cfIp = headers.get('cf-connecting-ip')?.trim();
+    if (cfIp) return cfIp;
+    return lastForwardedFor(headers);
+  }
+
   const realIp = headers.get('x-real-ip')?.trim();
   if (realIp) return realIp;
 
+  return lastForwardedFor(headers);
+}
+
+function lastForwardedFor(headers: Headers): string {
   const xff = headers.get('x-forwarded-for');
   if (xff) {
     const parts = xff

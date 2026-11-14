@@ -74,8 +74,13 @@ INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
  ('ef130000-0000-4000-8000-000000000001','review-fixture-a@example.invalid',now()),
  ('ef130000-0000-4000-8000-000000000002','review-fixture-b@example.invalid',now());
 INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES
- ('ef140000-0000-4000-8000-000000000001','Review fixture A','review-fixture-a','その他','検証県','検証市','検証住所','published'),
- ('ef140000-0000-4000-8000-000000000002','Review fixture B','review-fixture-b','その他','検証県','検証市','検証住所','published');
+ ('ef140000-0000-4000-8000-000000000001','Review fixture A','review-fixture-a','その他','検証県','検証市','検証住所','draft'),
+ ('ef140000-0000-4000-8000-000000000002','Review fixture B','review-fixture-b','その他','検証県','検証市','検証住所','draft');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('ef140000-0000-4000-8000-000000000001');
+SELECT pg_temp.approve_synthetic_listing('ef140000-0000-4000-8000-000000000002');
+UPDATE public.facility_profiles SET status='published' WHERE id IN ('ef140000-0000-4000-8000-000000000001','ef140000-0000-4000-8000-000000000002');
+
 UPDATE storage.buckets SET public=true WHERE id='review-photos';
 INSERT INTO storage.objects(id,bucket_id,name,owner_id,metadata) VALUES
  ('ef150000-0000-4000-8000-000000000001','review-photos','reviews/ef140000-0000-4000-8000-000000000001/owned.png','ef130000-0000-4000-8000-000000000001','{"size":4,"mimetype":"image/png"}'),

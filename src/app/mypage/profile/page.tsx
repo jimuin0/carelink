@@ -502,7 +502,7 @@ export default function ProfileEditPage() {
                       // 退会したのに入力済みの個人情報（氏名・メール・電話）が端末に
                       // 残らないよう、遷移の前に sessionStorage の下書きを消す。
                       // 【全リロードでは sessionStorage は消えない】ため明示的に消す必要がある。
-                      window.location.href = '/';
+                      window.location.assign(window.location.origin);
                     } else {
                       setShowDeleteModal(false);
                       setDeleteConfirmText('');

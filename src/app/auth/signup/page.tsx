@@ -17,6 +17,7 @@ import { safeRedirect } from '@/lib/safe-redirect';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { useClientReady } from '@/lib/use-client-ready';
 import { isShopAccountSetupRedirect } from '@/lib/salon-browser-context';
+import RegistrationFlow from '@/components/register/RegistrationFlow';
 import Button from '@/components/ui/Button';
 import PasswordStrengthMeter from '@/components/PasswordStrengthMeter';
 import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
@@ -359,9 +360,9 @@ function SignupContent() {
   return (
     <>
           {shopAccountSignup && (
-            <div className="mb-8 rounded-xl bg-sky-50 p-5 text-sm leading-6 text-sky-900" data-testid="shop-signup-guide">
-              <p className="font-bold">申込と同じメールアドレスで作成してください</p>
-              <p className="mt-2">掲載申込に使ったメールアドレスで登録すると、申込内容を管理画面に引き継げます。</p>
+            <div className="mb-8" data-testid="shop-signup-guide">
+              <RegistrationFlow current="account" />
+              <p className="mt-4 text-sm font-bold leading-6">申込と同じメールアドレスで作ってください（申込内容を引き継ぎます）。</p>
             </div>
           )}
           {lineConsentRequired && (

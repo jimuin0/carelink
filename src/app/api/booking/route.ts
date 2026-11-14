@@ -18,7 +18,9 @@ import { buildBookingCreateNotifications, BookingNotificationPlanError } from '@
 import { HOME_VISIT_ADDRESS_REQUIRED_MESSAGE, isHomeVisitOnly } from '@/lib/home-visit';
 import { knownBookingRpcMessage } from '@/lib/booking-rpc-error';
 import { COUPON_TARGET_REJECTIONS, isTargetedCoupon } from '@/lib/coupon-eligibility';
-import { BOOKING_DURATION_MISMATCH_MESSAGE, BOOKING_SLOT_PASSED_MESSAGE, NO_CAPABLE_STAFF_MESSAGE, bookingDurationForMenus, hasSlotStarted, slotLengthMinutes } from '@/lib/booking-slot-rules';
+import { BOOKING_DURATION_MISMATCH_MESSAGE, BOOKING_SLOT_PASSED_MESSAGE, NO_CAPABLE_STAFF_MESSAGE, bookingDurationForMenus, hasSlotStarted } from '@/lib/booking-slot-rules';
+import { bookingInterval } from '@/lib/booking-interval';
+import { loadSlotHolidayCalendar } from '@/lib/available-slots';
 
 export const dynamic = 'force-dynamic';
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -106,7 +108,9 @@ export async function POST(request: Request) {
     if (action === 'prepare') return json({ state: 'prepared', operationId });
     const parsed = bookingSchema.safeParse(body);
     if (!parsed.success) return reject(parsed.error.issues[0]!.message, 400);
-    if (parsed.data.start_time >= parsed.data.end_time) return reject('開始時間は終了時間より前にしてください', 400);
+    const endDate = parsed.data.end_date ?? parsed.data.booking_date;
+    const interval = bookingInterval(parsed.data.booking_date, parsed.data.start_time, endDate, parsed.data.end_time);
+    if (!interval) return reject('予約の開始日時と終了日時を確認してください', 400);
     // 開始時刻（JST）を過ぎた枠は受け付けない（2026年10月23日）。予約画面の空き状況は開いた時点の
     // ものなので、開いたままにすると過ぎた枠を送れた。作られた予約は開始済みのため、直後から
     // オンラインでのキャンセルも変更もできなかった。受付済みの再送（上の committed）はここに来ない。
@@ -149,7 +153,7 @@ export async function POST(request: Request) {
   // 一致しなければならない（2026年10月23日）。以前は start < end しか見ておらず、予約画面で枠を
   // 選んだ後にメニューを足すと、旧い終了時刻のまま（例: 120分の内容を 60分の枠で）保存され、
   // 後半の時間が空きとして他のお客様に売られていた。式は空き枠 API と同じ（booking-slot-rules）。
-  if (slotLengthMinutes(parsed.data.start_time, parsed.data.end_time) !== bookingDurationForMenus(menuRows!)) {
+  if (interval.end - interval.start !== bookingDurationForMenus(menuRows!)) {
     return reject(BOOKING_DURATION_MISMATCH_MESSAGE, 400);
   }
 
@@ -287,12 +291,16 @@ export async function POST(request: Request) {
     // 店舗向けの新規予約メールに「ポイント利用 -¥N」を出す（料金はポイント利用後の金額なので、差額の理由が店舗に分かるように）。
     // p_total_price + p_points_used ＝ ポイント利用前の金額で、予約 RPC はこれを来店ポイントの上限として保存する（20261023000100）。
     const notifications = await buildBookingCreateNotifications(rpcClient, parsed.data, user?.id ?? null, primaryMenuId, finalPrice, bookingStatus, pointsUsed);
-    const { data: result, error } = await rpcClient.rpc('create_booking_with_receipt_atomic', {
+    const policy = await loadSlotHolidayCalendar(rpcClient, parsed.data.facility_id);
+    if (policy.error) return json({ error: '営業時間を確認できません。時間をおいて同じ受付番号で再確認してください。', code: 'BOOKING_HOURS_UNAVAILABLE' }, 503);
+    const { data: result, error } = await rpcClient.rpc('create_booking_with_receipt_dated_atomic', {
       ...scope, p_payload_hash: payloadHash, p_facility_id: parsed.data.facility_id, p_staff_id: parsed.data.staff_id ?? null,
       p_menu_id: primaryMenuId, p_coupon_id: parsed.data.coupon_id ?? null, p_booking_date: parsed.data.booking_date,
       p_start_time: parsed.data.start_time, p_end_time: parsed.data.end_time, p_customer_name: parsed.data.customer_name,
       p_email: parsed.data.email, p_phone: parsed.data.phone ?? null, p_note: parsed.data.note ?? null, p_total_price: finalPrice,
       p_points_used: pointsUsed, p_status: bookingStatus, p_menu_ids: menuIdsToPrice, p_notifications: notifications,
+      p_end_date: endDate, p_holiday_dates: policy.calendar ? [...policy.calendar.dates] : null,
+      p_holiday_from: policy.calendar?.from ?? null, p_holiday_through: policy.calendar?.through ?? null,
     });
     if (error) {
       if(error.code==='P0001' && error.message==='WEBHOOK_DISPATCH_V2_UNAVAILABLE')return json({error:'現在この予約を安全に処理できません。時間をおいて同じ受付番号で再確認してください。',code:'BOOKING_DISPATCH_UNAVAILABLE'},503);

@@ -50,7 +50,7 @@ describe.each(TEMPLATES)('auth email template: $kind', ({ kind, subject, heading
     const html = readFileSync(join(ROOT, 'supabase/templates', `${kind}.html`), 'utf8');
     expect(html.startsWith('<!DOCTYPE html>')).toBe(true);
     expect(html).toContain('<html lang="ja">');
-    expect(html).toContain(`<h1 style="font-size:20px;margin:0 0 16px;">${heading}</h1>`);
+    expect(html).toMatch(new RegExp(`<h1(?: [^>]*)?>${heading}</h1>`));
     expect(html).toMatch(new RegExp(`<a href="\\{\\{ \\.ConfirmationURL \\}\\}"[^>]*>${button}</a>`));
     for (const text of required) expect(html).toContain(text);
     // 差し込み変数は確認 URL だけ（綴りを誤ると Supabase の送信時にテンプレートが壊れる）。

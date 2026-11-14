@@ -2,6 +2,7 @@ import { test, expect, devices, type Locator, type Page } from '@playwright/test
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { confirmSyntheticBookingPreparation } from './booking-preparation.seed';
+import { approveSyntheticListing } from './listing-verification-fixture';
 
 /**
  * スマホ（iPhone 13 の画面）で、画面下部の固定バーが他の操作を覆わないこと（2026年10月22日）。
@@ -167,7 +168,7 @@ test.describe('施設詳細: 予約バー', () => {
     }
     const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { persistSession: false, autoRefreshToken: false } });
-    const base = { business_type: 'ヘアサロン', prefecture: '東京都', city: '検証市', address: '合成町1', status: 'published' };
+    const base = { business_type: 'ヘアサロン', prefecture: '東京都', city: '検証市', address: '合成町1', status: 'draft' };
 
     // 予約できる施設（電話・今すぐ予約する・問合せの 3 ボタン）
     readySlug = `synthetic-bottom-bar-${randomUUID()}`;
@@ -175,6 +176,7 @@ test.describe('施設詳細: 予約バー', () => {
       .insert({ ...base, name: '合成予約バー確認店', slug: readySlug, phone: '0300000000' })
       .select('id').single();
     if (ready.error || !ready.data) throw new Error('synthetic bottom bar facility setup failed');
+    await approveSyntheticListing(db, ready.data.id);
     const menu = await db.from('facility_menus').insert({ facility_id: ready.data.id, name: '合成カット',
       category: 'カット', price: 5000, duration_minutes: 60, is_published: true });
     const staff = await db.from('staff_profiles').insert({ facility_id: ready.data.id, name: '合成スタッフ',
@@ -192,6 +194,7 @@ test.describe('施設詳細: 予約バー', () => {
       .insert({ ...base, name: '合成掲載のみ確認店', slug: listingSlug })
       .select('id').single();
     if (listing.error || !listing.data) throw new Error('synthetic listing-only facility setup failed');
+    await approveSyntheticListing(db, listing.data.id);
   });
 
   const bookingBar = (page: Page) => page.locator('[data-bottom-fixed].sticky-bar');

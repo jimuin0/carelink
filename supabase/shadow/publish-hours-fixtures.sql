@@ -17,7 +17,7 @@ DO $$ BEGIN
     RAISE EXCEPTION 'disposable carelink_shadow required';
   END IF;
   IF EXISTS(SELECT 1 FROM auth.users WHERE id::text LIKE 'fa8b0000-%')
-    OR EXISTS(SELECT 1 FROM public.facility_profiles WHERE id::text LIKE 'fa8b0001-%')
+    OR EXISTS(SELECT 1 FROM public.facility_profiles WHERE id::text LIKE 'fa8b0001-%' AND id <> 'fa8b0001-0000-4000-8000-000000000003')
     THEN RAISE EXCEPTION 'synthetic namespace collision'; END IF;
 END $$;
 CREATE FUNCTION pg_temp.assert_hours(ok boolean, label text) RETURNS void LANGUAGE plpgsql AS $$
@@ -53,7 +53,6 @@ INSERT INTO auth.users(id, email, email_confirmed_at) VALUES
 INSERT INTO public.facility_profiles(id, name, slug, business_type, prefecture, city, address, status, business_hours) VALUES
   ('fa8b0001-0000-4000-8000-000000000001', 'Synthetic hours A', 'synthetic-publish-hours-a', 'その他', '検証県', '検証市', '検証町1-1', 'draft', NULL),
   ('fa8b0001-0000-4000-8000-000000000002', 'Synthetic hours B', 'synthetic-publish-hours-b', 'その他', '検証県', '検証市', '検証町1-2', 'draft', NULL),
-  ('fa8b0001-0000-4000-8000-000000000003', 'Synthetic hours legacy', 'synthetic-publish-hours-legacy', 'その他', '検証県', '検証市', '検証町1-3', 'published', NULL),
   ('fa8b0001-0000-4000-8000-000000000004', 'Synthetic hours no address', 'synthetic-publish-hours-no-address', 'その他', '検証県', '検証市', '', 'draft',
     '{"mon":{"open":"10:00","close":"19:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}'),
   ('fa8b0001-0000-4000-8000-000000000005', 'Synthetic hours ownerless', 'synthetic-publish-hours-ownerless', 'その他', '検証県', '検証市', '検証町1-5', 'draft',
@@ -70,6 +69,10 @@ INSERT INTO public.facility_members(user_id, facility_id, role) VALUES
   ('fa8b0000-0000-4000-8000-000000000005', 'fa8b0001-0000-4000-8000-000000000004', 'owner'),
   ('fa8b0000-0000-4000-8000-000000000001', 'fa8b0001-0000-4000-8000-000000000004', 'admin'),
   ('fa8b0000-0000-4000-8000-000000000002', 'fa8b0001-0000-4000-8000-000000000005', 'admin');
+
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('fa8b0001-0000-4000-8000-000000000001','fa8b0000-0000-4000-8000-000000000001');
+SELECT pg_temp.approve_synthetic_listing('fa8b0001-0000-4000-8000-000000000002','fa8b0000-0000-4000-8000-000000000003');
 
 SET LOCAL ROLE service_role;
 
@@ -120,8 +123,8 @@ BEGIN
   PERFORM pg_temp.assert_hours(result = '23514:"published_facility_hours_confirmed"', 'published row cannot clear its hours: ' || result);
   PERFORM public.update_facility_settings_atomic(owner_id::uuid, a::uuid,
     '{"business_hours":{"mon":{"open":"09:00","close":"18:00"},"tue":{"open":"09:00","close":"18:00"},"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}}'::jsonb);
-  PERFORM public.update_facility_settings_atomic(owner_id::uuid, a::uuid, '{"name":"Synthetic hours A renamed"}'::jsonb);
-  PERFORM pg_temp.assert_hours((SELECT status = 'published' AND name = 'Synthetic hours A renamed'
+  PERFORM public.update_facility_settings_atomic(owner_id::uuid, a::uuid, '{"catch_copy":"Synthetic updated copy"}'::jsonb);
+  PERFORM pg_temp.assert_hours((SELECT status = 'published' AND catch_copy = 'Synthetic updated copy'
     AND business_hours -> 'mon' ->> 'open' = '09:00' FROM public.facility_profiles WHERE id = a::uuid), 'confirmed change and unrelated save pass');
 
   -- 非公開化は営業時間を見ない

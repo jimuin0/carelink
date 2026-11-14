@@ -31,12 +31,17 @@ INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
 ('ed010000-0000-4000-8000-000000000004','retirement-spoof-line@example.invalid',now()),
 ('ed010000-0000-4000-8000-000000000005','retirement-ambiguous-line@example.invalid',now());
 INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES
-('ed020000-0000-4000-8000-000000000001','Synthetic retirement','synthetic-retirement','その他','検証県','検証市','検証住所','published'),
-('ed020000-0000-4000-8000-000000000002','Synthetic shared retirement','synthetic-shared-retirement','その他','検証県','検証市','検証住所','published');
+('ed020000-0000-4000-8000-000000000001','Synthetic retirement','synthetic-retirement','その他','検証県','検証市','検証住所','draft'),
+('ed020000-0000-4000-8000-000000000002','Synthetic shared retirement','synthetic-shared-retirement','その他','検証県','検証市','検証住所','draft');
 INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
 ('ed010000-0000-4000-8000-000000000001','ed020000-0000-4000-8000-000000000001','owner'),
 ('ed010000-0000-4000-8000-000000000002','ed020000-0000-4000-8000-000000000002','owner'),
 ('ed010000-0000-4000-8000-000000000003','ed020000-0000-4000-8000-000000000002','owner');
+\ir listing-verification-setup.sql
+SELECT pg_temp.approve_synthetic_listing('ed020000-0000-4000-8000-000000000001' , 'ed010000-0000-4000-8000-000000000001');
+SELECT pg_temp.approve_synthetic_listing('ed020000-0000-4000-8000-000000000002' , 'ed010000-0000-4000-8000-000000000002');
+UPDATE public.facility_profiles SET status='published' WHERE id IN ('ed020000-0000-4000-8000-000000000001','ed020000-0000-4000-8000-000000000002');
+
 UPDATE public.profiles SET line_user_id='Ued000000000000000000000000000001' WHERE id='ed010000-0000-4000-8000-000000000001';
 INSERT INTO public.line_user_links(line_user_id,user_id,display_name) VALUES
 ('Ued000000000000000000000000000001','ed010000-0000-4000-8000-000000000001','Synthetic owned LINE link'),

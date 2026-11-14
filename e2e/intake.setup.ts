@@ -1,3 +1,4 @@
+import { approveSyntheticListing } from './listing-verification-fixture';
 // 来院者（ゲスト）の問診票回答 E2E のセットアップ。
 // CI の隔離 Supabase（supabase start の一時 DB）に service role で「公開施設＋有効な問診テンプレート」を
 // seed する（本番不可侵）。テンプレートは facility_id のみ指定＝fields は DEFAULT '[]'（質問ゼロ）で、
@@ -26,9 +27,10 @@ setup('seed facility with active intake template', async () => {
   // 公開施設
   const { data: fac, error: fe } = await sb.from('facility_profiles').insert({
     name: `E2E問診店舗_${ts}`, slug, business_type: 'ヘアサロン',
-    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'published',
+    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'draft',
   }).select('id').single();
   if (fe) throw new Error('seed facility: ' + fe.message);
+  await approveSyntheticListing(sb, fac.id);
 
   // 有効な問診テンプレート（facility_id のみ＝title/fields/is_active は DEFAULT）。
   // fields='[]' で質問ゼロ→フォームは customer_name のみ必須の最小構成になる。

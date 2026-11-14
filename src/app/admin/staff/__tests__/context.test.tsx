@@ -154,7 +154,7 @@ test('empty stored weekly schedule without confirmed shop hours displays all day
   mockFetch.mockResolvedValue({ ok: true }); render(<Schedule />);
   await screen.findByText('この勤務時間で保存する');
   expect(screen.getByText('このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。')).toBeTruthy();
-  expect(screen.getByRole('link', { name: '施設設定で営業時間を保存する' }).getAttribute('href')).toBe(`/admin/settings?facility_id=${facility}`);
+  expect(screen.getByRole('link', { name: '店舗設定で営業時間を保存する' }).getAttribute('href')).toBe(`/admin/settings?facility_id=${facility}`);
   for (const day of ['日','月','火','水','木','金','土']) expect(dayBox(day).checked).toBe(false);
   // 何も入っていない下書きは失うものが無いので、離れる確認は出さない
   expect(mockGuard).toHaveBeenLastCalledWith(false);

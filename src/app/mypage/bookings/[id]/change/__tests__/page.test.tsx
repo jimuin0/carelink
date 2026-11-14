@@ -28,7 +28,7 @@ const BOOKING = {
   id: 'b1', facility_id: 'f1', staff_id: 's1' as string | null, staff_auto_assigned: false,
   menu_id: 'm1' as string | null, menu_ids: null as string[] | null,
   // 開始前の予約（開始後は予約詳細へ戻すため、固定の過去日だと日時が進むほど検査が成立しなくなる）。
-  booking_date: '2099-06-01', start_time: '10:00:00', end_time: '11:00:00',
+  booking_date: '2099-06-01', end_date: null as string | null, start_time: '10:00:00', end_time: '11:00:00',
   total_price: 5000, status: 'confirmed',
 };
 
@@ -74,7 +74,7 @@ function mockSupabase(t: Tables = {}) {
   });
 }
 
-type SlotLike = { slot_start: string; slot_end: string };
+type SlotLike = { slot_start: string; slot_end: string; end_date?: string };
 let fetchMock: jest.Mock;
 
 /** /api/slots/week の応答を順に返す fetch モック（足りなければ最後の応答を繰り返す）。 */
@@ -103,6 +103,23 @@ const slotPicker = () => screen.getByTestId('slot-picker');
 afterEach(() => jest.clearAllMocks());
 
 describe('指名予約', () => {
+  test('日付をまたぐ予約の長さを翌日の終了時刻まで計算する', async () => {
+    mockSupabase({ booking: { start_time: '23:30:00', end_date: '2099-06-02', end_time: '01:00:00' } });
+    mockFetch(slotsFor([]));
+    render(<BookingChangePage />);
+    await pickTomorrow();
+    await waitFor(() => expect(fetchMock.mock.calls.some(c => String(c[0]).includes('duration=90'))).toBe(true));
+  });
+  test('翌日に終了する変更候補は確定前に終了時刻を表示する', async () => {
+    mockSupabase();
+    mockFetch(slotsFor([{ slot_start: '23:30:00', slot_end: '00:30:00', end_date: '2099-06-03' }]));
+    render(<BookingChangePage />);
+    await pickTomorrow();
+    fireEvent.click(await within(slotPicker()).findByText('23:30'));
+    expect(screen.getByText('終了は翌日 00:30 です。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /23:30に変更する/ })).toBeInTheDocument();
+  });
+
   test('当該スタッフの空き枠を /api/slots/week（選んだ1日分）で取得して表示する', async () => {
     mockSupabase();
     mockFetch(slotsFor([{ slot_start: '13:00:00', slot_end: '14:00:00' }]));

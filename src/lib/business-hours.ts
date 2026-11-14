@@ -105,7 +105,7 @@ export function formatBusinessDay(value: unknown): string {
   const periods = businessPeriods(value);
   if (periods === null) return '未設定';
   if (periods.length === 0) return '休み';
-  return periods.map(period => {
+  return [...periods].sort((a, b) => businessMinute(a.open)! - businessMinute(b.open)!).map(period => {
     if (period.open === '00:00' && period.close === '24:00') return '24時間営業';
     const nextDay = businessMinute(period.close, true)! < businessMinute(period.open)!;
     return `${period.open} 〜 ${nextDay ? '翌' : ''}${period.close}`;

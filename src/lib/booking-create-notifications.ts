@@ -49,7 +49,7 @@ export async function buildBookingCreateNotifications(db: SupabaseClient, input:
   if (profiles.data.length !== ids.length) throw new BookingNotificationPlanError();
   const data = { customerName: input.customer_name, customerEmail: input.email, facilityName: facility.data.name,
     menuName: menu.data.name, staffName: staff.data?.name, bookingDate: input.booking_date, startTime: input.start_time,
-    endTime: input.end_time, totalPrice, bookingId: '', bookingStatus:status,
+    endTime: input.end_time, endDate: input.end_date, totalPrice, bookingId: '', bookingStatus:status,
     // ログインせずに予約した方（actor なし＝bookings.user_id が NULL）はマイページで予約を見られないので、
     // お客様向けメールではマイページへ案内せず、店舗の連絡先を出す。
     hasAccount: actor !== null, ...bookingEmailShopContact(facility.data) };
@@ -84,7 +84,8 @@ export async function buildBookingCreateNotifications(db: SupabaseClient, input:
         ...(data.staffName ? { staffName: data.staffName } : {}) } });
   }
   const snapshot = { customer_name:input.customer_name,email:input.email,facility_name:data.facilityName,menu_name:data.menuName,
-    staff_name:data.staffName ?? null,booking_date:input.booking_date,start_time:input.start_time,end_time:input.end_time,total_price:totalPrice,status };
+    staff_name:data.staffName ?? null,booking_date:input.booking_date,start_time:input.start_time,end_time:input.end_time,total_price:totalPrice,status,
+    ...(input.end_date && input.end_date !== input.booking_date ? { end_date: input.end_date } : {}) };
   if(plan.length>250)throw new BookingNotificationPlanError();
   plan[0].context={owner_ids:ids,owner_push:flags.data?.push_on_new_booking !== false,works_enabled:isLineWorksConfigured(),line_enabled:!!actor && !!process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK};
   return plan.map(item => ({ ...item, snapshot }));

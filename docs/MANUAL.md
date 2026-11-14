@@ -377,7 +377,7 @@ Supabase (PostgreSQL + Storage)
 │   │   │   ├── analytics/
 │   │   │   │   ├── page.tsx / loading.tsx … 売上分析
 │   │   │   │   └── StaffSalesTab.tsx     … スタッフ別売上
-│   │   │   ├── settings/page.tsx / loading.tsx  … 施設設定
+│   │   │   ├── settings/page.tsx / loading.tsx  … 店舗設定
 │   │   │   ├── chat/page.tsx              … チャット管理（Realtime）
 │   │   │   ├── qa/page.tsx                … Q&A管理
 │   │   │   ├── features/page.tsx          … 特集記事管理
@@ -667,6 +667,25 @@ git push origin main
 ```
 
 > 手動デプロイが必要な場合: `npx vercel --prod`
+
+#### ビルドが省略される場合と、設定変更を反映する再デプロイ
+
+`vercel.json` の `ignoreCommand`（`scripts/vercel-should-build.sh`）が、本番でも Preview でも、
+前回成功した配信からの差分が文書・テスト・migration などだけならビルドを省略する
+（本番は、前回成功した配信が稼働中の版と一致するときだけ省略する）。省略された配信は
+Vercel では Canceled、GitHub のコミットステータスでは緑の success になる。判定の内容は
+その配信のビルドログの `判定情報:` 行（対象・前回成功・稼働中・比較元の SHA と変更ファイル）で確認する。
+稼働中の版は本番の `/api/health` から読む。本番は止まっていることが多く、起動からやり直すと応答まで5〜6秒かかる
+（2026年11月1日実測）ため、1回15秒・2回まで待つ。読めなければ `稼働中=不明` としてビルドする（`稼働中の取得回数` も同じ行に出る）。
+
+そのため、**文書だけの push では環境変数などの設定変更は本番に反映されない。** 反映したいときは次のどちらかを使う。
+
+- Vercel のダッシュボードで、現在の本番配信を **Redeploy** する（同じコミットどうしの比較になり、必ずビルドされる）。
+- 空のコミット（`git commit --allow-empty -m "設定変更を反映"`）を push する（差分 0 件は必ずビルドされる）。
+
+⚠️ `NEXT_PUBLIC_*`（ブラウザに渡す公開設定）は、ビルド段のベースイメージ `node24-public-config` に焼き込まれている。
+Vercel の環境変数を変えて再デプロイするだけでは反映されない。CLAUDE.md「Vercelの固定Node.jsランタイム」の手順で
+ベースイメージを作り直し、`Dockerfile.vercel` の digest を更新してから配信する。
 
 ### 5.2 Vercel設定
 
@@ -1543,7 +1562,7 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | `/admin/reviews` | `admin/reviews/page.tsx` | Dynamic | 口コミ管理（公開/非公開切替・サロン返信の公開/編集/削除。書き込みは `/api/admin/review-replies` 経由） |
 | `/admin/photos` | `admin/photos/page.tsx` | Dynamic | 写真管理（アップロード・メイン設定） |
 | `/admin/analytics` | `admin/analytics/page.tsx` | Dynamic | 売上レポート + スタッフ別売上（StaffSalesTab） |
-| `/admin/settings` | `admin/settings/page.tsx` | Dynamic | 施設設定（基本情報・営業時間・特徴） |
+| `/admin/settings` | `admin/settings/page.tsx` | Dynamic | 店舗設定（基本情報・営業時間・特徴） |
 | `/admin/bookings/calendar` | `admin/bookings/calendar/page.tsx` | Dynamic | 予約台帳ガントチャート（スタッフ×時間軸） |
 | `/admin/chat` | `admin/chat/page.tsx` | Dynamic | チャット管理（Supabase Realtime） |
 | `/admin/qa` | `admin/qa/page.tsx` | Dynamic | Q&A管理（質問回答・公開/非公開。`?facility_id=` で店舗を選択・複数店舗は選択が必須） |
@@ -2432,17 +2451,17 @@ git push origin main
 
 1. https://api.slack.com/apps → Create New App → Incoming Webhooks → ON
 2. Webhook URL をコピー → Vercel環境変数 `SLACK_WEBHOOK_URL` に設定
-3. 再デプロイ（pushまたは `npx vercel --prod`）
+3. 再デプロイ（5.1「設定変更を反映する再デプロイ」の方法で。文書だけの push ではビルドが省略され反映されない）
 
 #### Google Analytics 4
 
 1. https://analytics.google.com/ でプロパティ作成 → 測定ID取得
-2. Vercel環境変数 `NEXT_PUBLIC_GA_ID` に設定 → 再デプロイ
+2. `NEXT_PUBLIC_GA_ID` を設定する。ビルド段のベースイメージに焼き込む公開設定なので、5.1 の ⚠️ の手順で反映する
 
 #### Microsoft Clarity
 
 1. https://clarity.microsoft.com/ でプロジェクト作成 → ID取得
-2. Vercel環境変数 `NEXT_PUBLIC_CLARITY_ID` に設定 → 再デプロイ
+2. `NEXT_PUBLIC_CLARITY_ID` を設定する。ビルド段のベースイメージに焼き込む公開設定なので、5.1 の ⚠️ の手順で反映する
 
 #### カスタムドメイン
 
@@ -2460,7 +2479,7 @@ git push origin main
 |------|------|------|
 | フォーム送信で「送信に失敗しました」 | Supabase URL/Key 不正 | Vercel環境変数を確認 |
 | フォーム送信で「送信に失敗しました」 | RLSポリシー未設定 | Supabase → Policies でINSERTポリシー確認 |
-| Slack通知が来ない | `SLACK_WEBHOOK_URL` 未設定 | Vercel環境変数設定 → 再デプロイ |
+| Slack通知が来ない | `SLACK_WEBHOOK_URL` 未設定 | Vercel環境変数設定 → 再デプロイ（5.1「設定変更を反映する再デプロイ」） |
 | 検索結果が空 | facility_profiles にデータなし or status≠published | Supabase Dashboardでデータ・statusを確認 |
 | 施設詳細が404 | slugが不一致 or status≠published | facility_profiles.slug を確認 |
 | 口コミが表示されない | status≠published | facility_reviews.status を確認 |
@@ -3097,7 +3116,7 @@ LCP 3.8sの主因は`/_next/image`サーバーレス関数のTTFB（1.45秒）�
 | 10 | 9件 | セキュリティ3（maxLength/MIME/エラーメッセージ漏洩）・SEO2（register metadata）・a11y4（aria-expanded/aria-label/autoComplete/aria-pressed） |
 | 11 | 5件 | パスワードリセット機能追加・bookingバリデーション強化・マイグレーション補完・.env.example更新・重複ページ削除 |
 | 12 | 4件 | /salon LP分離（CTA→/register）・利用規約チェックボックス・FlowをB方式に変更・未使用PhotoUpload.tsx削除 |
-| 13 | 14件 | 管理機能4点（施設設定/メニューCRUD/メール通知/予約承認フロー）・PWA manifest・保留予約アラート |
+| 13 | 14件 | 管理機能4点（店舗設定/メニューCRUD/メール通知/予約承認フロー）・PWA manifest・保留予約アラート |
 | 14 | 17件 | Email XSS修正・PWA SVG修正・口コミ管理・写真管理・AdminMobileNav・loading.tsx 4件・Markdownエディタ・予約ページネーション |
 | 15 | 7件 | Before/Afterスライダー・エリア地方optgroup・シードデータ(スタッフ5名+カタログ6件)・マイページ予約カード・公開ブログMarkdown描画 |
 | 16 | 12件 | Markdown XSS修正(sanitizeUrl 3ファイル)・ホームページ専用metadata・admin/mypage/auth robots noindex・loading.tsx 13件一括追加 |
@@ -3235,7 +3254,7 @@ v6.0で一括搭載した、ホットペッパービューティー（HPB）を�
 | 2026-03-27 | 6.1 | **全方位深審査3Round59件修正**: R1=UUID検証(/api/favorites)+aria-label 12箇所+loading.tsx 9件追加(計38件)。R2=.maybeSingle()全対応(favorites/profiles/user.ts)+MapView二重500px修正+localStorage SSRガード(CompareButton/ViewCount)+nomination_fee null安全+clearFilters全state初期化+type定義null許容(photo_urls/is_verified_visit)+admin全24ページ.limit(1).single()。R3=FavoriteButton/user.ts .maybeSingle() 4箇所。DB Migration Phase1-3全実行完了+Storageバケット(review-photos/avatars)作成+RLSポリシー全設定 |
 | 2026-03-27 | 6.0 | **HPB超え30機能一括搭載**: GPS現在地検索(haversine 10km)、日時指定検索、施設比較(/compare)、閲覧履歴(localStorage)、口コミ写真投稿/サロン返信/「役に立った」/来店確認バッジ、Q&A(施設詳細+admin管理)、特集管理(admin CRUD)、チャット(Supabase Realtime双方向)、予約日時変更(/mypage/bookings/[id]/change)、予約台帳ガントチャート(/admin/bookings/calendar)、指名スタッフ登録(/mypage/staff)、スタッフ別売上(StaffSalesTab)、指名料自動加算(BookingFlow)、ポイント自動付与(/api/booking/complete)、プロフィール写真(avatarsバケット)、メニュー写真、クーポン手帳(/mypage/coupons)、月間カレンダー○×△、複数メニュー同時予約。新テーブル7+カラム追加3。ナビ更新(admin 16項目、mypage 8項目) |
 | 2026-03-27 | 5.1 | **マニュアル完全照合**: ディレクトリ構成を全124ファイル反映に書き直し、コンポーネント47個全記載、lib 27ファイル全記載、loading.tsx 30件・error.tsx全記載、SEOエリアページ・特集ページ追加、Section 2.2の事実誤認2件修正（「管理画面なし」→管理ダッシュボード完備、「クライアント2種」→4種）、品質監査16回150件+に更新 |
-| 2026-03-27 | 5.0 | **HPB深度強化Round13-16(50件修正)**: 管理機能4点(施設設定/メニューCRUD/Resendメール通知5テンプレ/予約承認フロー)、PWA manifest、Email XSS修正(`esc()`関数)、口コミ管理/写真管理/AdminMobileNav(4タブ+その他)、Markdownエディタ(ツールバー+プレビュー)、予約ページネーション(20件/page)、Before/Afterスライダー(ポインタードラッグ+キーボード)、エリア地方optgroup、シードデータ(スタッフ5名+カタログ6件)、マイページ予約カード、公開ブログMarkdown描画、loading.tsx 4件追加 |
+| 2026-03-27 | 5.0 | **HPB深度強化Round13-16(50件修正)**: 管理機能4点(店舗設定/メニューCRUD/Resendメール通知5テンプレ/予約承認フロー)、PWA manifest、Email XSS修正(`esc()`関数)、口コミ管理/写真管理/AdminMobileNav(4タブ+その他)、Markdownエディタ(ツールバー+プレビュー)、予約ページネーション(20件/page)、Before/Afterスライダー(ポインタードラッグ+キーボード)、エリア地方optgroup、シードデータ(スタッフ5名+カタログ6件)、マイページ予約カード、公開ブログMarkdown描画、loading.tsx 4件追加 |
 | 2026-03-26 | 4.0 | **外部サービス設定+品質強化**: GA4設定(`G-BP8GVKJ3NZ`)、Clarity設定(`w1sqla5alv`)、Supabase Site URL+Redirect URL設定、パスワードリセット機能(`/auth/forgot-password`+`/auth/reset-password`)、/salon LP分離(CTA→/register, B方式Flow)、bookingバリデーション強化、品質監査Round10-12(18件修正)、重複/salonsページ削除、マイグレーションファイル補完、.env.example更新(SERVICE_ROLE_KEY+LINE変数追加) |
 | 2026-03-22 | 3.0 | **HPB完全再現**: Phase 2〜6実装完了（認証/マイページ/お気に入り/エリア検索/スタッフ/クーポン/オンライン予約/管理ダッシュボード/ブログ/カタログ/ランキング/GPS検索/ポイント）。全25テーブル、120+新規ファイル。品質監査9回実施（80+件修正）。セキュリティ強化（レート制限/UUID検証/non-null assertion全排除/HTTPセキュリティヘッダー5種/GA4・Clarity IDバリデーション） |
 | 2026-03-22 | 2.0 | **大規模更新**: 検索サイト全機能追加（/search, /facility/[slug]）、検索側DB5テーブル+トリガー追加、全コンポーネント（16個）追加、LayoutSwitch追加、アクセシビリティ章追加、Zodバリデーション追加、動的sitemap、エラーバウンダリ、型定義一覧、DBクエリ関数一覧、定数一覧。GitHub移行(jimuin0)・自動デプロイ反映 |

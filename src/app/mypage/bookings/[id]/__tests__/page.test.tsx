@@ -161,6 +161,15 @@ function mockBooking(booking: Record<string, unknown>) {
     from: (t: string) => chain(dataFor[t] ?? null),
   });
 }
+
+test('日付をまたぐ予約は翌日終了と表示し、カレンダーにも翌日を渡す', async () => {
+  mockBooking({ ...BOOKING, booking_date: '2099-06-20', start_time: '23:30:00', end_date: '2099-06-21', end_time: '00:30:00' });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  expect(await screen.findByText('23:30〜翌00:30')).toBeInTheDocument();
+  const link = await screen.findByRole('link', { name: /Googleカレンダーに追加/ });
+  expect(link).toHaveAttribute('href', expect.stringContaining('dates=20990620T233000/20990621T003000'));
+});
 const STARTED_NOTICE = '開始時刻を過ぎた予約は、オンラインで日時の変更やキャンセルができません。店舗へ直接ご連絡ください。';
 
 test.each(['pending', 'confirmed'])('開始前の %s 予約 → 日時を変更するボタンを表示', async (status) => {

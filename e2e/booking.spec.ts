@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { confirmSyntheticBookingPreparation } from './booking-preparation.seed';
+import { approveSyntheticListing } from './listing-verification-fixture';
 
 // Listing-only stores are valid. A known ready synthetic fixture avoids both
 // an arbitrary first result and assertions that silently skip when none exists.
@@ -17,10 +18,11 @@ test.describe('予約フロー（UI確認）', () => {
       { auth: { persistSession: false, autoRefreshToken: false } });
     slug = `synthetic-booking-ui-${randomUUID()}`;
     const facility = await db.from('facility_profiles').insert({ name: '合成予約UI確認店', slug,
-      business_type: 'ヘアサロン', prefecture: '東京都', city: '検証市', address: '合成町1', status: 'published' })
+      business_type: 'ヘアサロン', prefecture: '東京都', city: '検証市', address: '合成町1', status: 'draft' })
       .select('id').single();
     if (facility.error || !facility.data) throw new Error('synthetic booking facility setup failed');
     const id = facility.data.id;
+    await approveSyntheticListing(db, id);
     const menu = await db.from('facility_menus').insert({ facility_id: id, name: '合成カット',
       category: 'カット', price: 5000, duration_minutes: 60, is_published: true });
     const staff = await db.from('staff_profiles').insert({ facility_id: id, name: '合成スタッフ',

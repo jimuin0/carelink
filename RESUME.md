@@ -1,21 +1,23 @@
 # CareLink 再開入口（2026-10-20）
 
-> **2026-10-21 更新（最新の入口）**：まず [docs/handoff/CODEX_INSTRUCTIONS_20261021.md](docs/handoff/CODEX_INSTRUCTIONS_20261021.md) を読む。
+> **2026-10-21 引継ぎ記録**：[docs/handoff/CODEX_INSTRUCTIONS_20261021.md](docs/handoff/CODEX_INSTRUCTIONS_20261021.md) を参照する。
+> **2026-10-26 後続記録**：性能・Preview・配信の経過は [作業台帳](docs/handoff/SESSION_REMAINING_20261026.md) の後続の時刻付き追記を確認し、記録時点と現在を区別する。
 > **2026-10-26 更新**：Supabase の PostGIS 公開権限は現行障害ではなく実在する Security Advisor 指摘。チケット `SU-513978` に管理者用の移設手順が届いた。変更直前の保護と COMMIT 後の復旧条件について、本人が許可した確認メール1通を追加送信し、回答待ち。本番移設は承認・実行していない。[実測・安全な是正手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)を参照。
 > **2026-10-26 追記**：Render 統合後の初回日曜ジョブ `customer-segment`、`sync-google-ratings`、`weekly-report` は本番 `cron_logs` でいずれも `success` を確認した。`weekly-report` の処理数は 0 で、Render の統合サービスでも HTTP 200 と正常終了を確認済み。これらを再実行しない。下記の旧記録にある「初回確認待ち」は解消済み。[現在地](docs/handoff/CODEX_INSTRUCTIONS_20261021.md#3-残課題優先順)を参照。
 > **2026-10-26 原票探索更新**：旧MacのSMB共有へ接続できた。原票151件のうち149件は引き続き全文未回収。GitHubの[原票索引](docs/handoff/original-source-index.json)は名前・SHA-256・状態であり全文ではない。旧Macの引き継ぎzipと全履歴bundleの照合結果は[探索記録](docs/handoff/original-source-recovery-20261026.md)を参照する。
 > **2026-10-24 追記**：PR #801 は CI E2E 461 成功で main `84f4497` へマージ。Vercel は非配信差分の本番ビルドを Ignored Build Step で省略し、公開 health は healthy/version `13b0d35`。新しい画像はこのマージで作成されていない。
-> 下の「再開直後の実作業」2 の Render cron 集約（PR #734）は切替完了・旧サービス suspend 済みで、再実施しない。
 > PR #739〜#756 はマージ・本番反映済み。残課題と作業手順は同指示書の 3〜4 章が正。
-> `scripts/verify-handoff.py` は main では失敗する（マニフェストは `447f71cb` 時点の hash）。照合は同コミットを別ディレクトリに取り出して行う。以下は 2026-10-20 時点の記録。
+> `scripts/verify-handoff.py` は `447f71cb` 時点のマニフェスト対象ファイルと作業場所を照合する。対象ファイルに後続変更があれば main でも `missing or modified` となる。以下は 2026-10-20 時点の記録。
 
-正式repo: https://github.com/jimuin0/carelink （公開）。新Macでは任意の空ディレクトリへcloneする。旧Macの絶対パス・このチャット・ログイン済みブラウザは不要。最新の機能基準は c33a53ac8c96422e4271e4a47d3403e226cecd91 / PR734。依存バージョンは package-lock.json が正（Next16.3.8 / React19.2 / Node>=22.22.2）。過去AGENTS・docsのNext15等の記載は履歴。
+正式repo: https://github.com/jimuin0/carelink （公開）。新Macへの引継ぎ時は任意の空ディレクトリへcloneでき、旧Macの絶対パス・当時のチャット・ログイン済みブラウザは不要。c33a53ac8c96422e4271e4a47d3403e226cecd91 / PR734 は2026-10-20時点の機能基準で、その後も更新されている。依存バージョンは package-lock.json が正。過去AGENTS・docsのNext15等の記載は履歴。
 
-## 再開直後の実作業（優先順）
+## 再開直後の実作業（2026-10-20 の引継ぎ手順）
+
+この手順と末尾の依頼文は当時の別Macへの引継ぎ用。現在の会話の対象・checkout・GOALや既に与えられた許可を上書きせず、必要な箇所を参照する。状態・権限・本番版は各記録の時点の証拠として扱う。
 
 1. **対象**: 上記公開repoのCareLinkのみ。任意の空フォルダへ `git clone https://github.com/jimuin0/carelink.git`。現行コードの開発再開に過去アーカイブの全移送は不要。
 2. **確認済み・再実行禁止**: PR734のRender集約は切替完了、旧サービスは suspend 済み。2026-10-25の初回日曜ジョブ3本は本番 `cron_logs` で成功を確認した。現行の未完了作業は[残課題](docs/handoff/CODEX_INSTRUCTIONS_20261021.md#3-残課題優先順)と[PostGIS の実測](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)を参照する。
-3. **最初の確認は限定する**: `git status --short`、`git rev-parse HEAD`、`python3 scripts/verify-handoff.py`、進行中の関連テスト/デプロイ/cron操作の有無を確認。別作業を停止・上書きしない。manifest対象コミットは `git log -1 --format=%H -- HANDOFF_MANIFEST.json` で特定する。そのコミットが完成した引継ぎ一式であり、資料作成前のコミットではない。
+3. **最初の確認は限定する**: 対象、`git status --short`、`git rev-parse HEAD`、進行中の関連テスト/デプロイ/cron操作を確認し、別作業を停止・上書きしない。manifest対象コミットは `git log -1 --format=%H -- HANDOFF_MANIFEST.json` で特定し、対象と内容が一致する作業場所で `python3 scripts/verify-handoff.py` を実行する。そのコミットが完成した引継ぎ一式であり、資料作成前のコミットではない。後続変更を含むcheckoutを過去の引継ぎ一式と混同しない。
 4. **確認済みを再実行しない**: 対象が一致すれば下記および[検証記録](docs/handoff/RESTORE_VERIFICATION.md)の保存結果を使う。同じ全体テストを重複起動しない。関連コード変更・環境差・失敗がある場合だけ必要な再検査を選ぶ。資料だけの変更で全体テストを繰り返さない。通常のブランチ名は `codex/` と既存規則で判断し、不要な確認を挟まない。
 5. **認証待ちと独立作業**: Supabase所有者のACL是正は依頼送信済みで完了未確認。重複送信せず対応後に権限を検証する。実Google同意は本人操作で任意機能のため優先を下げる。認証待ちでも現行コードの独立した調査・実装・合成データ検証を続ける。原票149件は過去指摘の照合制約で、現在の開発再開の前提ではない。画像保持・公開・店舗所有は技術不足と分けて本人の事業判断として扱う。着手不能なら具体的阻害要因と、その間に進めた作業を報告する。
 6. **予算・禁止・公開条件**: 新規予算なし。秘密・個人情報の公開、無断課金/送信/削除/権限拡大、他案件/他チャットへの越境、ChatGPT内蔵スケジュールは禁止。既存検査基準と下記保留を維持。ブラウザ操作はCodexサイドバー内で行う。
@@ -25,7 +27,7 @@
 Node22.22.2以上、Python3、Gitを用意し `npm ci`。file依存2件はrepo内にあり、旧Macのnode_modulesへリンクしない。実際に環境を変えた場合のテストは `npm run test:coverage:ci -- --runInBand`、`npm run lint`、`npx tsc --noEmit`。本番.envをコピーしてテストしない。
 起動/DB/E2Eは [.github/workflows/ci.yml](.github/workflows/ci.yml) の使い捨てローカルSupabase手順を使用。`.env.example`のURLは本番なので、そのままseedしない。ローカルSupabaseと合成データ以外へのseed・負荷試験は禁止。
 
-## 最新状況と優先順位
+## 引継ぎ時の状況と優先順位（2026-10-26までの記録）
 
 - PR733 / abd8e800: 実装・ローカル検証・本番配信照合の記録あり。573 suites/12,305 tests、branches11,309/11,309、E2E head/main各374。これは過去証拠であり今回の再実行ではない。
 - PR734 / c33a53ac: mainへマージ済み。cron集約の575 suites/12,330 tests、100%分岐とCI成功がPRに記録。本番health/version c33a53aは当時の記録。Render切替と旧サービスsuspendは後続作業で完了し、2026-10-25の初回日曜ジョブ3本は本番 `cron_logs` で成功を確認した。手順・rollbackは [cron正本](docs/render-cron-consolidation.md)。推測で切替/再送しない。
@@ -42,8 +44,8 @@ Stripe/決済、キャンセル待ち、Google時差、LINE解除、実顧客返
 
 ## 外部環境・認証
 
-本番 https://carelink-jp.com はVercel、DB/Auth/StorageはSupabase project `xzafxiupbflvgbarrihe`。Renderはworkspace jimuin、既存carelink-cron-envと業務cron。GitHub Secretsはcloneされない。実行コード・デプロイ設定から抽出した変数名は [env索引](docs/handoff/environment-names.json)、テンプレートは.env.example。値は保存しない。
-Vercel projectのdeploy/env管理権限、Supabase project SQL/backup/Storage権限、Render workspace読取/必要時deploy権限、GitHub push権限を別アカウントに本人が許可する必要がある。公開repoのcloneは認証不要、push権限は未確認。本人OAuth同意は移転不可。Stripe/LINE/Google/Resend/Slack/Anthropic等は各サービス管理者が必要時に最小権限で再接続する。期限・プラン・各Secret設定有無は今回未確認であり既設定と推測しない。NEWSLETTER_UNSUBSCRIBE_SECRET/VAPIDの無計画な再発行は既存リンク/購読を壊すため避ける。
+本番 https://carelink-jp.com はCloudflare Workers（2026-11-11にVercelから切り替え・アカウント carelink・Worker 名 carelink。mainのCI成功後にGitHub Actionsが自動配信）、DB/Auth/StorageはSupabase project `xzafxiupbflvgbarrihe`。Renderはworkspace jimuin、既存carelink-cron-envと業務cron。GitHub Secretsはcloneされない。実行コード・デプロイ設定から抽出した変数名は [env索引](docs/handoff/environment-names.json)、テンプレートは.env.example。値は保存しない。
+Cloudflareアカウント carelink のWorkers deploy/secret管理権限（Vercelを片付けるまではVercel projectも）、Supabase project SQL/backup/Storage権限、Render workspace読取/必要時deploy権限、GitHub push権限を別アカウントに本人が許可する必要がある。公開repoのcloneは認証不要、push権限は未確認。本人OAuth同意は移転不可。Stripe/LINE/Google/Resend/Slack/Anthropic等は各サービス管理者が必要時に最小権限で再接続する。期限・プラン・各Secret設定有無は今回未確認であり既設定と推測しない。NEWSLETTER_UNSUBSCRIBE_SECRET/VAPIDの無計画な再発行は既存リンク/購読を壊すため避ける。
 DB業務データ・Auth・Storageは既存クラウド側に残る。新Mac開発のための本番DB複製は不要。災害復旧にはSupabase管理者によるbackup/PITRの可用性・Storage別バックアップと秘密管理庫を別途確認する。今回は取得・移行・復元実証していない。
 
 ## 競合と履歴
@@ -52,7 +54,7 @@ DB業務データ・Auth・Storageは既存クラウド側に残る。新Mac開�
 
 ## 配信・復旧
 
-コード変更時は現行CIのcoverage100%・型・lint・E2E/DB契約を維持し、対象commitを固定する。main更新だけで配信完了としない。Vercel READY/health/version、Render実行版と本番DBmigrationを個別に照合。以前の配信をpromote/rollbackする際は現行DBとの互換性を検証し、適用済みmigrationを安易に逆実行しない。cron rollbackは専用文書の所有権切替順を守る。今回の引継ぎ文書追加はアプリ挙動を変更しない。
+コード変更時は現行CIのcoverage100%・型・lint・E2E/DB契約を維持し、対象commitを固定する。main更新だけで配信完了としない。Deploy Cloudflare Worker の成功とhealth/version、Render実行版と本番DBmigrationを個別に照合。以前の配信をpromote/rollbackする際は現行DBとの互換性を検証し、適用済みmigrationを安易に逆実行しない。cron rollbackは専用文書の所有権切替順を守る。今回の引継ぎ文書追加はアプリ挙動を変更しない。
 
 ## 別Macでの再開についての確認範囲
 
@@ -64,7 +66,7 @@ DB業務データ・Auth・Storageは既存クラウド側に残る。新Mac開�
 2. **新GitHubアカウントで招待を承諾する。** 公開コードの取得だけなら招待不要ですが、元リポジトリへ変更を保存するには必要です。
 3. **新Macで、使用するアカウントのCodexと新GitHubアカウントへログインする。** Codexの利用契約・ログインと、GitHubのアクセス権は別です。旧MacのCookieや秘密鍵をコピーして渡す必要はありません。
 4. **新MacのCodexへ、末尾の依頼文を貼る。** リポジトリの取得、ファイル照合、必要な環境準備はAIに任せてください。
-5. **外部サービスの認証を求められた場合だけ対応する。** 最初はRenderのworkspace「jimuin」。VercelのCareLink、Supabaseのproject `xzafxiupbflvgbarrihe`は、必要な作業時に本人認証・アクセス許可を行ってください。GitHubへの招待だけでは、外部サービスの権限やSecretは移りません。課金が発生する変更は、その場で判断してください。
+5. **外部サービスの認証を求められた場合だけ対応する。** 最初はRenderのworkspace「jimuin」。CloudflareのアカウントcarelinkとVercelのCareLink、Supabaseのproject `xzafxiupbflvgbarrihe`は、必要な作業時に本人認証・アクセス許可を行ってください。GitHubへの招待だけでは、外部サービスの権限やSecretは移りません。課金が発生する変更は、その場で判断してください。
 6. **復号鍵は、今は渡さなくて大丈夫です。** 今回は暗号化した移送パッケージを作成しておらず、現行コードの再開に復号鍵は不要です。過去の機密資料を後から移す場合だけ、暗号化ファイルと鍵を別経路で渡します。鍵はパスワード管理庫などで個別共有し、GitHub・Issue・PR・チャットには記載しないでください。
 
 公開GitHubの非機密restart-evidence.tar.gzはgzip圧縮であり暗号化ではありません。元の私的資料は保持し、後日必要なら宛先と暗号方式を決め、暗号化ファイルとSHA256を承認済み経路へ、鍵を別経路へ渡し、受信側の照合・実復号成功まで移行済みとしません。本人以外への招待・権限拡大は勝手に実行しません。[GitHub公式の招待手順](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/repository-access-and-collaboration/inviting-collaborators-to-a-personal-repository)。

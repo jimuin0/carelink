@@ -131,7 +131,7 @@ SELECT ('73000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,repeat('a',64),1
 COMMIT;`);
   const twenty = fn => Array.from({ length: 20 }, (_, n) => fn(n));
   assertOne(await contend('same', userLock(1), twenty(() => setup(1, 1))), 'replay');
-  assertOne(await contend('branches', userLock(2), twenty(n => setup(2, n + 2))), 'already_member');
+  assertOne(await contend('branches', userLock(2), twenty(n => setup(2, n + 2))), 'unverified');
   assertOne(await contend('users', rowLock(22), twenty(n => setup(n + 3, 22))), 'conflict');
   assertOne(await contend('versions', userLock(23), twenty(n => setup(23, 24, n % 2 ? 'intent' : 'legacy'))), 'replay');
   for (const [label, lock, calls] of [
@@ -173,6 +173,15 @@ COMMIT;`);
   assert.equal(query(`SELECT count(*) FROM public.salons WHERE id::text LIKE '72000000-%' AND claimed_facility_id IS NOT NULL`), '5');
   assert.equal(query(`SELECT count(*) FROM public.webhook_retry_queue WHERE webhook_type='facility_welcome'
     AND payload->>'user_id' LIKE '71000000-%'`), '5');
+  // A confirmed account can consume multiple distinct receipts, while repeated
+  // requests for the same receipt still produce exactly one store.
+  query(`UPDATE auth.users SET email='multi@example.invalid',email_confirmed_at=clock_timestamp() WHERE id='${uid(68)}';
+    UPDATE public.salons SET email='multi@example.invalid' WHERE id IN ('${receipt(28)}','${receipt(29)}','${receipt(30)}');`);
+  assertOne(await contend('multi-same', userLock(68), twenty(() => setup(68, 28))), 'replay');
+  const distinct = await contend('multi-distinct', userLock(68), [setup(68, 29), setup(68, 30)]);
+  assert.ok(distinct.every(value => value.startsWith('created|')));
+  assert.equal(new Set(distinct.map(value => value.split('|')[1])).size, 2);
+  assert.equal(query(`SELECT count(*) FROM public.facility_members WHERE user_id='${uid(68)}' AND role='owner'`), '3');
   console.log('Facility setup concurrency passed: 8 x 20 observed lock-waiting clients plus setup/unclaim race; exact single claims, no cross-branch merge, expiry after both locks, 5 atomic welcomes. Synthetic disposable DB only.');
 }
 main().catch(() => {

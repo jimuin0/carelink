@@ -60,7 +60,16 @@ const CASES = [
 async function fillStep1(page: Page, email: string, detailed = false) {
   await expect(page.locator('#reg-facility-name')).toBeEnabled();
   await page.fill('#reg-facility-name', `E2E登録テスト施設 ${Date.now()}`);
-  await page.selectOption('#reg-business-type', { label: 'ヘアサロン' });
+  if (detailed) {
+    await page.selectOption('#reg-business-type', { value:'その他の医療機関' });
+    await page.getByLabel('内科', { exact:true }).check();
+    await page.getByLabel('耳鼻咽喉科', { exact:true }).check();
+    // 診療科を選んでも、業種欄は「医療機関」1 行のまま選択が保たれる（iPhone で行が並ばない形）。
+    const businessType = page.locator('#reg-business-type');
+    await expect(businessType).toHaveValue('内科');
+    await expect(businessType.locator('option:checked')).toHaveText('医療機関');
+    await expect(businessType.locator('option', { hasText:'医療機関' })).toHaveCount(1);
+  } else await page.selectOption('#reg-business-type', { label: 'ヘアサロン' });
   await page.fill('#reg-rep-name', '代表 太郎');
   // 既定は「担当者も代表者と同じ」。別の担当者を入れる経路をここで通す。
   await page.getByRole('checkbox', { name: '担当者も代表者と同じ' }).uncheck();
@@ -126,14 +135,14 @@ test.describe('/register 送信', () => {
     await fillStep1(page, 'reconciliation-fixture@example.invalid');
     await fillStep2(page);
     for (const box of await page.getByRole('checkbox').all()) await box.check();
-    await page.getByRole('button', { name: '登録する', exact: true }).click();
-    const confirmButton = page.getByRole('dialog').getByRole('button', { name: '送信する', exact: true });
+    await page.getByRole('button', { name: '申し込む', exact: true }).click();
+    const confirmButton = page.getByRole('dialog').getByRole('button', { name: 'この内容で申し込む', exact: true });
     // WebKit's iPhone emulation can stall a coordinate click on the modal's
     // lower action after body scroll-lock; use the native touch action there.
     if ((page.viewportSize()?.width ?? 0) < 500) await confirmButton.tap();
     else await confirmButton.click();
     await expect(page.getByText('送信結果を確認できませんでした。同じ申込の受付状況を確認してください。新たな申込として送信しないでください。')).toBeVisible();
-    await expect(page.getByRole('button', { name: '登録する', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: '申し込む', exact: true })).toBeDisabled();
     await expect(page.getByRole('link', { name: '受付状況を問い合わせる' })).toHaveAttribute('href', '/contact');
     expect(attempts).toBe(1);
     expect(new URL(page.url()).pathname).toBe('/register');
@@ -153,7 +162,7 @@ test.describe('/register 送信', () => {
       await page.goto('/register', { waitUntil: 'commit' });
       await expect(page.locator('#reg-facility-name')).toBeEnabled();
       await expect(page.getByRole('button', { name: '次へ' })).toBeDisabled();
-      await expect(page.locator('#register-ready-status')).toContainText('入力はそのまま続けられます');
+      await expect(page.locator('#register-ready-status')).toContainText('入力は続けられます');
       await page.fill('#reg-facility-name', 'JS前に入力した店舗');
       await page.fill('#reg-email', 'before-js@example.invalid');
       releaseScripts();
@@ -239,12 +248,12 @@ test.describe('/register 送信', () => {
         .locator('input[type="checkbox"]')
         .check();
 
-      const submitButton = page.getByRole('button', { name: '登録する' });
+      const submitButton = page.getByRole('button', { name: '申し込む' });
       await expect(submitButton).toBeEnabled();
 
       // 確認ダイアログを経由するフローなので、まず送信ボタン→確認ダイアログの「送信する」の順。
       await submitButton.click();
-      await expect(page.getByRole('heading', { name: '登録内容を送信しますか？' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'この内容で申し込みますか？' })).toBeVisible();
 
       // POST /api/salons/commit のレスポンスを直接観測する。画面遷移だけを見ると、
       // 別の理由（クライアント側の別ルーティング等）で complete に着いた場合を見逃すため、
@@ -253,7 +262,7 @@ test.describe('/register 送信', () => {
         (r) => new URL(r.url()).pathname === '/api/salons/commit' && r.request().method() === 'POST',
         { timeout: 20000 },
       );
-      await page.getByRole('button', { name: '送信する' }).click();
+      await page.getByRole('button', { name: 'この内容で申し込む' }).click();
       const resp = await salonsResponse;
 
       if (resp.status() !== 201) {
@@ -279,17 +288,24 @@ test.describe('/register 送信', () => {
       // Never include the capability cookie value in assertion output.
       expect({ present: !!claim, secure: claim?.secure, httpOnly: claim?.httpOnly, sameSite: claim?.sameSite })
         .toEqual({ present: true, secure: true, httpOnly: true, sameSite: 'Lax' });
-      await expect(page.getByText('申込の送信だけでは公開されません。')).toBeVisible();
-      await expect(page.getByRole('heading', { name: '次にすること' })).toBeVisible();
-      await expect(page.getByText('無料掲載の公開には、店舗名・所在地・曜日別の営業時間（定休日を含む）の設定が必要です。')).toBeVisible();
-      await expect(page.getByRole('heading', { name: '予約を受け付けず、無料掲載だけでも利用できます' })).toBeVisible();
+      await expect(page.getByRole('list', { name: '掲載までの4ステップ' }).locator('[aria-current="step"]')).toContainText('アカウント作成');
+      await expect(page.getByRole('heading', { name: '次は、アカウントの作成です' })).toBeVisible();
+      await expect(page.getByRole('link', { name: '掲載までの流れ（図）' })).toHaveAttribute('href', '/register/guide');
+      const guide = await page.context().newPage();
+      await guide.goto('/register/guide');
+      await expect(guide.getByRole('heading', { name: '掲載までの流れ', exact: true })).toBeVisible();
+      await expect(guide.getByRole('heading', { name: '無料掲載とネット予約' })).toBeVisible();
+      await guide.close();
+      await expect(page.getByText('無料掲載だけの利用も、複数店舗の申込もできます。')).toBeVisible();
+      await expect(page.getByRole('link', { name: 'アカウントがある方はログイン' })).toHaveAttribute('href',
+        '/auth/login?redirect=%2Fadmin%2Fonboarding%3Fhandoff%3Dregistration');
       await expect(page.getByRole('link', { name: '店舗アカウントを作成する' })).toHaveAttribute('href',
         '/auth/signup?redirect=%2Fadmin%2Fonboarding%3Fhandoff%3Dregistration');
       const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
       const { data: saved, error } = await db.from('salons')
-        .select('desired_start_date, phone, contact_phone, website, postal_code, address, prefecture, city, building_name, nearest_station, business_hours, regular_holiday, seat_count, staff_count, has_parking, features, pr_text, source, is_public')
+        .select('desired_start_date, phone, contact_phone, website, postal_code, address, prefecture, city, building_name, nearest_station, business_hours, regular_holiday, seat_count, staff_count, has_parking, features, pr_text, source, is_public, medical_specialties')
         .eq('id', receipt.receiptId).single();
       expect(error).toBeNull();
       expect(saved).toMatchObject({ desired_start_date: value, source: 'register', is_public: false });
@@ -299,7 +315,7 @@ test.describe('/register 送信', () => {
         building_name: '合成ビル101', nearest_station: '合成駅 徒歩5分', business_hours: '10:00〜18:00',
         regular_holiday: '月曜日', seat_count: 0, staff_count: 9999, has_parking: true,
         // 駐車場はチェックボックスで選び、検索用に features へも反映する（チップは出さない）。
-        features: ['駐車場あり', 'WiFi完備'], pr_text: '隔離E2Eの合成紹介文',
+        features: ['駐車場あり', 'WiFi完備'], pr_text: '隔離E2Eの合成紹介文', medical_specialties:['内科','耳鼻咽喉科'],
       });
       if (detailed) {
         // Real UI -> signed Storage -> receipt -> password login -> selected
@@ -307,12 +323,12 @@ test.describe('/register 送信', () => {
         const password = randomUUID();
         const created = await db.auth.admin.createUser({ email, password, email_confirm: true });
         if (created.error || !created.data.user) throw new Error('Synthetic owner creation failed');
-        await page.getByRole('link', { name: '既存アカウントでログインする' }).click();
+        await page.getByRole('link', { name: 'アカウントがある方はログイン' }).click();
         await page.fill('#login-email', email);
         await page.fill('#login-password', password);
         await page.getByRole('button', { name: 'ログイン', exact: true }).click();
         await page.waitForURL('**/admin/onboarding?handoff=registration');
-        await expect(page.locator('#onboarding-business-type')).toHaveValue('ヘアサロン');
+        await expect(page.locator('#onboarding-business-type')).toHaveValue('内科');
         await expect(page.locator('#onboarding-facility-name')).toHaveValue(/^E2E登録テスト施設 /);
         await page.getByRole('checkbox').check();
         const setup = await observeFacilitySetup(page,
@@ -331,12 +347,12 @@ test.describe('/register 送信', () => {
         expect(photos![0]).toMatchObject({ photo_type: 'menu', sort_order: 0 });
         expect(photos![0].photo_url).toContain('/salon-intents/');
         const { data: profile, error: profileError } = await db.from('facility_profiles')
-          .select('status,address,prefecture,city').eq('id', setupBody.facilityId).single();
+          .select('status,address,prefecture,city,medical_specialties').eq('id', setupBody.facilityId).single();
         expect(profileError).toBeNull();
         // The receipt keeps the full address (asserted above); the facility keeps only the
         // street part, because the public page prints prefecture + city + address and
         // previously showed 「愛知県西尾市愛知県西尾市合成町」.
-        expect(profile).toMatchObject({ status: 'draft', address: '合成町', prefecture: '愛知県', city: '西尾市' });
+        expect(profile).toMatchObject({ status: 'draft', address: '合成町', prefecture: '愛知県', city: '西尾市', medical_specialties:['内科','耳鼻咽喉科'] });
       }
     });
   }

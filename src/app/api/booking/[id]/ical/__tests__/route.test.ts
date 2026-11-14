@@ -25,7 +25,8 @@ let mockGetUser: jest.Mock;
 
 function setupDefaultMocks(
   bookingFound: boolean = true,
-  isOwner: boolean = true
+  isOwner: boolean = true,
+  overrides: Record<string, unknown> = {},
 ) {
   // When isOwner=false: booking belongs to 'user-123', but authenticated user is 'different-user'
   const authenticatedUserId = isOwner ? 'user-123' : 'different-user';
@@ -57,6 +58,7 @@ function setupDefaultMocks(
               phone: '03-1234-5678',
             },
           ],
+          ...overrides,
         }
       : null,
   });
@@ -109,6 +111,13 @@ function makeRequest(
 }
 
 describe('GET /api/booking/[id]/ical', () => {
+  test('日付をまたぐ予約の終了日は翌日として出力する', async () => {
+    setupDefaultMocks(true, true, { booking_date: '2026-05-10', start_time: '23:30:00', end_date: '2026-05-11', end_time: '00:30:00' });
+    const res = await GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) } as any);
+    const text = await res.text();
+    expect(text).toContain('DTSTART;TZID=Asia/Tokyo:20260510T233000');
+    expect(text).toContain('DTEND;TZID=Asia/Tokyo:20260511T003000');
+  });
   test('rate limiting → 429', async () => {
     (checkRateLimit as jest.Mock).mockReturnValue(true);
 

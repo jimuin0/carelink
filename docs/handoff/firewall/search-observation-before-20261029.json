@@ -1,0 +1,37 @@
+{
+  "name": "CareLink optional crawler observation",
+  "description": "",
+  "active": true,
+  "conditionGroup": [
+    {
+      "conditions": [
+        {
+          "op": "re",
+          "type": "user_agent",
+          "value": "(?:^|[\\s(;])(?:Amzn-SearchBot|AhrefsBot)(?:[\\s/;)-]|$)"
+        },
+        {
+          "op": "inc",
+          "type": "method",
+          "value": [
+            "GET",
+            "HEAD"
+          ]
+        },
+        {
+          "op": "neq",
+          "type": "path",
+          "value": "/robots.txt"
+        }
+      ]
+    }
+  ],
+  "action": {
+    "mitigate": {
+      "action": "log",
+      "actionDuration": null,
+      "rateLimit": null,
+      "redirect": null
+    }
+  }
+}

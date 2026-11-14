@@ -58,8 +58,8 @@ async function assertOriginalPreviews(page: Page, files: Awaited<ReturnType<type
 async function consentAndSubmit(page: Page) {
   await page.getByRole('checkbox', { name: /当施設の運営に法令上必要な許可/ }).check();
   await page.getByRole('checkbox', { name: /利用規約.*プライバシーポリシー/ }).check();
-  await page.getByRole('button', { name: '登録する', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: '送信する', exact: true }).click();
+  await page.getByRole('button', { name: '申し込む', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'この内容で申し込む', exact: true }).click();
 }
 async function isolateServerRateLimit(page: Page, ip: string) {
   // Synthetic rate-limit identity belongs only to the application API. Never
@@ -137,7 +137,7 @@ test('frozen V1 configuration reaches real denied legacy upload, preserves input
   const response = await denied;
   const rejection = await response.json();
   expect(response.status() === 403 || String(rejection.statusCode) === '403').toBe(true);
-  const recover = page.getByRole('button', { name: '安全なアップロードで再試行', exact: true });
+  const recover = page.getByRole('button', { name: '写真を送り直す', exact: true });
   await expect(recover).toBeVisible();
   expect(legacyPosts).toBe(0); expect(commits).toBe(0);
   await assertOriginalPreviews(page, files);
@@ -151,7 +151,7 @@ test('frozen V1 configuration reaches real denied legacy upload, preserves input
   const mintFailure = page.waitForResponse(result => new URL(result.url()).pathname === '/api/salons/photos' && result.status() === 503);
   await recover.click(); // Explicit recovery validates and attempts signed submission.
   await mintFailure;
-  await expect(page.getByRole('button', { name: '登録する', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '申し込む', exact: true })).toBeEnabled();
   expect(commits).toBe(0);
   await assertOriginalPreviews(page, files);
   await page.unroute('**/api/salons/photos', failMint);
@@ -193,7 +193,7 @@ test('frozen V1 configuration reaches real denied legacy upload, preserves input
 async function openTools(page: Page) {
   const tools = page.locator('#register-draft-tools');
   await tools.waitFor({ state: 'attached' });
-  if (!(await tools.evaluate(element => (element as HTMLDetailsElement).open))) await tools.locator('summary').click();
+  if (!(await tools.evaluate(element => (element as HTMLDetailsElement).open))) await tools.locator(':scope > summary').click();
   await expect(tools.getByRole('region', { name: 'この端末の下書き' })).toBeVisible();
 }
 
@@ -202,7 +202,7 @@ type DraftBackup = { format: string; version: number; payload: { values: Record<
 async function downloadBackup(page: Page): Promise<DraftBackup> {
   await openTools(page);
   const pending = page.waitForEvent('download');
-  await page.getByRole('button', { name: '入力と元の写真をバックアップ', exact: true }).click();
+  await page.getByRole('button', { name: '保存ファイルを作る', exact: true }).click();
   const download = await pending;
   expect(await download.failure()).toBeNull();
   const path = await download.path();
@@ -250,7 +250,7 @@ test('manual original-photo backup survives reload beyond capability lifetime, r
   await page.reload();
   await expect(page.locator('#reg-facility-name')).toBeEnabled();
   await expect(page.locator('#reg-facility-name')).toHaveValue('');
-  await page.getByLabel('バックアップから入力を復元', { exact: true }).setInputFiles({
+  await page.getByLabel('保存ファイルから復元', { exact: true }).setInputFiles({
     name: 'synthetic-carelink-draft.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)),
   });
   await expect(page.locator('#reg-facility-name')).toHaveValue(name);
@@ -266,7 +266,7 @@ test('manual original-photo backup survives reload beyond capability lifetime, r
   await expect(page.getByRole('checkbox', { name: /当施設の運営に法令上必要な許可/ })).not.toBeChecked();
   await expect(page.getByRole('checkbox', { name: /利用規約.*プライバシーポリシー/ })).not.toBeChecked();
   // 必須のチェックが揃うまで送信確認へ進まない。押せない理由（残り件数）を画面に出す。
-  await page.getByRole('button', { name: '登録する', exact: true }).click();
+  await page.getByRole('button', { name: '申し込む', exact: true }).click();
   await expect(page.getByText('必須の同意にチェックしてください（残り3件）')).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   const restored = await downloadBackup(page);
@@ -286,7 +286,7 @@ test('manual original-photo backup survives reload beyond capability lifetime, r
   assertBackup(editedBackup, changedFiles);
   expect(editedBackup.payload.values).toEqual(backup.payload.values);
   expect(transport).toBe(0);
-  await page.getByRole('checkbox', { name: /この下書きはまだ送信していません/ }).check();
+  await page.getByRole('checkbox', { name: /この下書きはまだ送信していない/ }).check();
   const committed = page.waitForResponse(response => response.request().method() === 'POST'
     && new URL(response.url()).pathname === '/api/salons/commit');
   await consentAndSubmit(page);

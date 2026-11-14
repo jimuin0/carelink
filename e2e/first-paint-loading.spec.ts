@@ -1,3 +1,4 @@
+import { approveSyntheticListing } from './listing-verification-fixture';
 /**
  * 「開いた最初のフレームで、まだ試してもいない結果を見せていないか」を検査する。
  *
@@ -58,11 +59,12 @@ async function seedBookableFacility() {
     .from('facility_profiles')
     .insert({
       name: `初期描画検証店_${ts}`, slug: `first-paint-${ts}`, business_type: 'ヘアサロン',
-      prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'published',
+      prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'draft',
     })
     .select('id, slug')
     .single();
   if (fe) throw new Error('seed facility: ' + fe.message);
+  await approveSyntheticListing(sb, fac.id);
 
   const { error: me } = await sb.from('facility_menus').insert({
     facility_id: fac.id, name: 'カット', price: 5000, duration_minutes: 60, category: 'カット', is_published: true,

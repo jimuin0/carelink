@@ -38,6 +38,7 @@ import BusinessStatusBadge from '@/components/facility/BusinessStatusBadge';
 import SimilarFacilities from '@/components/facility/SimilarFacilities';
 import NearbyFacilities from '@/components/facility/NearbyFacilities';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { publicSpecialHoursSchema, type PublicSpecialHours } from '@/lib/public-special-hours';
 import { SITE_URL } from '@/lib/constants';
 import { discountText } from '@/lib/coupon-display';
 import type { Facility, FacilityMenu, FacilityPhoto, FacilityReview, StaffProfile, Coupon, TreatmentCatalog } from '@/types';
@@ -111,6 +112,14 @@ export default async function FacilityPage(props: Props) {
   const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
+
+  let specialHours: PublicSpecialHours | null = null;
+  let specialHoursAvailable = false;
+  try {
+    const result = await createServerSupabaseClient().rpc('published_special_hours', { p_facility_id: facility.id });
+    const parsed = publicSpecialHoursSchema.nullable().safeParse(result.data);
+    if (!result.error && parsed.success) { specialHours = parsed.data; specialHoursAvailable = true; }
+  } catch { /* Do not claim a facility is open when special hours are unknown. */ }
 
   const preparation = await checkBookingReadiness(createServerSupabaseClient(), facility.id);
   if (preparation.error) safeCaptureException(new Error('Booking preparation lookup failed'), 'facility-detail:booking-preparation');
@@ -233,7 +242,7 @@ export default async function FacilityPage(props: Props) {
     {
       key: 'access',
       label: 'アクセス',
-      content: <AccessInfo facility={facility} />,
+      content: <AccessInfo facility={facility} specialHours={specialHours} specialHoursAvailable={specialHoursAvailable} />,
     },
   ];
 
@@ -283,7 +292,7 @@ export default async function FacilityPage(props: Props) {
           <div className="min-w-0 col-start-1 row-start-1">
             <FacilityHeader facility={facility} />
             <div className="px-4 sm:px-6 pb-2 flex flex-wrap items-center gap-2">
-              {facility.show_business_status !== false && <BusinessStatusBadge businessHours={facility.business_hours} regularHoliday={facility.regular_holiday} />}
+              {facility.show_business_status !== false && specialHoursAvailable && <BusinessStatusBadge businessHours={facility.business_hours} regularHoliday={facility.regular_holiday} specialHours={specialHours} />}
               {menus.length > 0 && (() => {
                 const prices = menus.filter(m => m.price != null && m.price > 0).map(m => m.price!);
                 if (prices.length === 0) return null;

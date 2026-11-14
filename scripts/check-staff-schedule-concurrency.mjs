@@ -1,6 +1,7 @@
 // Observe actual PostgreSQL lock contention using only disposable synthetic rows.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 const shadowDocker = process.argv[2] === '--local-docker-shadow';
 const local = shadowDocker || process.argv[2] === '--local-docker';
 const database = local && !shadowDocker ? 'postgres' : 'carelink_shadow';
@@ -75,6 +76,7 @@ async function main() {
   await contend('two-replacements',lock,[weekly(actor,staff,2,[{day_of_week:1,start_time:'09:00',end_time:'18:00'}]),weekly(admin,staff,3,[{day_of_week:2,start_time:'10:00',end_time:'17:00'}])]);
   const final=JSON.parse(query(`SELECT jsonb_agg(jsonb_build_object('day',day_of_week,'start',start_time,'end',end_time)) FROM public.staff_schedules WHERE staff_id='${staff}'`));
   assert.equal(final.length,1); assert.ok(final[0].day===1||final[0].day===2);
+  query(`${readFileSync('supabase/shadow/listing-verification-setup.sql','utf8')}\nSELECT pg_temp.approve_synthetic_listing('${facility}','${actor}');`);
   query(`SET ROLE service_role; SELECT public.replace_staff_schedules_atomic('${actor}','${facility}','${staff}','${operation(4)}','${JSON.stringify(Array.from({length:7},(_,day)=>({day_of_week:day,start_time:'09:00',end_time:'19:00'})))}',false);
     UPDATE public.facility_profiles SET status='published' WHERE id='${facility}';`);
   const booking=`SET ROLE service_role; CREATE FUNCTION pg_temp.attempt() RETURNS text LANGUAGE plpgsql AS $$ BEGIN
@@ -92,5 +94,10 @@ async function main() {
 try { await main(); }
 finally {
   for(const child of children)child.kill('SIGTERM');
-  if (fixtureCreated) query(`BEGIN; DELETE FROM public.bookings WHERE facility_id='${facility}'; DELETE FROM public.staff_mutation_operations WHERE facility_id='${facility}'; DELETE FROM public.facility_profiles WHERE id='${facility}'; DELETE FROM auth.users WHERE id IN ('${actor}','${admin}','${customer}'); COMMIT;`);
+  if (fixtureCreated) query(`BEGIN; DELETE FROM public.bookings WHERE facility_id='${facility}'; DELETE FROM public.staff_mutation_operations WHERE facility_id='${facility}';
+    DELETE FROM public.listing_verification_approval_documents WHERE facility_id='${facility}';
+    DELETE FROM public.listing_verification_approvals WHERE facility_id='${facility}';
+    DELETE FROM storage.objects WHERE bucket_id='listing-verification' AND name IN (SELECT object_path FROM public.listing_verification_documents WHERE facility_id='${facility}');
+    DELETE FROM public.listing_verification_documents WHERE facility_id='${facility}';
+    DELETE FROM public.facility_profiles WHERE id='${facility}'; DELETE FROM auth.users WHERE id IN ('${actor}','${admin}','${customer}'); COMMIT;`);
 }

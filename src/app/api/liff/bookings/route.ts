@@ -43,9 +43,9 @@ export async function GET(req: NextRequest) {
 
   // bookings に menu_name 列は無く menu_id 経由で取得（embed）。
   // 既存の出力形（menu_name フラット）を維持するため取得後に平坦化する。
-  const SELECT = 'id, facility_id, booking_date, start_time, end_time, menu:facility_menus(name), status, total_price, facility_profiles(name)';
+  const SELECT = 'id, facility_id, booking_date, end_date, start_time, end_time, menu:facility_menus(name), status, total_price, facility_profiles(name)';
   // キャンセル画面は「店舗へ直接ご連絡ください」と案内するときに電話番号と店舗ページも出す（一覧には出さない）。
-  const SINGLE_SELECT = 'id, facility_id, booking_date, start_time, end_time, menu:facility_menus(name), status, total_price, facility_profiles(name, slug, phone, status)';
+  const SINGLE_SELECT = 'id, facility_id, booking_date, end_date, start_time, end_time, menu:facility_menus(name), status, total_price, facility_profiles(name, slug, phone, status)';
   type RawBooking = { menu?: { name: string } | { name: string }[] | null } & Record<string, unknown>;
   const flatten = (b: RawBooking) => {
     const m = Array.isArray(b.menu) ? b.menu[0] : b.menu;

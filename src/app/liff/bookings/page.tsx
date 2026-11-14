@@ -10,6 +10,7 @@ import { statusChipClass, bookingStatusLabel, canCustomerCancelBooking } from '@
 type Booking = {
   id: string;
   booking_date: string;
+  end_date?: string | null;
   start_time: string;
   end_time: string;
   status: string;
@@ -90,7 +91,7 @@ export default function LiffBookingsPage() {
                 <p className="text-sm text-gray-600 mt-0.5">{b.menu_name ?? '施術'}</p>
                 <div className="flex items-center justify-between mt-2">
                   <span className="text-xs text-gray-500">
-                    {b.start_time?.slice(0, 5)}〜{b.end_time?.slice(0, 5)}
+                    {b.start_time?.slice(0, 5)}〜{b.end_date && b.end_date !== b.booking_date ? '翌' : ''}{b.end_time?.slice(0, 5)}
                   </span>
                   {b.total_price != null && (
                     <span className="text-sm font-bold text-sky-700">¥{b.total_price.toLocaleString()}</span>

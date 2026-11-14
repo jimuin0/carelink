@@ -56,6 +56,13 @@ const FACILITY = {
   building: null, latitude: 34.7832, longitude: 135.4688, features: [], business_hours: null, phone: null,
 } as unknown as Facility;
 
+test('明示的な休みと未設定を区別して公開表示する', () => {
+  const markup = renderToStaticMarkup(<AccessInfo facility={{ ...FACILITY, business_hours: { mon: null } } as unknown as Facility} />);
+  expect(markup).toContain('休み');
+  expect(markup).toContain('未設定');
+  expect(markup).toContain('翌日までの営業は、開始した曜日に表示しています。');
+});
+
 function iframeSrcs(markup: string): string[] {
   return [...markup.matchAll(/<iframe[^>]*\ssrc="([^"]+)"/g)].map((m) => m[1]!.replace(/&amp;/g, '&'));
 }
@@ -97,13 +104,13 @@ test('地図以外のディレクティブは変えていない（自サイト�
   expect(csp.get('default-src')).toEqual(["'self'"]);
   expect(csp.get('object-src')).toEqual(["'none'"]);
   expect(csp.get('script-src')!.filter((v) => !v.startsWith("'nonce-"))).toEqual([
-    "'self'", "'strict-dynamic'", 'https://www.googletagmanager.com', 'https://www.google-analytics.com', 'https://www.clarity.ms', 'https://va.vercel-scripts.com',
+    "'self'", "'strict-dynamic'", 'https://www.googletagmanager.com', 'https://www.google-analytics.com', 'https://www.clarity.ms', 'https://static.cloudflareinsights.com',
   ]);
   expect(csp.get('connect-src')).toEqual([
     "'self'", 'https://test.supabase.co', 'wss://test.supabase.co', 'https://*.google-analytics.com', 'https://www.clarity.ms',
     // Clarity の送信先（2026年10月22日追加・middleware-clarity-csp.test.ts が詳細を固定）。
     'https://*.clarity.ms',
-    'https://va.vercel-scripts.com', 'https://vitals.vercel-insights.com', 'https://access.line.me', 'https://api.line.me', 'https://zipcloud.ibsnet.co.jp',
+    'https://cloudflareinsights.com', 'https://access.line.me', 'https://api.line.me', 'https://zipcloud.ibsnet.co.jp',
   ]);
 });
 

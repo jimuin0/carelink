@@ -2,10 +2,11 @@ import { z } from 'zod';
 import type { Resend } from 'resend';
 import type { createServiceRoleClient } from './supabase-server';
 import { UUID_REGEX, SITE_URL } from './constants';
-import { fromEnv } from './email-from';
 import { LISTING_PUBLISH_REQUIREMENT } from './register-photo-policy';
+import { fromEnv } from './email-from';
 import { sendResendForReconciliation, type ResendDeliveryOutcome } from './resend-result';
 import { REGISTRATION_TERMS as T } from './registration-glossary';
+import { registrationStepHeading as step } from './registration-flow';
 
 const reference = z.object({
   webhook_type: z.literal('facility_welcome'), target_id: z.string().regex(UUID_REGEX),
@@ -45,7 +46,13 @@ export async function prepareFacilityWelcomeDelivery(
     }
     const email = {
       from: fromEnv(), to: user.data.email, subject: '【CareLink】店舗アカウントを作成しました',
-      text: `${T.shopName}：${profile.data.name}\n\n店舗アカウントの作成が完了しました。\nこの時点では一般公開の完了を意味しません。無料掲載と${T.onlineBooking}は別の設定です。${LISTING_PUBLISH_REQUIREMENT}管理画面で都道府県・市区町村・住所、曜日別の営業時間（定休日を含む）と掲載許可を確認し、公開操作を行ってください。${T.onlineBooking}はさらにメニュー・スタッフ・写真などの準備を完了し、有効化するまで受付しません。\n${SITE_URL}/admin\n\n掲載申込は店舗ごとに必要です。別店舗の申込を重複として統合しないでください。現行の新規オーナー登録は1アカウント1店舗です。既に複数店舗の管理権限がある場合は管理画面で店舗を選択してください。`,
+      text: `${T.shopName}：${profile.data.name}\n\n店舗の作成が完了しました。この時点では、まだ一般公開されていません。\n\n`
+        // 1 段落に詰め込んでいた内容を「4 ステップ」「次にすること」「補足」に分ける。見出しは画面の図と同じ。
+        + `■ 一般公開までの4ステップ\n${step('apply', true)}\n${step('account', true)}\n${step('documents')}　← 次はここ\n${step('publish')}\n\n`
+        + `■ 次にすること\n1. 管理画面の店舗設定で、住所・営業時間・掲載許可を確認して保存する\n2. 同じ画面から確認書類を提出する\n${SITE_URL}/admin/settings\n\n`
+        + `${LISTING_PUBLISH_REQUIREMENT}運営が書類を確認し、設定が揃っていれば自動で公開されます（「書類は後から」と案内された店舗は、設定後に管理画面から公開できます）。\n\n`
+        + `■ 補足\n・${T.onlineBooking}は無料掲載とは別です。メニュー・スタッフ・写真を準備して有効にすると受け付けます。\n`
+        + `・2店舗目以降も店舗ごとに申し込むと、同じアカウントで切り替えて管理できます。`,
     };
     return () => sendResendForReconciliation(resend.emails.send(email, {
       idempotencyKey: `facility-welcome-v1-${job.target_id}`,

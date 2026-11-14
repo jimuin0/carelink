@@ -87,6 +87,32 @@ test.each(['http', 'shape', 'reject'])('%s failure is visible and retry can reco
   expect(await screen.findByText('合成問い合わせ')).toBeVisible();
 });
 
+test('権限不足を通信エラーと区別し、運営管理者でのログインを案内する', async () => {
+  mockFetch.mockResolvedValueOnce({ ...response({}, false), status: 403 });
+  render(<Page />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('このアカウントでは運営宛の問い合わせを閲覧できません');
+  expect(screen.getByRole('alert')).toHaveTextContent('運営管理者のアカウントでログイン');
+  expect(screen.queryByText(/通信状況/)).not.toBeInTheDocument();
+  expect(screen.queryByText('合成問い合わせ')).not.toBeInTheDocument();
+});
+
+test('未認証ならログイン画面を案内する', async () => {
+  mockFetch.mockResolvedValueOnce({ ...response({}, false), status: 401 });
+  render(<Page />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('ログインが必要です');
+  expect(screen.getByRole('link', { name: 'ログイン画面へ' })).toHaveAttribute('href', '/auth/login?redirect=%2Fadmin%2Finquiries');
+});
+
+test('追加取得時に権限を失った場合は表示済みの問い合わせを隠す', async () => {
+  mockFetch.mockResolvedValueOnce(response({ contacts: [row], nextCursor: { id, createdAt: row.created_at } }))
+    .mockResolvedValueOnce({ ...response({}, false), status: 403 });
+  render(<Page />);
+  expect(await screen.findByText('合成問い合わせ')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'さらに読み込む' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('このアカウントでは運営宛の問い合わせを閲覧できません');
+  expect(screen.queryByText('合成問い合わせ')).not.toBeInTheDocument();
+});
+
 test('status filter refetches without stale results; failed pagination keeps retry control', async () => {
   render(<Page />);
   expect(await screen.findByText('合成問い合わせ')).toBeVisible();

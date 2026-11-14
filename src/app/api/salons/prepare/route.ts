@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { withRoute } from '@/lib/with-route';
+import { serverError, withRoute } from '@/lib/with-route';
 import { mutationRateLimit } from '@/lib/rate-limit';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { verifyRecaptcha } from '@/lib/recaptcha';
@@ -18,7 +18,15 @@ export const POST = withRoute(async request => {
   const parsed = input.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ code: 'INVALID_REQUEST' }, { status: 400, headers });
   if (!parsed.data.intentId && process.env.SALON_REGISTRATION_V2_ENABLED !== 'true') {
-    return NextResponse.json({ code: 'NOT_ENABLED' }, { status: 404, headers });
+    // 🔴 旧経路（POST /api/salons）は受付終了済みで、/register のフォームは常にこの v2 を使う
+    // （RegisterLanding の v2Enabled={true}）。ここで止まる＝新規の掲載申込が全件止まる、なので
+    // 以前の 404 のように黙って返さず、500 で Slack に通知する（2026年11月13日 点検 B6-1）。
+    // 既に発行済みの intent の続き（intentId あり）は従来どおり通す。
+    const response = serverError('salon-register-v2-disabled',
+      new Error('SALON_REGISTRATION_V2_ENABLED is not "true": new shop registrations are blocked'),
+      '/api/salons/prepare', null, { code: 'NOT_ENABLED' });
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   }
   if (!parsed.data.intentId && process.env.RECAPTCHA_SECRET_KEY) {
     if (!parsed.data.recaptcha_token || !(await verifyRecaptcha(parsed.data.recaptcha_token, 'salons', 0.4)).success) {

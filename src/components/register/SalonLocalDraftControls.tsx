@@ -30,10 +30,10 @@ interface Props {
   onAttention?: () => void;
 }
 const failureMessage = (error: unknown) => error instanceof SalonLocalDraftError && error.code === 'conflict'
-  ? '別のタブで下書きが変更されました。自動保存を停止しました。ページを再読み込みして保存内容と受付状況を確認してください。'
+  ? '別のタブで下書きが変わったため、自動保存を止めました。ページを再読み込みしてください。'
   : error instanceof SalonLocalDraftError && error.code === 'locked'
-    ? '送信に使用した下書きは復元できません。受付状況を先に確認してください。'
-    : '端末の下書きを保存・確認できませんでした。入力と元の写真はこの画面に保持されています。手動バックアップをご利用ください。';
+    ? '送信に使った下書きは復元できません。先に受付状況を確認してください。'
+    : '下書きを保存できませんでした。入力はそのままです。「ファイルに保存」をお使いください。';
 
 /** 下書き・バックアップ操作のボタン。押せる大きさ（44px）を確保し、文字リンク風にしない。 */
 export const DRAFT_BUTTON = 'inline-flex min-h-11 items-center justify-center rounded-lg border border-(--ecru-muted) bg-(--ecru-surface) px-4 text-sm text-(--ecru-text) disabled:cursor-not-allowed disabled:opacity-50';
@@ -59,7 +59,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
   const [enabled, setEnabled] = useState(false);
   const [saved, setSaved] = useState<LocalSalonDraft | null>(null);
   const [ownsSaved, setOwnsSaved] = useState(false);
-  const [message, setMessage] = useState('自動保存は無効です。');
+  const [message, setMessage] = useState('自動保存はオフです。');
   useEffect(() => { latest.current = props; });
 
   function serial<T>(action: () => Promise<T>): Promise<T> {
@@ -85,7 +85,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
   async function save(values: SalonFormValues, photos: readonly (File | null)[]) {
     const result = await saveLocalSalonDraft(values, photos, current.current?.revision ?? null);
     remember(result); takeOwnership(true);
-    if (mounted.current) setMessage('入力と元の写真を保存し、読み戻して確認しました。');
+    if (mounted.current) setMessage('保存しました。');
     return result;
   }
   function schedule() {
@@ -108,8 +108,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
     void serial(async () => {
       try {
         const value = await readLocalSalonDraft(); remember(value);
-        if (mounted.current && value?.state === 'locked') setMessage('送信に使用した下書きです。受付状況を確認するまで復元できません。');
-        else if (mounted.current && value?.state === 'saved') setMessage('この端末に未送信の下書きがあります。自動保存を始める前に保存内容をご確認ください。');
+        if (mounted.current && value?.state === 'saved') setMessage('この端末に送信前の下書きがあります。「下書きを復元」で戻せます。');
         if (value?.state === 'locked' || value?.state === 'saved') attention();
         if (mounted.current) setReady(true);
       } catch (error) { failed(error); }
@@ -129,7 +128,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
       void serial(async () => {
         try {
           remember(await readLocalSalonDraft()); blocked.current = false;
-          if (mounted.current) { setReady(true); setMessage('端末に保存した下書きを削除しました。自動保存は無効です。'); }
+          if (mounted.current) { setReady(true); setMessage('下書きを削除しました。'); }
         } catch (error) { failed(error); }
       });
     };
@@ -162,7 +161,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
           } else { await save(values, photos); }
           const locked = await lockLocalSalonDraft(current.current!.revision);
           remember(locked);
-          if (mounted.current) setMessage('送信前に下書きをロックしました。受付状況を確認するまで復元できません。');
+          if (mounted.current) setMessage('送信したため、この下書きは復元できなくなりました。');
           return true;
         } catch (error) { failed(error); return false; }
         finally { if (mounted.current) setBusy(false); }
@@ -174,9 +173,9 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
         if (!owned.current || !current.current) return;
         try {
           remember(await clearLocalSalonDraft(current.current.revision));
-          if (mounted.current) setMessage('受付を確認し、端末に保存した入力と写真を削除しました。');
+          if (mounted.current) setMessage('受付を確認したので、下書きを削除しました。');
         } catch (error) {
-          if (mounted.current) setMessage('受付は確認済みですが、端末の入力と写真を削除できませんでした。復元はロックしたままです。「端末の下書きを削除」をお試しください。');
+          if (mounted.current) setMessage('受付は完了しましたが、下書きを消せませんでした。「下書きを削除」を押してください。');
           throw error;
         }
       });
@@ -188,7 +187,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
           const value = await readLocalSalonDraft();
           if (value?.state !== 'locked' || value.revision !== current.current.revision || !value.backup) throw new SalonLocalDraftError('conflict');
           editBeforeCommit.current = true;
-          if (mounted.current) setMessage('申込はまだ確定していません。入力と写真を修正して再試行できます。端末の下書きは復元をロックしたままです。');
+          if (mounted.current) setMessage('申込はまだ確定していません。直して送り直せます。');
         } catch (error) { failed(error); throw error; }
       });
     },
@@ -204,7 +203,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
           }
           const savedBackup = await restoreLocalSalonDraft(value.revision);
           if (await blob.text() !== await savedBackup.text()) {
-            if (mounted.current) setMessage('他の下書きがこの端末に保存されています。先に保存内容を確認するか、端末の下書きを削除してからファイルを読み込んでください。');
+            if (mounted.current) setMessage('この端末に別の下書きがあります。「下書きを削除」してから読み込んでください。');
             return false;
           }
           const checked = await readLocalSalonDraft();
@@ -238,7 +237,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
         if (!latest.current.canRestore()) throw new SalonLocalDraftError('locked');
         await latest.current.onRestore(backup);
         takeOwnership(true); required.current = true;
-        if (mounted.current) setMessage('下書きを検証しました。復元結果を入力欄でご確認ください。規約と表明への同意は保存されません。');
+        if (mounted.current) setMessage('下書きを読み込みました。');
       } catch (error) { failed(error); }
       finally { if (mounted.current) setBusy(false); }
     });
@@ -251,25 +250,26 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
       try {
         remember(await clearLocalSalonDraft(current.current!.revision)); takeOwnership(false);
         if (current.current?.state !== 'locked') fenceRequested.current = false;
-        if (mounted.current) setMessage('端末に保存した入力と写真を削除しました。画面の入力と写真はそのままです。');
+        if (mounted.current) setMessage('下書きを削除しました（画面の入力はそのままです）。');
       } catch (error) { failed(error); }
       finally { if (mounted.current) setBusy(false); }
     });
   }
 
   return <section aria-label="この端末の下書き" className="text-sm">
-    <h3 className="font-medium">この端末に自動保存する</h3>
-    <p className="mt-1 text-(--ecru-muted)">希望する場合だけ、このブラウザーに入力と元の写真を保存できます。自動保存を止めても保存内容は残り、送信前に最新内容を保存して復元をロックします。最後の保存から7日後、次にこの画面を開いた際に削除します。ブラウザーのデータ削除でも失われます。</p>
-    <p className="mt-1 text-(--ecru-muted)">氏名・連絡先・写真が端末に残ります。共有端末では利用しないでください。別端末へ移す場合は手動バックアップを使い、不要なファイルも削除してください。</p>
+    <p className="mb-4 font-medium">氏名・連絡先・写真を保存します。共有の端末では使わないでください。</p>
+    <h3 className="font-medium">この端末に自動保存</h3>
+    <p className="mt-1 text-(--ecru-muted)">7日間、このブラウザーに保存します。</p>
     <div className="mt-3 flex flex-wrap gap-2">
       {enabled ? <button type="button" onClick={stop} disabled={busy} className={DRAFT_BUTTON}>自動保存を止める</button>
-        : <button type="button" onClick={enable} disabled={!ready || busy || saved?.state === 'locked' || (saved?.state === 'saved' && !ownsSaved) || !props.canSave()} className={DRAFT_BUTTON}>この端末で下書きを自動保存する（7日間）</button>}
-      <button type="button" onClick={restore} disabled={!ready || busy || saved?.state !== 'saved' || !props.canRestore()} className={DRAFT_BUTTON}>端末の下書きを復元</button>
+        : <button type="button" onClick={enable} disabled={!ready || busy || saved?.state === 'locked' || (saved?.state === 'saved' && !ownsSaved) || !props.canSave()} className={DRAFT_BUTTON}>この端末で下書きを自動保存する</button>}
+      <button type="button" onClick={restore} disabled={!ready || busy || saved?.state !== 'saved' || !props.canRestore()} className={DRAFT_BUTTON}>下書きを復元</button>
       {/* 削除は取り消せないので、他の操作と見た目を分ける。 */}
-      <button type="button" onClick={clear} disabled={!ready || busy || !saved?.backup} className={DRAFT_DANGER_BUTTON}>端末の下書きを削除</button>
+      <button type="button" onClick={clear} disabled={!ready || busy || !saved?.backup} className={DRAFT_DANGER_BUTTON}>下書きを削除</button>
     </div>
-    <p aria-live="polite" className="mt-2">{busy ? '端末の下書きを確認しています。' : message}</p>
-    {saved?.backup && <p className="mt-2">保存内容の期限: {new Date(saved.expiresAt).toLocaleString('ja-JP')}</p>}
-    {saved?.state === 'locked' && <p className="mt-2">送信に使用した下書きは、別のタブやブラウザー再起動後も復元できません。受付状況をご確認ください。</p>}
-  </section>;
+    <p aria-live="polite" className="mt-2">{busy ? '確認しています…' : message}</p>
+    {saved?.backup && <p className="mt-2">保存期限: {new Date(saved.expiresAt).toLocaleString('ja-JP')}</p>}
+    {/* 送信に使った下書きは、タブを閉じても再起動しても復元できないことを常に示す（状態の文言は上書きされるため別に出す）。 */}
+    {saved?.state === 'locked' && <p className="mt-2">送信に使った下書きのため、復元できません。受付状況をご確認ください。</p>}
+      </section>;
 });

@@ -7,7 +7,7 @@ import { bookingEmailShopContact } from './facility-contact';
  * transaction. Revision comparison in the RPC rejects a stale booking read. */
 export async function buildStatusEnvelope(db: ReturnType<typeof createServiceRoleClient>, booking: {
   id: string; facility_id: string; user_id: string | null; customer_name: string; email: string | null;
-  booking_date: string; start_time: string; end_time: string; total_price: number | null;
+  booking_date: string; end_date?: string | null; start_time: string; end_time: string; total_price: number | null;
   menu_id: string | null; menu_ids: string[] | null; staff_id: string | null;
 }, status: string, reason?: string) {
   if (!booking.email || status === 'arrived') return null;
@@ -28,7 +28,7 @@ export async function buildStatusEnvelope(db: ReturnType<typeof createServiceRol
   }
   const data = { bookingId: booking.id, customerName: booking.customer_name, customerEmail: booking.email,
     facilityName: facility.data.name, bookingDate: booking.booking_date, startTime: booking.start_time,
-    endTime: booking.end_time, totalPrice: booking.total_price ?? undefined, menuName, staffName,
+    endTime: booking.end_time, endDate: booking.end_date ?? undefined, totalPrice: booking.total_price ?? undefined, menuName, staffName,
     // ゲスト予約（user_id なし）はマイページで見られないので、メールでは店舗の連絡先へ案内する。
     hasAccount: booking.user_id !== null, ...bookingEmailShopContact(facility.data) };
   return eventEmailEnvelopeSchema.parse(status === 'confirmed' ? buildBookingConfirmedEnvelope(data)

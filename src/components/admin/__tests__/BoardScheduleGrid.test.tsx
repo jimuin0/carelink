@@ -42,6 +42,16 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
+test('前日から続く予約と翌日に続く予約を表示する', () => {
+  const boardRows: BoardRow[] = [{ ...rows[0], chips: [
+    { id:'a',customer_name:'前日の方',start_time:'00:00',end_time:'00:30',status:'confirmed',menuName:null,continuesFromPrevious:true },
+    { id:'b',customer_name:'翌日の方',start_time:'23:30',end_time:'24:00',status:'confirmed',menuName:null,continuesToNext:true },
+  ] }];
+  render(<BoardScheduleGrid facilityId="f1" date="2030-01-08" openHour={0} closeHour={24} rows={boardRows} menus={menuShort} slotMinutes={60} />);
+  expect(screen.getByTitle(/前日の方.*前日から/)).toBeInTheDocument();
+  expect(screen.getByTitle(/翌日の方.*翌日に続く/)).toBeInTheDocument();
+});
+
 test('空き帯クリックでモーダルが開く（クリック位置→開始時刻）', async () => {
   setup();
   // 左端クリック → 08:00 開始

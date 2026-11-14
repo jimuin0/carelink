@@ -145,6 +145,7 @@
     "customer_name",
     "email",
     "email_canonical",
+    "end_date",
     "end_time",
     "facility_id",
     "id",
@@ -411,6 +412,7 @@
     "longitude",
     "main_photo_url",
     "max_price",
+    "medical_specialties",
     "menu_count",
     "min_price",
     "name",
@@ -421,6 +423,7 @@
     "rating_count",
     "seat_count",
     "slug",
+    "special_hours",
     "status"
   ],
   "facility_certifications": [
@@ -589,6 +592,7 @@
     "logo_url",
     "longitude",
     "main_photo_url",
+    "medical_specialties",
     "menu_remarks",
     "name",
     "nearest_station",
@@ -667,6 +671,14 @@
     "status",
     "user_id",
     "visit_date"
+  ],
+  "facility_special_hours": [
+    "allow_overnight_bookings",
+    "close_on_public_holidays",
+    "closed_dates",
+    "facility_id",
+    "reception_cutoff_minutes",
+    "updated_at"
   ],
   "facility_symptoms": [
     "description",
@@ -909,6 +921,36 @@
     "proof_version",
     "user_id",
     "verified_at"
+  ],
+  "listing_verification_approval_documents": [
+    "document_id",
+    "facility_id"
+  ],
+  "listing_verification_approvals": [
+    "auto_publish_pending",
+    "document_ids",
+    "facility_id",
+    "facility_identity",
+    "reviewed_at",
+    "reviewed_by"
+  ],
+  "listing_verification_deferrals": [
+    "deferred",
+    "revision",
+    "salon_id",
+    "updated_at",
+    "updated_by"
+  ],
+  "listing_verification_documents": [
+    "byte_size",
+    "created_at",
+    "document_type",
+    "facility_id",
+    "id",
+    "mime_type",
+    "object_path",
+    "sha256",
+    "submitted_by"
   ],
   "manual_booking_operations": [
     "actor_id",
@@ -1183,6 +1225,20 @@
     "receipt_id",
     "user_id"
   ],
+  "salon_registration_classifications": [
+    "classification",
+    "revision",
+    "salon_id",
+    "updated_at",
+    "updated_by"
+  ],
+  "salon_registration_visibility": [
+    "hidden",
+    "revision",
+    "salon_id",
+    "updated_at",
+    "updated_by"
+  ],
   "salon_submission_intents": [
     "canonical_version",
     "committed_at",
@@ -1224,6 +1280,7 @@
     "has_parking",
     "id",
     "is_public",
+    "medical_specialties",
     "nearest_station",
     "phone",
     "photo_url",

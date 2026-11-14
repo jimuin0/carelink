@@ -15,6 +15,10 @@ jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush }), use
 jest.mock('next/dynamic', () => ({ __esModule: true, default: () => () => null }));
 jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: () => mockDb() }));
 jest.mock('@/components/Toast', () => ({ __esModule: true, default: ({ message }: { message: string }) => <p role="status">{message}</p> }));
+// The separate editor exercises its own network and authorization contract.
+jest.mock('@/components/admin/SpecialHoursSettings', () => ({ __esModule: true,
+  default: ({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) =>
+    <button type="button" onClick={() => onDirtyChange(true)}>特別時間の仮編集</button> }));
 
 beforeEach(() => {
   jest.clearAllMocks(); mockRequested = second; mockReads = [];
@@ -53,6 +57,40 @@ beforeEach(() => {
       return chain;
     },
   });
+});
+
+test('時間の一括コピーをキャンセルすると入力済みの他曜日を保持する', async () => {
+  render(<AdminSettingsPage />);
+  await screen.findByDisplayValue('合成店舗B');
+  fireEvent.change(screen.getByLabelText('月曜日の開店時間'), { target: { value: '10:00' } });
+  fireEvent.change(screen.getByLabelText('月曜日の閉店時間'), { target: { value: '19:00' } });
+  fireEvent.change(screen.getByLabelText('火曜日の開店時間'), { target: { value: '08:00' } });
+  fireEvent.click(screen.getByRole('button', { name: '最初に入力した曜日の時間を、ほかの営業日にも入れる' }));
+  fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+  expect((screen.getByLabelText('火曜日の開店時間') as HTMLInputElement).value).toBe('08:00');
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+
+test('施設設定で複数診療科を表示し、変更内容を保存する',async()=>{
+  mockProfile={ ...mockProfile,business_type:'内科',medical_specialties:['内科','耳鼻咽喉科'] };
+  render(<AdminSettingsPage />);
+  await screen.findByDisplayValue('合成店舗B');
+  expect((screen.getByLabelText('内科') as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByLabelText('耳鼻咽喉科') as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByLabelText('耳鼻咽喉科'));
+  fireEvent.click(screen.getByRole('button',{ name:'保存する' }));
+  await waitFor(()=>expect(mockFetch).toHaveBeenCalled());
+  const call=mockFetch.mock.calls.find(([url])=>String(url).includes('/api/admin/settings?facility_id='));
+  expect(JSON.parse(call![1].body).medical_specialties).toEqual(['内科']);
+});
+
+test('未保存の特別営業時間がある店舗切替は確認する', async () => {
+  render(<AdminSettingsPage />);
+  await screen.findByDisplayValue('合成店舗B');
+  fireEvent.click(screen.getByRole('button', { name: '特別時間の仮編集' }));
+  fireEvent.click(screen.getByRole('link', { name: '合成店舗A' }));
+  expect(screen.getByText('未保存の変更があります')).toBeTruthy();
+  expect(mockPush).not.toHaveBeenCalled();
 });
 
 test.each(['error', 'throw', 'malformed', 'user-with-error'])('Auth %s shows retry rather than empty settings, preserving the requested tenant', async mode => {
@@ -137,6 +175,29 @@ test('正常な全7曜日の営業時間は保存時にも維持する', async (
   fireEvent.click(screen.getAllByRole('button', { name: '保存する' })[0]);
   await screen.findByText('施設情報を保存しました');
   expect(JSON.parse(mockFetch.mock.calls[0][1].body).business_hours).toEqual(hours);
+});
+
+// 書類の確認済みで公開待ちの店舗は、保存で条件が揃うとサーバーが公開する。画面の公開状態も合わせる。
+test('保存でサーバーが自動公開したら、公開したことと公開中の状態を表示する', async () => {
+  const hours = { mon: { open: '10:00', close: '18:00' }, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
+  mockProfile.business_hours = hours;
+  mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, published: true }) });
+  render(<AdminSettingsPage />);
+  await screen.findByDisplayValue('合成店舗B');
+  expect(screen.getAllByText('非公開').length).toBeGreaterThan(0);
+  fireEvent.click(screen.getAllByRole('button', { name: '保存する' })[0]);
+  await screen.findByText('施設情報を保存し、運営の確認が済んでいるため店舗を公開しました');
+  expect(screen.getAllByText('公開中').length).toBeGreaterThan(0);
+});
+
+test('保存できたが公開ゲートが止めたときは、書類の提出し直しを案内する', async () => {
+  mockProfile.business_hours = { mon: { open: '10:00', close: '18:00' }, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
+  mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, publicationBlocked: true }) });
+  render(<AdminSettingsPage />);
+  await screen.findByDisplayValue('合成店舗B');
+  fireEvent.click(screen.getAllByRole('button', { name: '保存する' })[0]);
+  await screen.findByText(/書類の確認後に店舗名・所在地が変わったため、まだ公開できません。店舗設定から確認書類を提出し直してください/);
+  expect(screen.queryAllByText('公開中')).toHaveLength(0);
 });
 
 test.each(['business-failure', 'invalid-json', 'http-failure'])('保存結果が不確定なら成功表示も入力破棄もしない：%s', async mode => {
@@ -348,7 +409,7 @@ describe('公開には営業時間が要る', () => {
     render(<AdminSettingsPage />);
     await screen.findByDisplayValue('合成店舗B');
     expect(screen.getByText(/無料掲載の公開には、店舗名・所在地・曜日別の営業時間（定休日を含む）の設定が必要です。/)).toBeTruthy();
-    expect(screen.getByText(/営業時間は無料掲載の公開に必要です。/)).toBeTruthy();
+    expect(screen.getByText(/営業時間の保存は公開に必要です。/)).toBeTruthy();
   });
 });
 

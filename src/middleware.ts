@@ -8,7 +8,13 @@ import { isPlatformSupportPath } from '@/lib/platform-support-path';
 import { getMembershipCacheKey } from '@/lib/admin-membership-cache-key';
 import { AUTH_UNAVAILABLE_BODY, AUTH_VERIFICATION_TIMEOUT_MS, verifyAuthUser } from '@/lib/auth-verification';
 import { GOOGLE_MAPS_EMBED_ORIGIN } from '@/lib/map-embed';
-import { shouldBlockCollectionCrawler } from '@/lib/crawler-policy';
+import { shouldBlockCollectionCrawler, shouldRefuseFilteredSearchCrawl } from '@/lib/crawler-policy';
+import {
+  isPreviewRestricted,
+  isPublicReadOnlyPreview,
+  previewRestrictedResponse,
+  previewStaleAuthCookies,
+} from '@/lib/preview-capabilities';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
 
@@ -99,14 +105,14 @@ function getSupabaseConnectSrc(): string {
 function buildCspHeader(nonce: string): string {
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://static.cloudflareinsights.com`,
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
     "img-src 'self' data: https: blob:",
     // https://*.clarity.ms は Clarity の送信先（u.clarity.ms / g.clarity.ms 等の /collect。
     // Microsoft は負荷分散で [a-z].clarity.ms を使い分けると明記）。www.clarity.ms だけだと
     // 録画・ヒートマップの送信が CSP で拒否され、本番で 1 件も記録されていなかった（2026年10月22日）。
-    `connect-src 'self' ${getSupabaseConnectSrc()} https://*.google-analytics.com https://www.clarity.ms https://*.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp`,
+    `connect-src 'self' ${getSupabaseConnectSrc()} https://*.google-analytics.com https://www.clarity.ms https://*.clarity.ms https://cloudflareinsights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp`,
     "worker-src 'self'",
     "manifest-src 'self'",
     // GOOGLE_MAPS_EMBED_ORIGIN は施設ページ「アクセス」タブの地図埋め込み用（src/lib/map-embed.ts）。
@@ -127,8 +133,14 @@ export async function middleware(request: NextRequest) {
 
   // Reject collection crawls before nonce generation, auth, DB access and SSR.
   // Googlebot/Bingbot and ordinary visitors still follow the existing flow.
-  if (shouldBlockCollectionCrawler(pathname, request.method, request.headers.get('user-agent') ?? '')) {
-    return NextResponse.json({ error: 'Collection crawling is disabled.' }, {
+  const userAgent = request.headers.get('user-agent') ?? '';
+  const refusal = shouldBlockCollectionCrawler(pathname, request.method, userAgent)
+    ? 'Collection crawling is disabled.'
+    : shouldRefuseFilteredSearchCrawl(pathname, request.nextUrl.search, request.method, userAgent)
+      ? 'Filtered search results are disallowed by robots.txt.'
+      : null;
+  if (refusal) {
+    return NextResponse.json({ error: refusal }, {
       status: 403,
       headers: {
         'Cache-Control': 'no-store',
@@ -136,6 +148,16 @@ export async function middleware(request: NextRequest) {
         'X-Robots-Tag': 'noindex',
       },
     });
+  }
+
+  // The public Preview has only the production anon key: stop sign-in, account
+  // and store areas (and any page-level write) before they reach production Auth,
+  // and expire any session cookie left from before, so browser clients can't
+  // reuse it for direct writes.
+  const staleAuthCookies = isPublicReadOnlyPreview()
+    ? previewStaleAuthCookies(request.cookies.getAll().map((c) => c.name)) : [];
+  if (isPreviewRestricted(request.method, pathname)) {
+    return previewRestrictedResponse(request.method, staleAuthCookies);
   }
 
   // 全ページ応答に per-request nonce ベース CSP を付与する。
@@ -151,6 +173,7 @@ export async function middleware(request: NextRequest) {
   requestHeaders.set('x-pathname', request.nextUrl.pathname);
   const setCsp = (res: NextResponse): NextResponse => {
     res.headers.set('Content-Security-Policy', cspHeader);
+    for (const name of staleAuthCookies) res.cookies.set(name, '', { maxAge: 0, path: '/' });
     return res;
   };
 

@@ -8,14 +8,14 @@ const timeSchema = z.string().regex(/^\d{2}:\d{2}:\d{2}$/);
 const snapshotSchema = z.object({
   bookingId: z.uuid(), bookingRevision: z.iso.datetime({ offset: true }),
   customerName: z.string(), customerEmail: z.string(), facilityName: z.string(),
-  bookingDate: z.iso.date(), startTime: timeSchema,
+  bookingDate: z.iso.date(), endDate: z.iso.date().optional(), startTime: timeSchema,
   endTime: timeSchema, menuName: z.string().nullable(),
   totalPrice: z.number().int().nonnegative().nullable(), capturedAt: z.iso.datetime({ offset: true }),
   // cancel_rule is present from 20261023020000 on; older jobs carry only the two numbers.
   cancelPolicy: cancelPolicySnapshotSchema.nullable(),
   // The date/time before a customer change (20261022100100). Absent on cancellations
   // and on change jobs queued before that migration.
-  previous: z.object({ bookingDate: z.iso.date(), startTime: timeSchema, endTime: timeSchema }).strict().optional(),
+  previous: z.object({ bookingDate: z.iso.date(), endDate: z.iso.date().optional(), startTime: timeSchema, endTime: timeSchema }).strict().optional(),
 }).strict();
 const jobSchema = z.object({
   id: z.uuid(), webhook_type: z.literal('email'), target_id: z.email(), facility_id: z.uuid(),

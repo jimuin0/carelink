@@ -1,0 +1,2 @@
+# Cloudflare Web Analytics のビーコン用トークン（ブラウザに配る公開値・秘密ではない）。2026-11-12 #918 で追加、本人承認で除外。
+acb421baf780233b1d891e59889d4110c4a7de42:src/app/layout.tsx:generic-api-key:142

@@ -21,6 +21,7 @@ import { prepareSalonIntent, readSalonIntentStatus } from '@/lib/salon-submissio
 import { salonIntentCookieName } from '@/lib/salon-submission-proof';
 import { readSalonStorageLimits } from '@/lib/salon-storage-limits';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { alertCaughtError } from '@/lib/alert';
 
 const intent = '64000000-0000-4000-8000-000000000001';
 const other = '64000000-0000-4000-8000-000000000002';
@@ -55,7 +56,10 @@ afterAll(() => {
 test('inactive v2 blocks new preparation without touching persistence', async () => {
   delete process.env.SALON_REGISTRATION_V2_ENABLED;
   const response = await prepare(request({}));
-  expect(response.status).toBe(404); expect(response.headers.get('cache-control')).toBe('no-store');
+  // フォームは v2 しか使わないので、止まっていること自体を通知する（以前は 404 で無音だった）
+  expect(response.status).toBe(500); expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(await response.json()).toEqual({ code: 'NOT_ENABLED' });
+  expect(alertCaughtError).toHaveBeenCalledWith('salon-register-v2-disabled', expect.any(Error), '/api/salons/prepare');
   expect(createServiceRoleClient).not.toHaveBeenCalled();
 });
 

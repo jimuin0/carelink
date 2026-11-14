@@ -247,7 +247,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-gray-500">時間</span>
-          <span className="font-medium">{booking.start_time?.slice(0, 5)}〜{booking.end_time?.slice(0, 5)}</span>
+          <span className="font-medium">{booking.start_time?.slice(0, 5)}〜{booking.end_date && booking.end_date !== booking.booking_date ? '翌' : ''}{booking.end_time?.slice(0, 5)}</span>
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-gray-500">お名前</span>
@@ -318,10 +318,11 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
             <a
               href={(() => {
                 const date = booking.booking_date.replace(/-/g, '');
+                const endDate = (booking.end_date || booking.booking_date).replace(/-/g, '');
                 const start = (booking.start_time || '').replace(/:/g, '').slice(0, 4);
                 const end = (booking.end_time || '').replace(/:/g, '').slice(0, 4);
                 const title = encodeURIComponent('予約 - CareLink');
-                return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${date}T${start}00/${date}T${end}00&ctz=Asia/Tokyo`;
+                return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${date}T${start}00/${endDate}T${end}00&ctz=Asia/Tokyo`;
               })()}
               target="_blank"
               rel="noopener noreferrer"

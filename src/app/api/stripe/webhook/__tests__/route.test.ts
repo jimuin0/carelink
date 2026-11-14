@@ -545,7 +545,7 @@ describe('POST /api/stripe/webhook', () => {
       expect(mockFeaturedSlotsUpdate).toHaveBeenCalledWith({ is_active: true });
     });
 
-    test('checkout.session.completed slot update error → logs, still 200', async () => {
+    test('checkout.session.completed slot update error → 500・processed を立てず再送させる', async () => {
       const { createServiceRoleClient } = require('@/lib/supabase-server');
       createServiceRoleClient.mockReturnValue({
         from: jest.fn((table: string) => {
@@ -561,7 +561,9 @@ describe('POST /api/stripe/webhook', () => {
         metadata: { slot_id: 'slot_err_123' },
       });
       const res = await POST(makeRequest('{}') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      // 処理済みにしない（＝Stripe の再送で再処理される）。2026年11月13日 点検 高-3
+      expect(mockUpdate).not.toHaveBeenCalledWith({ processed: true });
     });
 
     test('charge.dispute.created with non-string payment_intent → no DB update', async () => {
@@ -883,7 +885,7 @@ describe('POST /api/stripe/webhook', () => {
       );
     });
 
-    test('featured_slots 0行更新（data:null）→ console.error のみ・200のまま（挙動不変）', async () => {
+    test('featured_slots 0行更新（data:null）→ 500・processed を立てず再送させる', async () => {
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       const { createServiceRoleClient } = require('@/lib/supabase-server');
       createServiceRoleClient.mockReturnValue({
@@ -900,15 +902,12 @@ describe('POST /api/stripe/webhook', () => {
         metadata: { slot_id: 'slot_missing_null' },
       });
       const res = await POST(makeRequest('{}') as any);
-      expect(res.status).toBe(200);
-      expect(errorSpy).toHaveBeenCalledWith(
-        '[stripe/webhook] featured_slot activate matched 0 rows',
-        expect.objectContaining({ slotId: 'slot_missing_null' }),
-      );
+      expect(res.status).toBe(500);
+      expect(mockUpdate).not.toHaveBeenCalledWith({ processed: true });
       errorSpy.mockRestore();
     });
 
-    test('featured_slots 0行更新（data:[]）→ console.error のみ・200のまま（挙動不変）', async () => {
+    test('featured_slots 0行更新（data:[]）→ 500・processed を立てず再送させる', async () => {
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       const { createServiceRoleClient } = require('@/lib/supabase-server');
       createServiceRoleClient.mockReturnValue({
@@ -925,11 +924,8 @@ describe('POST /api/stripe/webhook', () => {
         metadata: { slot_id: 'slot_missing_empty' },
       });
       const res = await POST(makeRequest('{}') as any);
-      expect(res.status).toBe(200);
-      expect(errorSpy).toHaveBeenCalledWith(
-        '[stripe/webhook] featured_slot activate matched 0 rows',
-        expect.objectContaining({ slotId: 'slot_missing_empty' }),
-      );
+      expect(res.status).toBe(500);
+      expect(mockUpdate).not.toHaveBeenCalledWith({ processed: true });
       errorSpy.mockRestore();
     });
   });

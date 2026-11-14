@@ -80,7 +80,7 @@ describe('店舗向けページのフッター', () => {
     expect(footer.className).toContain('theme-ecru');
     const hrefs = Array.from(footer.querySelectorAll('a')).map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual(['/legal', '/terms', '/privacy', '/contact']);
-    expect(footer).toHaveTextContent('運営：神原良祐（HALグループ）');
+    expect(footer).toHaveTextContent('運営：TOKUHAL.');
   });
 
   test('来院者向けページは従来のフッター（負の対照）', () => {

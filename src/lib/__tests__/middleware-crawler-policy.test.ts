@@ -26,3 +26,16 @@ test.each(['/privacy', '/robots.txt'])('Googlebot and policy reads keep nonce CS
   expect(response.headers.get('content-security-policy')).toContain("'nonce-");
   expect(createServerClient).not.toHaveBeenCalled();
 });
+
+test('robots-disallowed filtered search is refused before auth and SSR, the landing page is not', async () => {
+  const amzn = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Amzn-SearchBot/0.1) Chrome/119.0 Safari/537.36';
+  const refused = await middleware(request('/search?type=hair-salon&page=3', amzn));
+  expect(refused.status).toBe(403);
+  expect(refused.headers.get('cache-control')).toBe('no-store');
+  expect(refused.headers.get('x-robots-tag')).toBe('noindex');
+  expect(refused.headers.get('content-security-policy')).toBe("default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+  const landing = await middleware(request('/search', amzn));
+  expect(landing.status).not.toBe(403);
+  expect(landing.headers.get('content-security-policy')).toContain("'nonce-");
+  expect(createServerClient).not.toHaveBeenCalled();
+});

@@ -1,3 +1,4 @@
+import { approveSyntheticListing } from './listing-verification-fixture';
 // オーナー（店舗管理者）のキャンセル／無断キャンセル E2E のセットアップ。
 // 1) CI の隔離 Supabase（supabase start の一時 DB）に service role で
 //    テスト店舗＋オーナー＋スタッフ＋キャンセル対象の予約を seed する（本番不可侵）。
@@ -40,7 +41,7 @@ setup('provision owner and cancelable bookings', async ({ page }) => {
   // 1) 公開店舗
   const { data: fac, error: fe } = await sb.from('facility_profiles').insert({
     name: `E2Eキャンセル店舗_${ts}`, slug: `e2e-owner-cancel-${ts}`, business_type: 'ヘアサロン',
-    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'published',
+    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'draft',
   }).select('id').single();
   if (fe) throw new Error('seed facility: ' + fe.message);
   const facilityId = fac.id as string;
@@ -55,6 +56,7 @@ setup('provision owner and cancelable bookings', async ({ page }) => {
   // 3) オーナー権限（middleware の /admin 認可・booking-status API の membership 検証に必須）
   const { error: me } = await sb.from('facility_members').insert({ user_id: userId, facility_id: facilityId, role: 'owner' });
   if (me) throw new Error('seed member: ' + me.message);
+  await approveSyntheticListing(sb, facilityId, userId);
 
   // 4) スタッフ
   const { data: staff, error: se } = await sb.from('staff_profiles').insert([

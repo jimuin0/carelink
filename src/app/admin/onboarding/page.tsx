@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { Suspense } from 'react';
 import Link from 'next/link';
+import RegistrationFlow from '@/components/register/RegistrationFlow';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import { businessTypes, UUID_REGEX } from '@/lib/constants';
 import { isAuthSessionMissingError } from '@supabase/supabase-js';
@@ -205,7 +206,7 @@ function OnboardingContent() {
       try {
         if (!selectedRecovery || readSalonRecoveryContext(window.sessionStorage) !== selectedRecovery) throw new Error('Selected recovery changed');
       } catch {
-        setFormError('復旧対象が変わっています。掲載申込の続きへする画面で選び直してください。'); return;
+        setFormError('復旧対象が変わっています。「掲載申込の続き」の画面で選び直してください。'); return;
       }
     }
     if (registrationHandoff) {
@@ -280,7 +281,7 @@ function OnboardingContent() {
       const data = await res.json();
       if (!mounted.current) return;
       if (res.ok && data?.success === true && typeof data.facilityId === 'string' && UUID_REGEX.test(data.facilityId)) {
-        navigateAfterFacilitySetup();
+        navigateAfterFacilitySetup(data.facilityId);
       } else if (!res.ok && res.status >= 400 && res.status < 500 && typeof data?.error === 'string'
         && data?.success !== true) {
         // 入力・引き継ぎの拒否（4xx）は作成されていないことが確定している。
@@ -329,11 +330,11 @@ function OnboardingContent() {
         {/* 🔴 引き継ぎ無しで店舗を作ると、送信済みの掲載申込（写真・営業時間・PR文など）は取り込まれず、
             後から /register/recover で選んでも ALREADY_MEMBER で取り込めなくなる。古い案内メールの
             リンクなど、どの入口から来ても作成前に復旧画面を案内する（2026年10月22日）。 */}
-        {!registrationHandoff && !recoveredHandoff && <p className="text-sm text-gray-600 mb-4">掲載申込フォームから申込を送信済みの場合は、ここで作成せず<Link href={SALON_RECOVERY_PATH} className="text-primary underline">掲載申込の続きへ</Link>してください。ここで作成すると、申込の写真・営業時間・PR文などは引き継がれません。</p>}
+        {!registrationHandoff && !recoveredHandoff && <p className="text-sm text-gray-600 mb-4">申込済みの方は、ここではなく<Link href={SALON_RECOVERY_PATH} className="text-primary underline">掲載申込の続き</Link>から進んでください（ここで作ると申込の写真などは引き継がれません）。</p>}
         {recoveredHandoff && <div className="mb-6 rounded-xl border border-gray-200 bg-white p-5 text-sm leading-6">
           <p className="font-bold">掲載申込の内容を引き継ぎました。</p>
           <p className="mt-2">所在地：{receiptAddress || '未入力（管理画面で設定してください）'}</p>
-          <p className="mt-3 text-gray-600">まだ公開されません。次に管理画面で掲載情報を設定します。</p>
+          <RegistrationFlow current="account" className="mt-5" />
         </div>}
         <div className="bg-white rounded-xl shadow-xs p-6 space-y-6">
           <div>
@@ -403,7 +404,7 @@ function OnboardingContent() {
       <div className="section-container max-w-lg mx-auto text-center py-16">
         <p role="alert" className="text-red-600 font-bold mb-4">エラーが発生しました</p>
         <p className="text-sm text-gray-600 mb-6">{error}</p>
-        {(registrationHandoff || recoveredHandoff) && <p className="text-sm text-gray-600 mb-6">同じタブの受付情報が使えない場合は、申込時のメールアドレスでログインし、<Link href={SALON_RECOVERY_PATH} className="text-primary underline">掲載申込の続きへ</Link>してください。別のメールで申込済みの場合や他の管理者に取り込み済みの場合は、再申込せず、受付番号を添えて<Link href="/contact" className="text-primary underline">お問い合わせ</Link>ください。</p>}
+        {(registrationHandoff || recoveredHandoff) && <p className="text-sm text-gray-600 mb-6">申込時のメールアドレスでログインし、<Link href={SALON_RECOVERY_PATH} className="text-primary underline">掲載申込の続き</Link>から選び直してください。見つからないときは、申し込み直さずに受付番号を添えて<Link href="/contact" className="text-primary underline">お問い合わせ</Link>ください。</p>}
         <button type="button" onClick={() => window.location.reload()} className="btn-primary px-8 py-3">再読み込みして登録状況を確認</button>
       </div>
     );
@@ -414,11 +415,11 @@ function OnboardingContent() {
       <div className="section-container max-w-lg mx-auto text-center py-16">
         <h1 className="text-xl font-bold mb-4">{T.shop}の作成結果を確認中です</h1>
         <p role="status" className="font-bold mb-4">{rechecking ? '作成状況を確認しています…' : unknownMessage}</p>
-        <p className="text-sm text-gray-600 mb-6">新しく申し込み直さず、下のボタンで同じ内容のまま作成状況を確認してください。作成済みなら管理画面へ進みます（同じ内容で確認しても、{T.shop}が二重に作られることはありません）。</p>
+        <p className="text-sm text-gray-600 mb-6">申し込み直さずに、下のボタンで確認してください（{T.shop}が二重に作られることはありません）。</p>
         <button type="button" onClick={() => void recheckSetup()} disabled={rechecking} className="btn-primary px-8 py-3">
           作成状況を再確認
         </button>
-        {(registrationHandoff || recoveredHandoff) && <p className="text-sm text-gray-600 mt-6">確認できない状態が続く場合は、再申込せず、受付番号を添えて<Link href="/contact" className="text-primary underline">お問い合わせ</Link>ください。</p>}
+        {(registrationHandoff || recoveredHandoff) && <p className="text-sm text-gray-600 mt-6">続くときは、受付番号を添えて<Link href="/contact" className="text-primary underline">お問い合わせ</Link>ください。</p>}
       </div>
     );
   }

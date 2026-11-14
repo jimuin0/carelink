@@ -814,7 +814,7 @@ describe('POST /api/payment/webhook', () => {
       );
     });
 
-    test('payment_intent.payment_failed with booking_id + update error → logs, still 200', async () => {
+    test('payment_intent.payment_failed with booking_id + update error → 500・冪等行を削除して再送で再処理させる', async () => {
       setupEventMock('payment_intent.payment_failed', {
         id: 'pi_err',
         metadata: { booking_id: 'b-err' },
@@ -822,17 +822,21 @@ describe('POST /api/payment/webhook', () => {
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'update failed' } });
 
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      // 冪等行が残ると Stripe の再送が既処理扱いになり、永久に反映されない（2026年11月13日 点検 高-2）
+      expect(mockDelete).toHaveBeenCalled();
     });
 
-    test('payment_intent.payment_failed without booking_id + update error → logs, still 200', async () => {
+    test('payment_intent.payment_failed without booking_id + update error → 500・冪等行を削除して再送で再処理させる', async () => {
       setupEventMock('payment_intent.payment_failed', { id: 'pi_no_bk', metadata: {} });
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      // 冪等行が残ると Stripe の再送が既処理扱いになり、永久に反映されない（2026年11月13日 点検 高-2）
+      expect(mockDelete).toHaveBeenCalled();
     });
 
-    test('charge.refunded update error → logs, still 200', async () => {
+    test('charge.refunded update error → 500・冪等行を削除して再送で再処理させる', async () => {
       setupEventMock('charge.refunded', {
         payment_intent: 'pi_ref_err',
         amount: 5000,
@@ -840,27 +844,33 @@ describe('POST /api/payment/webhook', () => {
       });
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'refund update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      // 冪等行が残ると Stripe の再送が既処理扱いになり、永久に反映されない（2026年11月13日 点検 高-2）
+      expect(mockDelete).toHaveBeenCalled();
     });
 
-    test('charge.dispute.created update error → logs, still 200', async () => {
+    test('charge.dispute.created update error → 500・冪等行を削除して再送で再処理させる', async () => {
       setupEventMock('charge.dispute.created', {
         payment_intent: 'pi_dis_err',
         status: 'needs_response',
       });
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'dispute update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      // 冪等行が残ると Stripe の再送が既処理扱いになり、永久に反映されない（2026年11月13日 点検 高-2）
+      expect(mockDelete).toHaveBeenCalled();
     });
 
-    test('charge.dispute.closed update error → logs, still 200', async () => {
+    test('charge.dispute.closed update error → 500・冪等行を削除して再送で再処理させる', async () => {
       setupEventMock('charge.dispute.closed', {
         payment_intent: 'pi_dis_closed_err',
         status: 'won',
       });
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'close update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      // 冪等行が残ると Stripe の再送が既処理扱いになり、永久に反映されない（2026年11月13日 点検 高-2）
+      expect(mockDelete).toHaveBeenCalled();
     });
 
     // ─── 有料オプション（施設向け月額サブスク）のエンタイトルメント自動 ON/OFF ───

@@ -1,3 +1,4 @@
+import { approveSyntheticListing } from './listing-verification-fixture';
 // 来院者（一般ユーザー）の予約日時変更 E2E のセットアップ。
 // 1) CI の隔離 Supabase（supabase start の一時 DB）に service role で「予約可能な施設
 //    （スタッフ＋全曜日スケジュール→空き枠が出る）＋メニュー」と「来院者＋その本人名義の
@@ -36,10 +37,11 @@ setup('provision visitor and a changeable booking', async ({ page }) => {
   // 1) 公開施設
   const { data: fac, error: fe } = await sb.from('facility_profiles').insert({
     name: `E2E変更店舗_${ts}`, slug: `e2e-change-${ts}`, business_type: 'ヘアサロン',
-    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'published',
+    prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'draft',
   }).select('id').single();
   if (fe) throw new Error('seed facility: ' + fe.message);
   const facilityId = fac.id as string;
+  await approveSyntheticListing(sb, facilityId);
 
   // 2) スタッフ（指名あり予約にして staff 単位の空き枠計算を通す）
   const { data: staff, error: se } = await sb.from('staff_profiles').insert({

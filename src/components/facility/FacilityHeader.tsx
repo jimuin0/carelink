@@ -56,6 +56,9 @@ export default function FacilityHeader({ facility }: { facility: Facility }) {
             （神原さん判断 2026年10月22日）。実測の同時閲覧数が無い限り出さない。 */}
       </div>
       <h1 className="jp-balance text-xl sm:text-2xl font-bold mb-2">{facility.name}</h1>
+      {facility.medical_specialties && facility.medical_specialties.length > 0 && (
+        <p className="mb-2 text-sm text-gray-600">診療科：{facility.medical_specialties.join('・')}</p>
+      )}
       {facility.catch_copy && (
         <p className="jp-pretty text-gray-600 text-sm bg-sky-50 rounded-lg px-3 py-2 border-l-[3px] border-sky-400">{facility.catch_copy}</p>
       )}

@@ -10,6 +10,7 @@ import { authUnavailable, serverError } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { runCalendarOperation, type CalendarCredentials } from '@/lib/calendar-sync-operation';
 import { z } from 'zod';
+import { bookingCalendarTimes } from '@/lib/booking-calendar-time';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
@@ -91,23 +92,15 @@ export async function POST(req: NextRequest) {
     ? booking.menu[0]?.name
     : (booking.menu as { name?: string } | null)?.name;
 
-  const startDt = new Date(`${booking.booking_date}T${booking.start_time}`);
-  // 【型修正・実バグ】bookings テーブルに duration_minutes 列は存在しない
-  // （src/lib/schema-snapshot.json の bookings 列一覧・
-  // supabase/migrations/20260323000003_phase4_bookings.sql の CREATE TABLE に無い）。
-  // そのため booking.duration_minutes は実行時に常に undefined となり、
-  // `|| 60` のフォールバックが常に発火していた＝実際の予約時間に関わらず
-  // Google カレンダーの終了時刻が常に「開始+60分」固定で登録される無音バグだった。
-  // bookings は start_time・end_time（ともに TIME 型・NOT NULL）を実際に持つため、
-  // end_time から直接終了時刻を算出するよう修正する。
-  const endDt = new Date(`${booking.booking_date}T${booking.end_time}`);
+  const times = bookingCalendarTimes(booking.booking_date, booking.start_time, booking.end_time, booking.end_date ?? booking.booking_date);
+  if (!times) throw new Error('CALENDAR_BOOKING_TIME_INVALID');
 
   const event = {
     summary: `${facilityName || '施設'} — ${menuName || '予約'}`,
     description: `CareLink 予約 #${bookingId.slice(0, 8)}\n\n予約管理: https://carelink-jp.com/mypage/bookings/${bookingId}`,
     location: (Array.isArray(booking.facility_profiles) ? booking.facility_profiles[0] : booking.facility_profiles as { address?: string } | null)?.address || '',
-    start: { dateTime: startDt.toISOString(), timeZone: 'Asia/Tokyo' },
-    end: { dateTime: endDt.toISOString(), timeZone: 'Asia/Tokyo' },
+    start: { dateTime: times.start, timeZone: 'Asia/Tokyo' },
+    end: { dateTime: times.end, timeZone: 'Asia/Tokyo' },
     reminders: {
       useDefault: false,
       overrides: [

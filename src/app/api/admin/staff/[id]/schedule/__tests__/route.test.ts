@@ -187,3 +187,10 @@ test.each([true, false, null])('DELETE validates exact transaction outcome', asy
 test('DELETE error beats accompanying success', async () => {
   mockRpc.mockResolvedValue({ data: true, error: { message: 'delete failed' } }); expect((await DELETE(request('DELETE', { override_id: OV }), props())).status).toBe(500); expect(writeAuditLog).not.toHaveBeenCalled();
 });
+test('DELETE reports when removing an override would strand an overnight booking', async () => {
+  mockRpc.mockResolvedValue({ data: null, error: { message: 'STAFF_OVERNIGHT_BOOKINGS_AFFECTED' } });
+  const response = await DELETE(request('DELETE', { override_id: OV }), props());
+  expect(response.status).toBe(409);
+  expect((await response.json()).error).toContain('日付をまたぐ予約');
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});

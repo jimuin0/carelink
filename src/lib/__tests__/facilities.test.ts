@@ -197,6 +197,12 @@ describe('searchFacilities', () => {
     await searchFacilities({ type: 'ヘアサロン' });
     expect(chain.eq).toHaveBeenCalledWith('business_type', 'ヘアサロン');
   });
+  test('診療科の通常検索は主業種または追加診療科に一致させる', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ type: '耳鼻咽喉科' });
+    expect(chain.or).toHaveBeenCalledWith('business_type.eq."耳鼻咽喉科",medical_specialties.cs.{"耳鼻咽喉科"}');
+  });
 
   test('都道府県フィルタ', async () => {
     const chain = fluent({ data: [], count: 0, error: null });
@@ -337,7 +343,7 @@ describe('searchFacilities', () => {
     ], error: null });
     const result = await searchFacilities({ ...geo, prefecture: '東京都', price_min: 3000, price_max: 8000 });
 
-    const checks = made.filter((m) => m.calls.in);
+    const checks = made.filter((m) => m.calls.in && m.calls.select?.[0]?.[0] !== 'id,special_hours');
     expect(checks).toHaveLength(1);
     expect(checks[0].table).toBe('facility_card_view');
     expect(checks[0].calls.select).toEqual([['id, price_menu:facility_menus!inner()']]);
@@ -384,7 +390,7 @@ describe('searchFacilities', () => {
 
     const result = await searchFacilities({ ...geo, symptom: '腰痛' });
 
-    const chunks = made.filter((m) => m.calls.in).map((m) => m.calls.in[0][1] as string[]);
+    const chunks = made.filter((m) => m.calls.in && m.calls.select?.[0]?.[0] !== 'id,special_hours').map((m) => m.calls.in[0][1] as string[]);
     expect(chunks.map((c) => c.length)).toEqual([GEO_DETAIL_ID_CHUNK, GEO_DETAIL_ID_CHUNK, 50]);
     expect(chunks.flat()).toEqual(nearbyIds);
     expect(result.total).toBe(nearbyIds.filter((id) => id.endsWith('7')).length);
@@ -398,12 +404,19 @@ describe('searchFacilities', () => {
     expect(result.total).toBe(0);
   });
 
-  test('GPS + 詳細条件なしなら確かめる問い合わせをしない', async () => {
+  test('GPS + 詳細条件なしなら営業時間情報のみ一括取得する', async () => {
     const made = routeFrom(() => ({ data: [], error: null }));
     mockRpc.mockResolvedValue({ data: [{ id: 'a' }], error: null });
     const result = await searchFacilities(geo);
-    expect(made.filter((m) => m.calls.in)).toHaveLength(0);
+    expect(made.filter((m) => m.calls.in)).toHaveLength(1);
+    expect(made.find((m) => m.calls.in)?.calls.select).toEqual([['id,special_hours']]);
     expect(result.total).toBe(1);
+  });
+  test('GPS の休業設定を読めない場合は通常営業として表示しない', async () => {
+    const error = {message:'synthetic'};
+    routeFrom((_table,calls) => calls.select?.[0]?.[0] === 'id,special_hours' ? {data:null,error} : {data:[],error:null});
+    mockRpc.mockResolvedValue({data:[{id:'a',business_hours:{}}],error:null});
+    expect(await searchFacilities(geo)).toEqual({facilities:[],total:0,perPage:20,error});
   });
 });
 
@@ -933,6 +946,11 @@ describe('getAvailableAreasAndTypes', () => {
       'status',
       'published',
     );
+  });
+
+  test('主診療科と追加診療科を検索候補に含め、重複を除く',async()=>{
+    mockFrom.mockReturnValue(eqTerminal({ data:[{ prefecture:'大阪府',business_type:'内科',medical_specialties:['内科','耳鼻咽喉科'] }],error:null }));
+    expect((await getAvailableAreasAndTypes()).types).toEqual(['内科','耳鼻咽喉科']);
   });
 
   test('null・空文字はリンク先が壊れるため候補から除外する', async () => {

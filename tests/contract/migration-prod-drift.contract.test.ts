@@ -310,13 +310,13 @@ function prodTablesFromTypes(): Set<string> {
  */
 function rpcFunctionsFromMigrationSql(sqls: readonly string[]): Set<string> {
   const rpc = new Set<string>();
-  const re = /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?([a-z_][a-z0-9_]*)\b[\s\S]*?\bRETURNS\s+(\w+)/gi;
+  const re = /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:([a-z_][a-z0-9_]*)\s*\.\s*)?([a-z_][a-z0-9_]*)\s*\([\s\S]*?\bRETURNS\s+(\w+)/gi;
   for (const raw of sqls) {
     const sql = stripSqlComments(raw);
     let m: RegExpExecArray | null;
     re.lastIndex = 0;
     while ((m = re.exec(sql)) !== null) {
-      if (!/^trigger$/i.test(m[2])) rpc.add(m[1]);
+      if ((!m[1] || /^public$/i.test(m[1])) && !/^trigger$/i.test(m[3])) rpc.add(m[2]);
     }
   }
   return rpc;
@@ -483,6 +483,15 @@ describe('migration ↔ prod スキーマ ドリフト台帳', () => {
           'CREATE FUNCTION public.touch_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;',
       ]);
       expect([...f]).toEqual(['real_rpc']);
+    });
+
+    test('非公開スキーマの関数を公開RPCとして誤認せず、後続の公開関数は検出する', () => {
+      const f = rpcFunctionsFromMigrationSql([
+        'CREATE FUNCTION carelink_review_private.get_counts() RETURNS integer LANGUAGE sql AS $$ SELECT 1 $$;\n' +
+          'CREATE FUNCTION public.visible_rpc() RETURNS integer LANGUAGE sql AS $$ SELECT 1 $$;\n' +
+          'CREATE FUNCTION unqualified_rpc() RETURNS integer LANGUAGE sql AS $$ SELECT 1 $$;',
+      ]);
+      expect([...f]).toEqual(['visible_rpc', 'unqualified_rpc']);
     });
   });
 

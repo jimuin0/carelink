@@ -12,6 +12,19 @@ export function timeToMinutes(t: string): number {
   return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
 }
 
+/** Represent an overnight booking only by the portion on this calendar day. */
+export function clipBookingToDay<T extends { booking_date: string; end_date?: string | null; start_time: string; end_time: string }>(booking: T, date: string): (T & { continuesFromPrevious: boolean; continuesToNext: boolean }) | null {
+  if (booking.booking_date === date) {
+    const continuesToNext = !!booking.end_date && booking.end_date > date && timeToMinutes(booking.end_time) > 0;
+    return { ...booking, end_time: booking.end_date && booking.end_date > date ? '24:00' : booking.end_time,
+      continuesFromPrevious: false, continuesToNext };
+  }
+  if (booking.end_date === date && booking.booking_date < date && timeToMinutes(booking.end_time) > 0) {
+    return { ...booking, start_time: '00:00', continuesFromPrevious: true, continuesToNext: false };
+  }
+  return null;
+}
+
 /** 分 → "HH:MM"（24:00 以上も素直に表現する。営業時間超の判定は endExceedsClose で行う）。 */
 export function minutesToTime(min: number): string {
   const h = Math.floor(min / 60);

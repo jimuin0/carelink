@@ -73,7 +73,7 @@ export async function POST(request: Request) {
     // Fetch booking first to scope the permission check
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
-      .select('id, facility_id, user_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, menu_ids, staff_id, status, points_used, updated_at')
+      .select('id, facility_id, user_id, customer_name, email, booking_date, end_date, start_time, end_time, total_price, menu_id, menu_ids, staff_id, status, points_used, updated_at')
       .eq('id', bookingId)
       .single();
     if (bookingError && bookingError.code !== 'PGRST116') return serverError('admin-booking-status-read', bookingError, '/api/admin/booking-status');

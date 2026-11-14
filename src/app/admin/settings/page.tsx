@@ -25,6 +25,11 @@ import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice 
 import { BOOKING_CSV_MAX_ROWS, buildBookingCsv, readBookingCsvRows } from '@/lib/booking-csv-export';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import BusinessHoursEditor from '@/components/admin/BusinessHoursEditor';
+import SpecialHoursSettings from '@/components/admin/SpecialHoursSettings';
+import ListingEvidenceSubmission from '@/components/admin/ListingEvidenceSubmission';
+import MedicalSpecialtyPicker from '@/components/register/MedicalSpecialtyPicker';
+import { medicalBusinessTypes, medicalBusinessTypeOptionValue, MEDICAL_BUSINESS_TYPE_DEFAULT } from '@/lib/medical-business-types';
+import { medicalSpecialtiesSchema } from '@/lib/medical-specialties';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
 const CancelPolicySettings = dynamic(() => import('@/components/admin/CancelPolicySettings'), { ssr: false });
@@ -45,7 +50,10 @@ function AdminSettingsContent() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [dirty, setDirty] = useState(false);
-  useUnsavedGuard(dirty);
+  const [specialDirty, setSpecialDirty] = useState(false);
+  const [specialBusy, setSpecialBusy] = useState(false);
+  const [pendingHoursCopy, setPendingHoursCopy] = useState<HoursDraft | null>(null);
+  useUnsavedGuard(dirty || specialDirty);
   const [saving, setSaving] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
@@ -59,6 +67,7 @@ function AdminSettingsContent() {
   // Basic info
   const [name, setName] = useState('');
   const [businessType, setBusinessType] = useState('');
+  const [medicalSpecialties, setMedicalSpecialties] = useState<string[]>([]);
   const [catchCopy, setCatchCopy] = useState('');
   const [description, setDescription] = useState('');
 
@@ -138,9 +147,14 @@ function AdminSettingsContent() {
       if (!data) { setLoadError(true); setLoading(false); return; }
       setFacilityId(selection.selectedId);
       setDirty(false);
+      setSpecialDirty(false);
+      setSpecialBusy(false);
       if (data) {
         setName(data.name || '');
         setBusinessType(data.business_type || '');
+        const specialties = medicalSpecialtiesSchema.safeParse((data as typeof data & { medical_specialties?: unknown }).medical_specialties ?? []);
+        if (!specialties.success) { setLoadError(true); setLoading(false); return; }
+        setMedicalSpecialties(specialties.data);
         setCatchCopy(data.catch_copy || '');
         setDescription(data.description || '');
         setPostalCode(data.postal_code || '');
@@ -216,6 +230,16 @@ function AdminSettingsContent() {
       setToast({ type: 'error', message: '先にいずれかの曜日の開店・閉店時間を入力してください' });
       return;
     }
+    const replacesInput = Object.entries(next).some(([day, value]) => {
+      const old = hours[day];
+      return old && JSON.stringify(old) !== JSON.stringify(value) &&
+        (old.open || old.close || old.periods?.some(period => period.open || period.close));
+    });
+    if (replacesInput) { setPendingHoursCopy(next); return; }
+    applyHoursCopy(next);
+  };
+
+  const applyHoursCopy = (next: HoursDraft) => {
     setHours(next);
     setHoursEdited(true);
     setDirty(true);
@@ -253,6 +277,7 @@ function AdminSettingsContent() {
         body: JSON.stringify({
           name,
           business_type: businessType,
+          medical_specialties: medicalSpecialties,
           catch_copy: catchCopy || null,
           description: description || null,
           postal_code: postalCode || null,
@@ -298,13 +323,21 @@ function AdminSettingsContent() {
       setReadinessKey((k) => k + 1);
       // 営業時間とスタッフの勤務時間が重ならない曜日があれば、API が warning で知らせる（保存はされている）。
       const hoursWarning = typeof result?.warning === 'string' && result.warning ? result.warning : null;
+      // 運営が書類を確認済みの店舗は、保存で公開の条件が揃うとサーバーがそのまま公開する。
+      const autoPublished = result?.published === true;
+      if (autoPublished) setFacilityStatus('published');
+      const saved = autoPublished ? '施設情報を保存し、運営の確認が済んでいるため店舗を公開しました'
+        // 書類の確認後に店舗名・所在地が変わった（または掲載申込が却下されている）ため、公開ゲートが止めた。
+        : result?.publicationBlocked === true
+          ? '施設情報を保存しました。書類の確認後に店舗名・所在地が変わったため、まだ公開できません。店舗設定から確認書類を提出し直してください（掲載申込が却下されている場合は公開できません）'
+          : '施設情報を保存しました';
       setToast({
-        type: hoursWarning ? 'info' : 'success',
+        type: hoursWarning || result?.publicationBlocked === true ? 'info' : 'success',
         message: !sendHours
-          ? '施設情報を保存しました。営業時間はまだ入力されていないため、ネット予約は始まりません'
+          ? `${saved}。営業時間はまだ入力されていないため、ネット予約は始まりません`
           : hoursWarning
-            ? `施設情報を保存しました。${hoursWarning}`
-            : '施設情報を保存しました',
+            ? `${saved}。${hoursWarning}`
+            : saved,
       });
       return true;
     } catch {
@@ -323,7 +356,8 @@ function AdminSettingsContent() {
    * 足りない項目をその場で一覧にする。未保存の入力があれば先に保存し、保存できたときだけ公開する。
    */
   const handlePublish = async () => {
-    if (!facilityId || publishToggling || saving) return;
+    if (!facilityId || publishToggling || saving || specialBusy) return;
+    if (specialDirty) { setToast({ type: 'error', message: '祝日・臨時休業と受付終了の設定を保存してください' }); return; }
     // 営業時間も無料掲載の公開条件（2026年10月23日）。保存済み、または画面で入力した営業時間を、保存時と同じ検査で確かめる。
     const visibleHours = hoursConfirmed || hoursEdited ? validateHoursForm(hours, closedDays) : null;
     const visibleMissing = listingPublishMissing({
@@ -367,7 +401,7 @@ function AdminSettingsContent() {
   if (loadError) {
     return (
       <div>
-        <SbPageHeader title="施設設定" />
+        <SbPageHeader title="店舗設定" />
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="施設情報の読み込みに失敗しました" />
       </div>
     );
@@ -377,10 +411,10 @@ function AdminSettingsContent() {
 
   return (
     <div onChange={() => setDirty(true)}>
-      <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/settings" dirty={dirty} busy={saving || publishToggling} />
-      <p className="mb-4 text-sm text-gray-600">無料掲載とネット予約は別です。{LISTING_PUBLISH_REQUIREMENT}ネット予約は、さらに公開メニュー・写真・勤務時間を保存したスタッフがそろうまで利用できません。予約管理表は引き続き利用できます。</p>
+      <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/settings" dirty={dirty || specialDirty} busy={saving || publishToggling || specialBusy} />
+      <p className="mb-4 text-sm text-gray-600">{LISTING_PUBLISH_REQUIREMENT}ネット予約には、さらに公開メニュー・写真・勤務時間を保存したスタッフが必要です。</p>
       <SbPageHeader
-        title="施設設定"
+        title="店舗設定"
         actions={
           <>
             <SbBadge tone={facilityStatus === 'published' ? 'success' : 'neutral'}>
@@ -394,7 +428,7 @@ function AdminSettingsContent() {
                 if (facilityStatus === 'published') { setShowUnpublishConfirm(true); return; }
                 void handlePublish();
               }}
-              disabled={publishToggling || saving || !facilityId}
+              disabled={publishToggling || saving || specialBusy || !facilityId}
               className={facilityStatus === 'published' ? 'px-4 py-2 text-sm font-bold rounded-lg transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200' : 'btn-primary px-4! py-2! text-sm'}
             >
               {publishToggling ? '処理中...' : facilityStatus === 'published' ? '非公開にする' : dirty ? '保存して公開する' : '公開する'}
@@ -409,11 +443,13 @@ function AdminSettingsContent() {
       {facilityStatus === 'published' && slug && (
         <p className="mb-4 text-sm">
           <Link href={`/facility/${encodeURIComponent(slug)}`} target="_blank" rel="noopener noreferrer" className="font-bold text-sky-700 underline">掲載ページを見る</Link>
-          <span className="ml-2 text-gray-600">（お客様に表示されている内容を確認できます）</span>
+          <span className="ml-2 text-gray-600">（お客様が見る画面）</span>
         </p>
       )}
 
       <BookingReadinessSection readiness={readiness} facilityId={facilityId} onRetry={() => setReadinessKey((k) => k + 1)} />
+
+      <ListingEvidenceSubmission key={facilityId} facilityId={facilityId} />
 
       {publishMissing && facilityStatus !== 'published' && (
         <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4">
@@ -442,10 +478,18 @@ function AdminSettingsContent() {
           </div>
           <div>
             <label htmlFor="fac-type" className="form-label">業種 <span className="text-red-500">*</span></label>
-            <select id="fac-type" value={businessType} onChange={(e) => setBusinessType(e.target.value)} className="form-input">
+            <select id="fac-type" value={businessType} onChange={(e) => {
+              setBusinessType(e.target.value);
+              if (!medicalBusinessTypes.includes(e.target.value)) setMedicalSpecialties([]);
+            }} className="form-input">
               <option value="">選択してください</option>
-              {businessTypes.map((t) => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
+              {businessTypes.filter(t => !medicalBusinessTypes.includes(t) && t !== 'その他').map((t) => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
+              <option value={medicalBusinessTypeOptionValue(businessType)}>医療機関</option>
+              <option value="その他">その他</option>
             </select>
+            {medicalBusinessTypes.includes(businessType) && <div className="mt-3"><MedicalSpecialtyPicker value={medicalSpecialties} onChange={values => {
+              setMedicalSpecialties(values); setBusinessType(values[0] || MEDICAL_BUSINESS_TYPE_DEFAULT); setDirty(true);
+            }} /></div>}
           </div>
           <div>
             <label htmlFor="fac-catch" className="form-label">キャッチコピー</label>
@@ -529,11 +573,12 @@ function AdminSettingsContent() {
         {submittedHoursText && <p className="text-sm whitespace-pre-wrap mb-3">申込時の営業時間：{submittedHoursText}</p>}
         {!hoursConfirmed && (
           <p className="text-sm text-amber-800 mb-3">
-            曜日別の営業時間はまだ保存されていません。営業する曜日の開店・閉店時間を入力し、休みの曜日は「営業」のチェックを外して保存してください。営業時間は無料掲載の公開に必要です。保存するとネット予約の空き枠とスタッフの勤務時間の下書きにも使われます。
+            営業時間の保存は公開に必要です。休みの曜日は「営業」のチェックを外して保存してください。
           </p>
         )}
         <FieldError id="fac-hours-error" message={fieldErrors.business_hours} />
         <BusinessHoursEditor hours={hours} closedDays={closedDays} onDayChange={updateHoursDay} onToggleClosed={toggleClosed} />
+        <ConfirmDialog open={pendingHoursCopy !== null} title="営業時間をコピーしますか？" message="他の営業日に入力済みの時間帯も置き換わります。保存するまで公開内容は変わりません。" confirmLabel="置き換える" onCancel={() => setPendingHoursCopy(null)} onConfirm={() => { if (pendingHoursCopy) applyHoursCopy(pendingHoursCopy); setPendingHoursCopy(null); }} />
         <button type="button" onClick={copyHours} className="mt-3 text-sm text-sky-700 underline">
           最初に入力した曜日の時間を、ほかの営業日にも入れる
         </button>
@@ -542,12 +587,12 @@ function AdminSettingsContent() {
             <input type="checkbox" checked={showBusinessStatus} onChange={event => { setShowBusinessStatus(event.target.checked); setDirty(true); }} />
             公開ページに「営業中」などの自動表示を出す
           </label>
-          <p className="mt-1.5 text-sm leading-6 text-gray-600">祝日・臨時休業は自動判定しません。非表示にもできます。</p>
-        </div>
+                  </div>
         <div className="mt-4">
           <label htmlFor="fac-holiday" className="form-label">定休日（補足）</label>
           <SbInput id="fac-holiday" value={regularHoliday} onChange={(e) => setRegularHoliday(e.target.value)} placeholder="例: 第2・4月曜、年末年始" maxLength={FACILITY_INPUT_LIMITS.regularHoliday} />
         </div>
+        <SpecialHoursSettings key={facilityId} facilityId={facilityId} onDirtyChange={setSpecialDirty} onBusyChange={setSpecialBusy} />
       </section>
 
       {/* 予約設定 */}
@@ -563,7 +608,7 @@ function AdminSettingsContent() {
           <div>
             <p className="text-sm font-medium text-gray-800">予約を即時確定する</p>
             <p className="text-xs text-gray-500 mt-0.5">
-              ONにすると、ユーザーが予約した際に自動で「確定」状態になります。OFFの場合は「確認待ち」として管理画面で手動確定が必要です。
+              OFFのときは「確認待ち」になり、管理画面で確定します。
             </p>
           </div>
         </label>
@@ -572,7 +617,7 @@ function AdminSettingsContent() {
             施術後の準備時間（次の予約までの空け時間）
           </label>
           <p className="text-xs text-gray-500 mb-2">
-            施術が終わってから次の予約を受けるまでに空けておく時間です。片付け・準備に使います。この時間はネット予約の空き枠として表示されません。
+            片付け・準備の時間です。この間はネット予約を受け付けません。
           </p>
           <div className="flex items-center gap-3">
             <select
@@ -592,7 +637,7 @@ function AdminSettingsContent() {
             予約表の時間の区切り
           </label>
           <p className="text-xs text-gray-500 mb-2">
-            予約表（スタッフごとの時間割）の目盛りの幅です。予約表の空いている時間を押して予約を入れるとき、開始時刻はこの間隔で選ばれます。
+            予約表の目盛りの幅です。予約を入れるときの開始時刻もこの間隔になります。
           </p>
           <div className="flex items-center gap-3">
             <select

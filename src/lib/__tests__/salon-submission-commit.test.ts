@@ -77,6 +77,17 @@ test('no-photo submission verifies proof but does not touch Storage or manifest'
   expect(readSalonIntentStatus).toHaveBeenCalled(); expect(f.from).not.toHaveBeenCalled(); expect(f.storage.info).not.toHaveBeenCalled();
   expect(f.rpc.mock.calls[0][1].p_registration.photo_urls).toEqual([]);
 });
+test('複数診療科を申込の照合対象に含め、専用の原子的な保存経路に渡す',async()=>{
+  const f=fixture();
+  const medical={ ...registration,business_type:'内科',medical_specialties:['内科','耳鼻咽喉科'] };
+  expect(await commitSalonSubmission(f.db,{ ...input,registration:medical,photoIds:[] },proof)).toEqual({ state:'committed',receiptId });
+  const expected=canonicalSalonSubmission({ ...medical,photo_urls:[] })!;
+  expect(f.rpc).toHaveBeenCalledWith('commit_salon_submission_with_specialties',expect.objectContaining({
+    p_registration:expect.objectContaining({ medical_specialties:['内科','耳鼻咽喉科'] }),
+    p_payload_hmac:salonPayloadHmac(proof,expected.serialized),
+  }));
+  expect((await commitSalonSubmission(f.db,{ ...input,registration:{ ...registration,medical_specialties:['内科'] } },proof)).state).toBe('invalid');
+});
 test('manifest row order and request ID order cannot reorder the declared slots', async () => {
   const f = fixture(); const other = { ...photo, id: secondId, slot: 6, object_path: path.replace(photoId, secondId) };
   f.query.in.mockResolvedValue({ data: [other, photo], error: null });

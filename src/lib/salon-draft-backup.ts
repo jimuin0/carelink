@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { SalonFormValues } from './validations';
 import { FACILITY_INPUT_LIMITS as limits } from './facility-input-limits';
 import { DESIRED_START_DATES } from './constants';
+import { medicalSpecialtiesSchema } from './medical-specialties';
 
 export const SALON_DRAFT_MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 export const SALON_DRAFT_MAX_BYTES = Math.ceil(7 * SALON_DRAFT_MAX_PHOTO_BYTES / 3) * 4 + 65536;
@@ -13,7 +14,7 @@ const text = (max: number) => z.string().max(max).optional();
 const number = z.union([z.number().int().min(0).max(9999), z.nan()])
   .transform(value => Number.isNaN(value) ? null : value).nullable().optional();
 const valuesSchema = z.object({
-  facility_name: text(limits.name), business_type: text(50), representative_name: text(100),
+  facility_name: text(limits.name), business_type: text(50), medical_specialties: medicalSpecialtiesSchema.optional(), representative_name: text(100),
   contact_name: text(100), email: text(254), phone: text(30).nullable(), contact_phone: text(30).nullable(),
   website: text(limits.website), postal_code: text(8), address: text(limits.address),
   prefecture: text(10).nullable(), city: text(limits.city).nullable(), building_name: text(limits.building),

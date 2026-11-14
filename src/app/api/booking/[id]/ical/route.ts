@@ -45,7 +45,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
   const admin = createServiceRoleClient();
   const { data: booking, error: bookingError } = await admin
     .from('bookings')
-    .select('id, user_id, facility_id, booking_date, start_time, end_time, menu:facility_menus(name), staff:staff_profiles(name), facility_profiles(name, address, phone)')
+    .select('id, user_id, facility_id, booking_date, end_date, start_time, end_time, menu:facility_menus(name), staff:staff_profiles(name), facility_profiles(name, address, phone)')
     .eq('id', params.id)
     .maybeSingle();
 
@@ -72,7 +72,8 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
   const facilityName = facility?.name ?? 'CareLink 予約';
   const bookingDate = booking.booking_date as string | null;
   const startTime = bookingDate && booking.start_time ? toIcalLocalDateTime(bookingDate, booking.start_time) : '';
-  const endTime = bookingDate && booking.end_time ? toIcalLocalDateTime(bookingDate, booking.end_time) : '';
+  const endDate = booking.end_date ?? bookingDate;
+  const endTime = endDate && booking.end_time ? toIcalLocalDateTime(endDate, booking.end_time) : '';
   const uid = `carelink-${booking.id}@carelink-jp.com`;
   const now = toIcalDate(new Date().toISOString());
 

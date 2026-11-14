@@ -1,0 +1,131 @@
+name: Deploy Cloudflare Worker
+
+# 本番（carelink-jp.com）は Cloudflare Workers から配信している（2026-11-11 切り替え）。
+# 配信するのは「main 上で CI（push）が成功した最新のコミット」だけ（tools/cloudflare/deploy-target.mjs）。
+# 手動実行でも同じ判定を通るので、CI を通っていないコミットは配信できない。
+# main の先頭の CI が赤でも、それより前の成功コミットが本番より新しければ配信し、赤であることは Slack に知らせる。
+# 配信後は本番の version と主要ページの中身を確かめ、だめなら直前の版へ戻して Slack に知らせる。
+# 公開設定（NEXT_PUBLIC_*）はリポジトリ変数、Cloudflare の API トークンは secret に置く。
+# サーバー側の秘密値は Worker に登録済みで、ここでは名前の過不足だけを確かめる。
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      retry_sha:
+        description: '確認に失敗して戻したコミットを、直したうえで明示的に配信し直すときだけ指定（40桁）'
+        required: false
+        default: ''
+      slack_test:
+        description: 'Slack 通知の疎通だけを確かめる（テストのメッセージを 1 通送る。配信の判定もいつもどおり行う）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+# 配信は 1 本ずつ。途中で打ち切ると半端な状態になるので取り消さない。
+concurrency:
+  group: deploy-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      SLACK_DEFAULT_CHANNEL: ${{ secrets.SLACK_DEFAULT_CHANNEL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      # 配信用の補助スクリプトは main のものを使う。古いコミットへ切り替えても消えないよう、先に退避する。
+      - name: Keep the deploy helpers from main
+        run: cp -R tools/cloudflare "$RUNNER_TEMP/deploy-tools"
+      - name: Send a Slack test message
+        if: inputs.slack_test
+        run: |
+          node "$RUNNER_TEMP/deploy-tools/notify-slack.mjs" ":white_check_mark: 本番配信ワークフローからの通知テストです（対応は不要です）。"
+      - name: Report a red CI on main
+        if: github.event.workflow_run.conclusion == 'failure'
+        run: >-
+          node "$RUNNER_TEMP/deploy-tools/notify-slack.mjs"
+          ":warning: main の CI が失敗したため ${GITHUB_SHA_RUN:0:7} は本番に配信されていません。${RUN_URL}"
+        env:
+          GITHUB_SHA_RUN: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+      - name: Choose the commit to deploy
+        id: target
+        run: node "$RUNNER_TEMP/deploy-tools/deploy-target.mjs"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RETRY_SHA: ${{ inputs.retry_sha }}
+      - if: steps.target.outputs.skip == 'false'
+        run: git checkout --detach "${{ steps.target.outputs.sha }}"
+      - if: steps.target.outputs.skip == 'false'
+        run: npm ci
+      - name: Check the Worker secrets
+        if: steps.target.outputs.skip == 'false'
+        run: node "$RUNNER_TEMP/deploy-tools/check-worker-secrets.mjs"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Build and deploy
+        id: deploy
+        if: steps.target.outputs.skip == 'false'
+        run: node "$RUNNER_TEMP/deploy-tools/deploy-production.mjs"
+        env:
+          CARELINK_PUBLIC_ENV_SOURCE: environment
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_BASE_URL: ${{ vars.NEXT_PUBLIC_BASE_URL }}
+          NEXT_PUBLIC_CLARITY_ID: ${{ vars.NEXT_PUBLIC_CLARITY_ID }}
+          NEXT_PUBLIC_GA_ID: ${{ vars.NEXT_PUBLIC_GA_ID }}
+          NEXT_PUBLIC_LINE_CHANNEL_ID: ${{ vars.NEXT_PUBLIC_LINE_CHANNEL_ID }}
+          NEXT_PUBLIC_RECRUIT_URL: ${{ vars.NEXT_PUBLIC_RECRUIT_URL }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ vars.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+      - name: Verify the live version and pages
+        if: steps.target.outputs.skip == 'false'
+        run: node "$RUNNER_TEMP/deploy-tools/verify-live.mjs"
+        env:
+          SHA: ${{ steps.target.outputs.sha }}
+      # 配信は通ったのに本番が壊れている場合だけ、直前の版へ戻す。
+      - name: Roll back
+        if: failure() && steps.deploy.outcome == 'success'
+        run: |
+          npx wrangler rollback --yes --message "verify failed for ${SHA:0:7}"
+          node "$RUNNER_TEMP/deploy-tools/notify-slack.mjs" ":rotating_light: 本番の確認に失敗したため ${SHA:0:7} の配信を直前の版へ戻しました。${RUN_URL}"
+        env:
+          SHA: ${{ steps.target.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      # 戻したコミットは記録し、以後の自動配信で選ばない（retry_sha で明示したときだけ配信し直す）。
+      - name: Record the rolled-back commit
+        if: failure() && steps.deploy.outcome == 'success'
+        run: echo "${{ steps.target.outputs.sha }}" > "$RUNNER_TEMP/bad-deploy.txt"
+      - name: Upload the rolled-back record
+        if: failure() && steps.deploy.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bad-deploy-${{ steps.target.outputs.sha }}
+          path: ${{ runner.temp }}/bad-deploy.txt
+          retention-days: 90
+      - name: Report a failed deploy
+        if: failure() && steps.deploy.outcome != 'success'
+        run: |
+          node "$RUNNER_TEMP/deploy-tools/notify-slack.mjs" ":warning: 本番への配信に失敗しました（本番は変わっていません）。${RUN_URL}"
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

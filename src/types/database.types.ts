@@ -616,6 +616,7 @@ export type Database = {
           customer_name: string
           email: string | null
           email_canonical: string | null
+          end_date: string | null
           end_time: string
           facility_id: string
           id: string
@@ -649,6 +650,7 @@ export type Database = {
           customer_name: string
           email?: string | null
           email_canonical?: string | null
+          end_date?: string | null
           end_time: string
           facility_id: string
           id?: string
@@ -682,6 +684,7 @@ export type Database = {
           customer_name?: string
           email?: string | null
           email_canonical?: string | null
+          end_date?: string | null
           end_time?: string
           facility_id?: string
           id?: string
@@ -2304,6 +2307,33 @@ export type Database = {
           },
         ]
       }
+      facility_special_hours: {
+        Row: {
+          facility_id: string
+          allow_overnight_bookings: boolean
+          close_on_public_holidays: boolean
+          closed_dates: string[]
+          reception_cutoff_minutes: number | null
+          updated_at: string
+        }
+        Insert: {
+          facility_id: string
+          allow_overnight_bookings?: boolean
+          close_on_public_holidays?: boolean
+          closed_dates?: string[]
+          reception_cutoff_minutes?: number | null
+          updated_at?: string
+        }
+        Update: {
+          facility_id?: string
+          allow_overnight_bookings?: boolean
+          close_on_public_holidays?: boolean
+          closed_dates?: string[]
+          reception_cutoff_minutes?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       facility_profiles: {
         Row: {
           access_info: string | null
@@ -2345,6 +2375,7 @@ export type Database = {
           logo_url: string | null
           longitude: number | null
           main_photo_url: string | null
+          medical_specialties: string[]
           menu_remarks: string | null
           name: string
           nearest_station: string | null
@@ -2417,6 +2448,7 @@ export type Database = {
           logo_url?: string | null
           longitude?: number | null
           main_photo_url?: string | null
+          medical_specialties?: string[]
           menu_remarks?: string | null
           name: string
           nearest_station?: string | null
@@ -2489,6 +2521,7 @@ export type Database = {
           logo_url?: string | null
           longitude?: number | null
           main_photo_url?: string | null
+          medical_specialties?: string[]
           menu_remarks?: string | null
           name?: string
           nearest_station?: string | null
@@ -3628,6 +3661,161 @@ export type Database = {
           verified_at?: string | null
         }
         Relationships: []
+      }
+      listing_verification_approval_documents: {
+        Row: {
+          document_id: string
+          facility_id: string
+        }
+        Insert: {
+          document_id: string
+          facility_id: string
+        }
+        Update: {
+          document_id?: string
+          facility_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listing_verification_approval_documents_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "listing_verification_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "listing_verification_approval_documents_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "listing_verification_approvals"
+            referencedColumns: ["facility_id"]
+          },
+        ]
+      }
+      listing_verification_approvals: {
+        Row: {
+          auto_publish_pending: boolean
+          document_ids: string[]
+          facility_id: string
+          facility_identity: Json
+          reviewed_at: string
+          reviewed_by: string | null
+        }
+        Insert: {
+          auto_publish_pending?: boolean
+          document_ids: string[]
+          facility_id: string
+          facility_identity: Json
+          reviewed_at?: string
+          reviewed_by?: string | null
+        }
+        Update: {
+          auto_publish_pending?: boolean
+          document_ids?: string[]
+          facility_id?: string
+          facility_identity?: Json
+          reviewed_at?: string
+          reviewed_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listing_verification_approvals_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "listing_verification_approvals_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      listing_verification_deferrals: {
+        Row: {
+          deferred: boolean
+          revision: number
+          salon_id: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          deferred: boolean
+          revision?: number
+          salon_id: string
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          deferred?: boolean
+          revision?: number
+          salon_id?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listing_verification_deferrals_salon_id_fkey"
+            columns: ["salon_id"]
+            isOneToOne: true
+            referencedRelation: "salons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      listing_verification_documents: {
+        Row: {
+          byte_size: number
+          created_at: string
+          document_type: string
+          facility_id: string
+          id: string
+          mime_type: string
+          object_path: string
+          sha256: string
+          submitted_by: string | null
+        }
+        Insert: {
+          byte_size: number
+          created_at?: string
+          document_type: string
+          facility_id: string
+          id: string
+          mime_type: string
+          object_path: string
+          sha256: string
+          submitted_by?: string | null
+        }
+        Update: {
+          byte_size?: number
+          created_at?: string
+          document_type?: string
+          facility_id?: string
+          id?: string
+          mime_type?: string
+          object_path?: string
+          sha256?: string
+          submitted_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listing_verification_documents_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "listing_verification_documents_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       manual_booking_operations: {
         Row: {
@@ -4775,6 +4963,70 @@ export type Database = {
           },
         ]
       }
+      salon_registration_classifications: {
+        Row: {
+          classification: string
+          revision: number
+          salon_id: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          classification: string
+          revision?: number
+          salon_id: string
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          classification?: string
+          revision?: number
+          salon_id?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "salon_registration_classifications_salon_id_fkey"
+            columns: ["salon_id"]
+            isOneToOne: true
+            referencedRelation: "salons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      salon_registration_visibility: {
+        Row: {
+          hidden: boolean
+          revision: number
+          salon_id: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          hidden: boolean
+          revision?: number
+          salon_id: string
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          hidden?: boolean
+          revision?: number
+          salon_id?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "salon_registration_visibility_salon_id_fkey"
+            columns: ["salon_id"]
+            isOneToOne: true
+            referencedRelation: "salons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       salons: {
         Row: {
           address: string | null
@@ -4796,6 +5048,7 @@ export type Database = {
           has_parking: boolean | null
           id: string
           is_public: boolean | null
+          medical_specialties: string[]
           nearest_station: string | null
           phone: string
           photo_url: string | null
@@ -4836,6 +5089,7 @@ export type Database = {
           has_parking?: boolean | null
           id?: string
           is_public?: boolean | null
+          medical_specialties?: string[]
           nearest_station?: string | null
           phone: string
           photo_url?: string | null
@@ -4876,6 +5130,7 @@ export type Database = {
           has_parking?: boolean | null
           id?: string
           is_public?: boolean | null
+          medical_specialties?: string[]
           nearest_station?: string | null
           phone?: string
           photo_url?: string | null
@@ -6262,6 +6517,7 @@ export type Database = {
     Views: {
       facility_card_view: {
         Row: {
+          special_hours: Json | null
           access_info: string | null
           active_staff_count: number | null
           booking_menu_count: number | null
@@ -6281,6 +6537,7 @@ export type Database = {
           longitude: number | null
           main_photo_url: string | null
           max_price: number | null
+          medical_specialties: string[] | null
           menu_count: number | null
           min_price: number | null
           name: string | null
@@ -6374,6 +6631,90 @@ export type Database = {
       }
     }
     Functions: {
+      valid_medical_specialties: {
+        Args: { p_values: string[] }
+        Returns: boolean
+      }
+      update_facility_settings_with_specialties: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_patch: Json
+          p_specialties: string[]
+        }
+        Returns: {
+          id: string
+        }[]
+      }
+      prepare_listing_verification_document: {
+        Args: {
+          p_actor_id: string
+          p_byte_size: number
+          p_document_id: string
+          p_document_type: string
+          p_facility_id: string
+          p_mime_type: string
+          p_sha256: string
+        }
+        Returns: {
+          object_path: string
+          outcome: string
+        }[]
+      }
+      commit_salon_submission_with_specialties: {
+        Args: {
+          p_canonical_version: number
+          p_hmac_scheme: string
+          p_intent_id: string
+          p_payload_hmac: string
+          p_proof_hash: string
+          p_registration: Json
+          p_terms_sha256: string
+        }
+        Returns: {
+          outcome: string
+          receipt_id: string
+        }[]
+      }
+      approve_listing_verification: {
+        Args: {
+          p_actor_id: string
+          p_authority_verified: boolean
+          p_document_ids: string[]
+          p_document_verified: boolean
+          p_expected_identity: Json
+          p_facility_id: string
+        }
+        Returns: boolean
+      }
+      set_salon_registration_classification: {
+        Args: { p_actor: string; p_salon: string; p_value: string; p_expected_revision: number }
+        Returns: Json
+      }
+      set_listing_verification_deferral: {
+        Args: { p_actor: string; p_salon: string; p_deferred: boolean }
+        Returns: Json
+      }
+      delete_test_registration: {
+        Args: { p_actor: string; p_salon: string; p_expected_name: string }
+        Returns: Json
+      }
+      facility_ready_for_auto_publication: {
+        Args: { p_facility_id: string }
+        Returns: boolean
+      }
+      try_auto_publish_verified_facility: {
+        Args: { p_facility_id: string; p_actor: string }
+        Returns: string
+      }
+      has_claimable_approved_salon_receipt: {
+        Args: { p_user_id: string }
+        Returns: boolean
+      }
+      set_salon_registration_visibility: {
+        Args: { p_actor: string; p_salon: string; p_hidden: boolean }
+        Returns: Json
+      }
       _postgis_deprecate: {
         Args: { newname: string; oldname: string; version: string }
         Returns: undefined
@@ -6869,6 +7210,34 @@ export type Database = {
           response_payload: Json
         }[]
       }
+      create_booking_with_receipt_dated_atomic: {
+        Args: {
+          p_id: string; p_actor_id: string | null; p_guest_hash: string | null; p_payload_hash: string;
+          p_facility_id: string; p_staff_id: string | null; p_menu_id: string; p_coupon_id: string | null;
+          p_booking_date: string; p_start_time: string; p_end_time: string; p_customer_name: string;
+          p_email: string; p_phone: string | null; p_note: string | null; p_total_price: number;
+          p_points_used: number; p_status: string; p_menu_ids: string[]; p_notifications: Json;
+          p_end_date: string; p_holiday_dates: string[] | null; p_holiday_from: string | null; p_holiday_through: string | null
+        }
+        Returns: { replayed: boolean; response_payload: Json }[]
+      }
+      change_customer_booking_dated_atomic: {
+        Args: { p_booking_id: string; p_user_id: string; p_booking_date: string; p_start_time: string; p_end_date: string; p_end_time: string; p_holiday_dates: string[] | null; p_holiday_from: string | null; p_holiday_through: string | null }
+        Returns: { id: string; replayed: boolean }[]
+      }
+      published_special_hours: { Args: { p_facility_id: string }; Returns: Json | null }
+      booking_intervals_conflict: { Args: { p_start: string; p_end: string; p_other_start: string; p_other_end: string; p_buffer_minutes: number }; Returns: boolean }
+      booking_staff_works_interval: { Args: { p_staff_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string }; Returns: boolean }
+      booking_staff_interval_conflict: { Args: { p_facility_id: string; p_staff_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string; p_buffer_minutes: number; p_exclude_booking_id: string }; Returns: boolean }
+      booking_needs_any_staff_interval: { Args: { p_staff_id: string; p_auto_assigned: boolean; p_facility_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string }; Returns: boolean }
+      booking_unassigned_interval_capacity_full: { Args: { p_facility_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string; p_buffer_minutes: number; p_exclude_booking_id: string }; Returns: boolean }
+      booking_pick_free_staff_interval: { Args: { p_facility_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string; p_buffer_minutes: number; p_menu_ids: string[]; p_exclude_booking_id: string; p_prefer_staff_id: string }; Returns: string }
+      facility_business_windows_for_date: { Args: { p_facility_id: string; p_date: string; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: { start_min: number; end_min: number }[] }
+      facility_reception_windows_for_date: { Args: { p_facility_id: string; p_date: string; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: { start_min: number; end_min: number }[] }
+      facility_interval_admissible: { Args: { p_facility_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: boolean }
+      get_available_slots_dated: { Args: { p_facility_id: string; p_staff_id: string; p_date: string; p_duration_minutes: number; p_exclude_booking_id: string; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: { slot_start: string; slot_end: string; end_date: string }[] }
+      create_online_booking_dated_atomic: { Args: { p_facility_id: string; p_staff_id: string; p_user_id: string; p_menu_id: string; p_coupon_id: string; p_booking_date: string; p_start_time: string; p_end_date: string; p_end_time: string; p_customer_name: string; p_email: string; p_phone: string; p_note: string; p_total_price: number; p_points_used: number; p_status: string; p_menu_ids: string[]; p_holiday_dates: string[]; p_holiday_from: string; p_holiday_through: string }; Returns: string }
+      publish_customer_booking_transition_email_dated: { Args: { p_booking_id: string; p_kind: string; p_previous_date: string; p_previous_start: string; p_previous_end: string; p_previous_end_date: string }; Returns: number }
       create_manual_booking_atomic: {
         Args: { p_actor_id: string; p_input: Json; p_operation_id: string }
         Returns: Json
@@ -8663,6 +9032,21 @@ export type Database = {
       get_newsletter_preference: {
         Args: { p_user_id: string }
         Returns: Json
+      }
+      save_facility_special_hours_atomic: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_allow_overnight: boolean
+          p_close_on_holidays: boolean
+          p_closed_dates: string[]
+          p_cutoff_minutes: number | null
+          p_expected_updated_at: string | null
+          p_holiday_dates: string[] | null
+          p_holiday_from: string | null
+          p_holiday_through: string | null
+        }
+        Returns: undefined
       }
       update_facility_settings_atomic: {
         Args: { p_actor_id: string; p_facility_id: string; p_patch: Json }

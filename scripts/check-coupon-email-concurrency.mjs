@@ -1,6 +1,7 @@
 // Synthetic PG17 transactions only. No provider calls, real recipients or business cleanup.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 const local = process.argv[2] === '--local-docker';
 const database = local ? 'postgres' : 'carelink_shadow';
 const prefix = `coupon-race-${Date.now().toString(36)}-${process.pid}`;
@@ -79,8 +80,9 @@ async function main() {
   assert.equal(query("SELECT to_regprocedure('public.reserve_customer_coupon_email_atomic(uuid,text,date)') IS NOT NULL"),'t');
   assert.equal(query(`SELECT count(*) FROM public.facility_profiles WHERE id='${facility}'`),'0','fixture UUID must be unused');
   query(`BEGIN; INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status)
-    VALUES('${facility}','Synthetic coupon race','synthetic-coupon-race','その他','検証県','検証市','検証住所','published'); COMMIT;`);
+    VALUES('${facility}','Synthetic coupon race','synthetic-coupon-race','その他','検証県','検証市','検証住所','draft'); COMMIT;`);
   fixtureCreated=true;
+  query(`${readFileSync('supabase/shadow/listing-verification-setup.sql','utf8')}\nSELECT pg_temp.approve_synthetic_listing('${facility}'); UPDATE public.facility_profiles SET status='published' WHERE id='${facility}';`);
 
   const reservations=(await contend('reserve',emailLock(freshEmail),[reserve(freshEmail),reserve(freshEmail)])).map(JSON.parse);
   const first=reservations[0];
@@ -139,6 +141,10 @@ finally {
     query(`BEGIN; DELETE FROM public.webhook_retry_queue WHERE facility_id='${facility}';
       DELETE FROM public.customer_coupon_email_operations WHERE facility_id='${facility}';
       DELETE FROM public.user_coupon_codes WHERE facility_id='${facility}';
+      DELETE FROM public.listing_verification_approval_documents WHERE facility_id='${facility}';
+      DELETE FROM public.listing_verification_approvals WHERE facility_id='${facility}';
+      DELETE FROM storage.objects WHERE bucket_id='listing-verification' AND name IN (SELECT object_path FROM public.listing_verification_documents WHERE facility_id='${facility}');
+      DELETE FROM public.listing_verification_documents WHERE facility_id='${facility}';
       DELETE FROM public.facility_profiles WHERE id='${facility}'; COMMIT;`);
     assert.equal(query(`SELECT count(*) FROM public.facility_profiles WHERE id='${facility}'`),'0');
     assert.equal(query(`SELECT count(*) FROM public.webhook_retry_queue WHERE facility_id='${facility}'`),'0');

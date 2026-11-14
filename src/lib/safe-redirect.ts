@@ -43,7 +43,14 @@ export function safeRedirect(raw: string | null | undefined, origin: string): st
     const resolved = new URL(raw, origin);
     // 🔴 ここが本質。文字列の形ではなく「解決後にどこへ行くか」で判定する。
     if (resolved.origin !== new URL(origin).origin) return DEFAULT_REDIRECT;
-    return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+    // 🔴 解決後の pathname が `//` で始まると、返したパスを router.push が
+    // プロトコル相対 URL（`//evil.com` → https://evil.com/）として解釈し外部へ出る。
+    // 入力 `/.//evil.com`・`/a/..//evil.com`・`/%2e//evil.com` は origin 比較を通るが
+    // ドット区間の除去後に pathname が `//evil.com` になる（2026年11月13日 点検で判明）。
+    // 返す値そのものを同じパーサで解き直し、同一オリジンに留まることまで確かめる。
+    const path = `${resolved.pathname}${resolved.search}${resolved.hash}`;
+    if (path.startsWith('//') || new URL(path, origin).origin !== new URL(origin).origin) return DEFAULT_REDIRECT;
+    return path;
   } catch {
     // 解析不能な値（不正なパーセントエンコード等）は既定へ倒す。
     return DEFAULT_REDIRECT;

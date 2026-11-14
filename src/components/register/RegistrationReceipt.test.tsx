@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import RegistrationReceipt from './RegistrationReceipt';
 import { SALON_BROWSER_CONTEXT_KEY, salonHandoffAuthPath } from '@/lib/salon-browser-context';
 const intentId = '74000000-0000-4000-8000-000000000001';
@@ -20,17 +20,18 @@ test('confirmed receipt is checked server-side before display and carries only a
   expect(screen.getByText(receiptId)).not.toBeVisible();
   fireEvent.click(screen.getByText('お問い合わせ用の番号'));
   expect(screen.getByText(receiptId)).toBeVisible();
-  expect(screen.getByText(/申込の送信だけでは公開されません/)).toBeVisible();
+  expect(within(screen.getByRole('list', { name: '掲載までの4ステップ' })).getByText('いまここ').closest('li')).toHaveTextContent('アカウント作成');
   expect(fetchMock.mock.calls[0][0]).toBe('/api/salons/summary');
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ intentId });
   expect(screen.getByRole('link', { name: '店舗アカウントを作成する' })).toHaveAttribute('href', salonHandoffAuthPath('signup'));
-  expect(screen.getByRole('link', { name: '既存アカウントでログインする' })).toHaveAttribute('href', salonHandoffAuthPath('login'));
-  // 新規の店舗アカウントは1アカウント1店舗。2 店舗目を同じアカウントで申し込ませる導線は出さず、
-  // 複数店舗は運営への問い合わせへ案内する。
-  expect(screen.queryByRole('link', { name: /別の店舗/ })).not.toBeInTheDocument();
-  expect(document.querySelector('a[href="/register"]')).toBeNull();
-  expect(screen.getByText(/新しく作成する店舗アカウントで掲載できるのは1店舗です/)).toBeVisible();
-  expect(screen.getByRole('link', { name: '運営へお問い合わせ' })).toHaveAttribute('href', '/contact');
+  expect(screen.getByRole('link', { name: 'アカウントがある方はログイン' })).toHaveAttribute('href', salonHandoffAuthPath('login'));
+  const another = screen.getByRole('link', { name: '別の店舗を申し込む（新しいタブ）' });
+  expect(another).toHaveAttribute('href', '/register');
+  expect(another).toHaveAttribute('target', '_blank');
+  expect(another).toHaveAttribute('rel', 'noopener noreferrer');
+  expect(screen.getByText('申込と同じメールアドレスで作ってください。')).toBeVisible();
+  expect(screen.getByText('無料掲載だけの利用も、複数店舗の申込もできます。')).toBeVisible();
+  expect(screen.getByRole('link', { name: '掲載までの流れ（図）' })).toHaveAttribute('href', '/register/guide');
   expect(JSON.parse(window.sessionStorage.getItem(SALON_BROWSER_CONTEXT_KEY)!)).toEqual({ version: 1, intentId, phase: 'confirmed' });
 });
 test.each(['missing', 'broken'])('unavailable context never fabricates receipt or queries other cookies %s', async kind => {

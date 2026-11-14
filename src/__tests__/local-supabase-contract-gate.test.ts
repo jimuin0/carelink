@@ -30,7 +30,7 @@ describe('isolated Supabase contract gate', () => {
 
   const successful = () => ({
     success: true, numTotalTestSuites: 3, numPassedTestSuites: 3, numPendingTestSuites: 0,
-    numFailedTestSuites: 0, numTotalTests: 19, numPassedTests: 19,
+    numFailedTestSuites: 0, numTotalTests: 22, numPassedTests: 22,
     numPendingTests: 0, numTodoTests: 0, numFailedTests: 0,
     testResults: ['local-mutation.contract.test.ts', 'schema-invariants.contract.test.ts', 'supabase-contract.test.ts'].map((name) => ({
       name: `/isolated/tests/contract/${name}`, status: 'passed', assertionResults: [{ status: 'passed' }],

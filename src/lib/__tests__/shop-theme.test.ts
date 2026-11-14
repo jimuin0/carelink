@@ -1,6 +1,6 @@
 import { isEcruShopPath } from '../shop-theme';
 
-test.each(['/register', '/register/complete', '/register/recover', '/admin', '/admin/onboarding', '/admin/bookings/123'])('%s は店舗向け', path => {
+test.each(['/register', '/register/guide', '/register/complete', '/register/recover', '/admin', '/admin/onboarding', '/admin/bookings/123'])('%s は店舗向け', path => {
   expect(isEcruShopPath(path)).toBe(true);
 });
 test.each(['/', '/search', '/facility/shop/booking', '/mypage', '/salon', '/registers', '/administrator', '/admin-old', null, undefined, ''])('%s は店舗向けではない', path => {

@@ -35,7 +35,7 @@ test('SSRの時点で入力欄は使え、「次へ」だけが準備完了ま�
     const next = view.getByRole('button', { name: '次へ' });
     expect(next).toBeDisabled();
     const status = view.getByRole('status');
-    expect(status).toHaveTextContent('入力はそのまま続けられます');
+    expect(status).toHaveTextContent('入力は続けられます');
     expect(status).toHaveTextContent('JavaScript');
     expect(next).toHaveAttribute('aria-describedby', status.id);
     // 3 ページ目は hidden のまま常に描かれる。案内は表示中のページにだけ出し、id を重複させない。
@@ -110,7 +110,7 @@ test('既存の申込の受付確認が終わるまでは最後の送信だけ�
   const { view, cleanup } = await hydrated(() => {}, true);
   try {
     expect(fetchMock).toHaveBeenCalledWith('/api/salons/status', expect.anything());
-    expect(view.getByRole('status')).toHaveTextContent('送信の準備をしています');
+    expect(view.getByRole('status')).toHaveTextContent('送信の準備中です');
     for (const [label, value] of [[/^店舗名/, '確認中に入力'], [/^業種/, 'ヘアサロン'], [/^代表者名/, '代表 太郎'],
       [/^メールアドレス/, 'fixture@example.invalid'], [/^電話番号/, '09012345678']] as const) {
       fireEvent.change(view.getByLabelText(label), { target: { value } });
@@ -118,14 +118,14 @@ test('既存の申込の受付確認が終わるまでは最後の送信だけ�
     fireEvent.click(view.getByRole('button', { name: '次へ' }));
     await view.findByLabelText(/^郵便番号/);
     fireEvent.click(view.getByRole('button', { name: '次へ' }));
-    const submit = await view.findByRole('button', { name: '登録する' });
+    const submit = await view.findByRole('button', { name: '申し込む' });
     expect(submit).toBeDisabled();
     expect(submit).toHaveAttribute('aria-describedby', view.getByRole('status').id);
     // Enter キー等でのフォーム送信も止まる（確認ダイアログを開かない）。
     fireEvent.submit(submit.closest('form')!);
     expect(view.queryByRole('dialog')).not.toBeInTheDocument();
     await act(async () => { finish({ status: 200, ok: true, json: async () => ({ state: 'uncommitted' }) }); });
-    expect(view.getByRole('button', { name: '登録する' })).toBeEnabled();
+    expect(view.getByRole('button', { name: '申し込む' })).toBeEnabled();
     expect(view.queryByRole('status')).not.toBeInTheDocument();
     fireEvent.click(view.getByRole('button', { name: '戻る' }));
     fireEvent.click(view.getByRole('button', { name: '戻る' }));

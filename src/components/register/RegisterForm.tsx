@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm, useWatch, type FieldErrors } from 'react-hook-form';
@@ -29,11 +29,14 @@ import { readLocalSalonDraft } from '@/lib/salon-local-draft';
 import { normalizePostalCodeInput, normalizeWebsiteInput } from '@/lib/register-input-normalize';
 import { LISTING_PUBLISH_ITEMS, REGISTER_PHOTO_FIELD_NOTE } from '@/lib/register-photo-policy';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import { medicalBusinessTypes, medicalBusinessTypeOptionValue, MEDICAL_BUSINESS_TYPE_DEFAULT } from '@/lib/medical-business-types';
+import MedicalSpecialtyPicker from '@/components/register/MedicalSpecialtyPicker';
 import { LICENSE_WARRANTY_TEXT } from '@/lib/registration-consent';
 import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
+const nonMedicalBusinessTypes = businessTypes.filter(type => !medicalBusinessTypes.includes(type) && type !== 'その他');
 
 // 「駐車場あり」は専用のチェックボックス（has_parking）があるので、こだわりチップからは外す
 // （同じ意味の入力が 2 つ並んでいた）。検索の絞り込みは features 配列を見るため、
@@ -41,7 +44,7 @@ const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
 const PARKING_FEATURE = '駐車場あり';
 const featureChoices = facilityFeatures.filter(feature => feature !== PARKING_FEATURE);
 
-const LEAVE_CONFIRM_MESSAGE = '入力中の内容は送信されていません。このページを離れると入力が失われます。';
+const LEAVE_CONFIRM_MESSAGE = '送信前の入力は、このページを離れると消えます。';
 
 // 入力欄にフォーカスが移ったとき（エラー箇所へ移すときなど）、固定ヘッダー（4rem）の下に
 // 隠れないよう余白を取る。
@@ -73,7 +76,7 @@ const emptySalonValues: SalonFormValues = {
   email: '', phone: '', contact_phone: '', website: '',
   postal_code: '', address: '', prefecture: null, city: null, building_name: '', nearest_station: '',
   business_hours: '', regular_holiday: '', seat_count: null, staff_count: null,
-  has_parking: false, features: [],
+  has_parking: false, features: [], medical_specialties: [],
   pr_text: '', desired_start_date: '',
 };
 
@@ -183,6 +186,15 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   });
 
   const prText = useWatch({ control, name: 'pr_text' }) || '';
+  const selectedBusinessType = useWatch({ control, name: 'business_type' }) || '';
+  // 診療科を選ぶと business_type が「内科」等に変わり、react-hook-form はその値を先に DOM の select へ書く。
+  // その瞬間は「医療機関」の行の value がまだ古いので一致する行が無く、欄が空に見える。
+  // 行の value が追いついた後（描画直後・表示前）に選択を合わせ直す。
+  useLayoutEffect(() => {
+    const select = document.getElementById('reg-business-type') as HTMLSelectElement | null;
+    if (select && selectedBusinessType && select.value !== selectedBusinessType) select.value = selectedBusinessType;
+  }, [selectedBusinessType, step]);
+  const selectedSpecialties = useWatch({ control, name: 'medical_specialties' }) || [];
   const postalCode = useWatch({ control, name: 'postal_code' }) || '';
   const selectedFeatures = useWatch({ control, name: 'features' }) || [];
   const representativeName = useWatch({ control, name: 'representative_name' }) || '';
@@ -229,7 +241,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     void initialize().catch(() => {
       if (cancelled) return;
       submissionUnknownRef.current = true; setSubmissionUnknown(true);
-      setV2Message('申込の確認情報を保存できません。ブラウザーの設定をご確認ください。新たに送信せず、お問い合わせください。');
+      setV2Message('申込の確認情報を保存できません。送信せず、お問い合わせください。');
     });
     return () => { cancelled = true; };
   }, [v2Enabled, completeConfirmedRegistration]);
@@ -456,7 +468,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     try {
       if (!(await localDraft.current?.beforeSubmit(data, photoFiles))) { setSubmitting(false); return; }
     } catch {
-      setSubmitting(false); setToast({ type: 'error', message: '端末の下書きを確認できませんでした。送信せず、入力と元の写真を保持しています。' }); return;
+      setSubmitting(false); setToast({ type: 'error', message: '下書きを確認できないため、送信を止めました。入力はそのままです。' }); return;
     }
     if (useV2) {
       try {
@@ -611,7 +623,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   };
 
   const downloadDraft = async () => {
-    if (!draftAllowed(false)) { setToast({ type: 'error', message: '送信状況を確認するまでバックアップできません。受付状況をお問い合わせください。' }); return; }
+    if (!draftAllowed(false)) { setToast({ type: 'error', message: '送信状況が分かるまで保存できません。受付状況をお問い合わせください。' }); return; }
     draftLockRef.current = true; setDraftBusy(true);
     let url: string | null = null;
     let anchor: HTMLAnchorElement | null = null;
@@ -626,9 +638,9 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       url = URL.createObjectURL(backup);
       anchor = document.createElement('a'); anchor.href = url; anchor.download = 'carelink-draft.json';
       document.body.appendChild(anchor); anchor.click();
-      setToast({ type: 'success', message: 'バックアップファイルを作成しました。保存先をご確認ください。' });
+      setToast({ type: 'success', message: '保存ファイルを作りました。' });
     } catch {
-      setToast({ type: 'error', message: 'バックアップを保存できませんでした。入力と元の写真はこの画面に保持されています。' });
+      setToast({ type: 'error', message: 'ファイルに保存できませんでした。入力はそのままです。' });
     } finally {
       anchor?.remove();
       if (url) {
@@ -640,7 +652,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   };
 
   const restoreDraft = async (file: File, fromLocal = false) => {
-    if (!draftAllowed(true)) { setToast({ type: 'error', message: '既存の申込または送信状況を確認するまで復元できません。受付状況をお問い合わせください。' }); return false; }
+    if (!draftAllowed(true)) { setToast({ type: 'error', message: '送信状況が分かるまで復元できません。受付状況をお問い合わせください。' }); return false; }
     draftLockRef.current = true; setDraftBusy(true);
     try {
       const local = await readLocalSalonDraft();
@@ -658,7 +670,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       for (const field of Object.keys(salonFullSchema.shape) as (keyof SalonFormValues)[]) {
         if (values[field] === undefined || values[field] === null) {
           if (!['prefecture', 'city', 'seat_count', 'staff_count'].includes(field)) {
-            Object.assign(values, { [field]: field === 'features' ? [] : field === 'has_parking' ? false : '' });
+            Object.assign(values, { [field]: field === 'features' || field === 'medical_specialties' ? [] : field === 'has_parking' ? false : '' });
           }
         }
       }
@@ -674,10 +686,10 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       setPhotoFiles(draft.photos); setRestoreGeneration(value => value + 1);
       setAgreed(false); setLicenseWarranted(false); setRestoredNeedsReview(true); setRestoredUnsentAcknowledged(false);
       setLegacyStorageBlocked(false); setShowConfirm(false); setPhotoError(null); setIsDirty(true); setStep(1);
-      setToast({ type: 'success', message: '入力と元の写真を復元しました。内容と未送信であることを確認し、規約と表明に改めて同意してください。' });
+      setToast({ type: 'success', message: '復元しました。内容を確認し、もう一度同意にチェックしてください。' });
       return true;
     } catch {
-      setToast({ type: 'error', message: '下書きを復元できませんでした。入力と元の写真は変更されていません。' });
+      setToast({ type: 'error', message: '復元できませんでした。入力はそのままです。' });
       return false;
     } finally { draftLockRef.current = false; setDraftBusy(false); }
   };
@@ -722,7 +734,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   /** 送信ボタンの横に出す「準備中」の案内。入力は続けられることと、待っている理由を書く。 */
   const readyStatus = !formReady && !submissionUnknown
     ? <p role="status" id="register-ready-status" className="mt-2 text-sm text-(--ecru-muted)">
-      入力はそのまま続けられます。送信の準備をしています（通信状況によって時間がかかります）。しばらく待っても「次へ」や送信を押せない場合は、JavaScriptの設定と通信状況を確認してください。
+      送信の準備中です（入力は続けられます）。押せないままなら、JavaScriptと通信をご確認ください。
     </p>
     : null;
   const readyDescription = !formReady && !submissionUnknown ? { 'aria-describedby': 'register-ready-status' } : {};
@@ -769,38 +781,37 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
             <span aria-hidden="true" className="text-base leading-none text-(--ecru-muted) transition-transform group-open:rotate-45">+</span>
             入力途中の内容を保存する（任意）
           </summary>
-          <div className="space-y-6 border-t border-(--ecru-line) px-4 py-4">
+          <div className="space-y-5 border-t border-(--ecru-line) px-4 py-4">
             <SalonLocalDraftControls ref={localDraft} getValues={getValues} watch={watch} photos={photoFiles}
               canSave={() => !backupDisabled && (() => { const context = readDraftContext(); return context.state === 'empty' || (context.state === 'ready' && context.context.phase === 'prepared'); })()}
               canRestore={() => !restoreDisabled && readDraftContext().state === 'empty'}
               onAttention={() => setDraftPanelOpen(true)}
               onRestore={async blob => { if (!(await restoreDraft(new File([blob], 'carelink-local-draft.json', { type: 'application/json' }), true))) throw new Error('Local draft restoration not confirmed'); }} />
-            <section aria-label="入力の手動バックアップ" className="text-sm">
-              <h3 className="font-medium">ファイルに保存する</h3>
-              <p className="mt-1 text-(--ecru-muted)">未送信の入力と元の写真を、ファイルへ手動で保存・復元できます。端末への自動保存は、上の「この端末で下書きを自動保存する」を選んだ場合だけ行います。</p>
-              <p className="mt-1 text-(--ecru-muted)">ファイルには氏名・連絡先・写真が含まれます。安全な保存先で管理し、共有端末では保存しないでください。不要になったら削除してください。</p>
+            <section aria-label="入力の手動バックアップ" className="border-t border-(--ecru-line) pt-5 text-sm">
+              <h3 className="font-medium">ファイルに保存</h3>
+              <p className="mt-1 text-(--ecru-muted)">別の端末で続けるときに使います。</p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <button type="button" onClick={() => void downloadDraft()} disabled={backupDisabled} className={DRAFT_BUTTON}>入力と元の写真をバックアップ</button>
+                <button type="button" onClick={() => void downloadDraft()} disabled={backupDisabled} className={DRAFT_BUTTON}>保存ファイルを作る</button>
                 {/* ファイル選択欄は sr-only（「Choose File」等のブラウザー既定の英語表示を出さない）。
                     キーボードではこの欄にフォーカスが入るので、枠に focus-within でリングを出す。 */}
                 <label className={`${DRAFT_BUTTON} focus-within:ring-2 focus-within:ring-(--primary) focus-within:ring-offset-2 ${restoreDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
-                  バックアップから入力を復元
-                  <input type="file" accept="application/json,.json" aria-label="バックアップから入力を復元" disabled={restoreDisabled} className="sr-only"
+                  保存ファイルから復元
+                  <input type="file" accept="application/json,.json" aria-label="保存ファイルから復元" disabled={restoreDisabled} className="sr-only"
                     onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void restoreDraft(file); }} />
                 </label>
               </div>
-              {draftContext !== 'empty' && <p className="mt-2">既存の申込確認情報があるため復元できません。送信済み・結果不明の場合は、受付状況を先に確認してください。</p>}
+              {draftContext !== 'empty' && <p className="mt-2">申込の確認中のため復元できません。先に受付状況を確認してください。</p>}
             </section>
           </div>
         </details>
         {confirmedCleanupPath && <div role="alert" className="mb-4 rounded-sm border p-4 text-sm">
-          <p>掲載申込の受付は確認済みです。この端末の下書き削除を確認できませんでした。下書きの復元はロックされています。「端末の下書きを削除」をお試しください。</p>
+          <p>受付は完了しています。この端末の下書きを消せなかったため、「下書きを削除」を押してください。</p>
           <Link href={confirmedCleanupPath} className="mt-2 inline-block underline">受付内容を確認する</Link>
         </div>}
         {legacyStorageBlocked && !submissionUnknown && <div role="alert" className="mb-4 rounded-sm border border-amber-300 p-4 text-sm">
-          <p>写真の旧アップロード方法が利用できません。申込はまだ送信していません。入力と元の写真を保持したまま、安全なアップロードで明示的に再試行できます。</p>
+          <p>写真を送れませんでした（申込はまだ送信していません）。入力はそのままで、下のボタンから送り直せます。</p>
           <button type="button" onClick={retrySignedUpload} disabled={submitting || draftBusy || !agreed || !licenseWarranted || (restoredNeedsReview && !restoredUnsentAcknowledged)}
-            className="mt-3 underline">安全なアップロードで再試行</button>
+            className="mt-3 underline">写真を送り直す</button>
         </div>}
 
         {submissionUnknown && (
@@ -835,14 +846,25 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               <div>
                 <label htmlFor="reg-business-type" className="form-label">業種 <span className="text-red-600">*</span></label>
                 <div className="relative">
-                  <select {...register('business_type')} id="reg-business-type" className="form-input appearance-none pr-10" aria-required="true" {...describe('business_type', 'reg-business-type')}>
+                  <select {...register('business_type')} id="reg-business-type" className="form-input appearance-none pr-10" aria-required="true" {...describe('business_type', 'reg-business-type')}
+                    onChange={event => {
+                      void register('business_type').onChange(event);
+                      if (!medicalBusinessTypes.includes(event.target.value)) setValue('medical_specialties', [], { shouldDirty:true });
+                    }}>
                     <option value="">選択してください</option>
-                    {businessTypes.map(t => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
+                    {nonMedicalBusinessTypes.map(t => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
+                    <option value={medicalBusinessTypeOptionValue(selectedBusinessType)}>医療機関</option>
+                    <option value="その他">その他</option>
                   </select>
                   {chevron}
                 </div>
                 {fieldError('business_type', 'reg-business-type')}
-                <p className="mt-1 text-xs text-gray-500">医療機関は主な診療科（耳鼻咽喉科・内科など）を選択してください。複数の診療科がある場合は病院・診療所の区分を選び、紹介文に診療科を記載できます。</p>
+                {medicalBusinessTypes.includes(selectedBusinessType) && <div className="mt-3">
+                  <MedicalSpecialtyPicker value={selectedSpecialties} onChange={values => {
+                    setValue('medical_specialties', values, { shouldDirty:true,shouldValidate:true });
+                    setValue('business_type', values[0] || MEDICAL_BUSINESS_TYPE_DEFAULT, { shouldDirty:true,shouldValidate:true });
+                  }} />
+                </div>}
               </div>
               {/* PC・iPad では対になる項目を横に並べる。縦一列のままだと画面が広いほど
                   間延びして、入力の終わりが見えない（実機の 1440px / 834px で確認）。 */}
@@ -1033,7 +1055,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                     disabled={submitting || submissionUnknown || submissionConfirmed || draftBusy}
                     aria-required="true" {...(checkError('unsent') ? { 'aria-invalid': true, 'aria-describedby': 'reg-unsent-error' } : {})}
                     onChange={event => setRestoredUnsentAcknowledged(event.target.checked)} className={CHECKBOX} />
-                  <span>この下書きはまだ送信していません。送信済み・結果不明の場合は受付状況を確認します</span>
+                  <span>この下書きはまだ送信していない（送信したか分からないときは、先に受付状況を確認する）</span>
                 </label>
                 {checkError('unsent') && <p id="reg-unsent-error" className="form-error">{checkError('unsent')}</p>}
               </div>}
@@ -1080,7 +1102,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               <div className="flex gap-4">
                 <Button onClick={() => goToStep(2)} variant="secondary" size="lg" className="flex-1">戻る</Button>
                 <Button type="submit" disabled={!formReady || submitting || submissionUnknown || submissionConfirmed || draftBusy || legacyStorageBlocked} {...readyDescription} size="lg" className="flex-1">
-                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '登録する'}
+                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '申し込む'}
                 </Button>
               </div>
               {/* 3 ページ目は隠したまま常に描かれるので、表示中だけ出す（同じ id を 2 つ作らない）。 */}
@@ -1092,11 +1114,11 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
 
       <ConfirmDialog
         open={showConfirm}
-        title="登録内容を送信しますか？"
+        title="この内容で申し込みますか？"
         // 受付と一般公開は別の手続き（/register の FAQ・受付メールと同じ事実を書く）。以前は
         // 「すぐに掲載を開始できます」と書いており、送信すれば公開されると誤解させていた。
-        message={`送信後、続けて店舗アカウントを作成すると、入力内容（営業時間・写真・特徴・PRなど）が管理画面に引き継がれます。一般公開は、管理画面で${LISTING_PUBLISH_ITEMS}を設定して公開の操作をした後に始まります（送信しただけでは公開されません）。`}
-        confirmLabel="送信する"
+        message={`まだ公開されません。アカウント作成・書類の提出・${LISTING_PUBLISH_ITEMS}の設定を終え、運営が確認すると公開されます。`}
+        confirmLabel="この内容で申し込む"
         cancelLabel="戻る"
         confirmDisabled={submitting || submissionUnknown || submissionConfirmed || draftBusy || (restoredNeedsReview && !restoredUnsentAcknowledged)}
         onConfirm={handleConfirmSubmit}

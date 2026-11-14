@@ -6,7 +6,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { isValidIsoDate } from '@/lib/date-utils';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
-import { clampDuration, readSlots } from '@/lib/available-slots';
+import { clampDuration, loadSlotHolidayCalendar, readDatedSlots } from '@/lib/available-slots';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,7 +37,10 @@ export async function GET(request: Request) {
   if (preparation.error) return serverError('slots:preparation', preparation.error, '/api/slots', '予約設定を確認できません', { slots: [] });
   if (!preparation.readiness.ready) return NextResponse.json({ slots: [], bookingAvailable: false });
   // The slot RPC is SECURITY DEFINER and not executable by anon: only these rate-limited routes may run it.
-  const read = await readSlots(createServiceRoleClient(), facilityId, staffId, date, duration);
+  const admin = createServiceRoleClient();
+  const policy = await loadSlotHolidayCalendar(admin, facilityId);
+  if (policy.error) return serverError('slots:holiday-calendar', policy.error, '/api/slots', '営業時間を確認できません', { slots: [] });
+  const read = await readDatedSlots(admin, facilityId, staffId, date, duration, policy.calendar);
 
   // 取得失敗を「空き枠なし」に偽装しない。RPC エラーを握り潰すと、過去の booking_buffer_minutes
   // スキーマドリフトのように予約導線が無監視で壊れる（空配列＝予約不可がサイレントに発生）。

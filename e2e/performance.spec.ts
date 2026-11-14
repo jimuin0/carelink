@@ -37,7 +37,10 @@ test.describe('ページロード パフォーマンス', () => {
             observer.disconnect();
           }
         });
-        observer.observe({ entryTypes: ['largest-contentful-paint'] });
+        // LCP は goto の完了（load）より前に記録されることが多い。entryTypes で登録すると、
+        // 登録より前の記録は届かず 5 秒後に 9999 になる（2026-10-29・10-31 の CI・Mobile Safari で発生）。
+        // buffered: true で登録前の記録も受け取る。
+        observer.observe({ type: 'largest-contentful-paint', buffered: true });
         setTimeout(() => resolve(9999), 5000);
       });
     });
@@ -52,7 +55,8 @@ test.describe('ページロード パフォーマンス', () => {
         let clsScore = 0;
         const observer = new PerformanceObserver((list) => {
           for (const entry of list.getEntries()) {
-            const layoutEntry = entry as any;
+            // layout-shift の項目は TypeScript の標準の型に無いので、使う 2 つだけを型にする。
+            const layoutEntry = entry as PerformanceEntry & { hadRecentInput?: boolean; value: number };
             if (!layoutEntry.hadRecentInput) {
               clsScore += layoutEntry.value;
             }
