@@ -68,6 +68,7 @@ test('祝日休業を使わない場合、祝日データ取得を行わない',
 test('認証されていない人は設定を読めない', async () => {
   getUser.mockResolvedValue({ data:{user:null}, error:null });
   expect((await GET(new NextRequest(url))).status).toBe(401);
+  expect((await PUT(put(body))).status).toBe(401);
 });
 
 test.each([

@@ -744,6 +744,13 @@ describe('GET /api/admin/inquiries/[id]/reply', () => {
     expect(unauthorized.headers.get('Cache-Control')).toBe('no-store');
   });
 
+  test('GET: 未ログインは 401（点検 A205）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
+    const res = await GET(new NextRequest('http://localhost/api/admin/inquiries/' + INQUIRY_UUID + '/reply'), makeProps());
+    expect(res.status).toBe(401);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+  });
+
   test('rate limit時はno-store 429を返す', async () => {
     (checkRateLimit as jest.Mock).mockResolvedValueOnce(true);
     const res = await GET(new NextRequest('http://localhost/api/admin/inquiries/' + INQUIRY_UUID + '/reply'), makeProps());
