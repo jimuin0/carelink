@@ -106,3 +106,15 @@ test('a delayed legacy weekly job is not lost across a wall-clock cutover', () =
   expect(dispatcher.status).toBe(0);
   expect(dispatcher.stdout).not.toContain('fixture request');
 });
+
+test('a start beyond the startup window is reported as a missed slot with its jobs and fails the run', () => {
+  const r = run('cron-dispatch.mjs', ['quarter-hour'], {at: '2026-10-19T06:11:00Z'});
+  expect(r.status).toBe(1);
+  expect(r.stderr).toContain('[cron-dispatch] MISSED quarter-hour slot=2026-10-19T06:00:00.000Z delay=660s jobs=webhook-retry,flag-reviews');
+  expect(r.stdout).not.toContain('fixture request');
+});
+test('a missed slot with no due jobs still fails visibly', () => {
+  const r = run('cron-dispatch.mjs', ['hourly'], {at: '2026-10-19T07:02:00Z', cutover: ''});
+  expect(r.status).toBe(1);
+  expect(r.stderr).toContain('MISSED hourly slot=2026-10-19T06:50:00.000Z delay=720s jobs=none');
+});

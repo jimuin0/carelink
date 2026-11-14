@@ -52,12 +52,53 @@ export function cutoverTime(value) {
   return Date.parse(value);
 }
 
+// Upper bound on Render startup delay that is still attributed to the tick
+// that launched the container. The effective window per runner is
+// min(MAX_STARTUP_DELAY_MS, shortest gap between its ticks), so the latest tick
+// inside the window is always the launching tick: one slot is never resolved
+// by two containers (no double run) and a delayed run never adopts the next
+// tick's jobs. A start later than the window is reported as a missed slot.
+export const MAX_STARTUP_DELAY_MS = 10 * 60_000;
+
+export class MissedSlotError extends Error {
+  constructor(slot, delayMs) {
+    super('Runner started after its startup-delay window');
+    this.name = 'MissedSlotError';
+    this.slot = slot;
+    this.delayMs = delayMs;
+  }
+}
+
+const gapCache = new Map();
+// Shortest interval between consecutive ticks (UTC). Every supported schedule
+// ticks at least weekly, so two weeks always yield a finite gap.
+export function minTickGapMs(schedule) {
+  if (gapCache.has(schedule)) return gapCache.get(schedule);
+  const start = Date.UTC(2026, 9, 18); // two full weeks: weekly ticks pair up
+  let prev = null;
+  let gap = Infinity;
+  for (let n = 0; n < 15 * 24 * 60; n++) {
+    const t = start + n * 60_000;
+    if (!matchesSchedule(schedule, new Date(t))) continue;
+    if (prev !== null) gap = Math.min(gap, t - prev);
+    prev = t;
+  }
+  gapCache.set(schedule, gap);
+  return gap;
+}
+
+export function startupWindowMs(schedule) {
+  return Math.min(MAX_STARTUP_DELAY_MS, minTickGapMs(schedule));
+}
+
 function scheduledSlot(schedule, now) {
+  const window = startupWindowMs(schedule);
   let slot = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
   while (!matchesSchedule(schedule, slot)) {
     slot = new Date(slot.getTime() - 60_000);
-    if (now.getTime() - slot.getTime() >= 300_000) throw new Error('Runner started outside its scheduled window');
   }
+  const delay = now.getTime() - slot.getTime();
+  if (delay >= window) throw new MissedSlotError(slot, delay);
   return slot;
 }
 
@@ -73,8 +114,8 @@ export function retiredLegacyJob(name, jobs, cutover, now) {
 export function dispatchPlan(groupName, jobs, now, cutover) {
   const group = DISPATCH_GROUPS.find(g => g.name === groupName);
   if (!group) throw new Error('Unknown dispatch group');
-  // Render starts containers several seconds after the scheduled minute. Resolve
-  // the latest runner tick, bounded to five minutes, including day rollover.
+  // Render starts containers some time after the scheduled minute. Resolve the
+  // latest runner tick inside the startup window, including day rollover.
   const slot = scheduledSlot(group.schedule, now);
   const names = slot.getTime() < cutover ? [group.legacy] : group.jobs;
   const selected = names.map(name => {
@@ -83,6 +124,14 @@ export function dispatchPlan(groupName, jobs, now, cutover) {
     return job;
   }).filter(job => matchesSchedule(job.schedule, slot));
   return { slot: slot.toISOString(), jobs: selected.map(job => job.name) };
+}
+
+// Jobs that were due at a slot the runner could not claim (for the alert log).
+export function missedJobs(groupName, jobs, slot, cutover) {
+  const group = DISPATCH_GROUPS.find(g => g.name === groupName);
+  if (!group) throw new Error('Unknown dispatch group');
+  const names = slot.getTime() < cutover ? [group.legacy] : group.jobs;
+  return names.filter(name => jobs.some(job => job.name === name && matchesSchedule(job.schedule, slot)));
 }
 
 export function monitorPlan(jobs, now) {
