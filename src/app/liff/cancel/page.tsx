@@ -85,6 +85,8 @@ function CancelContent() {
     if (liff.status !== 'ready' || !bookingId) return;
     fetch(`/api/liff/bookings?booking_id=${encodeURIComponent(bookingId)}`, {
         headers: { Authorization: `Bearer ${liff.accessToken}` },
+        // 読み込み中で固まらないよう時間を区切る（時間切れは読み込み失敗の表示へ）。
+        signal: AbortSignal.timeout(15_000),
       })
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setBooking(d.booking ?? null); setEstimateAt(Date.now()); setLoading(false); })
@@ -95,7 +97,7 @@ function CancelContent() {
   const settleUncertainCancel = useCallback(async (id: string) => {
     if (liff.status !== 'ready') return;
     try {
-      const r = await fetch(`/api/liff/bookings?booking_id=${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${liff.accessToken}` } });
+      const r = await fetch(`/api/liff/bookings?booking_id=${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${liff.accessToken}` }, signal: AbortSignal.timeout(15_000) });
       const d = r.ok ? await r.json() : null;
       if (d?.booking?.status === 'cancelled') { setResult('success'); return; }
     } catch { /* 下の「確認できない」案内に倒す */ }
@@ -118,6 +120,8 @@ function CancelContent() {
       const res = await fetch(`/api/booking/${booking.id}/cancel`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${liff.accessToken}` },
+        // 時間切れでも成立している場合があるので、catch で実際の状態を確かめる。
+        signal: AbortSignal.timeout(20_000),
       });
       if (res.ok) {
         // 応答の cancelFee はキャンセルを受け付けたトランザクションで確定した額（お客様宛メールと同じ）。
