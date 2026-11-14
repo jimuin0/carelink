@@ -211,3 +211,17 @@ test.each(['signup', 'login'] as const)('(viii) 認証済み + salonRecoveryAuth
   expect(dest.pathname).toBe('/register/recover');
   expect(dest.search).toBe('');
 });
+
+// 低 A277: 保護対象は /mypage・/admin とその配下だけ。同じ接頭辞の別ページは保護しない。
+test.each(['/mypage-guide', '/administration'])('未ログイン + %s（同じ接頭辞の別ページ）→ ログインへ飛ばさない', async (path) => {
+  getUserImpl = async () => ({ data: { user: null } });
+  const res: Record<string, unknown> = await middleware(makeRequest(path));
+  expect(res._isRedirect).toBeUndefined();
+});
+
+test.each(['/mypage', '/mypage/bookings', '/admin/menus'])('未ログイン + %s → ログインへ', async (path) => {
+  getUserImpl = async () => ({ data: { user: null } });
+  const res: Record<string, unknown> = await middleware(makeRequest(path));
+  expect(res._isRedirect).toBe(true);
+  expect((res._redirectedTo as URL).pathname).toBe('/auth/login');
+});

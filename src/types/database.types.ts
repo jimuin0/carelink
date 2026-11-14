@@ -7981,12 +7981,14 @@ export type Database = {
         Args: { p_today: string }
         Returns: {
           booking_date: string
+          cancel_fee_context: Json | null
           charges: Json | null
           coupon_id: string | null
           created_at: string | null
           customer_name: string
           email: string | null
           email_canonical: string | null
+          end_date: string | null
           end_time: string
           facility_id: string
           id: string
@@ -8002,6 +8004,7 @@ export type Database = {
           review_request_legacy_claimed_at: string | null
           review_request_provider_accepted_at: string | null
           source: string
+          staff_auto_assigned: boolean
           staff_id: string | null
           start_time: string
           status: string
