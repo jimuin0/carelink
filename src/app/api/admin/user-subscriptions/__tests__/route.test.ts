@@ -818,20 +818,27 @@ test('PATCH: subscription_plans.facility_id=null かつ booking が別ユーザ�
   expect(json.error).toMatch(/予約がサブスクリプションと一致しません/);
 });
 
-test('PATCH: usage log insert 失敗時も 200 を返す（best-effort・冪等ログ警告のみ）', async () => {
-  // logErr が非 null のブランチ（L301 の if(logErr)）をカバーする。
-  // RPC でセッション消費は成功しているため、ログ挿入失敗でも 200 を返す設計。
+test('PATCH: 利用ログの記録は RPC に一本化されている（route 自身は INSERT しない）', async () => {
+  // 監査D2: ログ INSERT は consume_subscription_session の内部（行ロック配下）に統合済み。
+  // route が別途 INSERT する作りへ戻ると二重消費の窓が復活するため、INSERT が呼ばれないことと
+  // RPC に消費の引数が渡ることの両方を確かめる。
   let callNum = 0;
+  const strayInsert = jest.fn(() => Promise.resolve({ error: null }));
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return singleChain(buildActiveSub());
-    return { insert: jest.fn(() => Promise.resolve({ error: { message: 'log insert failed' } })) };
+    return { insert: strayInsert };
   });
-  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
-  const json = await res.json();
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, notes: 'memo' }));
   expect(res.status).toBe(200);
-  expect(json.subscription).toBeDefined();
+  expect(strayInsert).not.toHaveBeenCalled();
+  expect(callNum).toBe(1);
+  expect(mockAdminRpc).toHaveBeenCalledWith('consume_subscription_session', {
+    p_subscription_id: SUB_UUID,
+    p_booking_id: undefined,
+    p_notes: 'memo',
+  });
 });
 
 // ─── 点検 A134/A135：消費の監査・事前照会の障害 ─────────────────────────────────

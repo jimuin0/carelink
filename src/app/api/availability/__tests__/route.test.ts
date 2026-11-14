@@ -460,9 +460,9 @@ describe('GET /api/availability', () => {
     expect(monthCalls[0][1].p_staff_ids).toEqual([STAFF_UUID]);
   });
 
-  test('rate limit params (10 req/min per IP)', () => {
+  test('rate limit params (10 req/min per IP)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    GET(makeRequest(VALID_UUID, undefined, 2026, 5, '192.168.1.1') as any);
+    await GET(makeRequest(VALID_UUID, undefined, 2026, 5, '192.168.1.1') as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
     expect(call[2]).toBe(10);
@@ -470,9 +470,9 @@ describe('GET /api/availability', () => {
     expect(call[4]).toBe('availability');
   });
 
-  test('extracts last (trusted) IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    GET(makeRequest(VALID_UUID, undefined, 2026, 5, '10.0.0.1, 192.168.1.1') as any);
+    await GET(makeRequest(VALID_UUID, undefined, 2026, 5, '10.0.0.1, 192.168.1.1') as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
   });
@@ -502,10 +502,10 @@ describe('GET /api/availability', () => {
     });
   });
 
-  test('missing x-forwarded-for → uses "unknown" IP', () => {
+  test('missing x-forwarded-for → uses "unknown" IP', async () => {
     (checkRateLimit as jest.Mock).mockClear();
     const req = new Request(`http://localhost/api/availability?facilityId=${VALID_UUID}&year=2026&month=5`, { method: 'GET' });
-    GET(req as any);
+    await GET(req as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('unknown');
   });

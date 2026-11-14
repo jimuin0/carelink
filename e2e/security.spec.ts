@@ -141,7 +141,8 @@ test.describe('IDOR 防止', () => {
       },
       headers: { 'Content-Type': 'application/json' },
     });
-    expect([401, 403, 403]).toContain(response.status());
+    // 変更は本人のログインが前提。未ログインは CSRF(403) か未認証(401) で、予約の有無（404）までは進まない。
+    expect([401, 403]).toContain(response.status());
   });
 
   test('認証なしでキャンセルできない', async ({ request }) => {

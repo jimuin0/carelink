@@ -11,6 +11,13 @@ import { verifyRecaptcha } from '../recaptcha';
 import { postAlert } from '@/lib/alert';
 
 const SECRET = 'test-secret-key';
+const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+
+// 途中の expect が失敗しても NODE_ENV=production を後続テストへ持ち越さない
+// （本文中の戻し処理は失敗時に実行されないため、ここで必ず戻す）。
+afterEach(() => {
+  Object.defineProperty(process.env, 'NODE_ENV', { value: ORIGINAL_NODE_ENV, configurable: true });
+});
 
 beforeEach(() => {
   jest.restoreAllMocks();

@@ -361,6 +361,16 @@ function prodFunctionsFromTypes(): Set<string> {
  * 制約行（CONSTRAINT/PRIMARY/FOREIGN/UNIQUE/CHECK/EXCLUDE/LIKE）は列ではないため除外。
  */
 function migrationDefinedColumns(): Map<string, Set<string>> {
+  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
+  return columnsFromMigrationSql(files.map((f) => readFileSync(join(MIGRATIONS_DIR, f), 'utf8')));
+}
+
+/**
+ * 🔴 why: テーブル・RPC 抽出と同じく、コメントを除去してから CREATE TABLE を探す。
+ *   コメントに `CREATE TABLE x (` の断片を書くと、存在しない表・列の集合が作られて列ドリフトを
+ *   誤検知し、コメント中の括弧で本体抽出の深さもずれていた。
+ */
+function columnsFromMigrationSql(sqls: readonly string[]): Map<string, Set<string>> {
   const cols = new Map<string, Set<string>>();
   const add = (table: string, col: string) => {
     if (!cols.has(table)) cols.set(table, new Set());
@@ -368,19 +378,19 @@ function migrationDefinedColumns(): Map<string, Set<string>> {
   };
   const drop = (table: string, col: string) => { cols.get(table)?.delete(col); };
   const CONSTRAINT_KW = /^(constraint|primary|foreign|unique|check|exclude|like)\b/i;
-  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
 
-  for (const file of files) {
-    const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
+  for (const rawSql of sqls) {
+    const sql = rawSql;
+    const uncommented = stripSqlComments(rawSql);
 
-    // CREATE TABLE [IF NOT EXISTS] [public.]<name> ( ... ) — 括弧バランスで本体抽出
+    // CREATE TABLE [IF NOT EXISTS] [public.]<name> ( ... ) — 括弧バランスで本体抽出（コメント除去後の SQL で）
     const createRe = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s*\(/gi;
     let cm: RegExpExecArray | null;
-    while ((cm = createRe.exec(sql)) !== null) {
+    while ((cm = createRe.exec(uncommented)) !== null) {
       const table = cm[1];
       let depth = 1, rawBody = '';
-      for (let i = createRe.lastIndex; i < sql.length && depth > 0; i++) {
-        const ch = sql[i];
+      for (let i = createRe.lastIndex; i < uncommented.length && depth > 0; i++) {
+        const ch = uncommented[i];
         if (ch === '(') depth++;
         else if (ch === ')') { depth--; if (depth === 0) break; }
         rawBody += ch;
@@ -492,6 +502,18 @@ describe('migration ↔ prod スキーマ ドリフト台帳', () => {
           'CREATE FUNCTION unqualified_rpc() RETURNS integer LANGUAGE sql AS $$ SELECT 1 $$;',
       ]);
       expect([...f]).toEqual(['visible_rpc', 'unqualified_rpc']);
+    });
+  });
+
+  describe('🔴 列抽出もコメントを読まない', () => {
+    test('コメント中の CREATE TABLE 断片から表・列を作らない', () => {
+      const c = columnsFromMigrationSql([
+        '-- 旧定義: CREATE TABLE ghost_table (ghost_col text, other int\n' +
+          '/* CREATE TABLE ghost_block (x int) */\n' +
+          'CREATE TABLE real_table (\n  id uuid PRIMARY KEY, -- 説明 (括弧つき\n  name text NOT NULL\n);',
+      ]);
+      expect([...c.keys()]).toEqual(['real_table']);
+      expect([...c.get('real_table')!].sort()).toEqual(['id', 'name']);
     });
   });
 

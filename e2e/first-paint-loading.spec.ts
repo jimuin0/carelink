@@ -101,7 +101,10 @@ async function seedVisitorWithBooking() {
   if (ce) throw new Error('seed user: ' + JSON.stringify(ce, Object.getOwnPropertyNames(ce)));
 
   // 変更可能な予約（status は pending/confirmed のみ変更画面を開ける）。
-  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // 日付は JST で数える（CI=UTC。UTC の「明日」は JST 早朝には当日になり、
+  // 10:00 開始の予約が数時間後＝変更の締切内になって画面が開けないことがある）。
+  // visitor-change.setup と同じく JST の +2 日にして、時間帯によらず締切の外に置く。
+  const tomorrow = new Date(Date.now() + 9 * 60 * 60 * 1000 + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const { data: bk, error: be } = await sb
     .from('bookings')
     .insert({

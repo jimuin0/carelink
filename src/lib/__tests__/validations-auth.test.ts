@@ -123,11 +123,9 @@ describe('loginSchema - 境界値・エッジケース', () => {
     expect(loginSchema.safeParse({ ...base, email: "' OR '1'='1" }).success).toBe(false);
   });
 
-  test('空白のみのパスワードは 8 文字でも NG か確認', () => {
-    // 空白 8 文字 — Zod の min(8) は通過する（文字数のみチェック）
-    const result = loginSchema.safeParse({ ...base, password: '        ' });
-    // 長さチェックのみで通過するか否かは実装依存
-    expect(typeof result.success).toBe('boolean');
+  test('ログインでは空白のみ 8 文字のパスワードも形式としては通す（照合は認証側。既存のパスワードを形式で弾かない）', () => {
+    expect(loginSchema.safeParse({ ...base, password: '        ' }).success).toBe(true);
+    expect(loginSchema.safeParse({ ...base, password: '       ' }).success).toBe(false);
   });
 
   test('メールが undefined → エラー', () => {
@@ -155,15 +153,17 @@ describe('signupSchema - 境界値・エッジケース', () => {
     expect(signupSchema.safeParse({ ...base, display_name: 'A' }).success).toBe(true);
   });
 
-  test('display_name 50 文字は OK（max が 50 の場合）', () => {
-    const result = signupSchema.safeParse({ ...base, display_name: 'あ'.repeat(50) });
-    // 50文字が上限の場合は OK
-    expect(typeof result.success).toBe('boolean');
+  test('display_name は 50 文字まで OK・51 文字は NG', () => {
+    expect(signupSchema.safeParse({ ...base, display_name: 'あ'.repeat(50) }).success).toBe(true);
+    expect(signupSchema.safeParse({ ...base, display_name: 'あ'.repeat(51) }).success).toBe(false);
   });
 
-  test('display_name に絵文字は通過するか確認', () => {
-    const result = signupSchema.safeParse({ ...base, display_name: 'テスト😊' });
-    expect(typeof result.success).toBe('boolean');
+  test('display_name に絵文字を含めても通す', () => {
+    expect(signupSchema.safeParse({ ...base, display_name: 'テスト😊' }).success).toBe(true);
+  });
+
+  test('display_name が空白だけなら NG（前後の空白を除いて数える）', () => {
+    expect(signupSchema.safeParse({ ...base, display_name: '   ' }).success).toBe(false);
   });
 
   test('パスワードちょうど 8 文字は OK', () => {
@@ -182,8 +182,9 @@ describe('signupSchema - 境界値・エッジケース', () => {
   test('display_name に XSS が含まれても zod は通過（サニタイズは別レイヤー）', () => {
     // Zod はサニタイズしない → 通過するが DB 保存時にエスケープが必要
     const result = signupSchema.safeParse({ ...base, display_name: '<script>alert(1)</script>' });
-    // 文字数が要件を満たせば通過する
-    expect(typeof result.success).toBe('boolean');
+    // 文字数が要件を満たせば通過する（値はそのまま。出力時のエスケープで守る）
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.display_name).toBe('<script>alert(1)</script>');
   });
 
   test('全フィールド undefined → 全エラー', () => {

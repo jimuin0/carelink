@@ -54,7 +54,10 @@ export async function readBookingCsvRows(
   if (!truncated) return { rows, truncated: false, error: null };
   const rest = await page(BOOKING_CSV_MAX_ROWS, 1);
   if (rest.error) return { rows: [], truncated: false, error: rest.error };
-  return { rows, truncated: (rest.data?.length ?? 0) > 0, error: null };
+  // 配列でない応答（data=null 等）は「続きなし」と言い切れない。完全な CSV として渡さず失敗にする
+  // （他の読み取り経路と同じく、欠けた応答を 0 件と読み替えない）。
+  if (!Array.isArray(rest.data)) return { rows: [], truncated: false, error: new Error('bookings continuation result invalid') };
+  return { rows, truncated: rest.data.length > 0, error: null };
 }
 
 const HEADERS = ['予約ID', '予約日', '開始時間', '終了時間', '顧客名', 'メール', '電話', 'ステータス', '金額', '備考', '作成日'];

@@ -127,9 +127,22 @@ describe('isIndexableAreaQuality', () => {
     ['short intro', { ...content, intro: '短い説明' }],
     ['one highlight', { ...content, highlights: ['1つ'] }],
     ['one faq', { ...content, faqs: [content.faqs[0]] }],
-    ['short total text', { ...content, intro: '短い説明' }],
   ])('rejects %s', (_label, candidate) => {
     expect(isIndexableAreaQuality(1, candidate)).toBe(false);
+  });
+
+  test('個々の下限は満たしても本文全体が 300 字未満なら索引させない（合計の下限だけで落ちる）', () => {
+    const minimal = {
+      h2: 'あ'.repeat(10),
+      intro: 'い'.repeat(120),
+      highlights: ['う', 'え'],
+      faqs: [{ question: 'Q1', answer: 'A1' }, { question: 'Q2', answer: 'A2' }],
+    };
+    // 合計 10 + 120 + 2 + 8 = 140 字
+    expect(isIndexableAreaQuality(1, minimal)).toBe(false);
+    // 同じ形で合計だけを 300 字に届かせると通る（＝落ちた原因は合計の下限だけ）
+    const enough = { ...minimal, faqs: [minimal.faqs[0], { question: 'Q2', answer: 'お'.repeat(170) }] };
+    expect(isIndexableAreaQuality(1, enough)).toBe(true);
   });
 });
 

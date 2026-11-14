@@ -103,6 +103,8 @@ test('ブログ一覧が大きくても新規作成画面から一覧へ戻れ�
     // 空振り防止（遷移先）: 大きな一覧が実際に描かれていること（見出しだけの空の一覧で緑にしない）。
     await expect(page.getByText(`E2E大量ブログ_${SEED_POSTS - 1}_${ts}_`, { exact: false })).toBeVisible();
   } finally {
-    await sb.from('blog_posts').delete().in('id', seededIds);
+    // 後始末の失敗を黙らせない（下書きが e2e-batch 施設に残ると admin-blog の一覧に混ざる）。
+    const { error } = await sb.from('blog_posts').delete().in('id', seededIds);
+    expect(error, '大量ブログ fixture の後始末').toBeNull();
   }
 });

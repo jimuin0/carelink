@@ -54,7 +54,9 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false });
 
     if (error) return serverError('admin-jobs-list-query', error, '/api/admin/jobs', '取得に失敗しました');
-    return NextResponse.json({ jobs: data ?? [] });
+    // 配列でない応答を「求人 0 件」と表示しない（job-applications・newsletter・gbp と同じ扱い）。
+    if (!Array.isArray(data)) return serverError('admin-jobs-list-query', new Error('facility_jobs result invalid'), '/api/admin/jobs', '取得に失敗しました');
+    return NextResponse.json({ jobs: data });
   } catch (e) {
     const response = serverError('admin-jobs-list', databaseDiagnostic(e), '/api/admin/jobs', 'サーバーエラー');
     response.headers.set('Cache-Control', 'no-store');

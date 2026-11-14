@@ -2,9 +2,13 @@
 import { hasSupabasePublicEnv } from '../supabase-build-env';
 
 const saved = { url: process.env.NEXT_PUBLIC_SUPABASE_URL, key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY };
+// process.env へ undefined を代入すると文字列 'undefined'（真の値）になるので、元が未設定なら delete で戻す。
+function restore(name: 'NEXT_PUBLIC_SUPABASE_URL' | 'NEXT_PUBLIC_SUPABASE_ANON_KEY', value: string | undefined) {
+  if (value === undefined) delete process.env[name]; else process.env[name] = value;
+}
 afterEach(() => {
-  process.env.NEXT_PUBLIC_SUPABASE_URL = saved.url;
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = saved.key;
+  restore('NEXT_PUBLIC_SUPABASE_URL', saved.url);
+  restore('NEXT_PUBLIC_SUPABASE_ANON_KEY', saved.key);
 });
 
 test.each([

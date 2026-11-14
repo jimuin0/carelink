@@ -327,8 +327,9 @@ test('POST: レートリミット params', async () => {
   (checkRateLimit as jest.Mock).mockClear();
   await POST(makePostRequest(validPostBody()));
   const call = (checkRateLimit as jest.Mock).mock.calls[0];
-  expect(call[2]).toBeGreaterThan(0);
+  expect(call[2]).toBe(20);
   expect(call[3]).toBe(60_000);
+  expect(call[4]).toBe('packages');
 });
 
 // ─── 障害を 401/400 に化けさせない（点検 A127） ─────────────────────────────────

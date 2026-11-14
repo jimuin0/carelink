@@ -426,8 +426,9 @@ test('DELETE: 未認証 → 401', async () => {
   expect(res.status).toBe(401);
 });
 
-test('DELETE: count=null → ハード削除', async () => {
+test('DELETE: count=null（購入者数を確定できない）→ 500・物理削除しない', async () => {
   let adminCallNum = 0;
+  const hardDelete = jest.fn();
   mockAdminFrom.mockImplementation(() => {
     adminCallNum++;
     if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
@@ -438,11 +439,12 @@ test('DELETE: count=null → ハード削除', async () => {
         }),
       };
     }
-    return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: PKG_UUID }], error: null })) }) }) }) };
+    return { delete: hardDelete, update: jest.fn() };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
   const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(500);
+  expect(hardDelete).not.toHaveBeenCalled();
 });
 
 // Branch coverage: line 40 — package 存在・membership null → null 返却（false 分岐 → 401）

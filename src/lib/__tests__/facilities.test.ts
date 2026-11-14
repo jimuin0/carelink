@@ -2139,8 +2139,8 @@ describe('null data fallbacks', () => {
     expect(result!.has('fac-1')).toBe(true);
   });
 
-  test('getAvailableFacilityIds: bookings.start/end 時刻が end <= start → bookedMinutes=0', async () => {
-    // Math.max(0, end-start) の Math.max 分岐をテスト
+  test('getAvailableFacilityIds: 終了が開始以前の壊れた予約（end <= start）は空き枠を塞がない', async () => {
+    // 不正な時刻の予約 1 件で、その日の勤務枠全体が「満席」に化けないことを守る。
     const anonMap: Record<string, unknown[]> = {
       facility_card_view: [readyCard('fac-1')],
       staff_schedules: [{ staff_id: 's-1', start_time: '09:00', end_time: '18:00' }],

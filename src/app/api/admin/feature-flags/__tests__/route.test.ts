@@ -119,9 +119,24 @@ test('GET: 正常取得 → 200 with flags', async () => {
 
 test('GET: ab=1 フィルター → 200', async () => {
   mockAnonFrom.mockReturnValue(profileSingle(true));
-  mockAdminFrom.mockReturnValue(buildListChain([{ id: 'flag-1', rollout_pct: 50 }]));
+  const chain = buildListChain([{ id: 'flag-1', rollout_pct: 50 }]);
+  mockAdminFrom.mockReturnValue(chain);
   const res = await GET(makeGetRequest({ ab: '1' }));
   expect(res.status).toBe(200);
+  // 段階公開中（0% < rollout < 100%）かつ有効なフラグだけに絞ること
+  expect(chain.gt).toHaveBeenCalledWith('rollout_pct', 0);
+  expect(chain.lt).toHaveBeenCalledWith('rollout_pct', 100);
+  expect(chain.eq).toHaveBeenCalledWith('enabled', true);
+});
+
+test('GET: ab 指定なし → 絞り込みをしない', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  const chain = buildListChain([]);
+  mockAdminFrom.mockReturnValue(chain);
+  await GET(makeGetRequest());
+  expect(chain.gt).not.toHaveBeenCalled();
+  expect(chain.lt).not.toHaveBeenCalled();
+  expect(chain.eq).not.toHaveBeenCalled();
 });
 
 // ─── POST ─────────────────────────────────────────────────────────────────────

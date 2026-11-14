@@ -299,22 +299,27 @@ test('POST: 不正JSONボディ → 400 (name 欠落扱い)', async () => {
   expect(res.status).toBe(400);
 });
 
-test('POST: coupon_type=first_visit 指定 → 201', async () => {
+const sentCouponType = () => (mockRpc.mock.calls.at(-1)![1] as { p_values: Record<string, unknown> }).p_values.coupon_type;
+
+test('POST: coupon_type=first_visit（正準値でない旧表記）→ 201・"all" として保存する', async () => {
   setupSuccess();
   const res = await POST(makeRequest(validBody({ coupon_type: 'first_visit' })));
   expect(res.status).toBe(201);
+  expect(sentCouponType()).toBe('all');
 });
 
-test('POST: coupon_type=invalid → 201 (default "all" にフォールバック)', async () => {
+test('POST: coupon_type=invalid → 201・不正値は DB へ送らず "all" にフォールバック', async () => {
   setupSuccess();
   const res = await POST(makeRequest(validBody({ coupon_type: 'invalid_type' })));
   expect(res.status).toBe(201);
+  expect(sentCouponType()).toBe('all');
 });
 
-test('POST: coupon_type=new_customer（正準値）→ 201（includes true 分岐）', async () => {
+test.each(['new_customer', 'repeat', 'limited_time'])('POST: coupon_type=%s（正準値）→ 201・そのまま保存する', async (couponType) => {
   setupSuccess();
-  const res = await POST(makeRequest(validBody({ coupon_type: 'new_customer' })));
+  const res = await POST(makeRequest(validBody({ coupon_type: couponType })));
   expect(res.status).toBe(201);
+  expect(sentCouponType()).toBe(couponType);
 });
 
 test('POST: valid_from/until 指定 → 201', async () => {

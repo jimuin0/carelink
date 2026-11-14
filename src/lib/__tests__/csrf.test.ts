@@ -140,7 +140,8 @@ describe('checkCsrf - 深掘りエッジケース', () => {
   test('null バイトを含む origin は拒否', () => {
     const req = makeRequest({ origin: 'https://carelink.jp\x00evil.com', host: 'carelink.jp' });
     const res = checkCsrf(req);
-    // null バイトで URL パースが失敗するか不一致になる
-    expect([403, null]).toContain(res === null ? null : (res as any).status);
+    // null バイトで URL パースが失敗するか不一致になる。どちらでも必ず 403（通すことは許さない）。
+    expect(res).not.toBeNull();
+    expect((res as any).status).toBe(403);
   });
 });

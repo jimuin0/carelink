@@ -172,10 +172,11 @@ test.each(['membership','staff'])('pending %s authority is unavailable and late 
   let resolve!: (value:unknown)=>void;const pending=new Promise(r=>{resolve=r;});
   (stage==='membership'?mockMembership:mockStaff).mockReturnValue(pending);
   let settled=false;const result=getAdminApiContext(request(),stage==='staff'?staffId:undefined).then(r=>{settled=true;return r;});
-  await jest.advanceTimersByTimeAsync(5000);expect(settled).toBe(true);
-  if(!settled){resolve({data:stage==='membership'?{facility_id:facilityId}:{id:staffId},error:null});await result;return;}
-  await expectStatus(result,503);
-  resolve({data:stage==='membership'?{facility_id:facilityId}:{id:staffId},error:null});await Promise.resolve();
+  await jest.advanceTimersByTimeAsync(5000);
+  // 期限で打ち切れていなくても、保留中の権限確認は必ず解いて後続テストへ漏らさない（expect が throw しても finally で解く）。
+  try{expect(settled).toBe(true);await expectStatus(result,503);}
+  finally{resolve({data:stage==='membership'?{facility_id:facilityId}:{id:staffId},error:null});}
+  await Promise.resolve();
   if(stage==='membership')expect(mockServiceClient).not.toHaveBeenCalled();
  }finally{jest.useRealTimers();}
 });

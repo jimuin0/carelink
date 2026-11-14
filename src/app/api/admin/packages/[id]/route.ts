@@ -121,7 +121,10 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   // 購入済みユーザーがいる場合は無効化のみ（削除しない）
   const { count, error: countErr } = await admin.from('user_packages').select('id', { count: 'exact', head: true }).eq('package_id', params.id);
   if (countErr) return serverError('admin-packages-delete-count', countErr, '/api/admin/packages/[id]');
-  if (count && count > 0) {
+  // 件数が取れない応答（count=null）を「購入者 0 人」と読み替えると、購入者のいるパッケージを
+  // 取り消せない物理削除へ進めてしまう。確定できないときは削除しない。
+  if (typeof count !== 'number') return serverError('admin-packages-delete-count', new Error('user_packages count unavailable'), '/api/admin/packages/[id]');
+  if (count > 0) {
     // 更新件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（購入済みユーザー確認後に
     // 既削除等）による0件更新も「成功」と偽装していた（phantom success）。.select() で更新行を受け取り、
     // 0件なら404を返す（customers/[id]・menus/[id]・catalog/[id] と同型）。
