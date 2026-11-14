@@ -2,7 +2,7 @@
 
 import { SEARCH_HISTORY_KEY } from '@/lib/client-storage';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import { businessTypes, prefectures } from '@/lib/constants';
 import SearchSuggest from './SearchSuggest';
 import { businessTypeLabel } from '@/lib/business-type-label';
@@ -59,6 +59,9 @@ export default function SearchBar() {
   const [type, setType] = useState(searchParams.get('type') || '');
   const [prefecture, setPrefecture] = useState(searchParams.get('area') || '');
   const [suggestOpen, setSuggestOpen] = useState(false);
+  // キーワード欄は React に値を握らせない（uncontrolled）。表示直後（hydration 前）に打った文字を、
+  // hydration 時に React が状態の空文字で上書きして消していた（Mobile Safari の E2E で再現）。
+  const keywordRef = useRef<HTMLInputElement>(null);
 
   // React Compiler の set-state-in-effect 対策：従来は useEffect + setState でマウント後に
   // 確定していたが、React公式が「サーバ/クライアントで異なる値を安全に出し分ける」ために
@@ -93,7 +96,8 @@ export default function SearchBar() {
           <input
             type="search"
             name="keyword"
-            value={keyword}
+            ref={keywordRef}
+            defaultValue={keyword}
             onChange={(e) => { setKeyword(e.target.value); setSuggestOpen(true); }}
             onFocus={() => setSuggestOpen(true)}
             onBlur={() => setSuggestOpen(false)}
@@ -104,7 +108,7 @@ export default function SearchBar() {
           />
           <SearchSuggest
             query={keyword}
-            onSelect={(v) => setKeyword(v)}
+            onSelect={(v) => { if (keywordRef.current) keywordRef.current.value = v; setKeyword(v); }}
             visible={suggestOpen}
             onClose={() => setSuggestOpen(false)}
           />
@@ -139,7 +143,7 @@ export default function SearchBar() {
         <div className="flex flex-wrap gap-2 mt-3">
           <span className="text-xs text-gray-500">最近の検索:</span>
           {history.map((h) => (
-            <button key={h} type="button" onClick={() => { setKeyword(h); }} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full hover:bg-gray-200">
+            <button key={h} type="button" onClick={() => { if (keywordRef.current) keywordRef.current.value = h; setKeyword(h); }} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full hover:bg-gray-200">
               {h}
             </button>
           ))}
