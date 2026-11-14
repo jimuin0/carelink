@@ -68,11 +68,14 @@ export const POST = withRoute(async (request, ctx) => {
       // 対象から facility_id を解決（review→facility_reviews / photo→facility_photos）。
       // 解決不能でも facility_id は nullable のため null で登録する。
       const sourceTable = contentType === 'review' ? 'facility_reviews' : 'facility_photos';
-      const { data: target } = await supabase
+      const { data: target, error: targetError } = await supabase
         .from(sourceTable)
         .select('facility_id')
         .eq('id', parsed.data.target_id)
         .maybeSingle();
+      // 照会の失敗を「対象が見つからない」と同一視して黙らない。審査キューには null で入れて
+      // 通報自体は残しつつ、施設を紐付けられなかった事実を監視通知に載せる。
+      if (targetError) alertCaughtError('report-moderation-target', targetError, '/api/report');
       const facilityId = (target as { facility_id: string | null } | null)?.facility_id ?? null;
 
       const reportReason = parsed.data.detail

@@ -1247,9 +1247,9 @@ describe('getPopularFacilities (cache fallback)', () => {
 /** fluent chain where limit() returns self (thenable), enabling further .or() chaining */
 function fluentFeatured(resolvedValue: unknown) {
   const self: Record<string, jest.Mock | ((resolve: (v: unknown) => unknown) => Promise<unknown>)> = {};
-  const handler = jest.fn(() => self);
+  // メソッドごとに別の jest.fn にする（共有すると eq/or の引数が混ざり、条件の取り違えを検出できない）
   ['select', 'eq', 'neq', 'or', 'gte', 'lte', 'order', 'range', 'single', 'not', 'in', 'is', 'contains'].forEach(m => {
-    self[m] = handler;
+    self[m] = jest.fn(() => self);
   });
   self.limit = jest.fn(() => self); // return self so .or() can be chained
   // Make self thenable so `await query` works
@@ -1278,14 +1278,45 @@ describe('getFeaturedFacilities', () => {
     const chain = fluentFeatured({ data: [] });
     mockFrom.mockReturnValue(chain);
     await getFeaturedFacilities('nail-eyelash');
-    expect(chain.or).toHaveBeenCalled();
+    expect(chain.or).toHaveBeenCalledTimes(1);
+    expect(chain.or).toHaveBeenCalledWith('business_type.eq."nail-eyelash",business_type.is.null');
   });
 
   test('areaフィルタを適用する', async () => {
     const chain = fluentFeatured({ data: [] });
     mockFrom.mockReturnValue(chain);
     await getFeaturedFacilities(undefined, '大阪府');
-    expect(chain.or).toHaveBeenCalled();
+    expect(chain.or).toHaveBeenCalledTimes(1);
+    expect(chain.or).toHaveBeenCalledWith('area.eq."大阪府",area.is.null');
+  });
+
+  test('業種と地域の両方 → それぞれの列に正しい値で絞る（取り違えない）', async () => {
+    const chain = fluentFeatured({ data: [] });
+    mockFrom.mockReturnValue(chain);
+    await getFeaturedFacilities('nail-eyelash', '大阪府');
+    expect((chain.or as jest.Mock).mock.calls).toEqual([
+      ['business_type.eq."nail-eyelash",business_type.is.null'],
+      ['area.eq."大阪府",area.is.null'],
+    ]);
+  });
+
+  test('有効な検索上位枠だけを、掲載期間内で 3 件まで取る', async () => {
+    const chain = fluentFeatured({ data: [] });
+    mockFrom.mockReturnValue(chain);
+    await getFeaturedFacilities();
+    expect(mockFrom).toHaveBeenCalledWith('featured_slots');
+    expect((chain.eq as jest.Mock).mock.calls).toEqual([['is_active', true], ['slot_type', 'search_top']]);
+    expect((chain.lte as jest.Mock).mock.calls[0][0]).toBe('starts_at');
+    expect((chain.gte as jest.Mock).mock.calls[0][0]).toBe('ends_at');
+    expect(chain.limit).toHaveBeenCalledWith(3);
+    expect(chain.or).not.toHaveBeenCalled();
+  });
+
+  test('or フィルタの値は引用符で囲み、" と \\ をエスケープする（フィルタ構文の注入防止）', async () => {
+    const chain = fluentFeatured({ data: [] });
+    mockFrom.mockReturnValue(chain);
+    await getFeaturedFacilities('x"),status.eq.draft\\');
+    expect(chain.or).toHaveBeenCalledWith('business_type.eq."x\\"),status.eq.draft\\\\",business_type.is.null');
   });
 
   test('nullなrowはfilterされる', async () => {

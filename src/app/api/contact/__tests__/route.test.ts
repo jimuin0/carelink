@@ -9,7 +9,8 @@
  *   - Email format validation
  *   - Inserts to contacts table
  *   - Slack notification (after response) carries only the contacts.id and the admin link — no PII
-     - Fire-and-forget operator email notification via sendOperatorNotification
+     - Operator email notification via sendOperatorNotification
+ *   - 両通知とも runAfterResponse 経由（応答後の実行が保証される経路）でのみ走る
 */
 
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -27,12 +28,18 @@ jest.mock('@/lib/email', () => ({
 }));
 
 jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn() }));
+// 既定は実装どおり即時実行する薄い包み。runAfterResponse 経由であることを検証するテストでは
+// タスクを溜めて「登録された時点ではまだ通知が走っていない」ことを確かめる。
+jest.mock('@/lib/after-response', () => ({
+  runAfterResponse: jest.fn((task: () => unknown) => jest.requireActual('@/lib/after-response').runAfterResponse(task)),
+}));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { sendNotify } from '@/lib/notify';
 import { sendOperatorNotification } from '@/lib/email';
 import { verifyRecaptcha } from '@/lib/recaptcha';
+import { runAfterResponse } from '@/lib/after-response';
 import { POST } from '../route';
 
 let mockInsert: jest.Mock;
@@ -375,7 +382,31 @@ describe('POST /api/contact', () => {
     }
   });
 
-  test('sends Slack notification (fire-and-forget)', async () => {
+  test('Slack・運営メール通知は runAfterResponse に登録され、登録時点では未実行', async () => {
+    const tasks: Array<() => unknown> = [];
+    (runAfterResponse as jest.Mock)
+      .mockImplementationOnce((task: () => unknown) => { tasks.push(task); })
+      .mockImplementationOnce((task: () => unknown) => { tasks.push(task); });
+    const res = await POST(
+      makeRequest({
+        name: 'Test',
+        email: 'test@example.com',
+        inquiry_type: 'support',
+        message: 'Help needed',
+        recaptcha_token: 'valid-token',
+      }) as any
+    );
+    expect(res.status).toBe(200);
+    // 応答の時点では通知は浮いた Promise として走っていない（直接呼び出しへの退行を検知）
+    expect(sendNotify).not.toHaveBeenCalled();
+    expect(sendOperatorNotification).not.toHaveBeenCalled();
+    expect(tasks).toHaveLength(2);
+    await Promise.all(tasks.map((t) => t()));
+    expect(sendNotify).toHaveBeenCalledWith({ type: 'contact', data: { contact_id: CONTACT_ID } });
+    expect(sendOperatorNotification).toHaveBeenCalledTimes(1);
+  });
+
+  test('sends Slack notification (after response)', async () => {
     await POST(
       makeRequest({
         name: 'Test',

@@ -317,7 +317,17 @@ describe('POST /api/intake', () => {
       }),
     }) as any);
 
-    expect([200, 201]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, id: 'response-123' });
+    // 認証ユーザー・検証済み ID・回答をそのまま保存する（予約未指定は null）
+    expect(mockInsert).toHaveBeenCalledWith({
+      template_id: '11111111-1111-1111-1111-111111111111',
+      facility_id: '11111111-1111-1111-1111-111111111111',
+      booking_id: null,
+      user_id: 'user-123',
+      customer_name: 'Test User',
+      responses: { condition: 'healthy' },
+    });
   });
 
   test('rate limiting → 429', async () => {
@@ -591,7 +601,10 @@ describe('GET /api/intake – cookie callback invocable', () => {
         facility_id: '11111111-1111-1111-1111-111111111111',
       }),
     }) as any);
-    expect([200, 201, 400, 500]).toContain(res.status);
+    // ゲスト（未ログイン）でも予約未指定なら受け付け、user_id は null で保存する
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, id: 'resp-1' });
+    expect(insertFn).toHaveBeenCalledWith(expect.objectContaining({ user_id: null, booking_id: null, customer_name: 'Test', responses: {} }));
     expect(mockCookieStore.getAll).toHaveBeenCalled();
   });
 });

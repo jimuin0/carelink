@@ -132,6 +132,9 @@ function makeRequest(params: Record<string, string>, ip = '192.168.1.1') {
   });
 }
 
+const tokenExchangeCalled = () =>
+  (global.fetch as jest.Mock).mock.calls.some((call) => String(call[0]).includes('oauth2.googleapis.com/token'));
+
 function createValidState(): string {
   const state = {
     userId: '550e8400-e29b-41d4-a716-446655440000',
@@ -300,11 +303,13 @@ describe('GET /api/google-calendar/callback', () => {
     setupDefaultMocks(false, true);
 
     const validState = createValidState();
-    await GET(
+    const res = await GET(
       makeRequest({ code: 'code-123', state: validState }) as any
     );
 
-    // Should successfully parse base64url state
+    // base64url を正しく復号できれば、token 交換を経て成功画面へ戻る
+    expect(res.headers.get('location')).toContain('gcal=success');
+    expect(tokenExchangeCalled()).toBe(true);
   });
 
   test('invalid base64 state → redirect with error', async () => {
@@ -314,6 +319,7 @@ describe('GET /api/google-calendar/callback', () => {
 
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toContain('gcal=error');
+    expect(tokenExchangeCalled()).toBe(false);
   });
 
   test('invalid JSON in state → redirect with error', async () => {
@@ -322,7 +328,10 @@ describe('GET /api/google-calendar/callback', () => {
       makeRequest({ code: 'code-123', state: invalidState }) as any
     );
 
+    // 成功時も 307 なので、行き先と token 交換の有無で「拒否された」ことを確かめる
     expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('gcal=error');
+    expect(tokenExchangeCalled()).toBe(false);
   });
 
   test('validates userId is UUID format', async () => {
@@ -342,6 +351,7 @@ describe('GET /api/google-calendar/callback', () => {
 
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toContain('gcal=error');
+    expect(tokenExchangeCalled()).toBe(false);
   });
 
   test('rejects expired state (> 10 min)', async () => {
@@ -388,8 +398,9 @@ describe('GET /api/google-calendar/callback', () => {
       makeRequest({ code: 'code-123', state: validState }) as any
     );
 
-    // Should not immediately reject
-    expect(res).toBeDefined();
+    // 5 分前の state は有効期限（10 分）内なので受理され、連携が完了する
+    expect(res.headers.get('location')).toContain('gcal=success');
+    expect(tokenExchangeCalled()).toBe(true);
   });
 
   test('timing-safe nonce comparison', async () => {

@@ -11,6 +11,9 @@ jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: 
 import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
+// 各クエリの ilike(列, パターン) を記録し、エスケープ・切り詰めを結果で検証する
+const ilikeCalls: Array<[string, string]> = [];
+
 function setupDefaultMocks(hasResults: boolean = true) {
   const { createServerSupabaseClient } = require('@/lib/supabase-server');
   
@@ -35,17 +38,17 @@ function setupDefaultMocks(hasResults: boolean = true) {
       return {
         select: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
-            ilike: jest.fn().mockReturnValue({
+            ilike: jest.fn((col: string, pat: string) => { ilikeCalls.push([col, pat]); return {
               limit: jest.fn().mockResolvedValue({
                 data: table === 'facility_profiles' && facilityData ? facilityData : cityData,
               }),
-            }),
+            }; }),
             not: jest.fn().mockReturnValue({
-              ilike: jest.fn().mockReturnValue({
+              ilike: jest.fn((col: string, pat: string) => { ilikeCalls.push([col, pat]); return {
                 limit: jest.fn().mockResolvedValue({
                   data: stationData,
                 }),
-              }),
+              }; }),
             }),
           }),
         }),
@@ -56,6 +59,7 @@ function setupDefaultMocks(hasResults: boolean = true) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  ilikeCalls.length = 0;
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   setupDefaultMocks();
 });
@@ -104,11 +108,16 @@ describe('GET /api/facilities/suggest', () => {
     const longQuery = 'x'.repeat(100);
     const res = await GET(makeRequest(`?q=${longQuery}`) as any);
     expect(res.status).toBe(200);
+    expect(ilikeCalls).toHaveLength(3);
+    for (const [, pat] of ilikeCalls) expect(pat).toBe(`%${'x'.repeat(50)}%`);
   });
 
-  test('SQL special chars escaped', async () => {
-    const res = await GET(makeRequest('?q=%test_value\\') as any);
+  test('SQL special chars escaped（% _ \\ はワイルドカードとして効かない）', async () => {
+    // q = "%te_st\\"（URL エンコードして渡す）
+    const res = await GET(makeRequest(`?q=${encodeURIComponent('%te_st\\')}`) as any);
     expect(res.status).toBe(200);
+    expect(ilikeCalls.map(([c]) => c)).toEqual(['name', 'city', 'nearest_station']);
+    for (const [, pat] of ilikeCalls) expect(pat).toBe('%\\%te\\_st\\\\%');
   });
 
   test('whitespace trimmed', async () => {
@@ -157,16 +166,16 @@ describe('GET /api/facilities/suggest', () => {
     expect(res.status).toBe(500);
   });
 
-  test('rate limit params (30 req/min per IP)', () => {
+  test('rate limit params (30 req/min per IP)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    GET(makeRequest('?q=test', '192.168.1.1') as any);
+    await GET(makeRequest('?q=test', '192.168.1.1') as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[2]).toBe(30);
   });
 
-  test('extracts last (trusted) IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    GET(makeRequest('?q=test', '10.0.0.1, 192.168.1.1') as any);
+    await GET(makeRequest('?q=test', '10.0.0.1, 192.168.1.1') as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
   });
@@ -176,9 +185,9 @@ describe('GET /api/facilities/suggest', () => {
     expect(res.status).toBe(200);
   });
 
-  test('rate limit params window is 60_000ms', () => {
+  test('rate limit params window is 60_000ms', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    GET(makeRequest('?q=test') as any);
+    await GET(makeRequest('?q=test') as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[3]).toBe(60_000);
   });
@@ -195,13 +204,13 @@ describe('GET /api/facilities/suggest', () => {
     expect(res.status).toBe(200);
   });
 
-  test('x-forwarded-for ヘッダーなし → IP "unknown" を使用', () => {
+  test('x-forwarded-for ヘッダーなし → IP "unknown" を使用', async () => {
     (checkRateLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/facilities/suggest?q=test', {
       method: 'GET',
     });
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    GET(req as any);
+    await GET(req as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('unknown');
   });

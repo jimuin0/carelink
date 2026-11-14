@@ -35,6 +35,19 @@ process.env.VAPID_PRIVATE_KEY = 'test-private-key';
 
 const { sendPushToUser } = require('../push');
 
+/** push を隔離レジストリで読み直し（vapidConfigured を初期状態に戻す）、web-push の setVapidDetails を観測できるようにする。 */
+function loadIsolatedPush(): { fn: typeof sendPushToUser; setVapidDetails: jest.Mock } {
+  let loaded!: { fn: typeof sendPushToUser; setVapidDetails: jest.Mock };
+  jest.isolateModules(() => {
+    const webpush = require('web-push');
+    loaded = { fn: require('../push').sendPushToUser, setVapidDetails: webpush.setVapidDetails };
+  });
+  // web-push のモックは隔離をまたいで同じ実体が返るため、過去の呼び出し記録を消してから観測する
+  loaded.setVapidDetails.mockClear();
+  return loaded;
+}
+const LIVE_SUBSCRIPTION = { endpoint: 'https://push.example.com/live', p256dh: 'k', auth: 'a' };
+
 beforeEach(() => {
   mockSendNotification.mockReset();
   mockDeleteFn.mockClear();
@@ -94,20 +107,23 @@ describe('sendPushToUser', () => {
 });
 
 describe('sendPushToUser — deep tests', () => {
-  test('VAPID キー未設定時は即 false を返す', async () => {
+  test('VAPID キー未設定時は即 false を返す（購読があっても読みに行かず送らない）', async () => {
     const origPub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     const origPriv = process.env.VAPID_PRIVATE_KEY;
     delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     delete process.env.VAPID_PRIVATE_KEY;
-    // Re-require to pick up missing env
-    jest.resetModules();
-    jest.mock('web-push', () => ({ setVapidDetails: jest.fn(), sendNotification: mockSendNotification }));
-    jest.mock('../supabase-server', () => ({ createServiceRoleClient: () => ({ from: () => ({ select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }) }), delete: mockDeleteFn }) }) }));
-    const { sendPushToUser: freshFn } = require('../push');
-    const result = await freshFn('user-x', { title: 'T', body: 'B' });
-    expect(result).toBe(false);
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = origPub;
-    process.env.VAPID_PRIVATE_KEY = origPriv;
+    // 購読ありにしておく。キー判定の早期 return が消えると「購読なし」の false では済まず送信に進むので区別できる
+    mockSubData = LIVE_SUBSCRIPTION;
+    mockSendNotification.mockResolvedValue({});
+    try {
+      const { fn, setVapidDetails } = loadIsolatedPush();
+      expect(await fn('user-x', { title: 'T', body: 'B' })).toBe(false);
+      expect(mockSendNotification).not.toHaveBeenCalled();
+      expect(setVapidDetails).not.toHaveBeenCalled();
+    } finally {
+      process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = origPub;
+      process.env.VAPID_PRIVATE_KEY = origPriv;
+    }
   });
 
   test('404 エラー時もサブスクリプションを削除する', async () => {
@@ -209,14 +225,16 @@ describe('sendPushToUser — deep tests', () => {
 
 describe('sendPushToUser — vapidConfigured 二回目スキップ', () => {
   test('2 度目の呼び出しでは setVapidDetails が再実行されない', async () => {
-    // 一度通知を成功させて vapidConfigured = true にする
+    const { fn, setVapidDetails } = loadIsolatedPush();
     mockSubData = { endpoint: 'https://push.example.com/twice', p256dh: 'k', auth: 'a' };
     mockSendNotification.mockResolvedValue({});
-    await sendPushToUser('user-twice-1', { title: 'T', body: 'B' });
-    // 2 度目： setVapidDetails が呼ばれず getWebPush の if 分岐 false 側を通る
-    mockSendNotification.mockResolvedValue({});
-    const result = await sendPushToUser('user-twice-2', { title: 'T', body: 'B' });
-    expect(result).toBe(true);
+    expect(await fn('user-twice-1', { title: 'T', body: 'B' })).toBe(true);
+    expect(setVapidDetails).toHaveBeenCalledTimes(1);
+    expect(setVapidDetails).toHaveBeenCalledWith('mailto:support@carelink-jp.com', 'test-public-key', 'test-private-key');
+    // 2 度目：設定済みなので getWebPush の if 分岐 false 側を通り、再設定しない
+    expect(await fn('user-twice-2', { title: 'T', body: 'B' })).toBe(true);
+    expect(setVapidDetails).toHaveBeenCalledTimes(1);
+    expect(mockSendNotification).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -495,14 +513,19 @@ describe('sendPushToFacilityOwners', () => {
 // push.ts に /* istanbul ignore next */ を付与して除外済み。
 // ここでは sendPushToUser の早期 return false（line 35）をテストする。
 describe('sendPushToUser — VAPID keys absent', () => {
-  test('NEXT_PUBLIC_VAPID_PUBLIC_KEY 未設定 → 早期 return false', async () => {
-    jest.resetModules();
+  test('NEXT_PUBLIC_VAPID_PUBLIC_KEY 未設定 → 早期 return false（購読があっても送らない）', async () => {
     const origPub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    const { sendPushToUser: fn } = require('../push');
-    const result = await fn('u', { title: 't', body: 'b' });
-    expect(result).toBe(false);
-    if (origPub !== undefined) process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = origPub;
-    else delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    mockSubData = LIVE_SUBSCRIPTION;
+    mockSendNotification.mockReset().mockResolvedValue({});
+    try {
+      const { fn, setVapidDetails } = loadIsolatedPush();
+      expect(await fn('u', { title: 't', body: 'b' })).toBe(false);
+      expect(mockSendNotification).not.toHaveBeenCalled();
+      expect(setVapidDetails).not.toHaveBeenCalled();
+    } finally {
+      if (origPub !== undefined) process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = origPub;
+      else delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    }
   });
 });

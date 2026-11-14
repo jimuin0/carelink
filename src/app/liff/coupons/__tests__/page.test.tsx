@@ -32,6 +32,7 @@ test('取得成功 → 通常表示しエラーは出さない（正常系不変
   mockFetch(true, { coupons: [] });
   render(<LiffCouponsPage />);
   expect(await screen.findByText('クーポン')).toBeInTheDocument();
+  expect(await screen.findByText('利用可能なクーポンはありません')).toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 

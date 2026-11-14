@@ -143,7 +143,11 @@ describe('POST /api/line/webhook', () => {
       }) as any
     );
 
-    // Verify LINE profile API was called (would happen inside handleFollow)
+    // 検証済みの userId でプロフィール API を叩き、チャネルのアクセストークンを Bearer で渡す
+    expect(global.fetch).toHaveBeenCalledWith(
+      `https://api.line.me/v2/bot/profile/${VALID_LINE_USER_ID}`,
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer test-token' }) }),
+    );
     expect(mockUpsert).toHaveBeenCalled();
   });
 
@@ -527,15 +531,20 @@ describe('POST /api/line/webhook', () => {
   test('unknown event type → ignored (switch default)', async () => {
     (sendLineReply as jest.Mock).mockClear();
     mockUpsert.mockClear();
-    await POST(
+    // unfollow は専用の削除（unfollowed_at 記録）分岐を持つので、未知の種別（postback）で default を通す
+    const res = await POST(
       makeRequest({
         events: [
-          { type: 'unfollow', source: { userId: VALID_LINE_USER_ID } },
+          { type: 'postback', source: { userId: VALID_LINE_USER_ID }, replyToken: 'token-pb' },
         ],
       }) as any
     );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'ok', reply_delivery: 'not_attempted' });
+    expect(mockFromDelegate).not.toHaveBeenCalled();
     expect(mockUpsert).not.toHaveBeenCalled();
     expect(sendLineReply).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
 

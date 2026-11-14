@@ -29,7 +29,6 @@ function setupDefaultMocks(
         name: 'Salon ABC',
         business_type: 'eyelash',
         address: '東京都渋谷区道玄坂',
-        is_public: true,
         created_at: '2026-05-10T10:00:00Z',
       }
     : null;
@@ -41,16 +40,14 @@ function setupDefaultMocks(
           name: 'Salon A',
           business_type: 'eyelash',
           address: '東京都渋谷区',
-          is_public: true,
-          created_at: '2026-05-10T10:00:00Z',
+            created_at: '2026-05-10T10:00:00Z',
         },
         {
           id: '33333333-3333-3333-3333-333333333333',
           name: 'Salon B',
           business_type: 'nail',
           address: '東京都新宿区',
-          is_public: true,
-          created_at: '2026-05-09T10:00:00Z',
+            created_at: '2026-05-09T10:00:00Z',
         },
       ]
     : [];
@@ -203,6 +200,20 @@ describe('GET /api/salons', () => {
     expect(callsOf('maybeSingle')).toEqual([[]]);
   });
 
+  // is_public / status 等の内部情報と登録者 PII は匿名 GET の select から外す（route.ts の PUBLIC_SALON_COLUMNS）。
+  // モックは select の列を無視して行を返すので、返却データではなく要求した列で絞り込みを確かめる。
+  test.each([['単体', `id=${VALID_UUID}`], ['一覧', '']])('%s取得は公開安全カラムだけを select する', async (_label, query) => {
+    const res = await GET(makeRequest(query) as any);
+    expect(res.status).toBe(200);
+    const selects = callsOf('select');
+    expect(selects).toHaveLength(1);
+    const columns = String(selects[0][0]).split(',').map((c) => c.trim());
+    expect(columns).toEqual(expect.arrayContaining(['id', 'facility_name', 'business_type', 'address']));
+    for (const hidden of ['*', 'is_public', 'status', 'desired_start_date', 'email', 'phone', 'contact_phone', 'contact_name', 'representative_name']) {
+      expect(columns).not.toContain(hidden);
+    }
+  });
+
   test('includes is_public=true filter for list', async () => {
     const res = await GET(makeRequest() as any);
 
@@ -218,10 +229,10 @@ describe('GET /api/salons', () => {
     expect(res.status).toBe(500);
   });
 
-  test('rate limit params (20 req/min per IP)', () => {
+  test('rate limit params (20 req/min per IP)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
-    GET(makeRequest('', '192.168.1.1') as any);
+    await GET(makeRequest('', '192.168.1.1') as any);
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
@@ -230,20 +241,20 @@ describe('GET /api/salons', () => {
     expect(call[4]).toBe('salons');
   });
 
-  test('extracts last (trusted) IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
-    GET(makeRequest('', '10.0.0.1, 192.168.1.1') as any);
+    await GET(makeRequest('', '10.0.0.1, 192.168.1.1') as any);
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
   });
 
-  test('uses unknown IP when x-forwarded-for missing', () => {
+  test('uses unknown IP when x-forwarded-for missing', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
     const req = new Request('http://localhost/api/salons');
-    GET(req as any);
+    await GET(req as any);
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('unknown');

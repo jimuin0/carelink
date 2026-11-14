@@ -32,9 +32,24 @@ test('取得失敗(500) → エラーを明示する（握り潰し回帰防止�
   expect(await screen.findByRole('alert')).toHaveTextContent('ポイント情報の取得に失敗しました');
 });
 
-test('取得成功 → 通常表示しエラーは出さない（正常系不変）', async () => {
-  mockFetch(true, { logs: [], total: 1200 });
+test('取得成功 → 取得した残高と履歴を表示しエラーは出さない（0pt 扱いへの退行を検知）', async () => {
+  mockFetch(true, { logs: [
+    { id: 'l1', points: 500, reason: '紹介ボーナス', created_at: '2026-05-01T00:00:00Z' },
+    { id: 'l2', points: -100, reason: '割引使用', created_at: '2026-04-15T00:00:00Z' },
+  ], total: 1200 });
   render(<LiffPointsPage />);
   expect(await screen.findByText('保有ポイント')).toBeInTheDocument();
+  expect(await screen.findByText('1,200')).toBeInTheDocument();
+  expect(screen.getByText('紹介ボーナス')).toBeInTheDocument();
+  expect(screen.getByText('+500pt')).toBeInTheDocument();
+  expect(screen.getByText('-100pt')).toBeInTheDocument();
+  expect(screen.queryByText('ポイント履歴はありません')).not.toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+test('取得成功（履歴0件）→ 空の案内を出し、エラーは出さない', async () => {
+  mockFetch(true, { logs: [], total: 0 });
+  render(<LiffPointsPage />);
+  expect(await screen.findByText('ポイント履歴はありません')).toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });

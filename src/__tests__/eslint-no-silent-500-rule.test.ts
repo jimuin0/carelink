@@ -3,12 +3,15 @@
  *
  * eslint-plugin-carelink-safety の `no-silent-500` ルール単体テスト。
  *
- * 【背景】`src/app/api/**\/route.ts` は130本あり、`withRoute` を使っているのは11本だけ。
- * 残りは catch して `NextResponse.json({error}, {status:500})` を直接返しており、Slack 通知
- * （`@/lib/with-route` の `alertCaughtError` 経由）が発火しない。既存の
- * `src/__tests__/silent-500-guard.test.ts` は「近接ヒューリスティック（±400字以内に通知呼び出し
+ * 【背景】このルールを作った当時（2026年8月）は、`withRoute` を使わない route.ts の多くが catch して
+ * `NextResponse.json({error}, {status:500})` を直接返しており、Slack 通知が発火しなかった。
+ * その後 2026年8月20日の訂正（CLAUDE.md「API ルートの標準形」）で、`withRoute` はハンドラが
+ * throw しても 500 以上を return しても通知するようになった。したがって現在の主な対象は
+ * 【withRoute を使っていない route.ts】で、ここで 500 を直接組み立てると通知経路に載らない。
+ * 原因つきで通知したいときは `serverError(tag, cause, route)` を使う。
+ * 既存の `src/__tests__/silent-500-guard.test.ts` は「近接ヒューリスティック（±400字以内に通知呼び出し
  * があるか）」で検査しているが、これは原理的に偽陰性を出しうる（近くに通知呼び出しがあっても
- * 実際には別の return 経路を通っている可能性を排除できない）。
+ * 実際には別の return 経路を通っている可能性を排除できない）。本数の実数は書かない（増減で腐るため）。
  *
  * `no-silent-500` はヒューリスティックではなく構文そのものを禁止する ESLint ルールで、
  * 500 応答を直接組み立てる4形（NextResponse.json / Response.json / new NextResponse /
