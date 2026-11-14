@@ -77,6 +77,9 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION enqueue_moderation(jsonb) TO service_role;
+-- 注（2026年11月14日追記）: これだけでは不完全。Supabase の既定権限で anon/authenticated にも
+--   EXECUTE が付いたままになる。是正は 20261002012223_moderation_rpc_service_only.sql
+--   （REVOKE ALL ... FROM PUBLIC, anon, authenticated）。同種の関数を書くときは REVOKE を先に置くこと。
 
 
 -- ─────────────────────────────────────────────────────────────────────────────

@@ -23,6 +23,7 @@
 
 -- @check salons.email_canonical
 -- @check salons.claimed_at
+-- @check salons.status
 -- @check salons.claimed_by_user_id
 -- @check profiles.email_canonical
 -- @check profiles.email
@@ -82,4 +83,8 @@ SELECT
     WHERE lower(coalesce(pr.email,'')) <> lower(coalesce(u.email,''))) AS profiles_email_stale_count,
 
   -- 参考: 引き継ぎ待ちの申込（未 claim・却下でない）件数。
+  (SELECT count(*) FROM public.salons
+    WHERE claimed_at IS NULL
+      AND status IS DISTINCT FROM 'rejected') AS salons_awaiting_handoff,
+  -- 参考: 申込の総数（claim済み・却下済みを含む）。
   (SELECT count(*) FROM public.salons) AS salons_total;
