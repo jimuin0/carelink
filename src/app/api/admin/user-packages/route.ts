@@ -210,13 +210,14 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'この予約にはこの回数券を使えません' }, { status: 400 });
     }
 
-    const { data: existingLog } = await admin
+    const { data: existingLog, error: existingLogErr } = await admin
       .from('package_usage_logs')
       .select('id')
       .eq('user_package_id', parsed.data.user_package_id)
       .eq('booking_id', parsed.data.booking_id)
       .limit(1)
       .maybeSingle();
+    if (existingLogErr) return serverError('admin-user-packages-usage-read', existingLogErr, '/api/admin/user-packages');
     if (existingLog) {
       return NextResponse.json({ error: 'この予約は既に回数券を消費済みです' }, { status: 409 });
     }
@@ -262,6 +263,19 @@ export async function PATCH(request: NextRequest) {
         return serverError('admin-user-packages-consume-unknown-code', new Error(`consume_package_session returned unexpected code: ${result?.code ?? 'undefined'}`), '/api/admin/user-packages');
     }
   }
+
+  const { ip: auditIp, ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId: user.id,
+    facilityId: facilityId ?? null,
+    action: 'update',
+    tableName: 'user_packages',
+    recordId: parsed.data.user_package_id,
+    oldValues: { sessions_remaining: userPkg.sessions_remaining },
+    newValues: { consumed: 1, booking_id: parsed.data.booking_id ?? null, notes: parsed.data.notes ?? null, by: isAdmin ? 'facility_admin' : 'holder' },
+    ipAddress: auditIp,
+    userAgent: ua,
+  });
 
   return NextResponse.json({ user_package: result.user_package });
 }

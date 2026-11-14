@@ -13,6 +13,7 @@ const BASE_URL = requireLocalLoadTarget(__ENV.TARGET_URL);
 const rateLimitCorrect = new Rate('rate_limit_correct');
 const falsePositives = new Counter('rate_limit_false_positives');
 const falseNegatives = new Counter('rate_limit_false_negatives');
+const unexpectedStatuses = new Counter('rate_limit_unexpected_statuses');
 
 export const options = {
   maxRedirects: 0,
@@ -48,18 +49,28 @@ export default function () {
   // 最初の 20 件は成功、21 件目以降は 429 になるはず
   const successCount = results.filter(s => s === 200).length;
   const limitCount = results.filter(s => s === 429).length;
+  const otherCount = results.length - successCount - limitCount;
+  // 最初に 429 が返った位置（20件目より前なら誤検知＝正常な要求を止めた）
+  const firstLimited = results.indexOf(429);
 
-  // レート制限が正確に機能しているか
-  const correct = successCount <= 20 && limitCount >= 0;
+  // 正確＝ちょうど 20 件成功し残り 5 件が 429。5xx 等が混じると成功件数が減って
+  // 見かけ上「20件以下」を満たしてしまうため、200/429 以外が出たら不正確として数える。
+  const correct = otherCount === 0 && successCount === 20 && limitCount === 5;
   rateLimitCorrect.add(correct);
 
   if (successCount > 20) {
     falseNegatives.add(successCount - 20);
   }
+  if (firstLimited !== -1 && firstLimited < 20) {
+    falsePositives.add(20 - firstLimited);
+  }
+  if (otherCount > 0) {
+    unexpectedStatuses.add(otherCount);
+  }
 
   check(results, {
     '25件中 20件以下が成功': () => successCount <= 20,
-    '500エラーなし': () => !results.includes(500),
+    '200/429 以外の応答なし': () => otherCount === 0,
   });
 
   sleep(61); // レート制限リセット待ち（1分）
@@ -69,11 +80,13 @@ export function handleSummary(data) {
   const correctRate = data.metrics.rate_limit_correct?.values?.rate || 0;
   const falsePosCount = data.metrics.rate_limit_false_positives?.values?.count || 0;
   const falseNegCount = data.metrics.rate_limit_false_negatives?.values?.count || 0;
+  const unexpectedCount = data.metrics.rate_limit_unexpected_statuses?.values?.count || 0;
 
   console.log('\n=== レート制限精度テスト結果 ===');
   console.log(`正確率: ${(correctRate * 100).toFixed(1)}%`);
   console.log(`誤検知（正常ブロック）: ${falsePosCount}`);
   console.log(`見逃し（制限漏れ）: ${falseNegCount}`);
+  console.log(`200/429 以外の応答: ${unexpectedCount}`);
 
   return { 'stdout': JSON.stringify(data.metrics, null, 2) };
 }

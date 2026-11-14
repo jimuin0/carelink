@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { readFile, writeFile, rm, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, rm, mkdir, readdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 
 // Run only while building the image, without runtime secrets. /privacy is a
@@ -20,8 +20,12 @@ export async function warmRuntimeCompileCache({
   // Only this directory is writable by the runtime user in the final image.
   const warmEntry = resolve(cacheDir, `.compile-cache-warmup-${randomUUID()}.cjs`);
   const source = await readFile(resolve(cwd, 'server.js'), 'utf8');
+  // Next の出力形式が変わって置換が空振りすると、全モジュールの事前読み込みが行われないまま
+  // /privacy の 200 だけで成功扱いになっていた。置換対象が無ければ止める。
+  const PRELOAD_OFF = '"preloadEntriesOnStart":false';
+  if (!source.includes(PRELOAD_OFF)) throw new Error(`server.js does not contain ${PRELOAD_OFF}; cannot enable module preloading`);
   await writeFile(warmEntry, source
-    .replace('"preloadEntriesOnStart":false', '"preloadEntriesOnStart":true')
+    .replace(PRELOAD_OFF, '"preloadEntriesOnStart":true')
     .replaceAll('__dirname', 'require("node:path").resolve(__dirname, "..")'));
   const child = spawn(process.execPath, [warmEntry], {
     cwd,
@@ -36,6 +40,8 @@ export async function warmRuntimeCompileCache({
     stdio: 'ignore',
   });
   let exited = false;
+  let forceKilled = false;
+  let ready = false;
   const exit = new Promise((done) => {
     child.once('exit', () => { exited = true; done(); });
     child.once('error', () => { exited = true; done(); });
@@ -58,19 +64,24 @@ export async function warmRuntimeCompileCache({
         continue;
       }
       if (response.status !== 200) throw new Error('Compile-cache warmup page did not return HTTP 200');
-      return;
+      ready = true;
+      break;
     }
-    throw new Error('Compile-cache warmup exceeded its readiness deadline');
+    if (!ready) throw new Error('Compile-cache warmup exceeded its readiness deadline');
   } finally {
     // A graceful exit flushes Node's accumulated module bytecode to disk.
     if (!exited) {
-      const timer = setTimeout(() => child.kill('SIGKILL'), shutdownMs);
+      const timer = setTimeout(() => { forceKilled = true; child.kill('SIGKILL'); }, shutdownMs);
       child.kill('SIGTERM');
       await exit;
       clearTimeout(timer);
     }
     await rm(warmEntry, { force: true });
   }
+  // SIGKILL ではバイトコードが書き出されない。成功扱いにせず、キャッシュの実在も確かめる。
+  if (forceKilled) throw new Error('Compile-cache warmup server did not exit gracefully; bytecode cache was not flushed');
+  const written = (await readdir(cacheDir, { recursive: true })).filter((name) => !name.startsWith('.compile-cache-warmup-'));
+  if (written.length === 0) throw new Error('Compile-cache warmup produced no cache files');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -18,7 +18,7 @@ const SUPABASE_URL = requireDisposableSeedTarget();
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
-  console.error('❌ NEXT_PUBLIC_SUPABASE_URL と SUPABASE_SERVICE_ROLE_KEY を .env.local に設定してください');
+  console.error('❌ 使い捨てローカル Supabase の SUPABASE_SERVICE_ROLE_KEY が必要です（CARELINK_DISPOSABLE_SUPABASE_URL=http://127.0.0.1:54321・NEXT_PUBLIC_SUPABASE_URL を同じ origin にし、--local-test-data を付けて実行。本番の値は使わない）');
   process.exit(1);
 }
 

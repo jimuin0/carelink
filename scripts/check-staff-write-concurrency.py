@@ -2,6 +2,10 @@
 import json, os, queue, subprocess, sys, threading, time
 
 LOCAL = sys.argv[1:] == ['--local-shadow']
+if LOCAL:
+    # ローカルでも接続先がこの端末であることを確かめる（DB 名だけでは別ホストの同名 DB を止められない）
+    assert os.environ.get('PGHOST','localhost') in ('localhost','127.0.0.1')
+    assert not any(os.environ.get(k) for k in ('PGSERVICE','PGSERVICEFILE','PGHOSTADDR'))
 if not LOCAL:
     assert sys.argv[1:] == [] and os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('CI') == 'true'
     assert os.environ.get('PGHOST') in ('localhost', '127.0.0.1') and os.environ.get('PGPORT') == '5432' and os.environ.get('PGUSER') == 'postgres'

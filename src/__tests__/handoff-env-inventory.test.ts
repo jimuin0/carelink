@@ -9,7 +9,7 @@ import { join } from 'node:path';
 
 const ROOT = process.cwd();
 // Provided by the runtime or OS, never configured by an operator.
-const RUNTIME = new Set(['NODE_ENV', 'TZ', 'USER']);
+const RUNTIME = new Set(['NODE_ENV', 'TZ', 'USER', 'HOME']);
 
 function referencedNames(dirs: string[]): string[] {
   const out = execFileSync('grep', ['-rhoE', 'process\\.env\\.[A-Z0-9_]+', ...dirs], { cwd: ROOT, encoding: 'utf8' });
