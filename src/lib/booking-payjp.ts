@@ -85,6 +85,23 @@ async function setStatus(admin: Admin, row: PaymentRow, status: 'refunded' | 'pa
 }
 
 /**
+ * チャージバック（dispute.created）の対象支払い ID を取り出す。
+ * PAY.JP の公式リファレンスには dispute オブジェクトの項目が載っていない（2026年11月14日に確認）ため、
+ * 考えられる形をすべて受ける：charge が ID 文字列／charge が支払いオブジェクト（id を持つ）／charge_id。
+ * どれも ch_ で始まる ID だけを採る。
+ */
+export function disputeChargeId(data: Record<string, unknown>): string | null {
+  const charge = data.charge;
+  const candidates = [
+    charge,
+    charge && typeof charge === 'object' ? (charge as Record<string, unknown>).id : undefined,
+    data.charge_id,
+  ];
+  for (const c of candidates) if (typeof c === 'string' && c.startsWith('ch_')) return c;
+  return null;
+}
+
+/**
  * charge.succeeded / charge.refunded / dispute.created を予約の支払いへ反映する。
  * 定期課金（広告枠・有料オプション）の支払いなど、予約の支払いでないものは 'ignored'。
  */
@@ -109,8 +126,9 @@ export async function applyBookingChargeEvent(admin: Admin, event: ChargeEvent):
     return 'applied';
   }
   if (event.type === 'dispute.created') {
-    if (typeof data.charge !== 'string') return 'ignored';
-    const row = await rowByChargeId(admin, data.charge);
+    const chargeId = disputeChargeId(data);
+    if (!chargeId) return 'ignored';
+    const row = await rowByChargeId(admin, chargeId);
     if (!row) return 'ignored';
     await setStatus(admin, row, 'disputed');
     return 'applied';

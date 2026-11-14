@@ -33,9 +33,20 @@ Render run fail. There are no new automatic retries. The runner logs job names,
 nominal UTC slot and HTTP status, never response bodies or credentials. Individual
 API cron logs and monitoring job IDs remain intact. The minimum interval between
 active slots within each consolidated group is 15 minutes (calendar: 20 minutes),
-longer than the five-minute request timeout. Startup delay up to five minutes is
-resolved against the latest runner tick; longer delays fail visibly rather than
-executing a different job. As with the previous Render crons, platform scheduling
+longer than the five-minute request timeout. Startup delay is attributed to the
+tick that launched the container within a per-runner window of
+`min(MAX_STARTUP_DELAY_MS (10 minutes), shortest gap between that runner's
+ticks)` (`startupWindowMs` in `src/lib/cron-dispatch.mjs`): quarter-hour and
+hourly tolerate up to 10 minutes, calendar and the monitor runner up to 5
+minutes. Because the window never exceeds the tick gap, the latest tick inside
+it is always the launching tick, so a delayed run executes its own slot's jobs
+(never `jobs=none` from the next tick) and no slot is resolved by two
+containers. A start later than the window does not execute anything; it logs
+`[cron-dispatch] MISSED <group> slot=<nominal UTC> delay=<s> jobs=<due jobs>`
+and fails the Render run, so the lost slot is named in the alert. A delay of a
+full tick gap or more is indistinguishable from the next on-time tick without
+shared state; the `/api/health` cron-freshness check (`cron_logs`) is the
+backstop for that case. As with the previous Render crons, platform scheduling
 and container startup can delay wall-clock execution within the nominal minute.
 
 ## Coordinated production cutover

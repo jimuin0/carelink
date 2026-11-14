@@ -7,10 +7,11 @@
  * 逆に紹介文で「駐車場はありません」と書いた施設が当たる。絞り込みパネルと同じ `features=`
  * （features 配列の完全一致）を使う。業種・エリアのページから来た場合はその条件を引き継ぐ。
  */
-export function featureSearchHref(feature: string, scope: { type?: string; area?: string } = {}): string {
+export function featureSearchHref(feature: string, scope: { type?: string; area?: string; city?: string } = {}): string {
   const params = new URLSearchParams();
   if (scope.type) params.set('type', scope.type);
   if (scope.area) params.set('area', scope.area);
+  if (scope.area && scope.city) params.set('city', scope.city);
   params.set('features', feature);
   return `/search?${params.toString()}`;
 }

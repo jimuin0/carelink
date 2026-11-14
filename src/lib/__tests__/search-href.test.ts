@@ -20,6 +20,18 @@ describe('featureSearchHref', () => {
     expect(q.get('features')).toBe('個室あり');
   });
 
+  // 監査 A168: 市区町村×業種ページから来たら市区町村も引き継ぐ（都道府県と組のときだけ）。
+  test('市区町村×業種ページからは市区町村も引き継ぐ', () => {
+    const q = query(featureSearchHref('個室あり', { type: '鍼灸院・整骨院', area: '大阪府', city: '北区' }));
+    expect(q.get('area')).toBe('大阪府');
+    expect(q.get('city')).toBe('北区');
+  });
+
+  test('都道府県の無い市区町村は付けない（同名の区が他県にもあるため）', () => {
+    const q = query(featureSearchHref('個室あり', { city: '北区' }));
+    expect(q.has('city')).toBe(false);
+  });
+
   test('空の業種・エリアは付けない', () => {
     const q = query(featureSearchHref('WiFi完備', { type: '', area: '' }));
     expect([...q.keys()]).toEqual(['features']);
