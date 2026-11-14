@@ -658,3 +658,8 @@ test('GET: 上限で打ち切られたら欠けた CSV を返さず 500（中 A8
   expect(res.status).toBe(500);
   jest.dontMock('@/lib/paginate');
 });
+
+test.each([['2026-02-30', '2026-03-31'], ['2026-01-01', '2026-13-01']])('B2-14: 実在しない日付 %s〜%s → 400（DB で 500 にしない）', async (from, to) => {
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, from, to }));
+  expect(res.status).toBe(400);
+});

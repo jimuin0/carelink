@@ -73,6 +73,11 @@ export interface BookingEmailData {
   totalPrice?: number;
   bookingId: string;
   bookingStatus?: string;
+  /**
+   * 店舗向けメールの「管理画面で確認する」を、その店舗を選んだ状態で開くための施設 ID。
+   * 複数店舗を持つオーナーが別の店舗の予約一覧を開かないようにする（B4-10）。
+   */
+  facilityId?: string | null;
   /** 店舗向けの新規予約通知だけが使う（お客様向けメールには載せない）。 */
   customerPhone?: string | null;
   /** お客様の備考。訪問専門の店舗では訪問先の住所を兼ねる（PR #755）。店舗向けの新規予約通知だけが使う。 */
@@ -747,7 +752,7 @@ export function buildNewBookingNotificationEnvelope(data: BookingEmailData & { f
         ${contactRows}
       </table>
       ${bookingDetailHtml(data)}
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}${adminFacilityHref('/admin/bookings', data.facilityId ?? null)}" style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a></p>
     `),
   };
 }
@@ -795,7 +800,7 @@ export function buildBookingCancellationToFacilityEnvelope(data: BookingEmailDat
       </table>
       ${feeNotice}
       ${bookingDetailHtml(data)}
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}${adminFacilityHref('/admin/bookings', data.facilityId ?? null)}" style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a></p>
     `),
   };
 }
@@ -824,7 +829,7 @@ export function buildBookingRescheduleToFacilityEnvelope(
       </table>
       <p style="font-weight:600;margin-bottom:0;">変更後のご予約内容</p>
       ${bookingDetailHtml(data)}
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}${adminFacilityHref('/admin/bookings', data.facilityId ?? null)}" style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a></p>
     `),
   };
 }

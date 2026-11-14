@@ -347,7 +347,7 @@ export async function getPopularFacilities(limit = 6) {
       cacheKey,
       async () => {
         const supabase = createServerSupabaseClient();
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from(CARD_VIEW)
           .select(CARD_COLS)
           .eq('status', 'published')
@@ -356,6 +356,8 @@ export async function getPopularFacilities(limit = 6) {
           .order('rating_count', { ascending: false })
           .order('id', { ascending: true })
           .limit(limit);
+        // 読込エラーを [] として 10 分キャッシュしない（下の catch で直接読み直し、error を返す・B4-6）。
+        if (error) throw error;
         return (data || []) as FacilityCardData[];
       },
       600 // 10 min cache

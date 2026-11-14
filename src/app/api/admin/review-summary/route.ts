@@ -86,6 +86,8 @@ export async function GET(request: Request) {
     .select('rating, comment, rating_skill, rating_service, rating_atmosphere')
     .eq('facility_id', facilityId)
     .eq('status', 'published')
+    // 不正検知でフラグが立った口コミ（自作自演・大量投稿の疑い）は要約に混ぜない（B2-12）。
+    .eq('is_flagged', false)
     .not('comment', 'is', null)
     .order('created_at', { ascending: false })
     .limit(20);
@@ -111,7 +113,10 @@ export async function GET(request: Request) {
       }],
     });
 
-    const summary = (message.content[0] as { text: string }).text.trim();
+    // 先頭ブロックが text とは限らない（型の偽装で undefined.trim() にしない・B2-12）。
+    const first = message.content[0];
+    const summary = first?.type === 'text' ? first.text.trim() : '';
+    if (!summary) throw new Error('review summary returned no text');
     return NextResponse.json({ summary });
   } catch (e) {
     return serverError('admin-review-summary-generate', e, '/api/admin/review-summary', '要約の生成に失敗しました');

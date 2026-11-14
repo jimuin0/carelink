@@ -91,7 +91,7 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
   process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
-  getMockCreate().mockResolvedValue({ content: [{ text: 'この施設は素晴らしいです。' }] });
+  getMockCreate().mockResolvedValue({ content: [{ type: 'text', text: 'この施設は素晴らしいです。' }] });
 });
 
 test('GET: レートリミット → 429', async () => {
@@ -150,6 +150,21 @@ test('GET: 施設メンバー → 3件以上で 200 with summary', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.summary).toBe('この施設は素晴らしいです。');
+});
+
+test('B2-12: フラグ付きの口コミを除外し、text 以外の応答は 500（型の偽装で落ちない）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return profileSingle(false);
+    return memberMaybeSingle({ facility_id: FACILITY_UUID });
+  });
+  const chain = reviewsChain(SAMPLE_REVIEWS);
+  mockAdminFrom.mockReturnValue(chain);
+  getMockCreate().mockResolvedValue({ content: [{ type: 'tool_use', id: 'x', name: 'y', input: {} }] });
+  const res = await GET(makeRequest());
+  expect(chain.eq).toHaveBeenCalledWith('is_flagged', false);
+  expect(res.status).toBe(500);
 });
 
 // 【2026年7月29日】プロンプトインジェクション対策の回帰防止。口コミ本文に含まれる

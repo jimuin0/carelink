@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
+import { isValidIsoDate } from '@/lib/date-utils';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { csvEscape } from '@/lib/csv';
 import { getClientIp } from '@/lib/client-ip';
@@ -40,9 +41,9 @@ export async function GET(request: NextRequest) {
   if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
   if (!UUID_REGEX.test(facilityId)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
   if (!['freee', 'mf', 'generic'].includes(format)) return NextResponse.json({ error: 'Invalid format' }, { status: 400 });
-  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-  if (from && !dateRegex.test(from)) return NextResponse.json({ error: 'Invalid from date' }, { status: 400 });
-  if (to && !dateRegex.test(to)) return NextResponse.json({ error: 'Invalid to date' }, { status: 400 });
+  // 形式だけでなく実在する暦日か（2026-02-30 を JS が 03-02 へ繰り上げ、DB が拒否して 500 にならないよう・B2-14）。
+  if (from && !isValidIsoDate(from)) return NextResponse.json({ error: 'Invalid from date' }, { status: 400 });
+  if (to && !isValidIsoDate(to)) return NextResponse.json({ error: 'Invalid to date' }, { status: 400 });
 
   // Enforce maximum export range of 366 days to prevent DoS via huge queries.
   // 片側だけ・無指定だと全期間を読み込むため、期間は両端とも必須にする（中 A8）。
@@ -50,7 +51,6 @@ export async function GET(request: NextRequest) {
   {
     const fromMs = new Date(from).getTime();
     const toMs = new Date(to).getTime();
-    if (isNaN(fromMs) || isNaN(toMs)) return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
     if (toMs < fromMs) return NextResponse.json({ error: 'to must be after from' }, { status: 400 });
     const diffDays = (toMs - fromMs) / (1000 * 60 * 60 * 24);
     if (diffDays > 366) return NextResponse.json({ error: 'エクスポート範囲は最大366日です' }, { status: 400 });

@@ -28,6 +28,12 @@ export function isIndexableAreaQuality(
     && textLength >= 300;
 }
 
+// 読めなかった（DB 障害）を「その段の文言なし」と区別する。握り潰すと、より汎用な文言や
+// 文言なしのページが 1 時間 ISR に載る（呼び出し元のページは例外を error.tsx の一時障害表示にする・B4-5）。
+function areaSeoReadError(cause: unknown): Error {
+  return new Error('area_seo_contents read failed', { cause });
+}
+
 /**
  * エリアSEOコンテンツ取得（フォールバックチェーン付き）
  *
@@ -46,48 +52,52 @@ export async function getAreaSeoContent(
 
   // 1. 最も具体的なマッチを試行
   if (citySlug && businessTypeSlug) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('area_seo_contents')
       .select('h2_title, body_text, faq_items')
       .eq('prefecture_slug', prefectureSlug)
       .eq('city_slug', citySlug)
       .eq('business_type_slug', businessTypeSlug)
       .maybeSingle();
+    if (error) throw areaSeoReadError(error);
     if (data) return toSeoContent(data);
   }
 
   // 2. 市区町村汎用
   if (citySlug) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('area_seo_contents')
       .select('h2_title, body_text, faq_items')
       .eq('prefecture_slug', prefectureSlug)
       .eq('city_slug', citySlug)
       .is('business_type_slug', null)
       .maybeSingle();
+    if (error) throw areaSeoReadError(error);
     if (data) return toSeoContent(data);
   }
 
   // 3. 業種汎用
   if (businessTypeSlug) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('area_seo_contents')
       .select('h2_title, body_text, faq_items')
       .eq('prefecture_slug', prefectureSlug)
       .is('city_slug', null)
       .eq('business_type_slug', businessTypeSlug)
       .maybeSingle();
+    if (error) throw areaSeoReadError(error);
     if (data) return toSeoContent(data);
   }
 
   // 4. 都道府県汎用
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('area_seo_contents')
     .select('h2_title, body_text, faq_items')
     .eq('prefecture_slug', prefectureSlug)
     .is('city_slug', null)
     .is('business_type_slug', null)
     .maybeSingle();
+  if (error) throw areaSeoReadError(error);
   if (data) return toSeoContent(data);
 
   return null;

@@ -110,6 +110,19 @@ describe('sendLinePush', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2); // 429 は即 abort せずリトライ
   });
 
+  test('B4-7: 再試行には同じ X-Line-Retry-Key を付け、409（受理済み）は届いた扱いにする', async () => {
+    global.fetch = jest.fn()
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce({ ok: false, status: 409, text: async () => 'already accepted' } as unknown as Response);
+    const promise = sendLinePush('user-1', [{ type: 'text', text: 'hi' }], 3);
+    await jest.runAllTimersAsync();
+    expect(await promise).toBe(true);
+    const keys = (global.fetch as jest.Mock).mock.calls.map(([, opts]) => opts.headers['X-Line-Retry-Key']);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[1]).toBe(keys[0]);
+  });
+
   test('throws if token not set', async () => {
     delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
     await expect(sendLinePush('user-1', [])).rejects.toThrow('LINE_CHANNEL_ACCESS_TOKEN_CARELINK');
