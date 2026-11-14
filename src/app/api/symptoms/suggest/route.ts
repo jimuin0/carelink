@@ -11,6 +11,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { serverError } from '@/lib/with-route';
+import { isAiEnabled } from '@/lib/integration-availability';
 import { z } from 'zod';
 import { checkChatLimit, chatDailyLimit, CHAT_DAILY_WINDOW_MS } from '@/lib/chat-rate-limit';
 
@@ -55,7 +56,8 @@ export async function POST(request: NextRequest) {
 
   // /api/chat と共有の 24 時間上限（AI_CHAT_DAILY_REQUEST_LIMIT）。分散した IP からの連打でも総量を超えない。
   const dailyLimit = chatDailyLimit(process.env.AI_CHAT_DAILY_REQUEST_LIMIT);
-  if (dailyLimit === null || !process.env.ANTHROPIC_API_KEY) {
+  // 連携の出し分けは integration-availability の単一判定に従う（未設定なら外部 API を呼ばない）。
+  if (dailyLimit === null || !isAiEnabled()) {
     return NextResponse.json({ error: 'AIサービスは現在利用できません。' }, { status: 503 });
   }
   const daily = await checkChatLimit('chat-daily:global', dailyLimit, CHAT_DAILY_WINDOW_MS);

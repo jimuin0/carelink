@@ -17,9 +17,11 @@ export const revalidate = 0;
  *   - Supabase RPC check_rate_limit（必須、rate-limit が依存）
  *
  * Degraded 依存（NG でも 200 を維持、deps に状態のみ報告）:
- *   - Stripe / Resend / Slack（決済・通知系、即時致命ではないがダッシュボード可視化）
+ *   - Stripe / Resend（決済・通知系、即時致命ではないがダッシュボード可視化）
+ *   - cron の鮮度（cron-heartbeat の最終実行が閾値より古い）
+ *   ※ Slack のプローブは無い。
  *
- * UptimeRobot等の外形監視はこのエンドポイントを 60s 間隔で監視し、
+ * 外形監視（Render の carelink-health-check＝scripts/health-check.mjs・5分毎）はこのエンドポイントを見て、
  * ステータス + JSON body の deps を見て障害種別を切り分ける。
  */
 

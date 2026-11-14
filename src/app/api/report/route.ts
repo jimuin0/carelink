@@ -68,11 +68,14 @@ export const POST = withRoute(async (request, ctx) => {
       // 対象から facility_id を解決（review→facility_reviews / photo→facility_photos）。
       // 解決不能でも facility_id は nullable のため null で登録する。
       const sourceTable = contentType === 'review' ? 'facility_reviews' : 'facility_photos';
-      const { data: target } = await supabase
+      const { data: target, error: targetError } = await supabase
         .from(sourceTable)
         .select('facility_id')
         .eq('id', parsed.data.target_id)
         .maybeSingle();
+      // 読み取り失敗で facility_id が分からないまま登録することになるので、通知して気づけるようにする
+      // （通報自体は審査キューに残すため登録は続ける・低 A162）。
+      if (targetError) alertCaughtError('report-target-lookup', targetError, '/api/report');
       const facilityId = (target as { facility_id: string | null } | null)?.facility_id ?? null;
 
       const reportReason = parsed.data.detail

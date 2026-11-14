@@ -383,6 +383,25 @@ describe('GET /api/v1/customers', () => {
     }));
   });
 
+  // 低 A166: 範囲外ページでも総数を 0 にしない（先頭 1 件で総数を読み直す）。
+  test('範囲外ページ → data は空・total は実際の総数', async () => {
+    const rpc = setupRpcMock(jest.fn()
+      .mockResolvedValueOnce({ data: [], error: null })
+      .mockResolvedValueOnce({ data: [{ name: 'A', phone: null, email: null, total_count: 12 }], error: null }));
+    const res = await GET(makeRequest('test-api-key', '?page=9&limit=10') as any);
+    const json = await res.json();
+    expect(json.data).toEqual([]);
+    expect(json.pagination.total).toBe(12);
+    expect(rpc).toHaveBeenLastCalledWith('get_facility_customers_v1', expect.objectContaining({ p_limit: 1, p_offset: 0 }));
+  });
+
+  test('範囲外ページで総数の読み直しも空 → total 0／失敗 → 500', async () => {
+    setupRpcMock(jest.fn().mockResolvedValueOnce({ data: [], error: null }).mockResolvedValueOnce({ data: null, error: null }));
+    expect((await (await GET(makeRequest('test-api-key', '?page=2&limit=10') as any)).json()).pagination.total).toBe(0);
+    setupRpcMock(jest.fn().mockResolvedValueOnce({ data: [], error: null }).mockResolvedValueOnce({ data: null, error: { message: 'down' } }));
+    expect((await GET(makeRequest('test-api-key', '?page=2&limit=10') as any)).status).toBe(500);
+  });
+
   test('data が null → 空配列・total 0 を返す', async () => {
     setupRpcMock(jest.fn().mockResolvedValue({ data: null, error: null }));
     const res = await GET(makeRequest() as any);

@@ -618,6 +618,21 @@ describe('POST /api/review', () => {
       expect(sendNewReviewNotification).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'owner@example.invalid', facilityId: VALID_FACILITY_UUID }));
     });
 
+    // 低 A161: 宛先の読み取り失敗は「宛先0件」として黙らず、通知する（口コミ投稿自体は 200）。
+    test('宛先（施設メンバー）の読み取り失敗 → メールは送れないが通知する', async () => {
+      const { sendNewReviewNotification } = require('@/lib/email');
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const { mockMembersRoleFilter } = setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+      mockMembersRoleFilter.mockResolvedValue({ data: null, error: { message: 'db down' } });
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(sendNewReviewNotification).not.toHaveBeenCalled();
+      // catch（safeCaptureException・alertCaughtError を呼ぶ経路）に入ったこと。
+      expect(errorSpy).toHaveBeenCalledWith('[review] push/email setup failed', expect.any(Error));
+      errorSpy.mockRestore();
+    });
+
     test('施設にオーナーがいない場合はメールを送らない', async () => {
       const { sendNewReviewNotification } = require('@/lib/email');
       setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, ownerUserIds: [] });

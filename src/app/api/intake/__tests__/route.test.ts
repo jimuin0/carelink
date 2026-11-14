@@ -596,6 +596,50 @@ describe('GET /api/intake – cookie callback invocable', () => {
   });
 });
 
+// 低 A155: 読み取り失敗を「問診なし」「見つからない」（利用者の誤り）に見せない。
+describe('intake の読み取り失敗は 500', () => {
+  function failingClient(user: { id: string } | null) {
+    const { createServerClient } = require('@supabase/ssr');
+    const insert = jest.fn();
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user } }) },
+      from: jest.fn(() => ({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }),
+        insert,
+      })),
+    });
+    return insert;
+  }
+  const postBody = (extra: Record<string, unknown> = {}) => new Request('http://localhost/api/intake', {
+    method: 'POST',
+    body: JSON.stringify({ template_id: '11111111-1111-1111-1111-111111111111', customer_name: 'Test', facility_id: '11111111-1111-1111-1111-111111111111', ...extra }),
+  });
+
+  test('GET: テンプレートの読み取り失敗 → 500（template:null にしない）', async () => {
+    failingClient(null);
+    const { GET } = await import('../route');
+    const req = new Request('http://localhost/api/intake?facility_id=11111111-1111-1111-1111-111111111111');
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url) });
+    expect((await GET(req as any)).status).toBe(500);
+  });
+
+  test('POST: 予約の読み取り失敗 → 500（403 にしない）', async () => {
+    const insert = failingClient({ id: 'user-123' });
+    const { POST } = await import('../route');
+    expect((await POST(postBody({ booking_id: '22222222-2222-2222-2222-222222222222' }) as any)).status).toBe(500);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  test('POST: テンプレートの読み取り失敗 → 500（403 にしない）', async () => {
+    const insert = failingClient(null);
+    const { POST } = await import('../route');
+    expect((await POST(postBody() as any)).status).toBe(500);
+    expect(insert).not.toHaveBeenCalled();
+  });
+});
+
 // 【監査M2/H1】問診 非表示ゲート。INTAKE_CUSTOMER_ENABLED=false 時は GET/POST とも
 // 他の処理に一切触れず 404 を返す（PII 新規蓄積の物理停止・ゲスト送信 401 経路 H1 の到達不能化）。
 describe('問診 非表示ゲート（INTAKE_CUSTOMER_ENABLED=false）', () => {
@@ -627,3 +671,4 @@ describe('問診 非表示ゲート（INTAKE_CUSTOMER_ENABLED=false）', () => {
     expect(res.status).toBe(404);
   });
 });
+

@@ -64,7 +64,7 @@ export async function POST(request: Request) {
 
     // 同じ施設・日時・ユーザーの重複登録を防止
     if (user) {
-      const { data: existing } = await supabase
+      const { data: existing, error: existingError } = await supabase
         .from('booking_waitlist')
         .select('id')
         .eq('facility_id', data.facility_id)
@@ -73,6 +73,8 @@ export async function POST(request: Request) {
         .eq('user_id', user.id)
         .eq('status', 'waiting')
         .maybeSingle();
+      // 確認できないまま登録へ進めない（二重登録・障害の無音化を避ける・低 A167）。
+      if (existingError) return serverError('waitlist-post-duplicate-check', existingError, '/api/waitlist', '登録に失敗しました');
 
       if (existing) {
         return NextResponse.json({ error: 'この日時はすでにキャンセル待ちに登録済みです' }, { status: 409 });
@@ -80,12 +82,14 @@ export async function POST(request: Request) {
     }
 
     // 施設の存在確認
-    const { data: facility } = await supabase
+    const { data: facility, error: facilityError } = await supabase
       .from('facility_profiles')
       .select('id, name')
       .eq('id', data.facility_id)
       .eq('status', 'published')
       .maybeSingle();
+    // 読み取り失敗を「施設が見つかりません」（404）に偽装しない（低 A167）。
+    if (facilityError) return serverError('waitlist-post-facility', facilityError, '/api/waitlist', '登録に失敗しました');
 
     if (!facility) {
       return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
