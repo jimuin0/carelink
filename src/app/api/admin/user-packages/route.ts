@@ -7,7 +7,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { grantToFacilityCustomer, loadFacilityCustomerProfiles } from '@/lib/facility-customer-grant';
 
 const grantSchema = z.object({
@@ -29,8 +30,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-user-packages-auth', '/api/admin/user-packages');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = verification.user;
 
   const facilityId = request.nextUrl.searchParams.get('facility_id');
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -38,13 +41,14 @@ export async function GET(request: NextRequest) {
   if (!UUID_REGEX.test(facilityId)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
   if (userId && !UUID_REGEX.test(userId)) return NextResponse.json({ error: 'Invalid user_id' }, { status: 400 });
 
-  const { data: membership } = await supabase
+  const { data: membership, error: membershipError } = await supabase
     .from('facility_members')
     .select('role')
     .eq('user_id', user.id)
     .eq('facility_id', facilityId)
     .in('role', ['owner', 'admin'])
     .single();
+  if (membershipError && membershipError.code !== 'PGRST116') return serverError('admin-user-packages-membership', membershipError, '/api/admin/user-packages');
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
@@ -83,20 +87,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-user-packages-auth', '/api/admin/user-packages');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = verification.user;
 
   const body = await request.json().catch(() => null);
   const parsed = grantSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
-  const { data: membership } = await supabase
+  const { data: membership, error: membershipError } = await supabase
     .from('facility_members')
     .select('role')
     .eq('user_id', user.id)
     .eq('facility_id', parsed.data.facility_id)
     .in('role', ['owner', 'admin'])
     .single();
+  if (membershipError && membershipError.code !== 'PGRST116') return serverError('admin-user-packages-membership', membershipError, '/api/admin/user-packages');
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // 付与先がこの店舗の予約者か・回数券がこの店舗のものか・今も owner / admin かを、
@@ -135,8 +142,10 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-user-packages-auth', '/api/admin/user-packages');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = verification.user;
 
   const body = await request.json().catch(() => null);
   const parsed = useSchema.safeParse(body);
@@ -145,11 +154,12 @@ export async function PATCH(request: NextRequest) {
   const admin = createServiceRoleClient();
 
   // 回数券の所有権確認
-  const { data: userPkg } = await admin
+  const { data: userPkg, error: userPkgError } = await admin
     .from('user_packages')
     .select('*, service_packages(facility_id)')
     .eq('id', parsed.data.user_package_id)
     .single();
+  if (userPkgError && userPkgError.code !== 'PGRST116') return serverError('admin-user-packages-read', userPkgError, '/api/admin/user-packages');
 
   if (!userPkg) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
@@ -158,13 +168,14 @@ export async function PATCH(request: NextRequest) {
   const isOwner = userPkg.user_id === user.id;
   let isAdmin = false;
   if (facilityId) {
-    const { data: m } = await supabase
+    const { data: m, error: mError } = await supabase
       .from('facility_members')
       .select('role')
       .eq('user_id', user.id)
       .eq('facility_id', facilityId)
       .in('role', ['owner', 'admin'])
       .single();
+    if (mError && mError.code !== 'PGRST116') return serverError('admin-user-packages-membership', mError, '/api/admin/user-packages');
     isAdmin = !!m;
   }
   if (!isOwner && !isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -182,6 +193,23 @@ export async function PATCH(request: NextRequest) {
   // 「1回使用」ボタンの連打/リトライで顧客の前払い分が二重に減るのを防ぐ（逐次再呼び出し対策）。
   // ここでの TOCTOU（事前SELECTと呼び出しの間の競合）は RPC 側の already_consumed で必ず捕捉される。
   if (parsed.data.booking_id) {
+    if (!facilityId) {
+      return NextResponse.json({ error: 'この予約にはこの回数券を使えません' }, { status: 400 });
+    }
+    // 予約の所属を確かめる：回数券の施設の予約で、回数券の持ち主の予約であること。
+    // 確かめないと、無関係な（他施設・他人の）予約 ID で消費記録を作れ、その予約の冪等チェックも汚せた。
+    const { data: booking, error: bookingErr } = await admin
+      .from('bookings')
+      .select('id')
+      .eq('id', parsed.data.booking_id)
+      .eq('facility_id', facilityId)
+      .eq('user_id', userPkg.user_id)
+      .maybeSingle();
+    if (bookingErr) return serverError('admin-user-packages-booking-read', bookingErr, '/api/admin/user-packages');
+    if (!booking) {
+      return NextResponse.json({ error: 'この予約にはこの回数券を使えません' }, { status: 400 });
+    }
+
     const { data: existingLog } = await admin
       .from('package_usage_logs')
       .select('id')

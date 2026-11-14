@@ -21,6 +21,7 @@ function fluent(resolvedValue: unknown) {
   self.eq = handler;
   self.order = jest.fn(() => Promise.resolve(resolvedValue));
   self.single = jest.fn(() => Promise.resolve(resolvedValue));
+  self.maybeSingle = jest.fn(() => Promise.resolve(resolvedValue));
   return self;
 }
 
@@ -218,5 +219,25 @@ describe('getStaffPhotos — deep tests', () => {
     mockFrom.mockReturnValue(fluent({ data: photos }));
     const result = await getStaffPhotos('s-1');
     expect(result).toHaveLength(2);
+  });
+});
+
+describe('読み取りエラーを空・null・制限なしに化けさせない', () => {
+  const err = { message: 'down' };
+  test('getStaffByFacility は投げる', async () => {
+    mockFrom.mockReturnValue(fluent({ data: null, error: err }));
+    await expect(getStaffByFacility('fac-1')).rejects.toBe(err);
+  });
+  test('getStaffBySlug は投げる（404 にしない）', async () => {
+    mockFrom.mockReturnValue(fluent({ data: null, error: err }));
+    await expect(getStaffBySlug('fac-1', 'x')).rejects.toBe(err);
+  });
+  test('getStaffPhotos は投げる', async () => {
+    mockFrom.mockReturnValue(fluent({ data: null, error: err }));
+    await expect(getStaffPhotos('s-1')).rejects.toBe(err);
+  });
+  test('getMenuStaffByMenuIds は投げる', async () => {
+    mockFrom.mockReturnValue(menuStaffFluent({ data: null, error: err }));
+    await expect(getMenuStaffByMenuIds(['m-1'])).rejects.toBe(err);
   });
 });

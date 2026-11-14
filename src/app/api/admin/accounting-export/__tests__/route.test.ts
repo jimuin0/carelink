@@ -38,7 +38,10 @@ import { checkRateLimit } from '@/lib/rate-limit';
 
 function makeGetRequest(params: Record<string, string> = { facility_id: FACILITY_UUID }) {
   const url = new URL('http://localhost/api/admin/accounting-export');
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  // 期間は必須（中 A8）。期間を主題にしないテストは既定の期間を付ける。
+  const withRange = 'from' in params || 'to' in params || !('facility_id' in params)
+    ? params : { from: '2026-01-01', to: '2026-01-31', ...params };
+  for (const [k, v] of Object.entries(withRange)) url.searchParams.set(k, v);
   return new NextRequest(url.toString(), { method: 'GET' });
 }
 
@@ -349,7 +352,7 @@ test('GET: freee形式 fromなし → filenameにallを使う', async () => {
   mockAdminFrom.mockReturnValue(bookingQueryChain([]));
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'freee' }));
   expect(res.status).toBe(200);
-  expect(res.headers.get('Content-Disposition')).toContain('all');
+  expect(res.headers.get('Content-Disposition')).toContain('2026-01-01');
 });
 
 test('GET: freee形式 profiles配列・null値フィールド', async () => {
@@ -378,7 +381,7 @@ test('GET: mf形式 fromなし・null値フィールド', async () => {
   }]));
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'mf' }));
   expect(res.status).toBe(200);
-  expect(res.headers.get('Content-Disposition')).toContain('all');
+  expect(res.headers.get('Content-Disposition')).toContain('2026-01-01');
 });
 
 test('GET: generic形式 fromなし・null値フィールド', async () => {
@@ -392,7 +395,7 @@ test('GET: generic形式 fromなし・null値フィールド', async () => {
   }]));
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
   expect(res.status).toBe(200);
-  expect(res.headers.get('Content-Disposition')).toContain('all');
+  expect(res.headers.get('Content-Disposition')).toContain('2026-01-01');
 });
 
 test('GET: mf形式 bookingsがnull → 空CSV', async () => {
@@ -431,18 +434,20 @@ test('GET: CSV値にカンマ/引用符/改行 → 引用符で囲まれエス�
   expect(csv).toContain('""');
 });
 
-test('GET: from のみ指定 (to なし) → 200', async () => {
+test('GET: from のみ指定 (to なし) → 400 で全期間を読まない（中 A8）', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockReturnValue(bookingQueryChain([]));
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic', from: '2026-01-01' }));
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(400);
+  expect(mockAdminFrom).not.toHaveBeenCalled();
 });
 
-test('GET: to のみ指定 (from なし) → 200', async () => {
+test('GET: to のみ指定 (from なし) → 400 で全期間を読まない（中 A8）', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockReturnValue(bookingQueryChain([]));
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic', to: '2026-01-31' }));
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(400);
+  expect(mockAdminFrom).not.toHaveBeenCalled();
 });
 
 test('GET: 正規表現は通過するがNaNの日付 → 400', async () => {
@@ -639,4 +644,17 @@ describe('顧客名・メールは予約に保存された値を使う', () => {
     const { lines } = await exportCsv('generic', [{ ...walkInRows()[0], customer_name: '=HYPERLINK("x")', email: '+cmd@example.com' }]);
     expect(lines[1]).toContain(`"'=HYPERLINK(""x"")",'+cmd@example.com`);
   });
+});
+
+test('GET: 上限で打ち切られたら欠けた CSV を返さず 500（中 A8）', async () => {
+  jest.resetModules();
+  jest.doMock('@/lib/paginate', () => ({
+    fetchAllPaged: jest.fn(async (_fetch: unknown, opts: { failOnTruncation?: boolean }) =>
+      ({ rows: [], error: opts.failOnTruncation ? new Error('truncated') : null, truncated: true })),
+  }));
+  const { GET: freshGET } = await import('../route');
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  const res = await freshGET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(500);
+  jest.dontMock('@/lib/paginate');
 });

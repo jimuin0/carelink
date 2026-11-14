@@ -140,8 +140,8 @@ describe('enrichSeoContent', () => {
     faq_items: [{ question: '{{area_name}} Q?', answer: '{{avg_rating}} A.' }],
   };
 
-  function buildEnrichMock(facilities: { rating_avg: number | null }[], count: number) {
-    const result = { data: facilities, count };
+  function buildEnrichMock(facilities: { rating_avg: number | null }[], count: number, error: unknown = null) {
+    const result = { data: facilities, count, error };
     // The query is awaited directly: `await query`. Need each .eq() to return a thenable.
     const makeThenable = (): Record<string, unknown> => ({
       eq: jest.fn().mockImplementation(() => makeThenable()),
@@ -213,10 +213,22 @@ describe('enrichSeoContent', () => {
     expect(result.body_text).toContain('—');
   });
 
-  test('rating_avg null contributes 0', async () => {
+  test('評価の無い施設（rating_avg null）は平均に入れない', async () => {
     buildEnrichMock([{ rating_avg: null }, { rating_avg: 5 }], 2);
     const result = await enrichSeoContent(baseContent, '東京都');
-    // avg = (0 + 5) / 2 = 2.5
-    expect(result.body_text).toContain('2.5');
+    // 以前は (0 + 5) / 2 = 2.5 と低く出ていた（点検 A51）
+    expect(result.body_text).toContain('5.0');
+    expect(result.body_text).not.toContain('2.5');
+  });
+
+  test('全施設が未評価なら平均は —', async () => {
+    buildEnrichMock([{ rating_avg: null }], 1);
+    const result = await enrichSeoContent(baseContent, '東京都');
+    expect(result.body_text).toContain('—');
+  });
+
+  test('読み取り失敗は「0件」と書かずに例外にする', async () => {
+    buildEnrichMock(null as unknown as { rating_avg: number | null }[], null as unknown as number, { message: 'db down' });
+    await expect(enrichSeoContent(baseContent, '東京都')).rejects.toThrow('enrichSeoContent failed');
   });
 });

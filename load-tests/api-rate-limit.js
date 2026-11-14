@@ -39,7 +39,7 @@ export default function () {
   };
 
   // /api/salons: 20 req/min 制限
-  const results: number[] = [];
+  const results = [];
   for (let i = 0; i < 25; i++) {
     const r = http.get(`${BASE_URL}/api/salons`, { headers });
     results.push(r.status);

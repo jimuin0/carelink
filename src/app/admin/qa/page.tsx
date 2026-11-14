@@ -11,6 +11,8 @@ import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import FacilitySelector from '@/components/admin/FacilitySelector';
 import AdminFacilityScope, { type AdminFacilityScopeValue } from '@/components/admin/AdminFacilityScope';
 import { FACILITY_QA_ANSWER_MAX_LENGTH } from '@/lib/facility-qa-limits';
+import { ADMIN_LIST_FETCH, capAdminList } from '@/lib/admin-list-cap';
+import AdminListCapNotice from '@/components/admin/AdminListCapNotice';
 
 interface QAItem {
   id: string;
@@ -36,6 +38,7 @@ export default function AdminQAPage() {
 // .limit(1).single() で 1 行だけ読み、複数店舗のオーナーには 2 店舗目の質問が一度も出なかった。
 function QAManager({ facilityId, choices }: AdminFacilityScopeValue) {
   const [qaList, setQaList] = useState<QAItem[]>([]);
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -53,9 +56,11 @@ function QAManager({ facilityId, choices }: AdminFacilityScopeValue) {
       .select(QA_COLUMNS)
       .eq('facility_id', fId)
       .order('created_at', { ascending: false })
-      .limit(100);
+      .limit(ADMIN_LIST_FETCH);
     if (error) { setLoadError(true); return; }
-    setQaList((data ?? []) as QAItem[]);
+    const capped = capAdminList(data as QAItem[] | null);
+    setQaList(capped.rows);
+    setTruncated(capped.truncated);
   }, []);
 
   // React Compiler の set-state-in-effect 対策：一覧取得は effect 内に inline した非同期IIFEとして
@@ -154,6 +159,7 @@ function QAManager({ facilityId, choices }: AdminFacilityScopeValue) {
           </span>
         )}
       />
+      <AdminListCapNotice truncated={!loadError && truncated} />
 
       {/* Filter tabs */}
       <div className="flex gap-2 mb-4">

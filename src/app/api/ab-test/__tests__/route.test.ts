@@ -41,13 +41,13 @@ function setupDefaultMocks(hasUser: boolean = false, isAdmin: boolean = false) {
       } else if (table === 'ab_test_events') {
         return {
           select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockResolvedValue({
+            eq: jest.fn().mockReturnValue({ order: () => ({ range: jest.fn().mockResolvedValue({
               data: [
                 { variant: 'control', event_type: 'impression' },
                 { variant: 'control', event_type: 'conversion' },
                 { variant: 'treatment', event_type: 'impression' },
               ],
-            }),
+            }) }) }),
           }),
         };
       }
@@ -59,14 +59,14 @@ function setupDefaultMocks(hasUser: boolean = false, isAdmin: boolean = false) {
     from: jest.fn().mockReturnValue({
       insert: mockInsert,
       select: jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({
+        eq: jest.fn().mockReturnValue({ order: () => ({ range: jest.fn().mockResolvedValue({
           data: [
             { variant: 'control', event_type: 'impression' },
             { variant: 'control', event_type: 'conversion' },
             { variant: 'treatment', event_type: 'impression' },
             { variant: 'treatment', event_type: 'conversion' },
           ],
-        }),
+        }) }) }),
       }),
     }),
   });
@@ -331,21 +331,50 @@ describe('GET /api/ab-test', () => {
     expect(res.status).toBe(400);
   });
 
-  test('GET: data null from ab_test_events → results: null', async () => {
+  test('GET: data null from ab_test_events → 0件として集計', async () => {
     setupDefaultMocks(true, true);
     // Override service-role client to return data: null
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
       from: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: null }),
+          eq: jest.fn().mockReturnValue({ order: () => ({ range: jest.fn().mockResolvedValue({ data: null }) }) }),
         }),
       }),
     });
     const res = await GET(makeGetRequest() as any);
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.results).toBeNull();
+    expect(json.control.conversion_rate).toBe(0);
+  });
+
+  test('GET: 1000件を超えるイベントもページングして全件で集計する（中 A5）', async () => {
+    setupDefaultMocks(true, true);
+    const page = (n: number, event_type: string) => Array.from({ length: n }, () => ({ variant: 'control', event_type }));
+    const range = jest.fn()
+      .mockResolvedValueOnce({ data: page(1000, 'impression'), error: null })
+      .mockResolvedValueOnce({ data: page(500, 'conversion'), error: null });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({ select: () => ({ eq: () => ({ order: () => ({ range }) }) }) }),
+    });
+    const res = await GET(makeGetRequest() as any);
+    const json = await res.json();
+    expect(range).toHaveBeenCalledTimes(2);
+    expect(json.control.impression).toBe(1000);
+    expect(json.control.conversion).toBe(500);
+    expect(json.control.conversion_rate).toBe(50);
+  });
+
+  test('GET: 上限で打ち切られたら部分集計を返さず 500（中 A5）', async () => {
+    setupDefaultMocks(true, true);
+    const full = Array.from({ length: 1000 }, () => ({ variant: 'control', event_type: 'impression' }));
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({ select: () => ({ eq: () => ({ order: () => ({ range: jest.fn().mockResolvedValue({ data: full, error: null }) }) }) }) }),
+    });
+    const res = await GET(makeGetRequest() as any);
+    expect(res.status).toBe(500);
   });
 
   test('GET: zero impressions → conversion_rate=0', async () => {
@@ -354,12 +383,12 @@ describe('GET /api/ab-test', () => {
     createServiceRoleClient.mockReturnValue({
       from: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({
+          eq: jest.fn().mockReturnValue({ order: () => ({ range: jest.fn().mockResolvedValue({
             data: [
               { variant: 'control', event_type: 'conversion' },
               { variant: 'treatment', event_type: 'click' },
             ],
-          }),
+          }) }) }),
         }),
       }),
     });
@@ -376,12 +405,12 @@ describe('GET /api/ab-test', () => {
     createServiceRoleClient.mockReturnValue({
       from: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({
+          eq: jest.fn().mockReturnValue({ order: () => ({ range: jest.fn().mockResolvedValue({
             data: [
               { variant: 'control', event_type: 'impression' },
               { variant: 'unknown_variant', event_type: 'impression' },
             ],
-          }),
+          }) }) }),
         }),
       }),
     });
@@ -437,7 +466,7 @@ test.each([true,false])('POST database error with data=%s cannot acknowledge eve
 test.each([true,false])('GET database error with data=%s cannot report empty or partial statistics',async hasData=>{
  setupDefaultMocks(true,true);
  const {createServiceRoleClient}=jest.requireMock('@/lib/supabase-server');
- createServiceRoleClient.mockReturnValue({from:()=>({select:()=>({eq:async()=>({data:hasData?[{variant:'control',event_type:'impression'}]:null,error:{code:'08006',message:'private-db-diagnostic'}})})})});
+ createServiceRoleClient.mockReturnValue({from:()=>({select:()=>({eq:()=>({order:()=>({range:async()=>({data:hasData?[{variant:'control',event_type:'impression'}]:null,error:{code:'08006',message:'private-db-diagnostic'}})})})})})});
  const response=await GET(makeGetRequest() as any);
  expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.text()).not.toContain('private-db-diagnostic');
 });

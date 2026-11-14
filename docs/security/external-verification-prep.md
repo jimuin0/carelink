@@ -63,18 +63,18 @@ PII 列を含む migration: **42 ファイル**。
 ## 3. 想定負荷・可用性
 
 ### 3.1 バッチ（cron）
-- GitHub Actions スケジュール **11 種**（`*/15` webhook-retry 〜 月次 newsletter）。
-- 月次 newsletter は専用 workflow で 1〜7 日 self-heal（GitHub best-effort スケジュールの単一 tick ドロップ対策）。
+- 本番スケジューラは **Render Cron Jobs のみ**（`render.yaml`・SSOT は `src/lib/cron-jobs.data.json`。`*/15` webhook-retry 〜 週次ジョブ）。GitHub Actions の `cron.yml` / `health-monitor.yml` / `deploy-watch.yml` は GitHub 上で無効化済み、pg_cron は撤去済み。
+- オーナーニュースレターの自動月次配信は廃止（`newsletter-digest.yml`・`monthly-batch-watcher.yml` は削除済み）。配信は管理画面からの手動のみ。
 - 各 cron は `maxDuration=60` + 実時間予算ガード + fetchAllPaged で全件処理（silent 切り捨て・timeout を構造的に回避）。
 
 ### 3.2 外形監視
 - `/api/health`（多依存・並列・各 1.5s タイムアウト・critical 依存はリトライ1回）。デプロイ直後の startup check は複数回リトライで cold-start 偽陽性を抑止。
-- 月次バッチ監視 watcher（cron_logs を照会・day8 判定）。
+- 外形監視の実体は Render の `carelink-health-check`（`scripts/health-check.mjs`・5分毎）。cron の生存は `cron-heartbeat` と `/api/health` の cron 鮮度判定で確認する（月次バッチ watcher は削除済み）。
 
 ### 3.3 負荷試験で確認すべき点（推定・未実施）
 - 公開検索（salons/facilities/suggest/availability）の同時アクセス耐性。
 - Supabase 接続プール上限・PostgREST db-max-rows(1000) を越える全件処理の応答時間。
-- レート制限（Upstash Redis 優先 / in-memory フォールバック）の閾値妥当性。
+- レート制限（Supabase RPC `check_rate_limit` 優先 / 失敗時 in-memory フォールバック）の閾値妥当性。
 - ※ 想定同時ユーザー数・ピーク TPS は事業計画に依存（未確定）。ベンダーに目標値を提示する必要あり。
 
 ---

@@ -173,7 +173,7 @@ describe('GET /api/cron/threads-token-refresh', () => {
     // 残り5日強（閾値14日を下回る・floor 計算の境界で 4→5 にぶれないよう余裕を持たせる）
     const soonExpiry = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000 + 60 * 1000).toISOString();
     setupSupabase({ data: { expires_at: soonExpiry }, error: null });
-    (refreshThreadsToken as jest.Mock).mockResolvedValue({ ok: false, reason: 'refresh failed: 401' });
+    (refreshThreadsToken as jest.Mock).mockResolvedValue({ ok: false, reason: 'refresh failed: HTTP 401' });
 
     const res = await GET(mockRequest());
 
@@ -181,7 +181,7 @@ describe('GET /api/cron/threads-token-refresh', () => {
     expect(alertError).toHaveBeenCalledTimes(1);
     const [message, opts] = (alertError as jest.Mock).mock.calls[0];
     expect(message).toContain('残り5日');
-    expect(message).toContain('refresh failed: 401');
+    expect(message).toContain('refresh failed: HTTP 401');
     expect(opts).toEqual({ route: '/api/cron/threads-token-refresh' });
   });
 

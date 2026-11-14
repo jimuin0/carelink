@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
-import { getPublishedFeatures } from '@/lib/features';
+import { getPublishedFeaturesStrict as getPublishedFeatures } from '@/lib/features';
 import Breadcrumb from '@/components/Breadcrumb';
 import { featureBannerImage } from '@/lib/feature-banner';
 

@@ -59,8 +59,8 @@ export function extractPrefecture(address: string | null | undefined): string | 
  * ⚠️ 限界を明示しておく。この関数は表記ゆれのある自由文を機械的に切るだけで、
  * 住所マスタを引いているわけではない：
  *   - 「郡」を含む住所（例: 「〇〇郡△△町」）は「郡」までを含めて町までで切る
- *   - 「市」を含む地名（例: 「四日市市」）は最後の「市」で切れる想定だが、
- *     最初の一致で切るため誤りうる
+ *   - 「市」で始まる市名（「市川市」）・「市市」と続く市名（「四日市市」）・「郡」直後の「市」
+ *     （「芳賀郡市貝町」）は扱うが、それ以外の「市」を含む地名は誤りうる
  * したがって【自由文しか無いときの復元手段】であり、正の入力経路は
  * zipcloud の address1 / address2 をそのまま保持することである。
  *
@@ -76,13 +76,23 @@ export function extractCity(address: string | null | undefined): string | null {
   // 「四日市市」のように地名側に接尾辞が含まれる場合を拾うため、
   // 最も後ろにある接尾辞ではなく「最初に現れた接尾辞のうち最も手前」で切る。
   // ただし政令市の「〇〇市△△区」は市で切りたいので、市を優先的に見る。
-  const cityIdx = rest.indexOf('市');
-  if (cityIdx >= 0) return rest.slice(0, cityIdx + 1);
+  // 市名は「市」の前に 1 文字以上ある（先頭の「市」は「市川市」「市原市」のような地名の一部）。
+  // 「郡」の直後の「市」も町村名の一部（例: 「芳賀郡市貝町」）なので飛ばす。
+  // 「四日市市」「廿日市市」のように「市市」と続くときは後ろの「市」までを市名とする（中 A44）。
+  let cityIdx = rest.indexOf('市', 1);
+  if (cityIdx >= 0 && rest[cityIdx - 1] === '郡') cityIdx = rest.indexOf('市', cityIdx + 1);
 
   let best = -1;
   for (const suffix of CITY_SUFFIXES) {
+    if (suffix === '市') continue; // 「市」は cityIdx で判定する（地名の一部の「市」で切らない）
     const idx = rest.indexOf(suffix);
     if (idx >= 0 && (best === -1 || idx < best)) best = idx;
+  }
+  // 「〇〇郡△△町」のように郡の町村が市より手前にあれば町村で切る（「芳賀郡市貝町市塙」など）。
+  const gunTownFirst = best >= 0 && (cityIdx < 0 || best < cityIdx) && rest.lastIndexOf('郡', best) >= 0;
+  if (cityIdx >= 0 && !gunTownFirst) {
+    if (rest[cityIdx + 1] === '市') cityIdx += 1;
+    return rest.slice(0, cityIdx + 1);
   }
   if (best === -1) return null;
   return rest.slice(0, best + 1);

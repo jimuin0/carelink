@@ -103,6 +103,17 @@ function usageLogChain(existing: unknown) {
   };
 }
 
+// 予約の所属確認（bookings: select→eq(id)→eq(facility_id)→eq(user_id)→maybeSingle）用。
+let bookingEqCalls: unknown[][] = [];
+function bookingChain(data: unknown, error: unknown = null) {
+  const chain: any = {
+    select: jest.fn(() => chain),
+    eq: jest.fn((...a: unknown[]) => { bookingEqCalls.push(a); return chain; }),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
+  };
+  return chain;
+}
+
 function buildUserPackage(overrides: Record<string, unknown> = {}) {
   return {
     id: UP_UUID,
@@ -353,6 +364,7 @@ test('PATCH: RPCがalready_consumedを返す → 409（事前チェックは素�
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return singleChain(buildUserPackage());
+    if (callNum === 2) return bookingChain({ id: BOOKING_UUID });
     return usageLogChain(null); // 事前チェックは素通り（TOCTOU）→ RPC内部で捕捉される
   });
   mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'already_consumed' }, error: null });
@@ -408,6 +420,7 @@ test('PATCH: booking_id 付きで正常使用 → 200（事前チェック通過
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return singleChain(buildUserPackage());
+    if (callNum === 2) return bookingChain({ id: BOOKING_UUID });
     return usageLogChain(null); // package_usage_logs 事前チェック: 既存ログ無し
   });
   const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
@@ -424,12 +437,53 @@ test('PATCH: booking_id が既に消費済み → 409（二重消費防止・pre
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return singleChain(buildUserPackage());
+    if (callNum === 2) return bookingChain({ id: BOOKING_UUID });
     // 事前チェックで同一 booking_id の既存ログがヒット → 減算せず 409
     return usageLogChain({ id: 'existing-log' });
   });
   const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
   expect(res.status).toBe(409);
   expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+
+test('PATCH: 予約が回数券の施設・持ち主のものでない → 400（消費しない）', async () => {
+  bookingEqCalls = [];
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildUserPackage());
+    return bookingChain(null);
+  });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
+  expect(res.status).toBe(400);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
+  expect(bookingEqCalls).toEqual([['id', BOOKING_UUID], ['facility_id', FACILITY_UUID], ['user_id', USER_ID]]);
+});
+
+test('PATCH: 予約の所属確認が読めない → 500（消費しない）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildUserPackage());
+    return bookingChain(null, { message: 'down' });
+  });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
+  expect(res.status).toBe(500);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+
+test('PATCH: 施設の分からない回数券に予約を指定 → 400（照合せず止める）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildUserPackage({ service_packages: null }));
+    return bookingChain(null);
+  });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
+  expect(res.status).toBe(400);
 });
 
 // ─── GET: additional branches ─────────────────────────────────────────────────

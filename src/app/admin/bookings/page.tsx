@@ -98,6 +98,8 @@ export default async function AdminBookingsPage(props: Props) {
   const { data, error } = await dataQuery
     .order('booking_date', { ascending: false })
     .order('start_time', { ascending: false })
+    // 同じ日時の予約が複数あるとページの境目で重複・欠落するため、一意の id で順序を確定させる。
+    .order('id', { ascending: false })
     .range(fromRow, fromRow + PER_PAGE - 1);
   if (error) {
     throw new Error(`予約一覧の取得に失敗しました: ${error.message}`);

@@ -29,7 +29,8 @@ const menuUpdateSchema = z.object({
   // 送られたときだけ検証する（公開切替など所要時間を含まない更新は既存の行の値を保ったまま通す）。
   // null（未設定へ戻す）は画面からは送られないので受け付けない。15〜480 分（src/lib/menu-duration.ts）。
   duration_minutes: menuDurationSchema.optional(),
-  photo_url: z.string().url().max(500).optional().nullable().or(z.literal('')),
+  // https 限定（javascript:/data:/http: を保存させない。features の image_url と同じ規則）。
+  photo_url: z.string().url().max(500).startsWith('https://').optional().nullable().or(z.literal('')),
   is_featured: z.boolean().optional(),
   // 公開／非公開の切替。HPB 一括反映のメニューは非公開（下書き）で作られるため、
   // これが無いと管理画面から公開できずネット予約が始められなかった。

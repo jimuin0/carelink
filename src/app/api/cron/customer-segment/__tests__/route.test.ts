@@ -36,11 +36,24 @@ jest.mock('@/lib/cron-logger', () => {
 
 // Module-level supabase = createClient(...) — use wrapper for lazy delegation
 const mockFromDelegate = jest.fn();
+// route が .order() を挟んでも既存のチェーン mock がそのまま使えるよう、order を持たない段では
+// 自分自身を返す（呼ばれた列は orderCalls に記録して検証する）。
+const orderCalls: Array<{ table: string; column: string }> = [];
+function withOrder(table: string, v: any): any {
+  if (!v || (typeof v !== 'object') || typeof v.then === 'function') return v;
+  return new Proxy(v, {
+    get(t, p, r) {
+      if (p === 'order' && !(p in t)) return (column: string) => { orderCalls.push({ table, column }); return withOrder(table, t); };
+      const x = Reflect.get(t, p, r);
+      return typeof x === 'function' ? (...a: any[]) => withOrder(table, x.apply(t, a)) : x;
+    },
+  });
+}
 // RPC は一切呼ばれないはず（旧実装はここからクーポン発行・メール予約の RPC を呼んでいた）。
 const mockRpcDelegate = jest.fn();
 jest.mock('@supabase/supabase-js', () => ({
   createClient: jest.fn(() => ({
-    from: (...args: any[]) => mockFromDelegate(...args),
+    from: (...args: any[]) => withOrder(args[0], mockFromDelegate(...args)),
     rpc: (...args: any[]) => mockRpcDelegate(...args),
   })),
 }));
@@ -161,6 +174,7 @@ function setupDefaultMocks(
 
 beforeEach(() => {
   jest.clearAllMocks();
+  orderCalls.length = 0;
   delete process.env.RESEND_API_KEY;
   mockRpcDelegate.mockResolvedValue({ data: null, error: { message: 'no RPC is expected from this cron' } });
   // 時刻を固定する（発症前予防）。route の daysSinceLastVisit は実 now と fixture 日付の差で
@@ -850,7 +864,18 @@ test('実時間予算超過 → 残り施設を deferred して打ち切り', as
   const res = await GET(makeRequest() as any);
   const json = await res.json();
   expect(json.deferred).toBe(1);
+  // 処理できなかった施設が残った回は success にしない（後ろの施設が黙って取り残される）。
+  expect(res.status).toBe(500);
+  expect(logCronRun).not.toHaveBeenCalledWith('customer-segment', 'success', expect.anything(), expect.anything());
   warnSpy.mockRestore();
+});
+
+test('施設と予約のページングは id 順（range の取りこぼし・重複を防ぐ）', async () => {
+  await GET(makeRequest() as any);
+  expect(orderCalls).toEqual(expect.arrayContaining([
+    { table: 'facility_profiles', column: 'id' },
+    { table: 'bookings', column: 'id' },
+  ]));
 });
 
 // ---------------------------------------------------------------------------

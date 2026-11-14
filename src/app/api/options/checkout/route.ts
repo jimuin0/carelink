@@ -15,12 +15,14 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { SITE_URL, UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 export const dynamic = 'force-dynamic';
 
 /** option_catalog.key の許容形式（英小文字・数字・アンダースコア） */
 const OPTION_KEY_REGEX = /^[a-z0-9_]{1,64}$/;
+const CHECKOUT_IDEMPOTENCY_WINDOW_MS = 10 * 60 * 1000;
 
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
@@ -42,8 +44,10 @@ export async function POST(request: NextRequest) {
       { cookies: { getAll: () => cookieStore.getAll() } }
     );
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return authUnavailable('options-checkout-auth', '/api/options/checkout');
+    if (verification.state !== 'verified') return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+    const user = verification.user;
 
     const { facilityId, optionKey } = await request.json().catch(() => ({}));
     if (!facilityId || !UUID_REGEX.test(facilityId) || !optionKey || !OPTION_KEY_REGEX.test(optionKey)) {
@@ -51,23 +55,27 @@ export async function POST(request: NextRequest) {
     }
 
     // 施設の owner/admin のみ購入可能（IDOR 防止）
-    const { data: membership } = await supabase
+    // 各読み取りの DB 障害は「権限なし」「見つからない」「未契約」に化けさせない。特に既存契約の確認が
+    // 失敗したまま進むと、利用中のオプションに二重のサブスクを作ってしまう（中 A21）。
+    const { data: membership, error: membershipError } = await supabase
       .from('facility_members')
       .select('role')
       .eq('facility_id', facilityId)
       .eq('user_id', user.id)
       .in('role', ['owner', 'admin'])
       .maybeSingle();
+    if (membershipError) return serverError('options-checkout-membership', membershipError, '/api/options/checkout');
     if (!membership) {
       return NextResponse.json({ error: 'この施設の管理権限がありません' }, { status: 403 });
     }
 
     // カタログからサーバ側で価格決定（クライアント渡し価格は信用しない）
-    const { data: option } = await supabase
+    const { data: option, error: optionError } = await supabase
       .from('option_catalog')
       .select('key, name, monthly_price, contact_only, is_active')
       .eq('key', optionKey)
       .maybeSingle();
+    if (optionError) return serverError('options-checkout-catalog', optionError, '/api/options/checkout');
     if (!option || !option.is_active) {
       return NextResponse.json({ error: 'オプションが見つかりません' }, { status: 404 });
     }
@@ -79,13 +87,14 @@ export async function POST(request: NextRequest) {
     }
 
     // 既に利用中なら二重課金を防ぐ
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from('facility_entitlements')
       .select('id')
       .eq('facility_id', facilityId)
       .eq('option_key', optionKey)
       .eq('status', 'active')
       .maybeSingle();
+    if (existingError) return serverError('options-checkout-entitlement', existingError, '/api/options/checkout', '決済セッションの作成に失敗しました');
     if (existing) {
       return NextResponse.json({ error: 'このオプションは既にご利用中です' }, { status: 400 });
     }
@@ -119,6 +128,10 @@ export async function POST(request: NextRequest) {
         },
       },
       locale: 'ja',
+    }, {
+      // 連打・再送で別々の Checkout Session（＝別々の月額契約）が作られないよう、
+      // 同じ施設・オプション・操作者の 10 分枠では同じセッションを返す。
+      idempotencyKey: `options-checkout:${facilityId}:${optionKey}:${user.id}:${Math.floor(Date.now() / CHECKOUT_IDEMPOTENCY_WINDOW_MS)}`,
     });
 
     return NextResponse.json({ url: session.url });

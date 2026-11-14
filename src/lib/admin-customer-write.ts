@@ -23,7 +23,9 @@ export async function manageAdminCustomer(input: {
     return serverError(label, databaseDiagnostic(error), '/api/admin/customers');
   }
   if (result.error) {
-    if (result.error.code === '42501') return NextResponse.json({ error: '店舗の管理権限を確認してください' }, { status: 403 });
+    // 権限不足として 403 にするのは RPC が自ら投げた拒否（CUSTOMER_FORBIDDEN）だけ。関数の実行権限の設定ミスなど
+    // 同じ 42501 の別原因は、利用者の権限不足に見せずサーバーエラーとして通知する（中 A43）。
+    if (result.error.code === '42501' && result.error.message === 'CUSTOMER_FORBIDDEN') return NextResponse.json({ error: '店舗の管理権限を確認してください' }, { status: 403 });
     if (result.error.code === 'P0002') return NextResponse.json({ error: '店舗または顧客が見つかりません' }, { status: 404 });
     if (result.error.code === '23505') return NextResponse.json({ error: 'このメールアドレスの顧客は既に登録されています' }, { status: 409 });
     if (result.error.code === '40001') return NextResponse.json({ error: '顧客情報が変更されました。一覧を再読み込みしてください' }, { status: 409 });

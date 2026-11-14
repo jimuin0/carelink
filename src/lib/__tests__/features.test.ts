@@ -11,7 +11,7 @@ jest.mock('../supabase-server', () => ({
   createServerSupabaseClient: jest.fn(() => ({ from: mockFrom })),
 }));
 
-import { getPublishedFeatures, getFeatureBySlug } from '../features';
+import { getPublishedFeatures, getPublishedFeaturesStrict, getFeatureBySlug } from '../features';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -204,5 +204,39 @@ describe('getFeatureBySlug()', () => {
     const result = await getFeatureBySlug('nonexistent');
 
     expect(result).toBeNull();
+  });
+});
+// 障害を「特集0件（準備中・noindex）」や 404 として ISR にキャッシュさせないための例外化。
+describe('読み取り失敗を空・不在に偽装しない', () => {
+  test('getPublishedFeaturesStrict は error で例外にする', async () => {
+    mockFrom.mockReturnValue({
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), order: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: null, error: { message: 'database error' } })),
+    });
+    await expect(getPublishedFeaturesStrict()).rejects.toThrow('database error');
+  });
+  test('getFeatureBySlug は error で例外にする（null＝404 にしない）', async () => {
+    mockFrom.mockReturnValue({
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { message: 'db down' } })),
+    });
+    await expect(getFeatureBySlug('x')).rejects.toThrow('getFeatureBySlug failed');
+  });
+});
+// 中 A52：DB 障害を「見つからない」（→ 公開中の特集が 404）に化けさせない。
+describe('getFeatureBySlug() 障害時', () => {
+  test('DB 障害 → 例外（null にしない）', async () => {
+    mockFrom.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { code: '57014', message: 'timeout' } })),
+    });
+    await expect(getFeatureBySlug('feature-1')).rejects.toThrow('getFeatureBySlug failed');
+  });
+
+  test.each(['', 'x'.repeat(201), 'bad\u0000slug'])('slug になり得ない入力は問い合わせずに null %#', async (slug) => {
+    mockFrom.mockClear();
+    await expect(getFeatureBySlug(slug)).resolves.toBeNull();
+    expect(mockFrom).not.toHaveBeenCalled();
   });
 });

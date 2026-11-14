@@ -88,6 +88,13 @@ function validRow(over: Partial<HpbMenuRow> = {}): HpbMenuRow {
 beforeEach(() => jest.clearAllMocks());
 
 describe('getFacilitySlnId', () => {
+  // 中 A53：DB 障害を「店舗ID未設定」（正常な skip）に化けさせない。
+  test('throws on DB error instead of returning null', async () => {
+    const maybeSingle = jest.fn().mockResolvedValue({ data: null, error: { code: '08006', message: 'down' } });
+    const chain = { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle };
+    const from = jest.fn().mockReturnValue(chain);
+    await expect(getFacilitySlnId(asAdmin(from), FACILITY)).rejects.toThrow('HPB_SLN_ID_LOOKUP_FAILED');
+  });
   test('returns trimmed sln when present', async () => {
     const from = jest.fn().mockReturnValue(profileChain({ hpb_sln_id: '  H000537368 ' }));
     expect(await getFacilitySlnId(asAdmin(from), FACILITY)).toBe('H000537368');

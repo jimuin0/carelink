@@ -7,7 +7,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -20,19 +21,22 @@ const updateSchema = z.object({
   sort_order: z.number().int().optional(),
 });
 
-async function verifyAdmin(planId: string, userId: string): Promise<string | null> {
+/** 権限確認。null＝権限なし（401）。DB 障害は 500 の応答を返す（中 A12）。 */
+async function verifyAdmin(planId: string, userId: string): Promise<string | NextResponse | null> {
   const admin = createServiceRoleClient();
-  const { data: plan } = await admin.from('subscription_plans').select('facility_id').eq('id', planId).single();
+  const { data: plan, error: planError } = await admin.from('subscription_plans').select('facility_id').eq('id', planId).single();
+  if (planError && planError.code !== 'PGRST116') return serverError('admin-subscription-plans-id-read', planError, '/api/admin/subscription-plans/[id]');
   if (!plan) return null;
 
   const supabase = await createServerSupabaseAuthClient();
-  const { data: mem } = await supabase
+  const { data: mem, error: memError } = await supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', userId)
     .eq('facility_id', plan.facility_id)
     .in('role', ['owner', 'admin'])
     .single();
+  if (memError && memError.code !== 'PGRST116') return serverError('admin-subscription-plans-id-membership', memError, '/api/admin/subscription-plans/[id]');
 
   return mem ? plan.facility_id : null;
 }
@@ -47,10 +51,13 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   }
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-subscription-plans-id-auth', '/api/admin/subscription-plans/[id]');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = verification.user;
 
   const facilityId = await verifyAdmin(params.id, user.id);
+  if (facilityId instanceof NextResponse) return facilityId;
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
@@ -86,10 +93,13 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   }
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-subscription-plans-id-auth', '/api/admin/subscription-plans/[id]');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = verification.user;
 
   const facilityId = await verifyAdmin(params.id, user.id);
+  if (facilityId instanceof NextResponse) return facilityId;
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
@@ -97,7 +107,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   // 契約中ユーザーがいる場合は無効化のみ
   const { count, error: countErr } = await admin.from('user_subscriptions').select('id', { count: 'exact', head: true }).eq('plan_id', params.id).eq('status', 'active');
   if (countErr) return serverError('admin-subscription-plans-delete-count', countErr, '/api/admin/subscription-plans/[id]');
-  if (count && count > 0) {
+  // 件数を確認できない（count=null）ときは「契約者なし」とみなさず、無効化だけにとどめる（点検 A70）。
+  if (count === null || count === undefined || count > 0) {
     // 更新件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（契約中ユーザー確認後に
     // 既削除等）による0件更新も「成功」と偽装していた（phantom success）。.select() で更新行を受け取り、
     // 0件なら404を返す（packages/[id]・catalog/[id] と同型）。

@@ -68,3 +68,17 @@ test('modern Blob arrayBuffer readback also verifies exact saved bytes after los
  download.mockResolvedValue({data:saved,error:null});expect(await uploadReviewPhotos(db,'facility',[original],limits,entries)).toHaveLength(1);
  expect(upload).toHaveBeenCalledTimes(1);
 });
+
+// 中 A46：ブラウザが読めない形式で圧縮が例外になっても、投稿を「画像読み込みエラー」で止めない。
+test('compression throws → falls back to an acceptable original', async () => {
+ const original = new File(['png'], 'ok.png', { type:'image/png' });
+ (compressImage as jest.Mock).mockRejectedValue(new Error('画像読み込みエラー'));
+ await uploadReviewPhotos(db,'facility',[original],limits,new Map());
+ expect(upload.mock.calls[0][1]).toBe(original);
+});
+test('compression throws on an unsupported original (HEIC) → guidance message, no storage write', async () => {
+ const original = new File(['heic'], 'photo.heic', { type:'image/heic' });
+ (compressImage as jest.Mock).mockRejectedValue(new Error('画像読み込みエラー'));
+ await expect(uploadReviewPhotos(db,'facility',[original],limits,new Map())).rejects.toThrow('対応形式');
+ expect(upload).not.toHaveBeenCalled();
+});

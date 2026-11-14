@@ -218,22 +218,46 @@ describe('GET /api/recommendations', () => {
     expect(res.status).toBe(200);
   });
 
-  test('exclude param adds facility to visitedIds', async () => {
-    const res = await GET(makeRequest(6, 'fac-exclude') as any);
-
-    expect(res.status).toBe(200);
+  // 点検 A80：以下は以前 status 200 しか見ておらず、除外・集計・並び順が壊れても緑だった。
+  test('予約＋お気に入りの頻度で最多の業種・地域を based_on に採り、その条件で絞る', async () => {
+    // bookings: acupuncture/東京都渋谷区, massage/神奈川県横浜市 ・ favorites: acupuncture/東京都渋谷区
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.type).toBe('personalized');
+    expect(json.based_on).toEqual({ business_type: 'acupuncture', prefecture: '東京都', city: '渋谷区' });
+    const eqMock = mockPopularSelect().eq as jest.Mock;
+    expect(eqMock).toHaveBeenCalledWith('business_type', 'acupuncture');
+    expect(eqMock).toHaveBeenCalledWith('prefecture', '東京都');
   });
 
-  test('aggregates bookings for business_type frequency', async () => {
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
+  test('業種と地域は別々に数える（地域は 2 対 1 で神奈川県横浜市が勝つ）', async () => {
+    // bookings 3件: acupuncture/東京都渋谷区, massage/神奈川県横浜市, acupuncture/神奈川県横浜市
+    setupDefaultMocks(true, 3, 0);
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.based_on).toEqual({ business_type: 'acupuncture', prefecture: '神奈川県', city: '横浜市' });
   });
 
-  test('aggregates favorites for location frequency', async () => {
-    const res = await GET(makeRequest() as any);
+  test('訪問済み（予約・お気に入り）と exclude の施設は推薦に出さない', async () => {
+    mockFacilityLimit.mockResolvedValue({
+      data: [{ id: 'fac-booking-0' }, { id: 'fac-fav-0' }, { id: 'new-1' }, { id: 'fac-exclude' }, { id: 'fac-booking-1' }],
+    });
+    const json = await (await GET(makeRequest(6, 'fac-exclude') as any)).json();
+    expect(json.recommendations.map((r: { id: string }) => r.id)).toEqual(['new-1']);
+  });
 
-    expect(res.status).toBe(200);
+  test('評価の高い順（rating_avg 降順）で取得し、その順のまま limit 件に切る', async () => {
+    mockFacilityLimit.mockResolvedValue({ data: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] });
+    const json = await (await GET(makeRequest(2) as any)).json();
+    expect(json.recommendations.map((r: { id: string }) => r.id)).toEqual(['a', 'b']);
+    const order = (mockPopularSelect().eq as jest.Mock)().order as jest.Mock;
+    expect(order).toHaveBeenCalledWith('rating_avg', { ascending: false });
+  });
+
+  test('業種＋地域で不足すると業種だけの候補で補い、重複させない', async () => {
+    mockFacilityLimit
+      .mockResolvedValueOnce({ data: [{ id: 'a' }] })
+      .mockResolvedValueOnce({ data: [{ id: 'a' }, { id: 'fac-booking-0' }, { id: 'b' }] });
+    const json = await (await GET(makeRequest(6) as any)).json();
+    expect(json.recommendations.map((r: { id: string }) => r.id)).toEqual(['a', 'b']);
   });
 
   test('no booking/favorite history → fallback to popular', async () => {
@@ -269,18 +293,6 @@ describe('GET /api/recommendations', () => {
     const eqColumns = eqMock.mock.calls.map((c) => c[0]);
     expect(eqMock).toHaveBeenCalledWith('status', 'published');
     expect(eqColumns).not.toContain('is_published');
-  });
-
-  test('filters out visited facilities', async () => {
-    const res = await GET(makeRequest(6, 'fac-booking-0') as any);
-
-    expect(res.status).toBe(200);
-  });
-
-  test('combines bookings and favorites for frequency count', async () => {
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
   });
 
   test('rate limit params (30 req/min per IP)', () => {

@@ -10,10 +10,10 @@ import {logCronRun} from '@/lib/cron-logger';
 const fid='11111111-1111-4111-8111-111111111111';
 const id=(n:number)=>`22222222-2222-4222-8222-${String(n).padStart(12,'0')}`;
 const reviews=[1,2,3].map(n=>({id:id(n),facility_id:fid,reviewer_ip:'192.0.2.1'}));
-let bulk:unknown[]=reviews,duplicate:unknown[]=[],bulkError:unknown=null,duplicateError:unknown=null;
+const queries:any[]=[];let bulk:unknown[]=reviews,duplicate:unknown[]=[],bulkError:unknown=null,duplicateError:unknown=null;
 const request=()=>new Request('https://example.invalid/api/cron/flag-reviews');
 beforeEach(()=>{
- jest.clearAllMocks();rpc.mockReset();select.mockReset();(checkCronAuth as jest.Mock).mockReturnValue(null);
+ jest.clearAllMocks();queries.length=0;rpc.mockReset();select.mockReset();(checkCronAuth as jest.Mock).mockReturnValue(null);
  bulk=reviews;duplicate=[];bulkError=null;duplicateError=null;
  rpc.mockImplementation((name:string,args:{p_items?:typeof reviews})=>name==='find_bulk_review_ips'
   ?Promise.resolve({data:[{reviewer_ip:'192.0.2.1'}],error:null})
@@ -22,7 +22,7 @@ beforeEach(()=>{
   const query:any={};for(const method of ['eq','gte','not','order'])query[method]=jest.fn(()=>query);
   query.eq.mockImplementation(()=>query);query.not.mockImplementation(()=>{query.duplicate=true;return query;});
   query.range=jest.fn((offset:number,through:number)=>Promise.resolve({data:(query.duplicate?duplicate:bulk).slice(offset,through+1),error:query.duplicate?duplicateError:bulkError}));
-  return query;
+  queries.push(query);return query;
  });
  process.env.NEXT_PUBLIC_SUPABASE_URL='https://test.supabase.co';process.env.SUPABASE_SERVICE_ROLE_KEY='synthetic';
 });
@@ -80,4 +80,10 @@ test('result plus error is failure even if all returned IDs match',async()=>{
 test('flag RPC transport rejection is visible and never followed by direct updates',async()=>{
  rpc.mockImplementation((name:string)=>name==='find_bulk_review_ips'?Promise.resolve({data:[{reviewer_ip:'192.0.2.1'}],error:null}):Promise.reject(new Error('lost transaction reply')));
  expect((await GET(request())).status).toBe(500);expect(directUpdate).not.toHaveBeenCalled();expect(logCronRun).not.toHaveBeenCalled();
+});
+test('duplicate-facility detection is limited to the last 30 days (not all-time)',async()=>{
+ bulk=[];const before=Date.now();await GET(request());
+ const dup=queries.find(q=>q.duplicate);expect(dup).toBeDefined();
+ const call=dup.gte.mock.calls.find((c:unknown[])=>c[0]==='created_at');expect(call).toBeDefined();
+ const ms=before-Date.parse(call[1]);expect(ms).toBeGreaterThanOrEqual(30*24*60*60*1000-5000);expect(ms).toBeLessThanOrEqual(30*24*60*60*1000+5000);
 });

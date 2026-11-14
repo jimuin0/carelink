@@ -44,8 +44,10 @@ export async function GET(request: NextRequest) {
   if (from && !dateRegex.test(from)) return NextResponse.json({ error: 'Invalid from date' }, { status: 400 });
   if (to && !dateRegex.test(to)) return NextResponse.json({ error: 'Invalid to date' }, { status: 400 });
 
-  // Enforce maximum export range of 366 days to prevent DoS via huge queries
-  if (from && to) {
+  // Enforce maximum export range of 366 days to prevent DoS via huge queries.
+  // 片側だけ・無指定だと全期間を読み込むため、期間は両端とも必須にする（中 A8）。
+  if (!from || !to) return NextResponse.json({ error: '期間（from・to）を指定してください' }, { status: 400 });
+  {
     const fromMs = new Date(from).getTime();
     const toMs = new Date(to).getTime();
     if (isNaN(fromMs) || isNaN(toMs)) return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
@@ -92,18 +94,19 @@ export async function GET(request: NextRequest) {
       // aggregate_daily_revenue の booking_date∧completed と一致させる）。旧実装は created_at
       // (予約申込日)基準かつ confirmed(未来店)を含み、月跨ぎ予約の計上月ズレ・未実現売上の過大計上に
       // なっていた（8体監査 A3）。
-      let q = admin
+      const q = admin
         .from('bookings')
         .select('id, booking_date, user_id, customer_name, email, menu:facility_menus(name), menu_ids, total_amount:total_price, status')
         .eq('facility_id', facilityId)
         .eq('status', 'completed')
-        .order('booking_date');
-      if (from) q = q.gte('booking_date', from);
-      if (to) q = q.lte('booking_date', to);
+        .order('booking_date')
+        .gte('booking_date', from)
+        .lte('booking_date', to);
       const { data, error } = await q.range(offset, offset + limit - 1);
       return { data: data as BookingRow[] | null, error };
     },
-    { maxRows: 1000000 },
+    // 上限で打ち切られたら欠けた CSV を返さず 500 にする（会計データは完全性が必須・中 A8）。
+    { maxRows: 1000000, failOnTruncation: true },
   );
   if (error) return serverError('admin-accounting-export-bookings', error, '/api/admin/accounting-export');
 
@@ -167,7 +170,7 @@ export async function GET(request: NextRequest) {
 
   if (format === 'freee') {
     // freee 取引インポート形式
-    filename = `carelink_freee_${from ?? 'all'}.csv`;
+    filename = `carelink_freee_${from}.csv`;
     const header = ['取引日', '収支区分', '管理番号', '取引先', '勘定科目', '税区分', '金額', '税計算区分', '消費税額', '備考'];
     csv = '\uFEFF' + header.join(',') + '\n';
     for (const b of rows) {
@@ -188,7 +191,7 @@ export async function GET(request: NextRequest) {
     }
   } else if (format === 'mf') {
     // MF クラウド会計 仕訳インポート形式
-    filename = `carelink_mf_${from ?? 'all'}.csv`;
+    filename = `carelink_mf_${from}.csv`;
     const header = ['日付', '借方勘定科目', '借方補助科目', '借方税区分', '借方金額', '貸方勘定科目', '貸方補助科目', '貸方税区分', '貸方金額', '摘要'];
     csv = '\uFEFF' + header.join(',') + '\n';
     for (const b of rows) {
@@ -208,7 +211,7 @@ export async function GET(request: NextRequest) {
     }
   } else {
     // 汎用CSV
-    filename = `carelink_bookings_${from ?? 'all'}.csv`;
+    filename = `carelink_bookings_${from}.csv`;
     const header = ['予約ID', '日付', '顧客名', 'メール', 'メニュー', '金額', 'ステータス'];
     csv = '\uFEFF' + header.join(',') + '\n';
     for (const b of rows) {
@@ -230,7 +233,7 @@ export async function GET(request: NextRequest) {
     facilityId,
     action: 'export',
     tableName: 'bookings',
-    newValues: { format, from: from ?? null, to: to ?? null, row_count: bookings.length },
+    newValues: { format, from, to, row_count: bookings.length },
     ipAddress: auditIp,
     userAgent: ua,
   });

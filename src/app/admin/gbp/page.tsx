@@ -74,6 +74,10 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
   // Posts
   const [posts, setPosts] = useState<GbpPost[]>([]);
   const [postsLoading, setPostsLoading] = useState(false);
+  // 取得失敗を「API キー未設定」「投稿0件」と区別する。postsLoaded は一度でも成功したか（0件でも再取得しない）。
+  const [auditFailed, setAuditFailed] = useState(false);
+  const [postsFailed, setPostsFailed] = useState(false);
+  const [postsLoaded, setPostsLoaded] = useState(false);
   const [showPostForm, setShowPostForm] = useState(false);
   const [newPost, setNewPost] = useState({ title: '', body: '', post_type: 'STANDARD', cta_type: '', cta_url: '' });
   const [savingPost, setSavingPost] = useState(false);
@@ -149,6 +153,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
       if (!res.ok) throw new Error();
       const data = await res.json();
       setAuditData(data);
+      setAuditFailed(false);
       // 照合が外れて Place ID の登録が解除された（API が外した）。設定欄に古い ID を残すと、
       // 「登録中」に見えたまま、未変更として保存もできなくなるため空に戻す。
       if (data?.released === true) {
@@ -157,6 +162,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
         setGbpCid('');
       }
     } catch {
+      setAuditFailed(true);
       setToast({ type: 'error', message: '診断データの取得に失敗しました' });
     } finally {
       setAuditLoading(false);
@@ -171,7 +177,10 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
       if (!res.ok) throw new Error();
       const data = await res.json();
       setPosts(data.posts ?? []);
+      setPostsFailed(false);
+      setPostsLoaded(true);
     } catch {
+      setPostsFailed(true);
       setToast({ type: 'error', message: '投稿の取得に失敗しました' });
     } finally {
       setPostsLoading(false);
@@ -196,8 +205,8 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
   const selectTab = useCallback((next: TabId) => {
     setTab(next);
     if ((next === 'audit' || next === 'reviews') && !auditData) void loadAudit();
-    if (next === 'posts' && posts.length === 0) void loadPosts();
-  }, [auditData, posts.length, loadAudit, loadPosts]);
+    if (next === 'posts' && !postsLoaded) void loadPosts();
+  }, [auditData, postsLoaded, loadAudit, loadPosts]);
 
   const savePost = async () => {
     if (!newPost.body.trim() || !facilityId || savingPost) return;
@@ -435,6 +444,10 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
             </div>
           )}
 
+          {auditFailed && !auditLoading && (
+            <LoadError onRetry={loadAudit} message="診断データの取得に失敗しました" />
+          )}
+
           {audit && !auditLoading && (
             <>
               {/* スコアカード */}
@@ -611,6 +624,8 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                 <div role="alert" className="bg-yellow-50 border border-yellow-200 rounded-xl p-5 text-sm text-yellow-800">
                   {GBP_PLACE_MISMATCH_NOTICE}
                 </div>
+              ) : auditFailed ? (
+                <LoadError onRetry={loadAudit} message="クチコミデータの取得に失敗しました" />
               ) : (
                 <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-500">
                   <p>クチコミデータの取得には <span className="text-sky-500">GOOGLE_MAPS_API_KEY</span> の設定が必要です</p>
@@ -722,6 +737,8 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
           {/* 投稿一覧 */}
           {postsLoading ? (
             <div className="animate-pulse space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="h-20 bg-gray-200 rounded-xl" />)}</div>
+          ) : postsFailed ? (
+            <LoadError onRetry={loadPosts} message="投稿の取得に失敗しました" />
           ) : posts.length === 0 ? (
             <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-500 text-sm">
               まだ投稿がありません。上の「テンプレートから作成」で始めましょう。

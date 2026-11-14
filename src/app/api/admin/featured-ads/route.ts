@@ -7,7 +7,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 const PLAN_PRICES: Record<string, number> = {
   search_top: 9800,
@@ -15,16 +16,18 @@ const PLAN_PRICES: Record<string, number> = {
   category_top: 7800,
 };
 
-async function verifyFacilityMembership(userId: string, facilityId: string): Promise<boolean> {
+/** 所属を確かめる。DB 障害は「所属なし」に化けさせず error として返す（中 A9）。 */
+async function verifyFacilityMembership(userId: string, facilityId: string): Promise<{ member: boolean; error: unknown }> {
   const admin = createServiceRoleClient();
-  const { data } = await admin
+  const { data, error } = await admin
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', userId)
     .eq('facility_id', facilityId)
     .in('role', ['owner', 'admin'])
     .maybeSingle();
-  return data !== null;
+  if (error) return { member: false, error };
+  return { member: data !== null, error: null };
 }
 
 export async function GET(req: NextRequest) {
@@ -33,13 +36,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-featured-ads-auth', '/api/admin/featured-ads');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = verification.user;
 
   const facilityId = req.nextUrl.searchParams.get('facility_id');
   if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
-  const isMember = await verifyFacilityMembership(user.id, facilityId);
-  if (!isMember) return NextResponse.json({ error: 'No facility' }, { status: 403 });
+  const membership = await verifyFacilityMembership(user.id, facilityId);
+  if (membership.error) return serverError('admin-featured-ads-membership', membership.error, '/api/admin/featured-ads');
+  if (!membership.member) return NextResponse.json({ error: 'No facility' }, { status: 403 });
 
   const admin = createServiceRoleClient();
   const { data: slots, error: slotsErr } = await admin
@@ -61,14 +67,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-featured-ads-auth', '/api/admin/featured-ads');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = verification.user;
 
   const body = await req.json().catch(() => ({}));
   const { facility_id: bodyFacilityId, slot_type, area, business_type, starts_at, ends_at } = body;
   if (!bodyFacilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
-  const isMember = await verifyFacilityMembership(user.id, bodyFacilityId);
-  if (!isMember) return NextResponse.json({ error: 'No facility' }, { status: 403 });
+  const membership = await verifyFacilityMembership(user.id, bodyFacilityId);
+  if (membership.error) return serverError('admin-featured-ads-membership', membership.error, '/api/admin/featured-ads');
+  if (!membership.member) return NextResponse.json({ error: 'No facility' }, { status: 403 });
   const facilityId = bodyFacilityId;
 
   if (!slot_type || !starts_at || !ends_at) {
@@ -113,17 +122,20 @@ export async function POST(req: NextRequest) {
 
   if (error) return serverError('admin-featured-ads-create', error, '/api/admin/featured-ads');
 
-  const { ua } = getRequestContext(req);
-  void writeAuditLog({
-    userId: user.id,
-    facilityId,
-    action: 'create',
-    tableName: 'featured_slots',
-    recordId: slot.id,
-    newValues: { slot_type, area: area || null, business_type: business_type || null, starts_at, ends_at },
-    ipAddress: ip,
-    userAgent: ua,
-  });
+  // 監査ログは枠が実際に使える状態（決済ページ発行済み・開発時は有効化済み）になってから残す。
+  const recordCreated = () => {
+    const { ua } = getRequestContext(req);
+    void writeAuditLog({
+      userId: user.id,
+      facilityId,
+      action: 'create',
+      tableName: 'featured_slots',
+      recordId: slot.id,
+      newValues: { slot_type, area: area || null, business_type: business_type || null, starts_at, ends_at },
+      ipAddress: ip,
+      userAgent: ua,
+    });
+  };
 
   // Create Stripe Checkout session for payment
   const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -145,6 +157,7 @@ export async function POST(req: NextRequest) {
     if (activateErr) {
       return serverError('admin-featured-ads-dev-activate', activateErr, '/api/admin/featured-ads', 'スロットの有効化に失敗しました');
     }
+    recordCreated();
     return NextResponse.json({ slot, checkout_url: null }, { status: 201 });
   }
 
@@ -155,21 +168,31 @@ export async function POST(req: NextRequest) {
     category_top: 'カテゴリトップ表示（月額）',
   };
 
-  const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    line_items: [{
-      quantity: 1,
-      price_data: {
-        currency: 'jpy',
-        unit_amount: PLAN_PRICES[slot_type],
-        product_data: { name: planLabels[slot_type] || /* istanbul ignore next */ '広告プラン' },
-      },
-    }],
-    success_url: `${SITE_URL}/admin/featured-ads?payment=success&slot=${slot.id}`,
-    cancel_url: `${SITE_URL}/admin/featured-ads?payment=cancel`,
-    metadata: { slot_id: slot.id, facility_id: facilityId },
-  });
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      line_items: [{
+        quantity: 1,
+        price_data: {
+          currency: 'jpy',
+          unit_amount: PLAN_PRICES[slot_type],
+          product_data: { name: planLabels[slot_type] || /* istanbul ignore next */ '広告プラン' },
+        },
+      }],
+      success_url: `${SITE_URL}/admin/featured-ads?payment=success&slot=${slot.id}`,
+      cancel_url: `${SITE_URL}/admin/featured-ads?payment=cancel`,
+      metadata: { slot_id: slot.id, facility_id: facilityId },
+    });
+  } catch (stripeErr) {
+    // 決済ページを作れなかった枠は誰も支払えない。未有効の孤児として残さず消す
+    // （消せなかった場合も is_active=false のままなので表示には出ない）。
+    const { error: cleanupErr } = await admin.from('featured_slots').delete().eq('id', slot.id).eq('is_active', false);
+    if (cleanupErr) console.error('[featured-ads] orphan slot cleanup failed', { slotId: slot.id });
+    return serverError('admin-featured-ads-checkout', stripeErr, '/api/admin/featured-ads', '決済ページを作成できませんでした。時間をおいて再度お試しください。');
+  }
 
+  recordCreated();
   return NextResponse.json({ slot, checkout_url: session.url }, { status: 201 });
   } catch (e) {
     return serverError('admin-featured-ads-post', e, '/api/admin/featured-ads', 'Internal Server Error');

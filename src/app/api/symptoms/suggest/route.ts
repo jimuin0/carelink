@@ -12,8 +12,11 @@ import { checkCsrf } from '@/lib/csrf';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { serverError } from '@/lib/with-route';
 import { z } from 'zod';
+import { checkChatLimit, chatDailyLimit, CHAT_DAILY_WINDOW_MS } from '@/lib/chat-rate-limit';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// 有料 API を待ち続けない（SDK 既定は 10 分＋自動再試行）。
+const AI_TIMEOUT_MS = 10_000;
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: AI_TIMEOUT_MS, maxRetries: 0 });
 
 const schema = z.object({
   symptoms: z.string().min(2).max(500),
@@ -36,6 +39,10 @@ export async function POST(request: NextRequest) {
   // reCAPTCHA v3 検証（fail-closed: secret設定時はtoken必須。/api/review と同水準）。
   // このエンドポイントはリクエスト毎にAnthropic API（有料）を呼ぶため、Bot対策が無いと
   // レート制限（IP単位10req/分）だけでは複数IPからの分散連打でAPIコストを無制限に浪費できた。
+  // 本番で reCAPTCHA が未設定なら有料呼び出しを開かない（任意にしない）。
+  if (process.env.NODE_ENV === 'production' && !process.env.RECAPTCHA_SECRET_KEY) {
+    return NextResponse.json({ error: 'AIサービスは現在利用できません。' }, { status: 503 });
+  }
   if (process.env.RECAPTCHA_SECRET_KEY) {
     if (!parsed.data.recaptcha_token) {
       return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
@@ -45,6 +52,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
     }
   }
+
+  // /api/chat と共有の 24 時間上限（AI_CHAT_DAILY_REQUEST_LIMIT）。分散した IP からの連打でも総量を超えない。
+  const dailyLimit = chatDailyLimit(process.env.AI_CHAT_DAILY_REQUEST_LIMIT);
+  if (dailyLimit === null || !process.env.ANTHROPIC_API_KEY) {
+    return NextResponse.json({ error: 'AIサービスは現在利用できません。' }, { status: 503 });
+  }
+  const daily = await checkChatLimit('chat-daily:global', dailyLimit, CHAT_DAILY_WINDOW_MS);
+  if (daily === 'unavailable') return NextResponse.json({ error: 'AIの利用状況を確認できません。時間をおいて再試行してください。' }, { status: 503 });
+  if (daily === 'limited') return NextResponse.json({ code: 'CHAT_GLOBAL_QUOTA_LIMIT', error: 'AIの24時間の利用上限に達しました。時間をおいて再試行してください。' }, { status: 429 });
 
   const { symptoms, prefecture } = parsed.data;
 

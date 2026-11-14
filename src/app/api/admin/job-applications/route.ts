@@ -67,7 +67,25 @@ async function createApplication(req: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid application' }, { status: 400 });
   const { job_posting_id, facility_id, applicant_name, applicant_email, applicant_phone, cover_letter } = parsed.data;
 
+  // 求人（job_postings）には施設の列が無く、指定された求人がその施設のものかを確かめる手段が無い。
+  // 確かめられない紐づけは保存しない（他施設の求人名が応募一覧に出るのを防ぐ・中 A10）。
+  if (job_posting_id) return NextResponse.json({ error: 'Invalid facility or job' }, { status: 400 });
+
   const admin = createServiceRoleClient();
+
+  // 公開中の施設にだけ応募できる（非公開・下書きの施設へ送らせない）。
+  const { data: facility, error: facilityError } = await admin
+    .from('facility_profiles')
+    .select('id')
+    .eq('id', facility_id)
+    .eq('status', 'published')
+    .maybeSingle();
+  if (facilityError) {
+    const response = serverError('admin-job-applications-facility', databaseDiagnostic(facilityError), '/api/admin/job-applications');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
+  if (!facility) return NextResponse.json({ error: 'Invalid facility or job' }, { status: 400 });
 
   // Check if already applied
   // job_posting_id が未指定（一般応募）のとき .eq('job_posting_id', null) は PostgREST 上
@@ -79,9 +97,7 @@ async function createApplication(req: NextRequest) {
     .select('id')
     .eq('facility_id', facility_id)
     .eq('applicant_email', applicant_email);
-  dupQuery = job_posting_id
-    ? dupQuery.eq('job_posting_id', job_posting_id)
-    : dupQuery.is('job_posting_id', null);
+  dupQuery = dupQuery.is('job_posting_id', null);
   const { data: existing, error: duplicateError } = await dupQuery.limit(1);
   if (duplicateError) {
     const response = serverError('admin-job-applications-duplicate', databaseDiagnostic(duplicateError), '/api/admin/job-applications');
@@ -102,7 +118,7 @@ async function createApplication(req: NextRequest) {
   const { data: application, error } = await admin
     .from('job_applications')
     .insert({
-      job_posting_id: job_posting_id || null,
+      job_posting_id: null,
       facility_id,
       applicant_user_id: user?.id || null,
       applicant_name,

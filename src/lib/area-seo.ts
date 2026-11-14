@@ -116,11 +116,15 @@ export async function enrichSeoContent(
   let query = supabase.from('facility_profiles').select('rating_avg', { count: 'exact', head: false }).eq('prefecture', prefectureName);
   if (cityName) query = query.eq('city', cityName);
   if (businessType) query = query.eq('business_type', businessType);
-  const { data: facilities, count } = await query;
+  const { data: facilities, count, error } = await query;
+  // 読み取り失敗を「掲載0件」「—」として本文に書き込まない（点検 A51）。
+  if (error) throw new Error(`[area-seo] enrichSeoContent failed: ${error.message}`);
 
   const facilityCount = count ?? 0;
-  const avgRating = facilities && facilities.length > 0
-    ? (facilities.reduce((sum, f) => sum + (f.rating_avg ?? 0), 0) / facilities.length).toFixed(1)
+  // 評価の無い施設（rating_avg=null）を0点として平均に入れると実際より低く出るため除く（点検 A51）。
+  const rated = (facilities ?? []).filter((f) => typeof f.rating_avg === 'number');
+  const avgRating = rated.length > 0
+    ? (rated.reduce((sum, f) => sum + (f.rating_avg as number), 0) / rated.length).toFixed(1)
     : '—';
   const areaName = cityName ? `${prefectureName}${cityName}` : prefectureName;
 

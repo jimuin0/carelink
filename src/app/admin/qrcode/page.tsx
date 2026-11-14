@@ -19,6 +19,8 @@ export default function AdminQrCodePage() {
 function QrCodeGenerator({ facilityId, choices }: AdminFacilityScopeValue) {
   const [facilitySlug, setFacilitySlug] = useState<string | null>(null);
   const [facilityName, setFacilityName] = useState('');
+  // 公開前（下書き・審査中など）の店舗の QR は 404 のページへ案内するので作らない（監査 B7-12）。
+  const [notPublished, setNotPublished] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -37,13 +39,20 @@ function QrCodeGenerator({ facilityId, choices }: AdminFacilityScopeValue) {
       setLoadError(false);
       const { data: facility, error: facErr } = await supabase
         .from('facility_profiles')
-        .select('slug, name')
+        .select('slug, name, status')
         .eq('id', facilityId)
         .single();
       if (facErr && facErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       if (!facility) { setLoading(false); return; }
       setFacilitySlug(facility.slug);
       setFacilityName(facility.name);
+      if (facility.status !== 'published') {
+        setNotPublished(true);
+        setQrDataUrl(null);
+        setLoading(false);
+        return;
+      }
+      setNotPublished(false);
 
       const url = `https://carelink-jp.com/facility/${facility.slug}`;
       const dataUrl = await QRCode.toDataURL(url, {
@@ -77,6 +86,19 @@ function QrCodeGenerator({ facilityId, choices }: AdminFacilityScopeValue) {
         <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/qrcode" />
         <SbPageHeader title="QRコード" />
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="施設情報の読み込みに失敗しました" />
+      </div>
+    );
+  }
+
+  if (facilitySlug && notPublished) {
+    return (
+      <div>
+        <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/qrcode" />
+        <SbPageHeader title="QRコード" />
+        <p role="status" className="text-sm text-gray-600 bg-white rounded-xl border border-gray-100 p-6">
+          {facilityName} はまだ公開されていないため、QRコードを作成できません。公開後にこの画面から作成してください
+          （公開前のQRコードを読み取ると「ページが見つかりません」になります）。
+        </p>
       </div>
     );
   }

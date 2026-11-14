@@ -46,7 +46,7 @@ beforeEach(() => {
   queue = { data: [{ content_id: R1, status: 'pending', created_at: '2026-10-02T00:00:00Z' }], error: null };
   mockServiceFrom.mockImplementation((table: string) => {
     if (table === 'moderation_queue') {
-      const chain = { select: () => chain, eq: () => chain, in: () => Promise.resolve(queue) };
+      const chain: Record<string, () => unknown> = { select: () => chain, eq: () => chain, in: () => chain, order: () => chain, range: () => Promise.resolve(queue) };
       return chain;
     }
     const chain: Record<string, (...args: unknown[]) => unknown> = {};

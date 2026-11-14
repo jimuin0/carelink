@@ -20,6 +20,12 @@ const USER_ID          = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockFacilityLookup = jest.fn();
+const mockFacilityFrom = jest.fn(() => ({
+  select: jest.fn().mockReturnThis(),
+  eq: jest.fn().mockReturnThis(),
+  maybeSingle: mockFacilityLookup,
+}));
 
 jest.mock('@/lib/supabase-server-auth', () => ({
   createServerSupabaseAuthClient: () => Promise.resolve({
@@ -28,7 +34,8 @@ jest.mock('@/lib/supabase-server-auth', () => ({
   }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  // 施設の公開確認（facility_profiles）は別のモックへ流し、既存テストの呼び出し順を変えない（中 A10）。
+  createServiceRoleClient: () => ({ from: (table: string) => (table === 'facility_profiles' ? mockFacilityFrom(table) : mockAdminFrom(table)) }),
   createServerSupabaseClient: () => ({ from: mockAnonFrom }),
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -102,6 +109,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  mockFacilityLookup.mockResolvedValue({ data: { id: FACILITY_UUID }, error: null });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
 });
@@ -211,15 +219,24 @@ test('POST: 正常応募 → 201 with application', async () => {
   expect(json.application).toBeDefined();
 });
 
-test('POST: job_posting_id 付き応募 → 201', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return dupCheckChain([]);
-    return insertSingle({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1' });
-  });
+test('POST: job_posting_id 付き応募 → 400（施設の求人か確かめられない紐づけは保存しない・中 A10）', async () => {
   const res = await POST(makePostRequest(validPostBody({ job_posting_id: JOB_POSTING_UUID })));
-  expect(res.status).toBe(201);
+  expect(res.status).toBe(400);
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+
+test('POST: 公開していない施設への応募 → 400 で保存しない（中 A10）', async () => {
+  mockFacilityLookup.mockResolvedValue({ data: null, error: null });
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(400);
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+
+test('POST: 施設の公開確認の DB 障害 → 500（中 A10）', async () => {
+  mockFacilityLookup.mockResolvedValue({ data: null, error: { code: '08006', message: 'down' } });
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(500);
+  expect(mockAdminFrom).not.toHaveBeenCalled();
 });
 
 // ─── Additional coverage ──────────────────────────────────────────────────────

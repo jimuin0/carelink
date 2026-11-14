@@ -72,6 +72,8 @@ export async function GET(request: Request) {
           .from('facility_profiles')
           .select('id')
           .eq('status', 'published')
+          // range は順序が無いとページ間で行が重複・欠落し得る（施設が飛ばされる）。
+          .order('id', { ascending: true })
           .range(offset, offset + limit - 1);
         return { data: data as { id: string }[] | null, error };
       },
@@ -140,6 +142,7 @@ export async function GET(request: Request) {
             // daysSince が負＝recency が壊れ VIP 誤分類を生んでいた（コメント「完了済み予約から」と乖離）。
             .in('status', ['completed'])
             .gte('booking_date', twoYearsAgo)
+            .order('id', { ascending: true })
             .range(offset, offset + limit - 1);
           // 配列でない応答は「予約 0 件」ではない。取得失敗として扱い、下の削除まで進ませない。
           return {
@@ -279,8 +282,9 @@ export async function GET(request: Request) {
     }
 
     const meta = { deferred, processingFailures };
-    if (processingFailures) return cronError(
-      'customer-segment', startedAt, 'Customer segment processing failed', {
+    // 時間切れで処理できなかった施設がある回は success にしない（後ろの施設が黙って更新されなくなる）。
+    if (processingFailures || deferred > 0) return cronError(
+      'customer-segment', startedAt, processingFailures ? 'Customer segment processing failed' : 'Customer segment deferred facilities (time budget)', {
         extraLog: { processed: count, skipped, meta },
         extraBody: { processed: count, skipped, ...meta },
       },

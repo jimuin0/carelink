@@ -2,7 +2,7 @@
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL statement_timeout='15s';
-DO $$ BEGIN IF current_database() NOT IN ('carelink_shadow','carelink_shadow_batch2_points','postgres') THEN RAISE EXCEPTION 'isolated database required'; END IF; END $$;
+DO $$ BEGIN IF current_database() NOT IN ('carelink_shadow','carelink_shadow_batch2_points') THEN RAISE EXCEPTION 'isolated database required'; END IF; END $$;
 CREATE FUNCTION pg_temp.assert_create(ok boolean,label text) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
  IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'booking receipt fixture: %',label; END IF;
 END $$;

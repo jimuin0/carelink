@@ -255,3 +255,17 @@ test('他施設のドラフトは復元されない（facility.id でスコー�
   await screen.findByText('次へ（日時を選ぶ）');
   expect(screen.queryByText('日時を選択')).not.toBeInTheDocument();
 });
+
+// 監査 A63: アカウント情報の事前入力は空欄だけを補う。入力し直した名前（家族名義など）を
+// 遅れて解決した getUser で上書きしない。メタデータが無いときに空欄へ戻さない。
+test('profile pre-fill never overwrites a name or email the visitor already entered', async () => {
+  let resolveUser!: (v: unknown) => void;
+  mockGetUser.mockReturnValue(new Promise((r) => { resolveUser = r; }));
+  await openPointConfirmation();
+  fireEvent.change(screen.getByLabelText(/お名前/), { target: { value: '家族の名前' } });
+  fireEvent.change(screen.getByLabelText(/メールアドレス/), { target: { value: 'family@example.com' } });
+  resolveUser({ data: { user: { id: 'verified-owner', email: 'owner@example.com', user_metadata: {} } } });
+  await waitFor(() => expect(readPointsBalance).toHaveBeenCalled());
+  expect(screen.getByLabelText(/お名前/)).toHaveValue('家族の名前');
+  expect(screen.getByLabelText(/メールアドレス/)).toHaveValue('family@example.com');
+});

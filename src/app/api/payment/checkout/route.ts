@@ -5,6 +5,7 @@ import { getClientIp } from "@/lib/client-ip";
  * POST /api/payment/checkout
  */
 
+import { SLOT_RELEASING_STATUSES, type BookingStatus } from '@/lib/booking-status';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createServerClient } from '@supabase/ssr';
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
     // サーバー側で予約を取得し、所有権検証＋金額をDBから決定
     const { data: booking, error: bookingErr } = await supabase
       .from('bookings')
-      .select('id, user_id, total_price, menu_id, facility_id, payment_status, facility:facility_profiles(name), menu:facility_menus(name, price)')
+      .select('id, user_id, status, total_price, menu_id, facility_id, payment_status, facility:facility_profiles(name), menu:facility_menus(name, price)')
       .eq('id', bookingId)
       .single();
 
@@ -58,6 +59,11 @@ export async function POST(request: NextRequest) {
 
     if (booking.user_id !== user.id) {
       return NextResponse.json({ error: 'この予約にアクセスする権限がありません' }, { status: 403 });
+    }
+
+    // キャンセル済み・無断キャンセル等の予約に決済を開かない（払っても施術は無く、返金の手当てが要る）。
+    if (SLOT_RELEASING_STATUSES.includes(booking.status as BookingStatus)) {
+      return NextResponse.json({ error: 'この予約はキャンセル済みのため支払いできません' }, { status: 409 });
     }
 
     if (booking.payment_status === 'paid') {
@@ -86,20 +92,32 @@ export async function POST(request: NextRequest) {
     // DB も expired に更新して「有効な pending は最新1件のみ」へ収束させる（放棄→再開フローは
     // 旧セッションを失効させて新規発行するため壊れない）。完全な競合防止は別途 DB の
     // 部分 UNIQUE インデックス（booking_id WHERE status='pending'）で担保する。
-    const { data: stalePending } = await admin
+    // 照会・失効・DB 更新のどれかが失敗したまま新しいセッションを作ると、古い pending が完了可能なまま
+    // 残り二重課金になり得るので、ここで止めて 500＋通知にする（中 A22）。
+    const { data: stalePending, error: staleError } = await admin
       .from('stripe_sessions')
       .select('stripe_session_id')
       .eq('booking_id', bookingId)
       .eq('status', 'pending');
+    if (staleError) return serverError('payment-checkout-stale-lookup', staleError, '/api/payment/checkout', '決済の準備に失敗しました');
     if (stalePending && stalePending.length > 0) {
       for (const s of stalePending) {
-        await stripe.checkout.sessions.expire(s.stripe_session_id).catch(() => {});
+        try {
+          await stripe.checkout.sessions.expire(s.stripe_session_id);
+        } catch (expireError) {
+          // 既に失効済みなら問題ない。それ以外（完了済み・通信失敗）は新しいセッションを作らない。
+          const current = await stripe.checkout.sessions.retrieve(s.stripe_session_id).catch(() => null);
+          if (current?.status !== 'expired') {
+            return serverError('payment-checkout-stale-expire', expireError, '/api/payment/checkout', '決済の準備に失敗しました');
+          }
+        }
       }
-      await admin
+      const { error: expireUpdateError } = await admin
         .from('stripe_sessions')
         .update({ status: 'expired' })
         .eq('booking_id', bookingId)
         .eq('status', 'pending');
+      if (expireUpdateError) return serverError('payment-checkout-stale-update', expireUpdateError, '/api/payment/checkout', '決済の準備に失敗しました');
     }
 
     const session = await stripe.checkout.sessions.create({

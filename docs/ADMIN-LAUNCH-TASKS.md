@@ -17,7 +17,7 @@
 - [ ] Google アカウント（CareLink で使うもの）
 - [ ] Vercel アカウントログイン情報
 - [ ] Stripe アカウントログイン情報（決済を使う場合）
-- [ ] Sentry アカウントログイン情報
+- [ ] Slack（エラー通知の届くチャンネルを見られること）
 - [ ] スマホ（SMS認証が必要な場合あり）
 
 すべて揃ってから始めてください。
@@ -198,98 +198,41 @@ GSC のページ上部の **検索ボックス（「URL検査」）** に、以�
 
 ---
 
-## 📦 タスク5: Sentry エラー監視の動作確認
+## 📦 タスク5: Slack エラー通知の動作確認
 
-**目的**: サイトでエラーが起きたら自動で通知が来ることを確認する作業
+**目的**: サイトでエラーが起きたら Slack に通知が来ることを確認する作業
+
+> Sentry は廃止済みで、`/api/sentry-check` は存在しません（開くと 404）。エラー通知は
+> `instrumentation.ts` の onRequestError と `withRoute` の catch → `src/lib/alert.ts`（Slack）で行います。
+> 疎通確認は `/api/alert-check` を使います（`docs/LAUNCH-CHECKLIST.md` の A5 と同じ手順）。
 
 **所要時間**: 約15分（Vercel環境変数追加→Redeploy→確認）
 
-### 5-1. Vercel 環境変数を追加
+### 5-1. Vercel 環境変数を確認・追加
 
-1. ブラウザで開く
-   👉 https://vercel.com
+1. Vercel の **carelink** プロジェクト → **Settings** → **Environment Variables** を開く
+2. 次の3つが Production に設定されていることを確認（無ければ追加）:
+   - `ALERT_CHECK_TOKEN`：20文字以上のランダムな英数字（値はパスワード管理ツールに控える）
+   - `SLACK_BOT_TOKEN`
+   - `SLACK_DEFAULT_CHANNEL`（通知先チャンネルのID）
+3. 追加・変更した場合は **Deployments** → 最新デプロイの「⋯」→ **Redeploy** → 「Ready」になるまで待つ
 
-2. CareLink で使う Vercel アカウントでログイン
+### 5-2. テスト通知を送信
 
-3. ダッシュボードで **「carelink」** プロジェクトをクリック
-
-4. 上部メニューの **「Settings」** をクリック
-
-5. 左メニューの **「Environment Variables」** をクリック
-
-6. 入力フォームに以下を設定:
-   - **Key**: `SENTRY_TEST_TOKEN`
-   - **Value**: 下記のような長めの英数字をランダムに生成して貼り付け
-     - 例: `carelink-sentry-test-2026-04-09-xyz789` （20文字以上で何でもOK）
-     - **メモ帳に控えておいてください**（後で使います）
-   - **Environments**: `Production` と `Preview` 両方にチェック
-   - **「Save」** をクリック
-
-7. 上部メニュー **「Deployments」** をクリック
-
-8. 一番上の最新デプロイの右側 **「⋯」（3点メニュー）** をクリック
-
-9. **「Redeploy」** を選択 → 確認画面で **「Redeploy」** をクリック
-
-10. 数分待って「Ready」（緑色）になるのを確認
-
-### 5-2. Sentry にテストエラーを送信
-
-1. ブラウザで以下のURLを開く（**TOKEN_HERE を実際の値に置き換え**）:
+1. ブラウザで以下を開く（`YOUR_TOKEN` を `ALERT_CHECK_TOKEN` の値に置き換え）:
    ```
-   https://carelink-jp.com/api/sentry-check?fire=1&token=TOKEN_HERE
+   https://carelink-jp.com/api/alert-check?fire=1&token=YOUR_TOKEN
    ```
-   
-   例: トークンが `carelink-sentry-test-2026-04-09-xyz789` なら:
-   ```
-   https://carelink-jp.com/api/sentry-check?fire=1&token=carelink-sentry-test-2026-04-09-xyz789
-   ```
-
-2. 画面に以下のような JSON が表示されれば成功:
-   ```json
-   {"ok":true,"fired":true,"dsnConfigured":true,"message":"Test error sent to Sentry. Check your Sentry dashboard within 1 minute."}
-   ```
-
-3. もし `{"ok":false,"message":"invalid token"}` が出たら → 環境変数の値が間違っています
-
-### 5-3. Sentry Dashboard で受信確認
-
-1. ブラウザで開く
-   👉 https://sentry.io
-
-2. CareLink プロジェクトの Sentry アカウントでログイン
-
-3. 左メニュー **「Issues」** をクリック
-
-4. 1分以内に新しいエラーが表示されることを確認:
-   - タイトル: `[CareLink Sentry Test] Fired at 2026-04-09T...`
-   - ✅ 表示されれば成功
-
-5. テストエラーをクリック → 内容確認 → 右上の **「Resolve」** で消す
-
-### 5-4. アラート設定（重要）
-
-1. Sentry 左メニュー **「Alerts」** をクリック
-
-2. 右上 **「Create Alert」** をクリック
-
-3. **「Issue Alert」** を選択 → **Set Conditions**
-
-4. 条件を以下のように設定:
-   - **When**: `A new issue is created`
-   - **If**: 条件追加なし（全エラー対象）
-   - **Then**: `Send a notification to email` → 自分のメールアドレスを選択
-
-5. **Alert Name**: `CareLink 新規エラー通知`
-
-6. **「Save Rule」** をクリック
+2. 応答に `"fired":true` と `"slackConfigured":true` が含まれれば送信成功
+   - `"slackConfigured":false` → `SLACK_BOT_TOKEN` / `SLACK_DEFAULT_CHANNEL` が未設定
+   - `{"ok":false,"message":"invalid token"}` → `ALERT_CHECK_TOKEN` の値が不一致
+3. Slack の通知先チャンネルに1分以内に `[alert-check]` のテスト通知が届くことを確認
 
 ### 報告事項
 
-- [ ] Vercel `SENTRY_TEST_TOKEN` 設定完了
-- [ ] Redeploy 完了
-- [ ] テストエラー送信→Sentry受信確認OK
-- [ ] アラートルール作成完了
+- [ ] `ALERT_CHECK_TOKEN` / `SLACK_BOT_TOKEN` / `SLACK_DEFAULT_CHANNEL` 設定確認
+- [ ] `/api/alert-check?fire=1` の応答で `fired:true`・`slackConfigured:true`
+- [ ] Slack でテスト通知を受信
 
 ---
 
@@ -414,7 +357,7 @@ CareLinkローンチ準備 完了報告
 ✅ タスク2: サイトマップ送信（検出URL数: ____件）
 ✅ タスク3: 主要8ページのインデックス登録リクエスト
 ✅ タスク4: UptimeRobot監視設定
-✅ タスク5: Sentry動作確認＋アラート設定
+✅ タスク5: Slack エラー通知の疎通確認（/api/alert-check）
 [✅/⏭] タスク6: Stripe本番化（決済使う場合のみ）
 ✅ タスク7: メール到達性チェック
 
@@ -437,8 +380,8 @@ A. 審査が完了していません。Stripe Dashboard のホームに「アカ
 ### Q. UptimeRobot のテスト通知が来ません
 A. 迷惑メールフォルダを確認。それでも来なければ Alert Contacts のメールアドレスが正しいか確認。
 
-### Q. Sentryのテストエラーが Dashboard に表示されません
-A. 1分以上待ってリロード。それでも出なければ、ブラウザに表示された JSON のスクリーンショットを担当者に送る。
+### Q. alert-check のテスト通知が Slack に届きません
+A. 応答の `slackConfigured` を確認（false なら Slack の環境変数が未設定）。true なのに届かなければ、ブラウザに表示された JSON のスクリーンショットを担当者に送る。
 
 ### Q. GSC で「URL検査」のリクエスト上限が出ました
 A. 翌日に残りをやってください。

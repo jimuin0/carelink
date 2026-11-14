@@ -9,7 +9,7 @@ import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 
 const mockGetPublishedFeatures = jest.fn();
-jest.mock('@/lib/features', () => ({ getPublishedFeatures: () => mockGetPublishedFeatures() }));
+jest.mock('@/lib/features', () => ({ getPublishedFeaturesStrict: () => mockGetPublishedFeatures() }));
 jest.mock('next/image', () => ({
   __esModule: true,
   // eslint-disable-next-line @next/next/no-img-element

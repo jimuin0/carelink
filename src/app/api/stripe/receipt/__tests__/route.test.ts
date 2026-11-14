@@ -59,23 +59,25 @@ function setupDefaultMocks(
       }
     : null;
 
-  const { createServiceRoleClient } = require('@/lib/supabase-server');
-  createServiceRoleClient.mockReturnValue({
-    from: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        eq: jest
-          .fn()
-          .mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              single: jest.fn().mockResolvedValue({
-                data: sessionData,
-              }),
-            }),
-          }),
-      }),
+  // eq に渡された条件を実際に評価する（点検 A84：以前は引数を見ずに常に session を返したため、
+  // route から .eq('user_id', user.id) を消しても全テストが通り、他人の領収書の IDOR を検知できなかった）。
+  receiptFilters = [];
+  const chain: any = {
+    select: jest.fn(() => chain),
+    eq: jest.fn((col: string, val: unknown) => { receiptFilters.push([col, val]); return chain; }),
+    single: jest.fn(async () => {
+      const row = sessionData as Record<string, unknown> | null;
+      const ok = row !== null
+        && receiptFilters.some(([c]) => c === 'user_id')
+        && receiptFilters.every(([c, v]) => row[c] === v);
+      return { data: ok ? row : null };
     }),
-  });
+  };
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  createServiceRoleClient.mockReturnValue({ from: jest.fn(() => chain) });
 }
+
+let receiptFilters: Array<[string, unknown]> = [];
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -769,5 +771,15 @@ describe('GET /api/stripe/receipt', () => {
     const html = await res.text();
     // stripe_session_id is null → esc(null) returns '' → no session ID displayed
     expect(html).not.toContain('cs_test');
+  });
+});
+
+describe('所有者の検証（IDOR 防止・点検 A84）', () => {
+  test('他人の決済セッション → 404（本人の user_id で絞っている）', async () => {
+    setupDefaultMocks();
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'someone-else' } } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(404);
+    expect(receiptFilters).toEqual([['stripe_session_id', SESSION_ID], ['user_id', 'someone-else']]);
   });
 });

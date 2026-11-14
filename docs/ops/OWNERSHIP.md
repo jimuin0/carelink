@@ -59,11 +59,13 @@ CareLink 運用における役割と当番。`.github/CODEOWNERS` の責任範�
    - 直近 1 週間のデプロイ履歴を Vercel ダッシュボードで確認
    - 失敗デプロイがあれば原因を特定 → Slack #carelink-ops に共有
    - **38日放置事象（Phase 0/1 で発覚）の構造的再発防止のため絶対省略しない**
-2. **GitHub Actions cron 実行確認**
-   - `.github/workflows/` 配下の cron が想定通り実行されたか確認
-   - 失敗があれば再実行 or 修正 issue 起票
-3. **Sentry / Slack 通知の未対応分確認**
-   - Sentry の未解決 issue を triage
+2. **Render Cron Jobs 実行確認**（本番スケジューラの実体は Render のみ）
+   - Render Dashboard で各 cron サービス（SSOT は `src/lib/cron-jobs.data.json`）の直近実行が成功しているか確認
+   - `cron_logs` で各 job の最終実行時刻と `status='error'` の有無を確認（`skipped` は処理対象0件＝正常）
+   - `.github/workflows/cron.yml` / `health-monitor.yml` / `deploy-watch.yml` は GitHub 上で `disabled_manually`＝発火しないので確認対象にしない（`gh run list` が空でも異常ではない）
+   - 失敗があれば Render から手動実行 or 修正 issue 起票
+3. **Slack 通知の未対応分確認**（Sentry は廃止済み）
+   - Slack `#alerts-prod` のエラー通知・cron 失敗通知を triage
    - Slack 通知への未返信を回収
 4. **SaaS Inventory の差分確認（月初の月曜のみ）**
    - 新規 SaaS 追加が `docs/ops/SAAS-INVENTORY.md` に反映されているか

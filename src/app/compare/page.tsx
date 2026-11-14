@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { firstSearchParams } from '@/lib/search-params';
 import Link from 'next/link';
 import Image from 'next/image';
 import Button from '@/components/ui/Button';
@@ -25,7 +26,7 @@ interface Props {
 }
 
 export default async function ComparePage(props: Props) {
-  const searchParams = await props.searchParams;
+  const searchParams = firstSearchParams(await props.searchParams);
   const ids = searchParams.ids?.split(',').filter(Boolean).slice(0, 3) || [];
   if (ids.length === 0) {
     return (

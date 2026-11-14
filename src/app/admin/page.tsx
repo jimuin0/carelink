@@ -9,6 +9,7 @@ import { SbPageHeader, SbCard, SbStatusChip, SbButtonLink, SbStatCard } from '@/
 import { todayJst, addDays, dayOfWeekUtc, jstMonthInfo } from '@/lib/admin-date';
 import { facilitySetupSteps, loadFacilitySetupFacts, SETUP_GROUP_LABELS, type FacilitySetupStep, type SetupStepGroup, type SetupStepKey } from '@/lib/facility-setup-steps';
 import { readWithinDeadline } from '@/lib/bounded-read';
+import { fetchAllPaged } from '@/lib/paginate';
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -72,8 +73,10 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
     // 本日の売上（完了予約の total_price 合計）
     readWithinDeadline('dashboard-revenue-today', supabase.from('bookings').select('total_price').eq('facility_id', facilityId).eq('status', 'completed').eq('booking_date', today)),
     // 当月の完了予約（売上合計・件数・客単価の母数）
-    readWithinDeadline('dashboard-revenue-month', supabase.from('bookings').select('total_price').eq('facility_id', facilityId).eq('status', 'completed')
-      .gte('booking_date', monthStart).lte('booking_date', monthEnd)),
+    // max-rows（既定1000行）で黙って切り捨てないよう id 順で全ページを読む（各ページに期限）。
+    fetchAllPaged<{ total_price: number | null }>((offset, limit) => readWithinDeadline('dashboard-revenue-month', supabase.from('bookings').select('total_price').eq('facility_id', facilityId).eq('status', 'completed')
+      .gte('booking_date', monthStart).lte('booking_date', monthEnd).order('id').range(offset, offset + limit - 1)), { failOnTruncation: true })
+      .then(({ rows, error }) => ({ data: rows, error: error as { message: string } | null })),
     // 当月の無断キャンセル件数（無断キャンセル率の分子）
     readWithinDeadline('dashboard-no-show-month', supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'no_show')
       .gte('booking_date', monthStart).lte('booking_date', monthEnd)),

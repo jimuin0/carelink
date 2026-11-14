@@ -149,4 +149,40 @@ describe('GBP 管理画面のタブ切替', () => {
 
     handle.unmount();
   });
+
+  // 監査 A81/A82: 取得失敗を「API キー未設定」「投稿0件」と断定しない。
+  it('「Googleクチコミ」タブ: 取得失敗を API キー未設定と案内しない', async () => {
+    global.fetch = jest.fn(() => Promise.resolve({ ok: false, json: () => Promise.resolve({}) })) as unknown as typeof global.fetch;
+    const handle = mountFirstFrame(<AdminGbpPage />);
+    await handle.settle();
+    clickFirstFrame(tabButton(handle, 'Googleクチコミ'));
+    await handle.settle();
+    expect(handle.text()).not.toContain(API_KEY_MESSAGE);
+    expect(handle.text()).toContain('クチコミデータの取得に失敗しました');
+    handle.unmount();
+  });
+
+  it('「GBP投稿」タブ: 取得失敗を0件と区別し、0件の成功後は開き直しても再取得しない', async () => {
+    const fetchMock = jest.fn(() => Promise.resolve({ ok: false, json: () => Promise.resolve({}) }));
+    global.fetch = fetchMock as unknown as typeof global.fetch;
+    const handle = mountFirstFrame(<AdminGbpPage />);
+    await handle.settle();
+    clickFirstFrame(tabButton(handle, 'GBP投稿'));
+    await handle.settle();
+    expect(handle.text()).not.toContain('まだ投稿がありません');
+    expect(handle.text()).toContain('投稿の取得に失敗しました');
+
+    fetchMock.mockImplementation(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ posts: [] }) }));
+    clickFirstFrame(tabButton(handle, 'GBP設定'));
+    await handle.settle();
+    clickFirstFrame(tabButton(handle, 'GBP投稿'));
+    await handle.settle();
+    expect(handle.text()).toContain('まだ投稿がありません');
+    clickFirstFrame(tabButton(handle, 'GBP設定'));
+    await handle.settle();
+    clickFirstFrame(tabButton(handle, 'GBP投稿'));
+    await handle.settle();
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]).startsWith('/api/admin/gbp/posts'))).toHaveLength(2);
+    handle.unmount();
+  });
 });

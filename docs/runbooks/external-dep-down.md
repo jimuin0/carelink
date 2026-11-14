@@ -11,7 +11,7 @@
 ## 1. 検知方法
 
 ### 自動検知パス
-- **Sentry**: `fetch failed` / `ENOTFOUND` / `ETIMEDOUT` の急増
+- **Slack `#alerts-prod`（エラー通知）／Vercel Logs**: `fetch failed` / `ENOTFOUND` / `ETIMEDOUT` の急増（Sentry は廃止済み）
 - **Vercel Logs**: Functions が外部 API 呼出で 5xx
 - **Slack `#alerts-prod`**: SaaS 障害通知（外形監視 or status page Webhook）
 - **startup_check / `/api/health`**: 起動時依存系チェック NG
@@ -26,7 +26,7 @@
 
 1. **症状から該当 SaaS を特定**（決済 → Stripe、認証/DB → Supabase 等）
 2. 下表の **Status Page URL** を開き、incident 発表有無を確認
-3. Sentry / Vercel Logs で「自社コードの bug」か「外部依存起因」かを切り分ける
+3. Slack `#alerts-prod` / Vercel Logs で「自社コードの bug」か「外部依存起因」かを切り分ける
 4. 観測事実を Slack `#alerts-prod` に投稿
 5. 影響範囲（特定機能 / 全体 / 一部ユーザー）を見極める
 
@@ -53,12 +53,13 @@
 | Vercel | https://www.vercel-status.com | ホスティング / Functions | なし（ホスティング自体の停止は致命） |
 | Supabase | https://status.supabase.com | DB / Auth / Storage | なし。DB 起因は [database-incident.md](./database-incident.md) |
 | Stripe | https://status.stripe.com | 決済 / Webhook | Webhook はリトライキューあり（commit `cc08860`） |
-| Upstash | https://status.upstash.com | Rate Limit (Redis) | **あり**: in-memory フォールバック（commit `5ebfe30`） |
+| Supabase（レート制限 RPC） | https://status.supabase.com | Rate Limit（RPC `check_rate_limit`） | **あり**: in-memory フォールバック（`src/lib/rate-limit.ts`・Upstash は撤去済み） |
+| Render | https://status.render.com | 本番スケジューラ（Cron Jobs）／外形監視 | なし（cron 停止。`/api/health` の cron 鮮度判定・`cron_logs` で検知） |
 | Resend | https://resend-status.com | メール送信 | email skip（DB には登録継続） |
 | LINE | https://developers.line.biz/console/ + LINE Status | 予約通知 / LIFF | 署名検証 fail → ログ記録のみ（過去 `d43cd11` 参照） |
 
 ### 4-2. フォールバックが効いているかの確認
-- Upstash: `lib/rate-limit` のログに `fallback to in-memory` が出ているか
+- レート制限: Vercel Logs に `[rate-limit] Supabase RPC failure, falling back to in-memory` が出ているか
 - Resend: メール送信失敗ログが `audit_logs` に記録されているか
 - LINE: webhook 失敗が queue に積まれているか
 
@@ -83,7 +84,7 @@
 ## 5. 事後対応
 - インシデントレポート作成（外部 SaaS 名・incident 公式 URL も記録）
 - `audit_logs` で停止中の欠損 / 不整合データを洗い出し
-- フォールバック未実装の SaaS があれば ADR 起票（Upstash 5ebfe30 と同様の設計）
+- フォールバック未実装の SaaS があれば ADR 起票（レート制限の in-memory フォールバック `src/lib/rate-limit.ts` と同様の設計）
 - 顧客告知した場合は復旧告知も忘れずに
 
 ---
@@ -92,4 +93,4 @@
 - 神原さん（責任者）
 - Slack `#alerts-prod`
 - 各 SaaS Status Page（上表）
-- 関連 commit: `5ebfe30`（Upstash in-memory フォールバック）
+- 関連: `src/lib/rate-limit.ts`（Supabase RPC 失敗時の in-memory フォールバック。旧 Upstash 構成の `5ebfe30` は撤去済み）

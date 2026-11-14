@@ -218,3 +218,14 @@ test('営業時間の例外設定が読めない場合は営業中を断定し�
   const html = renderToStaticMarkup(await Page(props()));
   expect(html).not.toContain('data-stub="BusinessStatusBadge"');
 });
+
+// メニュー・写真・口コミは { error } で失敗を返す。0件のページとして 1 時間キャッシュさせない。
+describe('メニュー・写真・口コミの読み取り失敗', () => {
+  test.each(['getFacilityMenus', 'getFacilityPhotos', 'getFacilityReviews'] as const)('%s の失敗は0件表示にせず通知して例外にする', async (fn) => {
+    const facilities = jest.requireMock('@/lib/facilities') as Record<string, jest.Mock>;
+    const empty = { getFacilityMenus: { menus: [] }, getFacilityPhotos: { photos: [] }, getFacilityReviews: { reviews: [] } }[fn];
+    facilities[fn].mockResolvedValueOnce({ ...empty, error: { message: 'db down' } });
+    await expect(Page(props())).rejects.toThrow('Facility detail lookup failed');
+    expect(safeCaptureException).toHaveBeenCalledWith(expect.any(Error), 'facility-detail:core-lookup');
+  });
+});

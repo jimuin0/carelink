@@ -14,7 +14,7 @@ test('real Supabase HTTP encoder sends the verified actor and parses the jsonb r
  const [url,options]=mockFetch.mock.calls[0];expect(new URL(url).pathname).toBe('/rest/v1/rpc/save_admin_staff_atomic');expect(options.method).toBe('POST');expect(JSON.parse(options.body)).toEqual({p_actor_id:actor,p_facility_id:facility,p_staff_id:id,p_values:input.values,p_menu_ids:[]});
 });
 test('real decoder treats SQL revocation as403 without returning its body',async()=>{
- mockFetch.mockResolvedValue(new Response(JSON.stringify({code:'42501',message:'PRIVATE_MEMBER_DETAIL'}),{status:403,headers:{'Content-Type':'application/json'}}));const r=await saveAdminStaff(input) as NextResponse;expect(r.status).toBe(403);expect(JSON.stringify(await r.json())).not.toContain('PRIVATE_MEMBER_DETAIL');
+ mockFetch.mockResolvedValue(new Response(JSON.stringify({code:'42501',message:'STAFF_FORBIDDEN'}),{status:403,headers:{'Content-Type':'application/json'}}));const r=await saveAdminStaff(input) as NextResponse;expect(r.status).toBe(403);expect(JSON.stringify(await r.json())).not.toContain('STAFF_FORBIDDEN');
 });
 test('HTTP200 with a foreign facility is not successful persistence proof',async()=>{
  mockFetch.mockResolvedValue(new Response(JSON.stringify({id,facility_id:actor}),{status:200,headers:{'Content-Type':'application/json'}}));expect((await saveAdminStaff(input) as NextResponse).status).toBe(500);

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toggle from '@/components/admin/Toggle';
+import LoadError from '@/components/admin/LoadError';
 import { isLineEnabled } from '@/lib/line-availability';
 
 /**
@@ -63,6 +64,9 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
   const [catalog, setCatalog] = useState<CatalogOption[]>([]);
   const [entitled, setEntitled] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  // 設定・購入状況を読めなかったら操作させない（既定値 false のまま保存して実際の設定を消さないため）。
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [buying, setBuying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,12 +101,18 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
       // 購入可否を決めるのはサーバの STRIPE_SECRET_KEY で、クライアントからは見えないため。
       // 決済未設定の間、サーバが購入必須オプションを返さないので「買えない商品に値札と
       // 購入ボタンを出して 503 を踏ませる」状態が構造的に起きない（2026年7月30日 是正）。
-      const [{ data: settingsRow }, catalogRes, { data: entRows }] = await Promise.all([
+      const [{ data: settingsRow, error: settingsErr }, catalogRes, { data: entRows, error: entErr }] = await Promise.all([
         supabase.from('facility_reminder_settings').select('*').eq('facility_id', facilityId).maybeSingle(),
         fetch('/api/options/catalog').then((r) => (r.ok ? r.json() : { options: [] })).catch(() => ({ options: [] })),
         supabase.from('facility_entitlements').select('option_key, status').eq('facility_id', facilityId).eq('status', 'active'),
       ]);
       const catalogRows = (catalogRes as { options?: CatalogOption[] }).options ?? [];
+      if (settingsErr || entErr) {
+        setLoadFailed(true);
+        setLoading(false);
+        return;
+      }
+      setLoadFailed(false);
 
       if (settingsRow) {
         setSettings({
@@ -116,8 +126,8 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
       setEntitled(new Set(((entRows as { option_key: string }[]) ?? []).map((e) => e.option_key)));
       setLoading(false);
     };
-    load().catch(() => setLoading(false));
-  }, [facilityId]);
+    load().catch(() => { setLoadFailed(true); setLoading(false); });
+  }, [facilityId, reloadKey]);
 
   const priceOf = (key: string): number | null =>
     catalog.find((c) => c.key === key)?.monthly_price ?? null;
@@ -131,7 +141,8 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
     const supabase = createBrowserSupabaseClient();
     const { error: upsertErr } = await supabase
       .from('facility_reminder_settings')
-      .upsert({ facility_id: facilityId, ...newSettings }, { onConflict: 'facility_id' });
+      // 切り替えた列だけを書く（他の列を画面の値で上書きしない）。
+      .upsert({ facility_id: facilityId, [key]: newSettings[key] } as { facility_id: string } & Partial<ReminderSettings>, { onConflict: 'facility_id' });
 
     if (upsertErr) {
       // 保存失敗は silent にせず巻き戻して可視化（楽観更新の取り消し）
@@ -169,6 +180,9 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
   };
 
   if (loading) return <div className="h-56 bg-gray-50 rounded-lg animate-pulse" data-testid="reminder-upsell-loading" />;
+  if (loadFailed) {
+    return <LoadError message="リマインダー設定の読み込みに失敗しました" onRetry={() => { setLoading(true); setReloadKey((k) => k + 1); }} />;
+  }
 
   return (
     <div className="bg-white rounded-xl p-6">

@@ -87,7 +87,7 @@ test('PATCH invalid ID',async()=>{expect((await PATCH(makeRequest('PATCH',{price
 test('PATCH no membership',async()=>{mockAnonFrom.mockReturnValue(memberChain(null));expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(401);});
 test('PATCH CSRF',async()=>{(checkCsrf as jest.Mock).mockReturnValue(NextResponse.json({}, {status:403}));expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(403);});
 test('PATCH rate limit',async()=>{(checkRateLimit as jest.Mock).mockReturnValue(true);expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(429);});
-test.each([{name:''},{name:'x'.repeat(101)},{category:''},{category:'x'.repeat(51)},{price:-1},{price:10000000},{duration_minutes:-1},{duration_minutes:1441},{duration_minutes:0},{duration_minutes:14},{duration_minutes:481},{duration_minutes:null},{sort_order:-1},{sort_order:1000000},{photo_url:'bad'},{description:'x'.repeat(501)},{price_note:'x'.repeat(101)}])('PATCH rejects invalid field: %p',async payload=>{
+test.each([{name:''},{name:'x'.repeat(101)},{category:''},{category:'x'.repeat(51)},{price:-1},{price:10000000},{duration_minutes:-1},{duration_minutes:1441},{duration_minutes:0},{duration_minutes:14},{duration_minutes:481},{duration_minutes:null},{sort_order:-1},{sort_order:1000000},{photo_url:'bad'},{photo_url:'javascript:alert(1)'},{photo_url:'http://example.invalid/p.jpg'},{photo_url:'data:image/png;base64,AAAA'},{description:'x'.repeat(501)},{price_note:'x'.repeat(101)}])('PATCH rejects invalid field: %p',async payload=>{
  expect((await PATCH(makeRequest('PATCH',payload),makeProps())).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
 });
 test('PATCH old reorder rejected',async()=>{expect((await PATCH(makeRequest('PATCH',{sort_order:3}),makeProps())).status).toBe(409);expect(mockRpc).not.toHaveBeenCalled();});
@@ -97,7 +97,7 @@ test.each([{price:100},{photo_url:''},{photo_url:null},{name:'Rename',descriptio
  const values=mockRpc.mock.calls[0][1].p_values;if('photo_url' in payload)expect(values.photo_url).toBeNull();else expect(values).not.toHaveProperty('photo_url');
 });
 test.each([['42501',403],['P0002',404],['23505',409],['40001',409],['22023',400],['57014',500]])('PATCH SQL failure %s cannot audit success',async(code,status)=>{
- mockRpc.mockResolvedValue({data:null,error:{code,message:'PRIVATE_DETAIL'}});const r=await PATCH(makeRequest('PATCH',{price:100}),makeProps());expect(r.status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expect(JSON.stringify(await r.json())).not.toContain('PRIVATE_DETAIL');
+ mockRpc.mockResolvedValue({data:null,error:{code,message:code==='42501'?'MENU_ACCESS_DENIED':'PRIVATE_DETAIL'}});const r=await PATCH(makeRequest('PATCH',{price:100}),makeProps());expect(r.status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expect(JSON.stringify(await r.json())).not.toContain('PRIVATE_DETAIL');
 });
 const STOCK='https://images.unsplash.com/existing';
 test('PATCH retains a legacy photo only with the observed value bound into SQL',async()=>{

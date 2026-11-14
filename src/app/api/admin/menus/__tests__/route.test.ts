@@ -168,7 +168,7 @@ test('GET: x-forwarded-for ヘッダあり → IP抽出', async () => {
 
 
 test.each([['42501',403],['P0002',404],['08006',500]])('GET current DB scope error %s rejects partial snapshot',async(code,status)=>{
- mockAnonFrom.mockReturnValue(memberSingle({facility_id:FACILITY_UUID})); mockRpc.mockResolvedValue({data:{menus:[],revision:null},error:{code,message:'PRIVATE_DETAIL'}});
+ mockAnonFrom.mockReturnValue(memberSingle({facility_id:FACILITY_UUID})); mockRpc.mockResolvedValue({data:{menus:[],revision:null},error:{code,message:code==='42501'?'MENU_ACCESS_DENIED':'PRIVATE_DETAIL'}});
  const response=await GET(makeGetRequest());expect(response.status).toBe(status);expect(JSON.stringify(await response.json())).not.toContain('PRIVATE_DETAIL');
 });
 
@@ -180,7 +180,7 @@ test.each([
  {name:''},{name:'x'.repeat(101)},{category:''},{category:'x'.repeat(51)},
  {price:-1},{price:10000000},{price:0.5},{duration_minutes:-1},{duration_minutes:1441},{duration_minutes:0},{duration_minutes:14},{duration_minutes:481},{duration_minutes:30.5},{duration_minutes:null},{duration_minutes:'60'},
  {sort_order:-1},{description:'x'.repeat(501)},{price_note:'x'.repeat(101)},
- {photo_url:'not-a-url'},{photo_url:'https://images.unsplash.com/new'},
+ {photo_url:'not-a-url'},{photo_url:'https://images.unsplash.com/new'},{photo_url:'javascript:alert(1)'},{photo_url:'http://example.invalid/p.jpg'},{photo_url:'data:image/png;base64,AAAA'},
 ])('POST rejects invalid fields before RPC: %p',async body=>{
  expect((await POST(makePostRequest(validBody(body)))).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
 });
@@ -189,7 +189,7 @@ test.each([{},{photo_url:''},{photo_url:null},{photo_url:'https://example.invali
  expect(mockAdminFrom).not.toHaveBeenCalled();expect(mockRpc).toHaveBeenCalledWith('save_admin_menu_atomic',expect.objectContaining({p_actor_id:USER_ID,p_facility_id:FACILITY_UUID,p_menu_id:null}));expect(writeAuditLog).toHaveBeenCalledTimes(1);
 });
 test.each([['42501',403],['P0002',404],['23505',409],['40001',409],['22023',400],['57014',500]])('POST SQL failure %s has no success audit',async(code,status)=>{
- mockRpc.mockResolvedValue({data:null,error:{code,message:'PRIVATE_DETAIL'}});const r=await POST(makePostRequest(validBody()));expect(r.status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expect(JSON.stringify(await r.json())).not.toContain('PRIVATE_DETAIL');
+ mockRpc.mockResolvedValue({data:null,error:{code,message:code==='42501'?'MENU_ACCESS_DENIED':'PRIVATE_DETAIL'}});const r=await POST(makePostRequest(validBody()));expect(r.status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expect(JSON.stringify(await r.json())).not.toContain('PRIVATE_DETAIL');
 });
 test('POST unauthenticated',async()=>{mockGetUser.mockResolvedValue({data:{user:null}});expect((await POST(makePostRequest(validBody()))).status).toBe(401);expect(mockRpc).not.toHaveBeenCalled();});
 test('POST CSRF',async()=>{(checkCsrf as jest.Mock).mockReturnValue(NextResponse.json({}, {status:403}));expect((await POST(makePostRequest(validBody()))).status).toBe(403);expect(mockRpc).not.toHaveBeenCalled();});

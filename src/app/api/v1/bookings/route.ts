@@ -128,6 +128,8 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
     .select('id, booking_date, start_time, end_time, status, customer_name, customer_phone:phone, total_price, menu:facility_menus(name), staff:staff_profiles(name), notes:note, created_at, updated_at', { count: 'exact' })
     .eq('facility_id', facilityId)
     .order('booking_date', { ascending: false })
+    // 同じ日付の予約の並びを一意に決める。無いとページ間で重複・欠落し得る（中 A26）。
+    .order('id', { ascending: false })
     .range(offset, offset + limit - 1);
 
   if (from) query = query.gte('booking_date', from);

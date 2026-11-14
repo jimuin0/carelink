@@ -34,12 +34,15 @@ async function facilitiesForFeature(feature: {
   filter_keyword: string | null;
   filter_prefecture: string | null;
 }) {
-  return searchFacilities({
+  const result = await searchFacilities({
     type: feature.filter_type || undefined,
     keyword: feature.filter_keyword || undefined,
     prefecture: feature.filter_prefecture || undefined,
     sort: 'rating',
   });
+  // 一時障害を「関連施設なし・noindex」として ISR にキャッシュさせない。
+  if (result.error) throw new Error('Feature facilities lookup failed');
+  return result;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

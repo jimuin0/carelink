@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { SHOW_PACKAGES } from '@/lib/feature-toggles';
 
 export const metadata: Metadata = {
@@ -44,16 +44,15 @@ export default async function MyPackagesPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 
-  const admin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceRoleClient();
 
-  const { data } = await admin
+  const { data, error } = await admin
     .from('user_packages')
     .select('id, sessions_total, sessions_remaining, purchased_at, expires_at, service_packages(name, description, price), facility_profiles(name, slug)')
     .eq('user_id', user.id)
     .order('purchased_at', { ascending: false });
+  // 取得失敗を「回数券はありません」に偽装しない（error.tsx に委ねる）。
+  if (error) throw new Error('マイページの回数券の取得に失敗しました');
 
   const packages = (data ?? []) as unknown as UserPackage[];
   // このリクエスト1回につき1回だけ「今」を確定させる。以降の期限判定はすべてこの値との比較のみを行う。

@@ -12,7 +12,8 @@ import {
   SUBSCRIPTION_STATUS_LABEL,
   type SubscriptionStatus,
 } from '@/lib/subscription-status';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { grantToFacilityCustomer, loadFacilityCustomerProfiles } from '@/lib/facility-customer-grant';
 
 const grantSchema = z.object({
@@ -33,25 +34,47 @@ const updateStatusSchema = z.object({
   status: z.enum(['active', 'cancelled', 'paused', 'expired']),
 });
 
+/** 所属の確認。DB 障害は「権限なし」に化けさせず投げる（呼び出し側で 500 にする・中 A12）。 */
 async function checkAdminMembership(supabase: Awaited<ReturnType<typeof createServerSupabaseAuthClient>>, userId: string, facilityId: string) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('facility_members')
     .select('role')
     .eq('user_id', userId)
     .eq('facility_id', facilityId)
     .in('role', ['owner', 'admin'])
     .single();
+  if (error && error.code !== 'PGRST116') throw new MembershipCheckError(error);
   return !!data;
 }
 
+class MembershipCheckError extends Error {
+  constructor(readonly dbError: unknown) { super('MEMBERSHIP_CHECK_FAILED'); }
+}
+
+/** 所属確認の障害を 500 にして通知する。それ以外の例外はそのまま投げる。 */
+async function withMembershipGuard(run: () => Promise<NextResponse>): Promise<NextResponse> {
+  try {
+    return await run();
+  } catch (e) {
+    if (e instanceof MembershipCheckError) return serverError('admin-user-subscriptions-membership', e.dbError, '/api/admin/user-subscriptions');
+    throw e;
+  }
+}
+
 export async function GET(request: NextRequest) {
+  return withMembershipGuard(() => getImpl(request));
+}
+
+async function getImpl(request: NextRequest) {
   const ip = getClientIp(request);
   if (await checkRateLimit(null, ip, 30, 60_000, 'user-subscriptions-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-user-subscriptions-auth', '/api/admin/user-subscriptions');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = verification.user;
 
   const facilityId = request.nextUrl.searchParams.get('facility_id');
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -90,6 +113,10 @@ export async function GET(request: NextRequest) {
 
 // 管理者がユーザーにサブスクを付与
 export async function POST(request: NextRequest) {
+  return withMembershipGuard(() => postImpl(request));
+}
+
+async function postImpl(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const ip = getClientIp(request);
@@ -97,8 +124,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-user-subscriptions-auth', '/api/admin/user-subscriptions');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = verification.user;
 
   const body = await request.json().catch(() => null);
   const parsed = grantSchema.safeParse(body);
@@ -136,6 +165,10 @@ export async function POST(request: NextRequest) {
 
 // 1回セッション使用
 export async function PATCH(request: NextRequest) {
+  return withMembershipGuard(() => patchImpl(request));
+}
+
+async function patchImpl(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const ip = getClientIp(request);
@@ -143,8 +176,10 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-user-subscriptions-auth', '/api/admin/user-subscriptions');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = verification.user;
 
   const body = await request.json().catch(() => null);
 
@@ -152,7 +187,8 @@ export async function PATCH(request: NextRequest) {
   const statusParsed = updateStatusSchema.safeParse(body);
   if (statusParsed.success && body.status) {
     const admin = createServiceRoleClient();
-    const { data: sub } = await admin.from('user_subscriptions').select('facility_id, status').eq('id', statusParsed.data.subscription_id).single();
+    const { data: sub, error: subError } = await admin.from('user_subscriptions').select('facility_id, status').eq('id', statusParsed.data.subscription_id).single();
+    if (subError && subError.code !== 'PGRST116') return serverError('admin-user-subscriptions-read', subError, '/api/admin/user-subscriptions');
     if (!sub) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     const isAdmin = await checkAdminMembership(supabase, user.id, sub.facility_id);
@@ -200,11 +236,12 @@ export async function PATCH(request: NextRequest) {
   if (!useParsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
   const admin = createServiceRoleClient();
-  const { data: sub } = await admin
+  const { data: sub, error: subError } = await admin
     .from('user_subscriptions')
     .select('*, subscription_plans(sessions_per_month, facility_id)')
     .eq('id', useParsed.data.subscription_id)
     .single();
+  if (subError && subError.code !== 'PGRST116') return serverError('admin-user-subscriptions-read', subError, '/api/admin/user-subscriptions');
 
   if (!sub) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 

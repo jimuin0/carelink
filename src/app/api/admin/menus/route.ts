@@ -20,7 +20,8 @@ const menuSchema = z.object({
   price_note: z.string().max(100).optional().nullable(),
   // 作成時は必須（画面の入力欄も必須）。15〜480 分（src/lib/menu-duration.ts）。
   duration_minutes: menuDurationSchema,
-  photo_url: z.string().url().max(500).optional().nullable().or(z.literal('')),
+  // https 限定（javascript:/data:/http: を保存させない。features の image_url と同じ規則）。
+  photo_url: z.string().url().max(500).startsWith('https://').optional().nullable().or(z.literal('')),
   is_featured: z.boolean().optional(),
   sort_order: z.number().int().min(0).optional(),
 });

@@ -1,4 +1,5 @@
 import { isValidIsoDate } from '@/lib/date-utils';
+import { firstSearchParams } from '@/lib/search-params';
 import { toIcalLocalDateTime } from '@/lib/ical-date';
 import Link from 'next/link';
 import PushPermissionBanner from '@/components/push/PushPermissionBanner';
@@ -116,7 +117,7 @@ function buildIcsContent(date?: string, time?: string, endTime?: string, facilit
 }
 
 export default async function BookingCompletePage(props: Props) {
-  const searchParams = await props.searchParams;
+  const searchParams = firstSearchParams(await props.searchParams);
   const params = await props.params;
   const bookingId = searchParams.id;
   const bookingStatus = await getBookingStatus(bookingId);

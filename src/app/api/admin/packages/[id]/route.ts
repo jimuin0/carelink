@@ -7,7 +7,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -22,22 +23,30 @@ const updateSchema = z.object({
   sort_order: z.number().int().optional(),
 });
 
-async function getAdminAndVerifyPackage(request: NextRequest, packageId: string): Promise<{ facilityId: string; userId: string } | null> {
+/**
+ * 権限確認。null＝権限なし（401）。認証基盤・DB の障害は 401 に化けさせず、
+ * 503/500 の応答をそのまま返す（中 A11）。
+ */
+async function getAdminAndVerifyPackage(request: NextRequest, packageId: string): Promise<{ facilityId: string; userId: string } | NextResponse | null> {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-packages-id-auth', '/api/admin/packages/[id]');
+  if (verification.state !== 'verified') return null;
+  const user = verification.user;
 
   const admin = createServiceRoleClient();
-  const { data: pkg } = await admin.from('service_packages').select('facility_id').eq('id', packageId).single();
+  const { data: pkg, error: pkgError } = await admin.from('service_packages').select('facility_id').eq('id', packageId).single();
+  if (pkgError && pkgError.code !== 'PGRST116') return serverError('admin-packages-id-read', pkgError, '/api/admin/packages/[id]');
   if (!pkg) return null;
 
-  const { data: membership } = await supabase
+  const { data: membership, error: membershipError } = await supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
     .eq('facility_id', pkg.facility_id)
     .in('role', ['owner', 'admin'])
     .single();
+  if (membershipError && membershipError.code !== 'PGRST116') return serverError('admin-packages-id-membership', membershipError, '/api/admin/packages/[id]');
 
   return membership ? { facilityId: pkg.facility_id, userId: user.id } : null;
 }
@@ -52,6 +61,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   }
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const auth = await getAdminAndVerifyPackage(request, params.id);
+  if (auth instanceof NextResponse) return auth;
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
@@ -103,6 +113,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   }
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const auth = await getAdminAndVerifyPackage(request, params.id);
+  if (auth instanceof NextResponse) return auth;
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();

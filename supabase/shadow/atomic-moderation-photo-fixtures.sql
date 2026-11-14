@@ -3,8 +3,7 @@
 BEGIN;
 SET LOCAL statement_timeout='10s';
 DO $$ BEGIN
-  IF current_database() NOT LIKE 'carelink_shadow%' AND NOT (current_database()='postgres'
-    AND EXISTS(SELECT 1 FROM pg_roles WHERE rolname='supabase_admin'))
+  IF current_database() NOT LIKE 'carelink_shadow%'
     THEN RAISE EXCEPTION 'isolated Supabase/PG17 shadow required'; END IF;
   IF EXISTS(SELECT 1 FROM auth.users WHERE id::text LIKE 'f8500000-%')
     OR EXISTS(SELECT 1 FROM public.facility_profiles WHERE id::text LIKE 'f8510000-%')

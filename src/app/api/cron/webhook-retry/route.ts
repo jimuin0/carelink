@@ -8,7 +8,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import { logCronRun, cronError } from '@/lib/cron-logger';
 import { scheduleRetry } from '@/lib/webhook-queue';
-import { sendLineText } from '@/lib/line';
+import { sendLinePushWithOutcome } from '@/lib/line';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures, alertWarning } from '@/lib/alert';
@@ -19,7 +19,7 @@ import { prepareFacilityWelcomeDelivery } from '@/lib/facility-welcome-delivery'
 import { prepareManualBookingEnvelope } from '@/lib/manual-booking-notification';
 import { prepareCustomerBookingTransitionEnvelope } from '@/lib/customer-booking-transition-email';
 import { dispatchEventEmail, eventEmailEnvelopeSchema } from '@/lib/event-email-delivery';
-import { prepareBookingCreationChannel, sendBookingCreationLine } from '@/lib/booking-create-notifications';
+import { prepareBookingCreationChannel } from '@/lib/booking-create-notifications';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkScheduledEmailRecipient } from '@/lib/scheduled-email-recipient';
 import { prepareCustomerBookingChannel } from '@/lib/customer-booking-channel';
@@ -276,8 +276,14 @@ export async function GET(request: Request) {
           }
           deliver = async () => {
             const isBookingCreate = typeof payload.booking_create_operation === 'string';
-            const ok = isBookingCreate ? await sendBookingCreationLine(job.target_id, message) : await sendLineText(job.target_id, message);
-            if (!ok) throw new Error('line_push failed after all retries');
+            // 予約作成の通知は 1 回だけ試す（sendBookingCreationLine と同じ規則）。
+            const outcome = await sendLinePushWithOutcome(job.target_id, [{ type: 'text', text: message }], isBookingCreate ? 1 : 3);
+            if (outcome === 'delivered') return;
+            // 4xx（429 以外）は LINE が受け付けなかったことが確定している。結果不明として毎 run 保留し
+            // 503 を出し続けるのではなく、通常の再試行（上限で dead-letter）に回す。
+            // 429・5xx・通信断は受理された可能性を否定できないので従来どおり照合へ上げる。
+            definitelyRejected = outcome === 'permanent';
+            throw new Error('line_push failed after all retries');
           };
         } else if (job.webhook_type === 'email' || job.webhook_type === 'manual_booking_confirmation') {
           if (!resend) throw new Error('email skipped: RESEND_API_KEY not configured');

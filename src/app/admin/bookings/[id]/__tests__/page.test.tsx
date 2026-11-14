@@ -112,6 +112,18 @@ describe('ポイント利用', () => {
     expect(screen.getByRole('spinbutton', { name: '金額' })).toHaveValue(6000);
   });
 
+  // 監査 B7-4: 金額を入れたあとで種別を「割引」に変えても符号が変わらず、割引が加算されていた。
+  test('種別を割引に変えると金額は負に、メニューへ戻すと正になる', async () => {
+    setBooking({ total_price: 6000, points_used: 0, status: 'confirmed' });
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: '会計する' }));
+    const amount = screen.getByRole('spinbutton', { name: '金額' });
+    fireEvent.change(screen.getByRole('combobox', { name: '種別' }), { target: { value: 'discount' } });
+    expect(amount).toHaveValue(-6000);
+    fireEvent.change(screen.getByRole('combobox', { name: '種別' }), { target: { value: 'menu' } });
+    expect(amount).toHaveValue(6000);
+  });
+
   // 回帰（旧コードは初期明細が 6,000 の 1 行だけで、メニューを 10,000 に打ち直すと合計 10,000・ポイント行なしで送っていた）
   test('会計はメニュー行を利用前の金額で始め、ポイントは固定行として合計から差し引いて送る', async () => {
     setBooking({ total_price: 6000, points_used: 2000, status: 'confirmed' });

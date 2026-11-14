@@ -90,10 +90,24 @@ describe('publishThreadsText', () => {
     expect(result.outcome).toBe('skipped');
   });
 
-  test('skipped when threads_credentials query errors', async () => {
+  test('transient (not skipped) when threads_credentials query errors', async () => {
     maybeSingleResult = { data: null, error: { message: 'boom' } };
     const result = await publishThreadsText('hello');
-    expect(result.outcome).toBe('skipped');
+    expect(result.outcome).toBe('transient');
+  });
+
+  test('transient when threads_credentials query throws', async () => {
+    mockMaybeSingle.mockImplementationOnce(() => Promise.reject(new Error('network')));
+    const result = await publishThreadsText('hello');
+    expect(result.outcome).toBe('transient');
+  });
+
+  test('container status read and token refresh do not proceed when credentials are unreadable', async () => {
+    maybeSingleResult = { data: null, error: { message: 'boom' } };
+    global.fetch = jest.fn() as unknown as typeof fetch;
+    expect(await readThreadsContainerStatus('123')).toBeNull();
+    expect(await refreshThreadsToken()).toEqual({ ok: false, reason: 'threads_credentials read unavailable' });
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   test('skipped when createServiceRoleClient throws (e.g. env missing)', async () => {
@@ -280,6 +294,29 @@ describe('refreshThreadsToken', () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('network down'));
     const result = await refreshThreadsToken();
     expect(result.ok).toBe(false);
+  });
+});
+
+// 中 A48：reason は Slack と cron_logs に載るので、上流の応答本文・例外文字列・DB のメッセージを入れない。
+describe('refreshThreadsToken reason does not carry provider/DB/exception text', () => {
+  test('HTTP failure keeps only the status', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 400, text: async () => '{"error":"SECRET_TOKEN_DETAIL"}' } as unknown as Response);
+    const result = await refreshThreadsToken();
+    expect(result.reason).toBe('refresh failed: HTTP 400');
+  });
+  test('DB failure keeps only a safe code', async () => {
+    updateResult = { error: { code: '08006', message: 'PRIVATE_DB_DETAIL' } };
+    mockFetchSequence([jsonResponse(true, 200, { access_token: 'new-token', expires_in: 5184000 })]);
+    expect((await refreshThreadsToken()).reason).toBe('db update failed: 08006');
+    updateResult = { error: { code: 'not a code; PRIVATE', message: 'PRIVATE_DB_DETAIL' } };
+    mockFetchSequence([jsonResponse(true, 200, { access_token: 'new-token', expires_in: 5184000 })]);
+    expect((await refreshThreadsToken()).reason).toBe('db update failed: unknown');
+  });
+  test('exception keeps only the error kind', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new TypeError('fetch failed https://graph.threads.net/?access_token=SECRET'));
+    expect((await refreshThreadsToken()).reason).toBe('refresh error: TypeError');
+    global.fetch = jest.fn().mockRejectedValue('SECRET_STRING');
+    expect((await refreshThreadsToken()).reason).toBe('refresh error: unknown');
   });
 });
 

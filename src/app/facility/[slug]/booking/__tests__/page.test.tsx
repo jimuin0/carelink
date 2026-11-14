@@ -77,3 +77,9 @@ test('存在しない施設は準備確認も行わず404にする', async () =>
   await expect(BookingPage(props())).rejects.toThrow('NOT_FOUND');
   expect(checkBookingReadiness).not.toHaveBeenCalled();
 });
+
+test('メニューの読み取り失敗を「メニュー無し」の予約画面にしない', async () => {
+  (checkBookingReadiness as jest.Mock).mockResolvedValue({ readiness: { ready: true }, error: null });
+  (getFacilityMenus as jest.Mock).mockResolvedValue({ menus: [], error: { message: 'failed' } });
+  await expect(BookingPage(props())).rejects.toThrow('Online booking menu lookup failed');
+});

@@ -52,6 +52,36 @@ describe('CLAUDE.md はコードと一致している', () => {
     expect(missing).toEqual([]);
   });
 
+  /**
+   * 上の検査は src/app/api 直下しか見ないため、`api/admin/` 配下の追加（mail・reviews 等）が
+   * 一覧から漏れても素通りしていた（点検 A61）。管理 API の行に配下ディレクトリが漏れなく載り、
+   * 逆に実在しない名前も載っていないことを固定する。
+   */
+  it('管理 API の一覧が api/admin 配下の実在ディレクトリと一致する', () => {
+    const sec = section('## API ルート一覧', '## cron スケジュール');
+    const line = sec.split('\n').find((l) => l.includes('管理（`api/admin/`'));
+    expect(line).toBeDefined();
+    const adminDir = join(ROOT, 'src/app/api/admin');
+    const dirs = readdirSync(adminDir)
+      .filter((d) => statSync(join(adminDir, d)).isDirectory() && !d.startsWith('_') && !d.startsWith('['))
+      .sort();
+    const head = (line as string).split('（本数は書かない')[0];
+    const listed = [...head.matchAll(/`([a-z0-9-]+)`/g)].map((m) => m[1]).sort();
+    expect(dirs.length).toBeGreaterThan(30); // 空振り防止
+    expect(listed).toEqual(dirs);
+  });
+
+  it('cron スケジュール表が api/cron の実在ディレクトリと一致する', () => {
+    const sec = section('## cron スケジュール', '### 🔴 cron の現状');
+    const table = [...sec.matchAll(/^\| ([a-z0-9-]+) \| `/gm)].map((m) => m[1]).sort();
+    const cronDir = join(ROOT, 'src/app/api/cron');
+    const dirs = readdirSync(cronDir)
+      .filter((d) => statSync(join(cronDir, d)).isDirectory() && !d.startsWith('_'))
+      .sort();
+    expect(dirs.length).toBeGreaterThan(10);
+    expect(table).toEqual(dirs);
+  });
+
   it('コードが読む環境変数が環境変数表に漏れなく載っている', () => {
     const sec = section('## 環境変数', '## テスト・CI');
     const out = execFileSync('grep', ['-rho', 'process\\.env\\.[A-Z0-9_]*', 'src'], {

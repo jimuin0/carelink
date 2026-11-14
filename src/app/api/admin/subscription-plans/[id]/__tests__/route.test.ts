@@ -377,8 +377,18 @@ test('PATCH: 不正な JSON body → 400', async () => {
   expect(res.status).toBe(400);
 });
 
-test('DELETE: count=null → ハード削除 (200 deleted)', async () => {
+// 点検 A70：契約者数を確認できない（count=null）のにハード削除して 200 を返していた。
+// 以前のテストはこの安全でない動作を正しいものとして固定していた。今は無効化だけにとどめる。
+const updateRef: { fn?: jest.Mock } = {};
+test('DELETE: count=null（契約者数を確認できない）→ 削除せず無効化だけにする', async () => {
   let adminCallNum = 0;
+  const del = jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn(() => Promise.resolve({ data: [{ id: PLAN_UUID }], error: null })),
+      }),
+    }),
+  });
   mockAdminFrom.mockImplementation(() => {
     adminCallNum++;
     if (adminCallNum === 1) return planChain({ facility_id: FACILITY_UUID });
@@ -391,19 +401,21 @@ test('DELETE: count=null → ハード削除 (200 deleted)', async () => {
         }),
       };
     }
-    return {
-      delete: jest.fn().mockReturnValue({
+    const update = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn(() => Promise.resolve({ data: [{ id: PLAN_UUID }], error: null })),
-          }),
+          select: jest.fn(() => Promise.resolve({ data: [{ id: PLAN_UUID }], error: null })),
         }),
       }),
-    };
+    });
+    updateRef.fn = update;
+    return { delete: del, update };
   });
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(del).not.toHaveBeenCalled();
   expect(res.status).toBe(200);
+  expect(updateRef.fn).toHaveBeenCalledWith({ is_active: false });
 });
 
 test('DELETE: 契約中ユーザーあり + deactivate 失敗 → 500', async () => {

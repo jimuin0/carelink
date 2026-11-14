@@ -129,3 +129,13 @@ test('現在地検索のページ送りに lat / lng を引き継ぐ', async () 
   expect(query.get('lat')).toBe('34.78');
   expect(query.get('lng')).toBe('135.47');
 });
+
+// 監査 B8-M2: 同じキーが複数あるとクエリは配列で届く。.split() 等で TypeError（500）にしない。
+test('array query values use the first value instead of throwing', async () => {
+  (searchFacilities as jest.Mock).mockResolvedValue({ facilities: [], total: 40, perPage: 20, error: null });
+  (getMonthlyBookingCounts as jest.Mock).mockResolvedValue({});
+  (getAvailableFacilityIds as jest.Mock).mockResolvedValue(null);
+  const raw = { keyword: ['a', 'b'], features: ['parking,card', 'x'], page: ['2', '3'] } as unknown as { keyword?: string };
+  await SearchPage({ searchParams: Promise.resolve(raw) });
+  expect(searchFacilities).toHaveBeenCalledWith(expect.objectContaining({ keyword: 'a', features: ['parking', 'card'], page: 2 }));
+});

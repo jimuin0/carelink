@@ -1,12 +1,6 @@
-import { z } from 'zod';
-
-// InquiryForm schema (mirrors src/components/facility/InquiryForm.tsx)
-const inquirySchema = z.object({
-  name: z.string().min(1, 'お名前を入力してください'),
-  email: z.string().email('正しいメールアドレスを入力してください'),
-  phone: z.string().regex(/^0\d{1,4}-?\d{1,4}-?\d{3,4}$/, '正しい電話番号を入力してください').or(z.literal('')).optional(),
-  message: z.string().min(1, 'お問い合わせ内容を入力してください').max(1000, '1000文字以内で入力してください'),
-});
+// 写しではなく本物のスキーマを検証する（点検 A56：写しは trim・max・nullable を欠き、
+// 本物と逆の結果を主張していた）。
+import { facilityInquirySchema as inquirySchema } from '@/lib/validations-inquiry';
 
 const validData = {
   name: '神原良祐',
@@ -67,10 +61,29 @@ describe('inquirySchema — deep tests', () => {
     expect(inquirySchema.safeParse({ ...validData, name: 'A' }).success).toBe(true);
   });
 
-  test('名前が全角スペースのみだとエラー（min:1で通過するが空白のみは意図外）', () => {
-    // zodのmin(1)は空文字チェックのみ、全角スペースはlength>0なのでsuccess
-    const result = inquirySchema.safeParse({ ...validData, name: '　' });
-    expect(result.success).toBe(true); // zod does not trim by default
+  test('名前が全角スペースのみだとエラー（trim 後に空）', () => {
+    expect(inquirySchema.safeParse({ ...validData, name: '　' }).success).toBe(false);
+  });
+
+  test('名前・本文は前後の空白を落として返す', () => {
+    const r = inquirySchema.safeParse({ ...validData, name: ' 神原 ', message: '　本文　' });
+    expect(r.success && r.data).toMatchObject({ name: '神原', message: '本文' });
+  });
+
+  test('本文が空白だけだとエラー', () => {
+    expect(inquirySchema.safeParse({ ...validData, message: ' 　 ' }).success).toBe(false);
+  });
+
+  test.each([
+    ['name', 'あ'.repeat(100), 'あ'.repeat(101)],
+    ['email', `${'a'.repeat(242)}@example.com`, `${'a'.repeat(243)}@example.com`],
+  ])('%s の上限（境界値は通過・超過はエラー）', (field, ok, ng) => {
+    expect(inquirySchema.safeParse({ ...validData, [field]: ok }).success).toBe(true);
+    expect(inquirySchema.safeParse({ ...validData, [field]: ng }).success).toBe(false);
+  });
+
+  test('電話番号が20文字を超えるとエラー', () => {
+    expect(inquirySchema.safeParse({ ...validData, phone: '0' + '1'.repeat(20) }).success).toBe(false);
   });
 
   test('email に + が入っても有効', () => {
@@ -93,8 +106,8 @@ describe('inquirySchema — deep tests', () => {
     expect(inquirySchema.safeParse({ ...validData, message: 'あ' }).success).toBe(true);
   });
 
-  test('phone が null だとエラー（型不一致）', () => {
-    expect(inquirySchema.safeParse({ ...validData, phone: null }).success).toBe(false);
+  test('phone が null でも通過する（未入力として nullable）', () => {
+    expect(inquirySchema.safeParse({ ...validData, phone: null }).success).toBe(true);
   });
 
   test('name が undefined だとエラー', () => {

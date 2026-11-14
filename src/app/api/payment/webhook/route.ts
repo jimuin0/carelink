@@ -106,13 +106,19 @@ export async function POST(request: Request) {
         // Stripe 側で cancel して孤児化＝二重課金の継続を根絶する。
         // 通常フロー（初回購入で既存 active 無し／同一イベント再処理で sub 同一）では cancel しない。
         if (newSubId) {
-          const { data: existingEnt } = await supabase
+          const { data: existingEnt, error: existingEntError } = await supabase
             .from('facility_entitlements')
             .select('stripe_subscription_id')
             .eq('facility_id', facilityId)
             .eq('option_key', optionKey)
             .eq('status', 'active')
             .maybeSingle();
+          // 照会に失敗したまま upsert すると旧 sub を取りこぼして毎月課金が残る。冪等行を戻して
+          // Stripe のリトライで再処理させる（中 A23）。
+          if (existingEntError) {
+            await rollbackIdempotency(supabase, event.id);
+            return serverError('payment-webhook-entitlement-lookup', existingEntError, '/api/payment/webhook', 'DB read failed');
+          }
           const oldSubId = existingEnt?.stripe_subscription_id;
           if (oldSubId && oldSubId !== newSubId) {
             try {
@@ -124,6 +130,8 @@ export async function POST(request: Request) {
               console.error('[payment/webhook] 旧サブスク cancel 失敗（二重課金の疑い・要手動確認）', {
                 facilityId, optionKey, oldSubId, err: errorMessage(cancelErr),
               });
+              // コメントどおり Slack にも出す（手動確認が要る・中 A23）。応答は 200 のまま進める。
+              alertCaughtError('payment-webhook-old-subscription-cancel', cancelErr, '/api/payment/webhook');
             }
           }
         }

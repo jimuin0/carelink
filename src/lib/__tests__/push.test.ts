@@ -1,3 +1,5 @@
+jest.mock('../alert', () => ({ alertCaughtError: jest.fn() }));
+jest.mock('../safe', () => ({ ...jest.requireActual('../safe'), safeCaptureException: jest.fn() }));
 const mockSendNotification = jest.fn();
 
 jest.mock('web-push', () => ({
@@ -6,6 +8,7 @@ jest.mock('web-push', () => ({
 }));
 
 let mockSubData: unknown = null;
+let mockSubError: unknown = null;
 const mockDeleteEq = jest.fn();
 const mockDeleteSelect = jest.fn();
 const mockDeleteQuery = { eq: mockDeleteEq, select: mockDeleteSelect, then: (done: (value: { data: unknown[]; error: null }) => unknown) => Promise.resolve({ data: [{ id: 'row' }], error: null }).then(done) };
@@ -18,7 +21,7 @@ jest.mock('../supabase-server', () => ({
     from: () => ({
       select: () => ({
         eq: () => ({
-          maybeSingle: () => Promise.resolve({ data: mockSubData }),
+          maybeSingle: () => Promise.resolve({ data: mockSubData, error: mockSubError }),
         }),
       }),
       delete: mockDeleteFn,
@@ -38,6 +41,7 @@ beforeEach(() => {
   mockDeleteEq.mockClear();
   mockDeleteSelect.mockClear();
   mockSubData = null;
+  mockSubError = null;
 });
 
 describe('sendPushToUser', () => {
@@ -56,8 +60,18 @@ describe('sendPushToUser', () => {
     expect(result).toBe(true);
     expect(mockSendNotification).toHaveBeenCalledWith(
       { endpoint: 'https://push.example.com/sub1', keys: { p256dh: 'key1', auth: 'auth1' } },
-      JSON.stringify({ title: '予約確定', body: '明日10:00〜' })
+      JSON.stringify({ title: '予約確定', body: '明日10:00〜' }),
+      { timeout: 10000 },
     );
+  });
+
+  test('購読の読み取りエラーは「購読なし」と区別して通報し、送らない', async () => {
+    const { alertCaughtError } = jest.requireMock('../alert');
+    mockSubError = { message: 'down' };
+    const result = await sendPushToUser('user-1', { title: 'T', body: 'B' });
+    expect(result).toBe(false);
+    expect(mockSendNotification).not.toHaveBeenCalled();
+    expect(alertCaughtError).toHaveBeenCalledWith('push-subscription-read', mockSubError, 'push:user:user-1');
   });
 
   test('410エラー時にサブスクリプションを削除する', async () => {
@@ -362,7 +376,8 @@ describe('sendPushToFacilityOwners', () => {
     expect(mockSendNotificationLocal).toHaveBeenCalledTimes(1);
     expect(mockSendNotificationLocal).toHaveBeenCalledWith(
       { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-      JSON.stringify({ title: '予約確定', body: '明日10:00〜' })
+      JSON.stringify({ title: '予約確定', body: '明日10:00〜' }),
+      { timeout: 10000 },
     );
   });
 

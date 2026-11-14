@@ -7,6 +7,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import StaffSalesTab from './StaffSalesTab';
 import { RevenueChart, BookingTrendChart, CustomerSegmentChart, RepeatRateCard, ViewCountCard } from '@/components/admin/DynamicAnalyticsCharts';
 import { jstMonthInfo } from '@/lib/admin-date';
+import { fetchAllPaged } from '@/lib/paginate';
 import { SbPageHeader, SbStatCard } from '@/components/admin/SbUi';
 
 export default async function AdminAnalyticsPage(props: { searchParams: Promise<{ facility_id?: string }> }) {
@@ -33,16 +34,21 @@ export default async function AdminAnalyticsPage(props: { searchParams: Promise<
   });
 
   // 並列クエリ（N+1解消）
+  // PostgREST の max-rows（既定1000行）で黙って切り捨てないよう、id 順で全ページを読む。
   const results = await Promise.all(
-    monthConfigs.map(({ startDate, endDate }) =>
-      supabase
-        .from('bookings')
-        .select('total_price')
-        .eq('facility_id', facilityId)
-        .eq('status', 'completed')
-        .gte('booking_date', startDate)
-        .lte('booking_date', endDate)
-    )
+    monthConfigs.map(async ({ startDate, endDate }) => {
+      const { rows, error } = await fetchAllPaged<{ total_price: number | null }>(async (offset, limit) =>
+        await supabase
+          .from('bookings')
+          .select('total_price')
+          .eq('facility_id', facilityId)
+          .eq('status', 'completed')
+          .gte('booking_date', startDate)
+          .lte('booking_date', endDate)
+          .order('id')
+          .range(offset, offset + limit - 1), { failOnTruncation: true });
+      return { data: rows, error: error as { message: string } | null };
+    })
   );
 
   // 取得失敗を「売上¥0・予約0件」に偽装しない。1ヶ月でも失敗したら error.tsx に委ね、

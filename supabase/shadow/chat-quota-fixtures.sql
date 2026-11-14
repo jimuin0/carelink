@@ -2,8 +2,7 @@
 \set ON_ERROR_STOP on
 BEGIN;
 DO $$ BEGIN
-  IF current_database() NOT LIKE 'carelink_shadow%' AND NOT(current_database()='postgres'
-    AND EXISTS(SELECT 1 FROM pg_roles WHERE rolname='supabase_admin')) THEN
+  IF current_database() NOT LIKE 'carelink_shadow%' THEN
     RAISE EXCEPTION 'isolated quota fixture database required';
   END IF;
   IF EXISTS(SELECT 1 FROM public.rate_limit_buckets WHERE key LIKE '%quota-fixture-ec41%') THEN
