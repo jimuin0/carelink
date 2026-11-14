@@ -5,6 +5,9 @@ const mockRemove = jest.fn(async(..._args:unknown[])=>true);
 jest.mock('../push',()=>({prepareCapturedPushDelivery:(...a:unknown[])=>mockPush(...a),removeExpiredPushSubscription:(...a:unknown[])=>mockRemove(...a),
   isExpiredPushStatus:(s:number|null)=>s===404||s===410}));
 jest.mock('../line',()=>({prepareSingleLineDelivery:(...a:unknown[])=>mockLine(...a)}));
+const mockUnfollowed = jest.fn(async(..._args:unknown[])=>false);
+jest.mock('../line-unfollow',()=>({isLineRecipientUnfollowed:(...a:unknown[])=>mockUnfollowed(...a)}));
+jest.mock('../supabase-server',()=>({createServiceRoleClient:()=>({synthetic:'service-role'})}));
 jest.mock('../integrations/line-works',()=>({prepareSingleLineWorksDelivery:(...a:unknown[])=>mockWorks(...a)}));
 import { prepareCustomerBookingChannel } from '../customer-booking-channel';
 const OP='b1100000-0000-4000-8000-000000000001',EVENT='b1100000-0000-4000-8000-000000000002';
@@ -29,6 +32,14 @@ test.each([['rescheduled','customer'],['rescheduled','owner'],['cancelled','owne
 test('verified LINE cancellation keeps captured names/time',async()=>{
   await prepareCustomerBookingChannel(job('line','cancelled','customer'));
   expect(mockLine).toHaveBeenCalledWith('captured-channel',expect.stringContaining('Captured facility'));
+  expect(mockSend).not.toHaveBeenCalled();
+});
+test('LINE をフォロー解除した宛先へは 1 通も出さず rejected で閉じる（B3-12）',async()=>{
+  mockUnfollowed.mockResolvedValueOnce(true);
+  const sender=await prepareCustomerBookingChannel(job('line','cancelled','customer'));
+  expect(mockUnfollowed).toHaveBeenCalledWith({synthetic:'service-role'},'captured-channel');
+  expect(mockLine).not.toHaveBeenCalled();
+  expect(await sender()).toEqual({outcome:'rejected',status:null});
   expect(mockSend).not.toHaveBeenCalled();
 });
 test.each(['cancelled','rescheduled'])('staff %s message is prepared before any send',async kind=>{

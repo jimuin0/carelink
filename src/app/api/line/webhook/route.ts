@@ -2,7 +2,8 @@
  * LINE Messaging API Webhook（v8.0）
  * POST /api/line/webhook
  * - 署名検証
- * - フォローイベント: line_user_linksに仮登録
+ * - フォローイベント: line_user_linksに仮登録（再フォローは unfollowed_at を消す）
+ * - フォロー解除イベント: line_user_links.unfollowed_at を記録（行は消さない）
  * - メッセージイベント: 自動応答
  */
 
@@ -122,6 +123,9 @@ async function handleFollow(lineUserId: string) {
           line_user_id: lineUserId,
           display_name: typeof profile.displayName === 'string' ? profile.displayName : null,
           picture_url: typeof profile.pictureUrl === 'string' ? profile.pictureUrl : null,
+          // 再フォロー＝送信対象へ戻す（点検 B3-12）。連携（user_id・proof_version・verified_at）は
+          // upsert の更新列に含めないので、ブロック前の本人確認済み連携がそのまま復活する。
+          unfollowed_at: null,
         },
         { onConflict: 'line_user_id' }
       );
@@ -133,10 +137,11 @@ async function handleFollow(lineUserId: string) {
 }
 
 async function handleUnfollow(lineUserId: string) {
-  // ユーザーがブロック / フォロー解除した。以後 LINE 通知は送れず、行を残すと各送信経路が
-  // user_id → line_user_id を引いて送信失敗を繰り返す（dead link）。当該リンクを削除して
-  // 送信対象から外す（FK 参照は無く account/delete と同じ削除パターン。再フォロー時は
-  // handleFollow が再登録する）。署名検証済みのため LINE 由来イベントのみ到達する。
+  // ユーザーがブロック / フォロー解除した。以後 LINE 通知は送れないので送信対象から外す。
+  // 🔴 行は削除しない（点検 B3-12・2026年11月13日）。以前は削除していたため、本人確認済みの連携
+  // （user_id・proof_version・verified_at）まで消え、再フォローしても連携し直すまで通知が届かなかった。
+  // unfollowed_at を記録し、送信側（src/lib/line-link.ts ほか）は unfollowed_at のある行を除外する。
+  // 再フォロー時は handleFollow が unfollowed_at を NULL に戻す。署名検証済みのため LINE 由来イベントのみ到達する。
   try {
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -144,10 +149,10 @@ async function handleUnfollow(lineUserId: string) {
     );
     const { error } = await supabaseAdmin
       .from('line_user_links')
-      .delete()
+      .update({ unfollowed_at: new Date().toISOString() })
       .eq('line_user_id', lineUserId);
     if (error) {
-      console.error('[LINE Webhook] Unfollow handler delete failed', { lineUserId, err: error.message });
+      console.error('[LINE Webhook] Unfollow handler update failed', { lineUserId, err: error.message });
     }
   } catch (e) {
     console.error('[LINE Webhook] Unfollow handler error:', e);

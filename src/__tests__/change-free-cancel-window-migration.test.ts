@@ -88,7 +88,9 @@ describe('change_booking_atomic を動的に書き換える後続 migration も�
   const check = own.slice(own.indexOf('  -- 2026-10-23 BOOKING_CHANGE_WINDOW_CLOSED'), own.indexOf('  v_nominated :='));
   const rewriters = readdirSync(MIGRATIONS)
     .filter((f) => /^\d{14}_/.test(f) && f > FILE)
-    .filter((f) => /'change_booking_atomic'/.test(read(f)));
+    .filter((f) => /'change_booking_atomic'/.test(read(f)))
+    // 関数名を挙げるだけで本文を書き換えない検査用 migration（例: 20261113100400 の A105 検査）は対象外
+    .filter((f) => /replace\(\s*definition/.test(read(f)));
 
   /** `replace(definition, <消す文字列>, ...)` の <消す文字列> を全部取り出す。 */
   function replacedTargets(text: string): string[] {

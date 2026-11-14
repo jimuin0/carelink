@@ -17,3 +17,10 @@ test('bulk resolves only verified current matching pairs',async()=>{
 test.each([[null,null],[[],null],[null,[verified]]])('bulk nullable reads %p %p grant no recipient',async(p,l)=>expect(await resolveLineUserIdsForUsers(client(p,l),['actor'])).toEqual(new Map()));
 test('bulk profile read failure cannot become empty success',async()=>expect(resolveLineUserIdsForUsers(client(null,[],{code:'XX000'}),['actor'])).rejects.toThrow('profile lookup unavailable'));
 test('bulk link read failure cannot become empty success',async()=>expect(resolveLineUserIdsForUsers(client([],null,null,{code:'XX000'}),['actor'])).rejects.toThrow('ownership lookup unavailable'));
+test('フォロー解除（unfollowed_at あり）の連携へは送らない・再フォロー（null）なら送る（B3-12）',async()=>{
+ expect(await resolveLineUserIdForUser(client(undefined,{...verified,unfollowed_at:'2026-11-13T00:00:00Z'}),'actor')).toBeNull();
+ expect(await resolveLineUserIdForUser(client(undefined,{...verified,unfollowed_at:null}),'actor')).toBe('U_owned');
+ const profiles=[{id:'actor',line_user_id:'U_owned'},{id:'other',line_user_id:'U_other'}];
+ const links=[verified,{...verified,user_id:'other',line_user_id:'U_other',unfollowed_at:'2026-11-13T00:00:00Z'}];
+ expect(await resolveLineUserIdsForUsers(client(profiles,links),['actor','other'])).toEqual(new Map([['actor','U_owned']]));
+});

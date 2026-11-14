@@ -491,6 +491,14 @@ describe('DELETE /api/waitlist', () => {
     });
   });
 
+  test('キャンセルの更新は service_role クライアントで行う（ブラウザの UPDATE 権に依存しない・A27）', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    const res = await DELETE(makeDeleteRequest('11111111-1111-1111-1111-111111111111'));
+    expect(res.status).toBe(200);
+    expect(createServiceRoleClient).toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalledWith({ status: 'cancelled' });
+  });
+
   test('CSRF check failed → returns error', async () => {
     const csrfError = new Response(JSON.stringify({ error: 'CSRF failed' }), { status: 403 });
     (checkCsrf as jest.Mock).mockReturnValue(csrfError);

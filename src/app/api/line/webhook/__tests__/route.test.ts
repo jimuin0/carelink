@@ -171,10 +171,11 @@ describe('POST /api/line/webhook', () => {
     );
   });
 
-  test('unfollow event → line_user_links を削除（dead link 除去）', async () => {
+  test('unfollow event → 行は消さず unfollowed_at を記録する（B3-12・連携を残す）', async () => {
     const mockEq = jest.fn().mockResolvedValue({ error: null });
-    const mockDelete = jest.fn().mockReturnValue({ eq: mockEq });
-    mockFromDelegate.mockReturnValue({ delete: mockDelete });
+    const mockUpdate = jest.fn().mockReturnValue({ eq: mockEq });
+    const mockDelete = jest.fn();
+    mockFromDelegate.mockReturnValue({ update: mockUpdate, delete: mockDelete });
 
     const res = await POST(
       makeRequest({
@@ -184,13 +185,15 @@ describe('POST /api/line/webhook', () => {
 
     expect(res.status).toBe(200);
     expect(mockFromDelegate).toHaveBeenCalledWith('line_user_links');
-    expect(mockDelete).toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalledWith({ unfollowed_at: expect.any(String) });
+    expect(Number.isFinite(Date.parse(mockUpdate.mock.calls[0][0].unfollowed_at))).toBe(true);
     expect(mockEq).toHaveBeenCalledWith('line_user_id', VALID_LINE_USER_ID);
   });
 
-  test('unfollow event: 削除エラーでもログのみで 200 継続', async () => {
-    const mockEq = jest.fn().mockResolvedValue({ error: { message: 'delete failed' } });
-    mockFromDelegate.mockReturnValue({ delete: jest.fn().mockReturnValue({ eq: mockEq }) });
+  test('unfollow event: 更新エラーでもログのみで 200 継続', async () => {
+    const mockEq = jest.fn().mockResolvedValue({ error: { message: 'update failed' } });
+    mockFromDelegate.mockReturnValue({ update: jest.fn().mockReturnValue({ eq: mockEq }) });
 
     const res = await POST(
       makeRequest({
@@ -387,6 +390,10 @@ describe('POST /api/line/webhook', () => {
     // Display name should be included in upsert
     const call = mockUpsert.mock.calls[0];
     expect(call[0].display_name).toBeDefined();
+    // 再フォローは送信対象へ戻す（B3-12）。連携の列（user_id 等）は更新列に含めない
+    expect(call[0].unfollowed_at).toBeNull();
+    expect(call[0]).not.toHaveProperty('user_id');
+    expect(call[0]).not.toHaveProperty('verified_at');
   });
 
   test('invalid JSON → 400 not accepted', async () => {

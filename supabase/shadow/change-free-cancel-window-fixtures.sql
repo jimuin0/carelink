@@ -127,9 +127,9 @@ END $$;
 
 -- 6. Signature, SECURITY DEFINER, search_path and grants are kept.
 DO $$ BEGIN
-  PERFORM pg_temp.assert_window((SELECT prosecdef AND proconfig = ARRAY['search_path=public'] FROM pg_proc
+  PERFORM pg_temp.assert_window((SELECT prosecdef AND proconfig = ARRAY['search_path=public, pg_temp'] FROM pg_proc
     WHERE oid = 'public.change_booking_atomic(uuid,uuid,date,time,time,boolean)'::regprocedure),
-    'change_booking_atomic stays SECURITY DEFINER with search_path=public');
+    'change_booking_atomic stays SECURITY DEFINER with search_path=public, pg_temp');
   PERFORM pg_temp.assert_window(NOT has_function_privilege('anon', 'public.change_booking_atomic(uuid,uuid,date,time,time,boolean)', 'EXECUTE')
     AND NOT has_function_privilege('authenticated', 'public.change_booking_atomic(uuid,uuid,date,time,time,boolean)', 'EXECUTE')
     AND has_function_privilege('service_role', 'public.change_booking_atomic(uuid,uuid,date,time,time,boolean)', 'EXECUTE'),

@@ -35,7 +35,7 @@ test('JSON receipt tolerates key ordering, serializes negative zero and omits un
 test('UUID identity comparison accepts canonical casing',async()=>{
  const upper='AAAA1111-1111-4111-8111-111111111111';mockRpc.mockResolvedValue({data:{...feature,id:upper.toLowerCase()},error:null});expect(await writePlatformEditor(actor,upper,'feature','update',{is_active:false},'/test')).not.toBeInstanceOf(NextResponse);
 });
-test.each([['42501',403],['P0002',404],['22023',400],['23505',409],['40001',409],['08006',500],['',500]])('error %s refuses accompanying data with %s',async(code,status)=>{
+test.each([['42501',403],['P0002',404],['22023',400],['23505',409],['40001',409],['PT409',409],['08006',500],['',500]])('error %s refuses accompanying data with %s',async(code,status)=>{
  mockRpc.mockResolvedValue({data:feature,error:{code,message:'private failure'}});const res=await writePlatformEditor(actor,id,'feature','update',{title:feature.title},'/test') as NextResponse;expect(res.status).toBe(status);expect(await res.text()).not.toContain('private failure');
 });
 test.each([null,[],{},false,{...feature,id:'invalid'},{...feature,id:actor},{...feature,is_active:'false'}])('reject malformed or cross-record receipt %p',async data=>{

@@ -91,7 +91,7 @@ try:
     reset()
     sig='public.manage_facility_api_key_atomic(uuid,uuid,uuid,text,jsonb)'
     assert sql(f"SELECT has_function_privilege('service_role','{sig}','EXECUTE') AND NOT has_function_privilege('anon','{sig}','EXECUTE') AND NOT has_function_privilege('authenticated','{sig}','EXECUTE')")=='t'
-    assert sql("SELECT NOT has_table_privilege('authenticated','public.api_keys','INSERT') AND NOT has_table_privilege('authenticated','public.api_keys','UPDATE') AND NOT has_table_privilege('authenticated','public.api_keys','DELETE') AND NOT has_table_privilege('authenticated','public.api_keys','TRUNCATE') AND NOT has_table_privilege('anon','public.api_keys','SELECT') AND has_table_privilege('authenticated','public.api_keys','SELECT')")=='t'
+    assert sql("SELECT NOT has_table_privilege('authenticated','public.api_keys','INSERT') AND NOT has_table_privilege('authenticated','public.api_keys','UPDATE') AND NOT has_table_privilege('authenticated','public.api_keys','DELETE') AND NOT has_table_privilege('authenticated','public.api_keys','TRUNCATE') AND NOT has_table_privilege('anon','public.api_keys','SELECT') AND has_column_privilege('authenticated','public.api_keys','name','SELECT') AND NOT has_column_privilege('authenticated','public.api_keys','key_hash','SELECT')")=='t'  # 点検 B7-20：key_hash はブラウザから読めない（列単位 GRANT）
     # The fingerprint shadow bootstraps auth.uid() as NULL. Emulate verified JWT
     # subject ONLY inside this rolled-back fixture transaction, never in production.
     for role in ('owner','admin','staff'):

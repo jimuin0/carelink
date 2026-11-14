@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isFollowingLink } from '@/lib/line-unfollow';
 
-/** LINE sends require a current profile and server-verified ownership. Older
+/** LINE sends require a current profile, server-verified ownership and a
+ * link that is still followed (unfollowed_at IS NULL・点検 B3-12). Older
  * self-editable profile/legacy NULL link values alone never authorize a send.
  */
 export async function resolveLineUserIdForUser(client: SupabaseClient, userId: string): Promise<string | null> {
@@ -8,10 +10,10 @@ export async function resolveLineUserIdForUser(client: SupabaseClient, userId: s
   if (error) throw new Error('LINE profile lookup unavailable');
   if (!profile?.line_user_id) return null;
   const { data: link, error: linkError } = await client.from('line_user_links')
-    .select('user_id, line_user_id, proof_version, verified_at').eq('user_id', userId).maybeSingle();
+    .select('user_id, line_user_id, proof_version, verified_at, unfollowed_at').eq('user_id', userId).maybeSingle();
   if (linkError) throw new Error('LINE ownership lookup unavailable');
   return link?.user_id === userId && link.line_user_id === profile.line_user_id && link.proof_version === 1 &&
-    typeof link.verified_at === 'string' && Number.isFinite(Date.parse(link.verified_at)) ? link.line_user_id : null;
+    typeof link.verified_at === 'string' && Number.isFinite(Date.parse(link.verified_at)) && isFollowingLink(link) ? link.line_user_id : null;
 }
 
 export async function resolveLineUserIdsForUsers(client: SupabaseClient, userIds: string[]): Promise<Map<string, string>> {
@@ -19,11 +21,11 @@ export async function resolveLineUserIdsForUsers(client: SupabaseClient, userIds
   if (!userIds.length) return resolved;
   const profiles = await client.from('profiles').select('id, line_user_id').in('id', userIds);
   if (profiles.error) throw new Error('LINE profile lookup unavailable');
-  const links = await client.from('line_user_links').select('user_id, line_user_id, proof_version, verified_at').in('user_id', userIds);
+  const links = await client.from('line_user_links').select('user_id, line_user_id, proof_version, verified_at, unfollowed_at').in('user_id', userIds);
   if (links.error) throw new Error('LINE ownership lookup unavailable');
   const byUser = new Map((profiles.data ?? []).map(p => [p.id, p.line_user_id]));
   for (const link of links.data ?? []) {
-    if (link.user_id && link.line_user_id && byUser.get(link.user_id) === link.line_user_id && link.proof_version === 1 && typeof link.verified_at === 'string' && Number.isFinite(Date.parse(link.verified_at))) {
+    if (link.user_id && link.line_user_id && byUser.get(link.user_id) === link.line_user_id && link.proof_version === 1 && typeof link.verified_at === 'string' && Number.isFinite(Date.parse(link.verified_at)) && isFollowingLink(link)) {
       resolved.set(link.user_id, link.line_user_id);
     }
   }

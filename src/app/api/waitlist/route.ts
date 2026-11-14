@@ -144,10 +144,13 @@ export async function DELETE(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
 
+    // 書き込みは service_role に集約する（点検 A27・2026年11月13日）。ブラウザ（authenticated）の
+    // UPDATE 権と waitlist_user_modify ポリシーは migration 20261113110200 で撤回するため、
+    // 本人性は上の auth.getUser() と下の .eq('user_id', user.id) で担保する（RLS には頼らない）。
     // .select() で更新行を取得し、0 行（他人の id・存在しない id）を 404 で返す。付けないと
-    // RLS と eq フィルタで 0 行更新でも error=null となり、誤って success:true を返す
+    // eq フィルタで 0 行更新でも error=null となり、誤って success:true を返す
     // （ユーザーが「キャンセルできた」と誤認する無音バグ）。
-    const { data: updated, error } = await supabase
+    const { data: updated, error } = await createServiceRoleClient()
       .from('booking_waitlist')
       .update({ status: 'cancelled' })
       .eq('id', id)

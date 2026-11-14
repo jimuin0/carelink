@@ -58,6 +58,10 @@ export async function POST(request: Request) {
     const applySuppression = async (email: string | null, token: string | null): Promise<NextResponse> => {
       type Rpc = (name: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>;
       const result = await (supabase.rpc as unknown as Rpc)('unsubscribe_newsletter_atomic', { p_email: email, p_token: token });
+      // 本人・トークンの状態が処理中に変わった（PT409・点検 A102）。再試行しても同じ要求は通らないので
+      // 障害通知（500）にせず 409 で返す。旧 40001 も同じ意味なので配信切替の間は両方を受ける。
+      const code = (result.error as { code?: unknown } | null)?.code;
+      if (code === 'PT409' || code === '40001') return NextResponse.json({ error: '配信停止の状態が変わりました。もう一度お試しください。' }, { status: 409 });
       if (result.error !== null) return serverError('unsubscribe-atomic', result.error, '/api/unsubscribe', '配信停止の処理を確認できません。時間をおいて再度お試しください。');
       const parsed = z.object({ success: z.literal(true), already: z.boolean() }).strict().safeParse(result.data);
       if (!parsed.success) return serverError('unsubscribe-atomic-receipt', new Error('Invalid unsubscribe receipt'), '/api/unsubscribe', '配信停止の結果を確認できません。再度お試しください。');

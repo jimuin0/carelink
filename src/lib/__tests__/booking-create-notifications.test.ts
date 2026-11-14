@@ -93,3 +93,4 @@ it.each([[null,false],['actor',true]] as const)('customer email knows whether th
  await buildBookingCreateNotifications(db,input,actor,'menu',500,'pending');
  expect(buildBookingConfirmationEnvelope.mock.calls[0][0]).toEqual(expect.objectContaining({hasAccount,facilityPhone:'03-1234-5678',facilitySlug:'synthetic-shop'}));
 });
+it('LINE をフォロー解除した連携（unfollowed_at あり）へは予約通知を計画しない（B3-12）',async()=>{process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK='synthetic';from.mockImplementation(t=>chain(t==='profiles'?{data:{line_user_id:'Utest'},error:null}:t==='facility_members'?{data:[],error:null}:t==='line_user_links'?{data:{user_id:'actor',proof_version:1,verified_at:'2026-10-09T00:00:00Z',unfollowed_at:'2026-11-13T00:00:00Z'},error:null}:rows[t]));expect((await buildBookingCreateNotifications(db,input,'actor','menu',500,'pending')).some(x=>x.kind==='line')).toBe(false);});

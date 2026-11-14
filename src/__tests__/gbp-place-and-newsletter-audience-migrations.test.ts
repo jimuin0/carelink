@@ -139,7 +139,9 @@ describe('20261023150100: newsletter audience and unsubscribe follow the confirm
 
   test('unsubscribe: a token stops its own confirmed login email, never profiles.email', () => {
     const { file, body } = latestDefinition('unsubscribe_newsletter_atomic');
-    expect(file).toBe(AUDIENCE);
+    // 20261113110000（点検 A102）が本文を写して ERRCODE だけを PT409 にした。中身の判定は下で同じく固定する
+    expect(file).toBe('20261113110000_business_conflict_errcode_pt409.sql');
+    expect(body).not.toContain("ERRCODE='40001'");
     expect(body).toMatch(/SECURITY DEFINER SET search_path=''/);
     expect(body).toContain('SELECT lower(btrim(u.email)) INTO address FROM public.profiles p JOIN auth.users u ON u.id=p.id WHERE p.id=uid AND u.email_confirmed_at IS NOT NULL;');
     expect(body).not.toContain('coalesce(p.email,u.email)');

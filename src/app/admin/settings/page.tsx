@@ -30,6 +30,7 @@ import ListingEvidenceSubmission from '@/components/admin/ListingEvidenceSubmiss
 import MedicalSpecialtyPicker from '@/components/register/MedicalSpecialtyPicker';
 import { medicalBusinessTypes, medicalBusinessTypeOptionValue, MEDICAL_BUSINESS_TYPE_DEFAULT } from '@/lib/medical-business-types';
 import { medicalSpecialtiesSchema } from '@/lib/medical-specialties';
+import { FACILITY_PROFILE_READABLE_COLUMNS } from '@/lib/facility-profile-columns';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
 const CancelPolicySettings = dynamic(() => import('@/components/admin/CancelPolicySettings'), { ssr: false });
@@ -141,7 +142,7 @@ function AdminSettingsContent() {
       if (!active) return;
       setFacilityChoices(selection.choices);
       if (!selection.selectedId) { setLoading(false); return; }
-      const { data, error } = await supabase.from('facility_profiles').select('*').eq('id', selection.selectedId).single();
+      const { data, error } = await supabase.from('facility_profiles').select(FACILITY_PROFILE_READABLE_COLUMNS).eq('id', selection.selectedId).single();
       if (!active) return;
       if (error) { setLoadError(true); setLoading(false); return; }
       if (!data) { setLoadError(true); setLoading(false); return; }

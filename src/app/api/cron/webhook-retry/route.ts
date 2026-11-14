@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { logCronRun, cronError } from '@/lib/cron-logger';
 import { scheduleRetry } from '@/lib/webhook-queue';
 import { sendLinePushWithOutcome } from '@/lib/line';
+import { isLineRecipientUnfollowed } from '@/lib/line-unfollow';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures, alertWarning } from '@/lib/alert';
@@ -276,6 +277,12 @@ export async function GET(request: Request) {
           }
           deliver = async () => {
             const isBookingCreate = typeof payload.booking_create_operation === 'string';
+            // フォロー解除（ブロック）を記録した宛先には送らない（点検 B3-12）。LINE が受け付けないことが
+            // 確定しているので結果不明には上げず、恒久失敗として通常の再試行（上限で dead-letter）に回す。
+            if (await isLineRecipientUnfollowed(supabase, job.target_id)) {
+              definitelyRejected = true;
+              throw new Error('line_push recipient has unfollowed');
+            }
             // 予約作成の通知は 1 回だけ試す（sendBookingCreationLine と同じ規則）。
             const outcome = await sendLinePushWithOutcome(job.target_id, [{ type: 'text', text: message }], isBookingCreate ? 1 : 3);
             if (outcome === 'delivered') return;

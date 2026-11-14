@@ -13,6 +13,7 @@ import { readPageResult } from './page-read-verification';
 import { bookingDurationForMenus, MENU_DURATION_FALLBACK_MINUTES } from './booking-slot-rules';
 import { isPublicReadOnlyPreview } from './preview-capabilities';
 import { medicalSpecialties } from './medical-specialties';
+import { FACILITY_PROFILE_READABLE_COLUMNS } from '@/lib/facility-profile-columns';
 
 const PER_PAGE = 20;
 
@@ -429,7 +430,7 @@ export const getFacilityBySlug = cache(async (slug: string) => {
   const supabase = createServerSupabaseClient();
   const { data } = await readPageResult(() => supabase
     .from('facility_profiles')
-    .select('*')
+    .select(FACILITY_PROFILE_READABLE_COLUMNS)
     .eq('slug', slug)
     .eq('status', 'published')
     .maybeSingle(), 'facility-detail');
