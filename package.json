@@ -94,7 +94,6 @@
     "husky": "^9.1.7",
     "jest": "^30.5.2",
     "jest-environment-jsdom": "^30.5.2",
-    "lint-staged": "^17.3.0",
     "minimatch": "file:tools/minimatch-v3-compat",
     "postcss": "^8.5.26",
     "semver": "7.7.4",
@@ -128,10 +127,5 @@
       "wrangler": "4.154.0",
       "miniflare": "5.20261023.1-beta"
     }
-  },
-  "lint-staged": {
-    "*": [
-      "gitleaks protect --staged --redact --no-banner"
-    ]
   }
 }

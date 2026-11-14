@@ -13,7 +13,7 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).optional(),
-  price: z.number().int().min(0).optional(),
+  price: z.number().int().min(0).max(9999999).optional(),
   sessions_per_month: z.number().int().min(1).max(100).optional(),
   valid_months: z.number().int().min(1).max(24).optional(),
   notes: z.string().max(500).optional(),

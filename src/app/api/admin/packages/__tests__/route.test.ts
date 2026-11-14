@@ -179,6 +179,12 @@ test('POST: price が負数 → 400', async () => {
   expect(res.status).toBe(400);
 });
 
+test('POST: price が上限 9999999 を超える → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makePostRequest(validPostBody({ price: 10_000_000 })));
+  expect(res.status).toBe(400);
+});
+
 test('POST: DB挿入失敗 → 500', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(insertSingle(null, { message: 'DB error' }));

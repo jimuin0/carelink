@@ -51,7 +51,7 @@ CareLink 運用において **構造的に踏みやすい地雷** を集約す�
 
 ## 8. `.env.example` への実値混入禁止
 
-- **事実**: Phase 1 で pre-commit hook（gitleaks lint-staged 設定済 / `package.json` 参照）を設置。
+- **事実**: Phase 1 で pre-commit hook を設置（実体は `.husky/pre-commit` が直接 gitleaks を呼ぶ。未配線だった lint-staged 設定は 2026年11月14日に撤去）。
 - **遵守事項**: `.env.example` には placeholder（`your_xxx_here` / `xxxxx`）のみ。実 URL・実トークンの混入禁止。検知時は即 `git reset` で除去し、漏洩した値はローテーション。
 - **変更時は ADR 必須**（hook 無効化は禁止、例外運用は ADR で合意）。
 
