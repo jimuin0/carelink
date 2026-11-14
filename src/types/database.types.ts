@@ -6329,6 +6329,7 @@ export type Database = {
         Row: {
           expires_at: string | null
           facility_id: string
+          grant_operation_id: string | null
           id: string
           notes: string | null
           package_id: string
@@ -6340,6 +6341,7 @@ export type Database = {
         Insert: {
           expires_at?: string | null
           facility_id: string
+          grant_operation_id?: string | null
           id?: string
           notes?: string | null
           package_id: string
@@ -6351,6 +6353,7 @@ export type Database = {
         Update: {
           expires_at?: string | null
           facility_id?: string
+          grant_operation_id?: string | null
           id?: string
           notes?: string | null
           package_id?: string
@@ -6455,6 +6458,7 @@ export type Database = {
           created_at: string
           ends_at: string | null
           facility_id: string
+          grant_operation_id: string | null
           id: string
           month_reset_at: string
           notes: string | null
@@ -6468,6 +6472,7 @@ export type Database = {
           created_at?: string
           ends_at?: string | null
           facility_id: string
+          grant_operation_id?: string | null
           id?: string
           month_reset_at?: string
           notes?: string | null
@@ -6481,6 +6486,7 @@ export type Database = {
           created_at?: string
           ends_at?: string | null
           facility_id?: string
+          grant_operation_id?: string | null
           id?: string
           month_reset_at?: string
           notes?: string | null
@@ -7834,6 +7840,7 @@ export type Database = {
           p_actor_id: string
           p_facility_id: string
           p_notes?: string
+          p_operation_id?: string
           p_package_id: string
           p_user_id: string
         }
@@ -7844,6 +7851,7 @@ export type Database = {
           p_actor_id: string
           p_facility_id: string
           p_notes?: string
+          p_operation_id?: string
           p_plan_id: string
           p_user_id: string
         }

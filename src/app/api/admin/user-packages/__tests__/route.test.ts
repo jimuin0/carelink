@@ -56,7 +56,9 @@ function makeGetRequest(params: Record<string, string> = { facility_id: FACILITY
   return new NextRequest(url.toString(), { method: 'GET' });
 }
 
-function makePostRequest(body: object = { facility_id: FACILITY_UUID, user_id: TARGET_USER, package_id: PACKAGE_UUID }) {
+const OPERATION_ID = '74000000-0000-4000-8000-0000000000aa';
+
+function makePostRequest(body: object = { facility_id: FACILITY_UUID, user_id: TARGET_USER, package_id: PACKAGE_UUID, operation_id: OPERATION_ID }) {
   return new Request('http://localhost/api/admin/user-packages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -304,7 +306,7 @@ test('POST: 正常付与 → 201（判定と INSERT は RPC が同じトラン�
   expect(res.status).toBe(201);
   expect(await res.json()).toEqual({ user_package: { id: UP_UUID, sessions_total: 6 } });
   expect(mockAdminRpc).toHaveBeenCalledWith('grant_user_package_atomic', {
-    p_actor_id: USER_ID, p_facility_id: FACILITY_UUID, p_user_id: TARGET_USER, p_package_id: PACKAGE_UUID, p_notes: undefined,
+    p_actor_id: USER_ID, p_facility_id: FACILITY_UUID, p_user_id: TARGET_USER, p_package_id: PACKAGE_UUID, p_notes: undefined, p_operation_id: OPERATION_ID,
   });
   expect(mockAdminFrom).not.toHaveBeenCalled();
   const { writeAuditLog } = require('@/lib/audit-logger');
@@ -557,6 +559,7 @@ test('POST: notes 付きで正常付与 → 201', async () => {
     facility_id: FACILITY_UUID,
     user_id: TARGET_USER,
     package_id: PACKAGE_UUID,
+    operation_id: OPERATION_ID,
     notes: 'キャンペーン付与',
   }) as any);
   expect(res.status).toBe(201);

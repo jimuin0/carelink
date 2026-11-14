@@ -21,7 +21,8 @@ const CUSTOMER = '73000000-0000-4000-8000-000000000003';
 const ITEM = '73000000-0000-4000-8000-000000000004';
 const ROW = '73000000-0000-4000-8000-000000000005';
 
-const base = { actorId: ACTOR, facilityId: FACILITY, userId: CUSTOMER, itemId: ITEM };
+const OP = '73000000-0000-4000-8000-000000000006';
+const base = { actorId: ACTOR, facilityId: FACILITY, userId: CUSTOMER, itemId: ITEM, operationId: OP };
 
 beforeEach(() => {
   mockRpc.mockReset();
@@ -40,7 +41,7 @@ describe('grantToFacilityCustomer', () => {
     const row = await grantToFacilityCustomer({ kind: 'subscription', ...base, notes: 'メモ' });
     expect(row).toEqual({ id: ROW, user_id: CUSTOMER });
     expect(mockRpc).toHaveBeenCalledWith('grant_user_subscription_atomic', {
-      p_actor_id: ACTOR, p_facility_id: FACILITY, p_user_id: CUSTOMER, p_notes: 'メモ', p_plan_id: ITEM,
+      p_actor_id: ACTOR, p_facility_id: FACILITY, p_user_id: CUSTOMER, p_notes: 'メモ', p_operation_id: OP, p_plan_id: ITEM,
     });
   });
 
@@ -49,7 +50,7 @@ describe('grantToFacilityCustomer', () => {
     const row = await grantToFacilityCustomer({ kind: 'package', ...base });
     expect(row).toEqual({ id: ROW, sessions_total: 6 });
     expect(mockRpc).toHaveBeenCalledWith('grant_user_package_atomic', {
-      p_actor_id: ACTOR, p_facility_id: FACILITY, p_user_id: CUSTOMER, p_notes: undefined, p_package_id: ITEM,
+      p_actor_id: ACTOR, p_facility_id: FACILITY, p_user_id: CUSTOMER, p_notes: undefined, p_operation_id: OP, p_package_id: ITEM,
     });
   });
 
@@ -76,6 +77,19 @@ describe('grantToFacilityCustomer', () => {
     const { status, body } = await asResponse(await grantToFacilityCustomer({ kind: 'package', ...base }));
     expect(status).toBe(403);
     expect(body).toEqual({ error: '店舗の管理権限を確認してください' });
+  });
+
+  test('同じ操作 ID の再送は RPC が返した 1 回目の行をそのまま返す（二重付与しない）', async () => {
+    mockRpc.mockResolvedValue({ data: { ok: true, replayed: true, user_package: { id: ROW } }, error: null });
+    const row = await grantToFacilityCustomer({ kind: 'package', ...base });
+    expect(row).toEqual({ id: ROW });
+  });
+
+  test('同じ操作 ID を別内容で使い回すと 409（500 で通知しない）', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { code: 'PT409', message: 'CUSTOMER_GRANT_OPERATION_CONFLICT' } });
+    const { status } = await asResponse(await grantToFacilityCustomer({ kind: 'subscription', ...base }));
+    expect(status).toBe(409);
+    expect(mockAlert).not.toHaveBeenCalled();
   });
 
   test('RPC の失敗は 500 で通知し、DB のメッセージは通知に載せない（SQLSTATE だけ）', async () => {

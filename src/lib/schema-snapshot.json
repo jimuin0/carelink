@@ -1588,6 +1588,7 @@
   "user_packages": [
     "expires_at",
     "facility_id",
+    "grant_operation_id",
     "id",
     "notes",
     "package_id",
@@ -1615,6 +1616,7 @@
     "created_at",
     "ends_at",
     "facility_id",
+    "grant_operation_id",
     "id",
     "month_reset_at",
     "notes",

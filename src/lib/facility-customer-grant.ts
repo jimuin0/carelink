@@ -35,7 +35,7 @@ export const NOT_CUSTOMER_MESSAGE = 'この店舗をご予約いただいたこ�
 const grantedRow = z.object({ id: z.string() }).passthrough();
 export type GrantedRow = z.infer<typeof grantedRow>;
 const grantResult = z.discriminatedUnion('ok', [
-  z.object({ ok: z.literal(true), subscription: grantedRow.optional(), user_package: grantedRow.optional() }),
+  z.object({ ok: z.literal(true), subscription: grantedRow.optional(), user_package: grantedRow.optional(), replayed: z.boolean().optional() }),
   z.object({ ok: z.literal(false), code: z.enum(['forbidden', 'plan_not_found', 'package_not_found', 'not_customer']) }),
 ]);
 
@@ -47,15 +47,24 @@ export async function grantToFacilityCustomer(input: {
   /** subscription なら plan_id、package なら package_id。 */
   itemId: string;
   notes?: string;
+  /**
+   * 操作 ID（クライアントが付与操作ごとに 1 つ発行する UUID）。同じ ID の再送は
+   * 1 回目の付与結果を返し、二重付与しない（点検 B9-8・migration 20261114300000）。
+   */
+  operationId: string;
 }): Promise<GrantedRow | NextResponse> {
   const tag = `admin-${input.kind}-grant`;
   const route = ROUTE[input.kind];
   const db = createServiceRoleClient();
-  const common = { p_actor_id: input.actorId, p_facility_id: input.facilityId, p_user_id: input.userId, p_notes: input.notes };
+  const common = { p_actor_id: input.actorId, p_facility_id: input.facilityId, p_user_id: input.userId, p_notes: input.notes, p_operation_id: input.operationId };
   const { data, error } = input.kind === 'subscription'
     ? await db.rpc('grant_user_subscription_atomic', { ...common, p_plan_id: input.itemId })
     : await db.rpc('grant_user_package_atomic', { ...common, p_package_id: input.itemId });
-  if (error) return serverError(`${tag}-rpc`, databaseDiagnostic(error), route);
+  if (error) {
+    // 同じ操作 ID を別のお客様・別の回数券で使い回した＝クライアントの誤り。500 にしない。
+    if (error.code === 'PT409') return NextResponse.json({ error: 'この操作は別の内容で既に処理されています。画面を読み込み直してください' }, { status: 409 });
+    return serverError(`${tag}-rpc`, databaseDiagnostic(error), route);
+  }
 
   const parsed = grantResult.safeParse(data);
   if (!parsed.success) return serverError(`${tag}-result`, new Error('CUSTOMER_GRANT_RESULT_INVALID'), route);

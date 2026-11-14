@@ -60,12 +60,12 @@ const cases: Case[] = [
   ['subscription-plans/[id] DELETE', () => plansId.DELETE(req(`/api/admin/subscription-plans/${ID}`, 'DELETE'), params)],
   ['subscription-plans GET', () => plans.GET(req(`/api/admin/subscription-plans?facility_id=${ID}`, 'GET'))],
   ['subscription-plans/[id] PATCH', () => plansId.PATCH(req(`/api/admin/subscription-plans/${ID}`, 'PATCH', { name: 'x' }), params)],
-  ['user-packages POST', () => userPackages.POST(req('/api/admin/user-packages', 'POST', { facility_id: ID, user_id: ID, package_id: ID }))],
+  ['user-packages POST', () => userPackages.POST(req('/api/admin/user-packages', 'POST', { facility_id: ID, user_id: ID, package_id: ID, operation_id: ID }))],
   ['user-subscriptions PATCH(status)', () => userSubs.PATCH(req('/api/admin/user-subscriptions', 'PATCH', { subscription_id: ID, status: 'cancelled' }))],
   ['user-packages GET', () => userPackages.GET(req(`/api/admin/user-packages?facility_id=${ID}`, 'GET'))],
-  ['user-packages PATCH', () => userPackages.PATCH(req('/api/admin/user-packages', 'PATCH', { user_package_id: ID }))],
+  ['user-packages PATCH', () => userPackages.PATCH(req('/api/admin/user-packages', 'PATCH', { user_package_id: ID, operation_id: ID }))],
   ['user-subscriptions GET', () => userSubs.GET(req(`/api/admin/user-subscriptions?facility_id=${ID}`, 'GET'))],
-  ['user-subscriptions POST', () => userSubs.POST(req('/api/admin/user-subscriptions', 'POST', { facility_id: ID, user_id: ID, plan_id: ID }))],
+  ['user-subscriptions POST', () => userSubs.POST(req('/api/admin/user-subscriptions', 'POST', { facility_id: ID, user_id: ID, plan_id: ID, operation_id: ID }))],
   ['user-subscriptions PATCH(use)', () => userSubs.PATCH(req('/api/admin/user-subscriptions', 'PATCH', { subscription_id: ID }))],
 ];
 
