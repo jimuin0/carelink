@@ -68,11 +68,21 @@ export default function SearchBar() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (keyword.trim()) addSearchHistory(keyword.trim());
+    // 送信時はフォームの実際の値を読む。表示直後（hydration 前）に入力された文字は React の状態に
+    // 入っておらず、状態だけを見るとキーワードなしで検索していた（Mobile Safari の E2E で再現）。
+    const form = new FormData(e.currentTarget as HTMLFormElement);
+    const field = (name: string, fallback: string) => {
+      const value = form.get(name);
+      return typeof value === 'string' ? value : fallback;
+    };
+    const kw = field('keyword', keyword);
+    const t = field('type', type);
+    const area = field('area', prefecture);
+    if (kw.trim()) addSearchHistory(kw.trim());
     const params = new URLSearchParams();
-    if (keyword) params.set('keyword', keyword);
-    if (type) params.set('type', type);
-    if (prefecture) params.set('area', prefecture);
+    if (kw) params.set('keyword', kw);
+    if (t) params.set('type', t);
+    if (area) params.set('area', area);
     router.push(`/search?${params.toString()}`);
   };
 
