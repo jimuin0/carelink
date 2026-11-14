@@ -58,3 +58,46 @@ test('保存が通信断ならトグルを元に戻し、押せる状態に戻�
   await waitFor(() => expect((toggle as HTMLButtonElement).disabled).toBe(false));
   expect(toggle.getAttribute('aria-checked')).toBe('false');
 });
+
+// 2026年11月14日：PAY.JP の月額オプションを店舗が自分で解約できるようにした。
+describe('有料オプションの解約', () => {
+  const OPTION = { key: 'reminder_line', name: 'LINEリマインド', description: null, monthly_price: 1500, contact_only: false, sort_order: 1 };
+  function mockFetch(subStatus: string, cancelOk = true) {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      if (url.startsWith('/api/options/catalog')) return { ok: true, json: async () => ({ options: [OPTION], publicKey: 'pk' }) };
+      if (url.startsWith('/api/options/subscription?')) return { ok: true, json: async () => ({ subscriptions: [{ option_key: 'reminder_line', status: subStatus, current_period_end: '2026-12-14T00:00:00Z' }] }) };
+      return cancelOk ? { ok: true, json: async () => ({ canceled: true, periodEnd: '2026-12-14T00:00:00Z' }) } : { ok: false, json: async () => ({ error: '解約できる契約がありません' }) };
+    }) as unknown as typeof fetch;
+    return calls;
+  }
+  beforeEach(() => { entitlementResult = { data: [{ option_key: 'reminder_line' }], error: null }; });
+
+  test('利用中のオプションは確認のうえ解約でき、解約予約済みの表示に変わる', async () => {
+    const calls = mockFetch('active');
+    render(<ReminderUpsellSettings facilityId="f1" />);
+    fireEvent.click(await screen.findByRole('button', { name: '解約' }));
+    fireEvent.click(await screen.findByRole('button', { name: '解約する' }));
+    expect(await screen.findByTestId('canceling-reminder_line')).toBeTruthy();
+    const post = calls.find(([u, i]) => u === '/api/options/subscription' && i?.method === 'POST')!;
+    expect(JSON.parse(String(post[1]!.body))).toEqual({ facilityId: 'f1', optionKey: 'reminder_line' });
+    expect(screen.getByRole('status').textContent).toContain('解約を受け付けました');
+  });
+
+  test('解約予約済みなら解約ボタンを出さない', async () => {
+    mockFetch('canceled');
+    render(<ReminderUpsellSettings facilityId="f1" />);
+    expect((await screen.findByTestId('canceling-reminder_line')).textContent).toContain('解約予約済み');
+    expect(screen.queryByRole('button', { name: '解約' })).toBeNull();
+  });
+
+  test('解約に失敗したらエラーを出し、利用中のまま', async () => {
+    mockFetch('active', false);
+    render(<ReminderUpsellSettings facilityId="f1" />);
+    fireEvent.click(await screen.findByRole('button', { name: '解約' }));
+    fireEvent.click(await screen.findByRole('button', { name: '解約する' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('解約できる契約がありません');
+    expect(screen.queryByTestId('canceling-reminder_line')).toBeNull();
+  });
+});

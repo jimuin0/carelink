@@ -104,7 +104,7 @@
 | next/font Noto Sans JP | 日本語フォント | `next/font/google` Noto_Sans_JP（サブセット化、CLS削減。v7.6で一度削除→v8.11 TOP取得Phase2で再導入） |
 | LINE Messaging API | Bot通知・Webhook | Push送信+署名検証 |
 | recharts | チャート（売上/予約/顧客セグメント） | dynamic import+ssr:false |
-| Stripe | オンライン決済（Checkout Session+Webhook） | stripe + @stripe/stripe-js |
+| PAY.JP | オンライン決済（予約の前払い・有料オプションの月額・広告枠の月額。2026年11月14日に Stripe から移行） | SDK なし（`src/lib/payjp.ts` が REST を fetch で呼ぶ・ブラウザは payjp.js v2） |
 | @sentry/nextjs | エラー監視 | - |
 | @upstash/ratelimit | レート制限（Redis） | - |
 | @upstash/redis | Redis クライアント | - |
@@ -859,7 +859,7 @@ vercel env add NEXT_PUBLIC_CLARITY_ID
 | `referral_codes` | 紹介コード（ユーザー別、8文字コード、使用回数） | マイページ |
 | `referral_uses` | 紹介コード使用記録（紹介者/被紹介者、ポイント付与済みフラグ） | マイページ |
 | ALTER `bookings` | `payment_status TEXT`, `stripe_payment_intent_id TEXT`, `paid_amount INT`, `points_used INT DEFAULT 0` 追加。CHECK制約: `unpaid/paid/failed/refunded/partial_refund`（v8.10で`failed`追加） | 予約 |
-| `stripe_events` | Stripe Webhook 冪等性管理（event.id PK・service_role専用RLS・二重処理防止） | 決済 |
+| `stripe_events` | （2026年11月14日に撤去。PAY.JP の webhook 冪等化は `payjp_webhook_events`） | 決済 |
 | `facility_jobs` | 施設別求人情報（id PK/facility_id FK→facility_profiles/title/job_type[美容師/看護師/介護士等]/employment_type[正社員/アルバイト/業務委託]/salary_min INT/salary_max INT/salary_note TEXT/description/requirements/benefits/is_seed/created_at/updated_at、v8.11、`/jobs` 一覧+`/jobs/[id]` 詳細+admin/jobs CRUD で利用） | 求人 |
 | ALTER `facility_profiles.is_seed` | `BOOLEAN DEFAULT false`（v8.11追加）。`scripts/seed-facilities.mjs` で生成したダミー施設を `scripts/cleanup-seed.mjs` で一括削除するためのフラグ。部分インデックス付き | 検索 |
 
@@ -913,7 +913,7 @@ vercel env add NEXT_PUBLIC_CLARITY_ID
 | `platform_blog_posts` | プラットフォームコラム（施設ブログとは別、CareLink運営コンテンツ） | 管理・公開 |
 | `email_unsubscribes` | メール配信停止（email/category/unsubscribed_at、CAN-SPAM対応） | システム |
 | `area_seo_contents` | エリアSEOコンテンツ（prefecture/city/content/highlights、v8.11） | 検索 |
-| `stripe_payments` | Stripe支払い詳細（payment_intent_id/amount/status/metadata JSONB） | 管理 |
+| `stripe_payments` | （存在しない。前払いの記録は `booking_payjp_charges`・2026年11月14日） | 管理 |
 | `review_flags` | 口コミスパムフラグ（review_id/reason/ip_address/auto_flagged） | 管理 |
 
 **Phase 12: GBP（Google ビジネスプロフィール）統合（2テーブル + カラム追加、v8.12）**
@@ -1872,7 +1872,7 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | 22 | `/api/facility/setup` | POST | 必須 | 5回/60秒 | 施設自動作成+facility_membersにowner登録（セルフオンボーディング） |
 | 23 | `/api/cron/review-request` | GET | CRON | - | 来店後レビュー依頼（完了24h後にメール+LINE送信） |
 | 24 | `/api/payment/checkout` | POST | 必須 | 5回/60秒 | Stripe Checkout Session作成（**所有権検証・サーバー側金額決定(total_price→menu.price)・payment_status=paid拒否**、v8.10で金額改ざん/IDOR修正） |
-| 25 | `/api/payment/webhook` | POST | 署名検証 | - | Stripe Webhook（署名検証→`stripe_events`へINSERTで冪等化→`checkout.session.completed`/`payment_intent.payment_failed`/`charge.refunded`を処理、v8.10で冪等性+failedハンドラ追加） |
+| 25 | `/api/payjp/webhook` | POST | 照合トークン | - | PAY.JP Webhook（`X-Payjp-Webhook-Token` を照合→`payjp_webhook_events` で冪等化→広告枠・有料オプション・予約の前払いへ振り分け。2026年11月14日に `/api/payment/webhook`（Stripe）から置き換え） |
 | 26 | `/api/account/delete` | POST | 必須 | 5回/60秒 | アカウント+全データ削除（個人情報保護法対応） |
 | 27 | `/api/referral` | GET/POST | 必須 | 5回/60秒 | 紹介コード取得/使用（双方ポイント付与） |
 | 28 | `/api/health` | GET | - | - | 外形監視用ヘルスチェック（DB疎通+応答時間+commit hash返却、200/503、UptimeRobot等対応、v8.11） |
@@ -1925,9 +1925,9 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | 76 | `/api/recommendations` | GET | 任意 | 20回/60秒 | AI施設推奨（閲覧/予約履歴ベースのパーソナライズ） |
 | 77 | `/api/report` | GET | 必須 | 5回/60秒 | 売上詳細レポート（期間指定・集計） |
 | 78 | `/api/review` | POST | 任意 | 3回/5分 | 口コミ投稿（reCAPTCHA v3検証付き） |
-| 79 | `/api/stripe/checkout` | POST | 必須 | 5回/60秒 | Stripe Checkout Session作成（パッケージ/サブスク/広告枠） |
-| 80 | `/api/stripe/receipt` | GET | 必須 | 10回/60秒 | 決済レシート取得（stripe_payments参照） |
-| 81 | `/api/stripe/webhook` | POST | 署名検証 | - | Stripe Webhook統合（複数イベント処理） |
+| 79 | `/api/payment/charge` | POST | 必須 | 5回/60秒 | 予約の前払い（payjp.js のトークンで PAY.JP の支払いを作る。旧 `/api/stripe/checkout`・`/api/payment/checkout` を統合） |
+| 80 | `/api/payment/receipt` | GET | 必須 | 20回/60秒 | 領収書（`booking_payjp_charges` 参照。旧 `/api/stripe/receipt`） |
+| 81 | `/api/options/subscription` | GET/POST | 必須 | 30/10回/60秒 | 有料オプションの契約状態と期間末解約（PAY.JP・2026年11月14日。旧 `/api/stripe/webhook` は撤去） |
 | 82 | `/api/symptoms/suggest` | GET | 任意 | 20回/60秒 | 症状AI提案（Anthropic、症状チェッカー用） |
 | 83 | `/api/unsubscribe` | GET/POST | - | 5回/60秒 | ニュースレター購読解除（email_unsubscribes INSERT） |
 | 84 | `/api/v1/bookings` | GET/POST | APIキー認証 | 20回/60秒 | 予約API v1（外部POS/会計ソフト連携） |
@@ -2548,7 +2548,7 @@ SQL:       SQL Editor
 | `app/api/booking/__tests__/` | 5 | 予約作成・変更・キャンセル・iCal・CAS二重完了 |
 | `app/api/cron/__tests__/` | 11 | 全cronジョブ（バースデー・リマインド・RFM等） |
 | `app/api/liff/__tests__/` | 5 | LIFF認証・予約・クーポン・ポイント |
-| `app/api/stripe/__tests__/` | 3 | Stripe Checkout・Webhook冪等性・領収書 |
+| `app/api/payment/*/__tests__/` | 2 | 前払い（PAY.JP）・領収書（旧 `app/api/stripe/__tests__/` は撤去） |
 | `app/api/その他/__tests__/` | 60+ | availability・group-booking・waitlist・nps・レート制限等 |
 
 **E2Eテスト（Playwright）**: 11スイート・91テスト（`e2e/` ディレクトリ）

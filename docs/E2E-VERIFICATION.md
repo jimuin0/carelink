@@ -20,7 +20,7 @@
 curl -s https://carelink-jp.com/api/health | head -c 400
 ```
 期待：`"status":"healthy"`（Critical 依存＝Supabase DB / rate-limit RPC が生きていれば healthy）。
-`degraded` は Stripe/Resend/Slack のいずれかが未設定でも 200（本番前に env を埋める）。
+`degraded` は PAY.JP/Resend/Slack のいずれかが未設定でも 200（本番前に env を埋める）。
 
 ### 0-2. Slack アラート疎通（Sentry は廃止済み・A5 の現行版）
 Vercel 環境変数に `ALERT_CHECK_TOKEN`（20字以上のランダム文字列）と
@@ -62,43 +62,37 @@ select id, status from bookings where id = '（1-1のid）';
 
 ---
 
-## 2. Phase B：Stripe 本番決済（1円テスト・神原さん立ち会い必須）
+## 2. Phase B：PAY.JP 本番決済（神原さん立ち会い必須）
 
-> ⚠️ **2026年11月14日に決済を PAY.JP へ移した（Stripe のコード・env・webhook は撤去済み）。この節の Stripe の手順は使えない。** PAY.JP の設定は `docs/handoff/PAYJP_MIGRATION_20261114.md` を見ること。
+> 2026年11月14日に決済を Stripe から PAY.JP へ移した。本番の鍵・webhook は設定済み（ADMIN-LAUNCH-TASKS タスク6）。
+> 予約の前払いは「近日公開」でお客様向けの画面が無いので、実機テストは有料オプションの月額で行う。
 
-> 事前に ADMIN-LAUNCH-TASKS タスク6 で Stripe 本番キー・Webhook を設定済みであること。
-> 【重要】決済 Webhook の構成は要確認事項あり（別紙：本ファイル末尾「決済 Webhook 確認事項」）。
+1. テスト用施設の管理画面（設定 → リマインダー設定）で有料オプションの「購入する」→ 実カードで申し込む。
 
-1. テスト用施設で1円メニューを作成 → 神原良祐アカウントで予約 → 決済画面 → 実カードで1円課金。
-
-### 2-1. 予約が支払い済みになったか（SQL）
+### 2-1. 契約と利用権が有効になったか（SQL）
 ```sql
-select id, status, payment_status, paid_amount, stripe_payment_intent_id
-from bookings
-where customer_name = '神原良祐'
+select facility_id, option_key, status, payjp_subscription_id, current_period_end
+from facility_option_payjp_subscriptions
 order by created_at desc
 limit 3;
-```
-期待：`payment_status = 'paid'` かつ `paid_amount = 1`。ここが 'pending' のままなら Webhook 未達
-（末尾「決済 Webhook 確認事項」を参照）。
 
-### 2-2. 決済セッションの整合（SQL・領収書可否）
-```sql
-select stripe_session_id, status, amount, booking_id
-from stripe_sessions
-order by created_at desc
+select facility_id, option_key, status, current_period_end
+from facility_entitlements
+order by updated_at desc
 limit 3;
 ```
-期待：`status = 'paid'`。'pending' のままだと `/api/stripe/receipt` が領収書を発行できない
-（末尾「決済 Webhook 確認事項」PAY-2 を参照）。
+期待：契約の `status = 'active'`、利用権の `status = 'active'`。契約が 'pending' のままなら webhook 未達
+（`select * from payjp_webhook_events order by received_at desc limit 5;` で受信と `error` を見る）。
 
-3. Stripe Dashboard で決済完了を確認 → 直後に全額返金 → 1円メニューを削除/非公開化。
+2. 同じ画面で「解約」→ 「解約予約済み（○月○日まで利用可）」になることを確かめる。
 
-### 2-3. 返金が反映されたか（SQL）
+### 2-2. 解約が反映されたか（SQL）
 ```sql
-select id, payment_status from bookings where id = '（2-1のid）';
+select option_key, status from facility_option_payjp_subscriptions where facility_id = '（テスト施設の id）';
 ```
-期待：`payment_status = 'refunded'`（部分返金なら 'partial_refund'）。
+期待：`status = 'canceled'`（期間末に PAY.JP の subscription.deleted が届くと 'deleted' になり、利用権が canceled になる）。
+
+3. PAY.JP 管理画面（ライブモード）の「定期課金」「売上」で状態を確かめ、テストの売上は返金する。
 
 ---
 
@@ -127,7 +121,7 @@ where email = '<テスト用メールアドレス（+タグ付き）>'
   and created_at >= '<検証開始日時（例: 2026-07-03 00:00+09）>';
 
 -- 2) 上の結果が想定どおりのときだけ、確認した id を列挙して削除する
---    （決済済み payment_status='paid' の行が含まれる場合は削除せず、先に Stripe 側の返金・記録を確認する）
+--    （決済済み payment_status='paid' の行が含まれる場合は削除せず、先に PAY.JP 側の返金・記録を確認する）
 delete from bookings
 where id in ('<確認したid1>', '<確認したid2>');
 ```
@@ -135,22 +129,9 @@ where id in ('<確認したid1>', '<確認したid2>');
 
 ---
 
-## 決済 Webhook 確認事項（Claude からの申し送り・要神原さん確認）
+## 決済 Webhook 確認事項（解消済み）
 
-コード監査で、決済の Webhook 構成に本番前に必ず確認すべき点が見つかった（詳細は会話本文）。
-1円テスト前に Stripe Dashboard で【登録されている Webhook エンドポイントの数と URL、各署名シークレット】
-を確認してほしい。要点：
-
-- PAY-1：`/api/stripe/webhook` と `/api/payment/webhook` の2つが両方 `STRIPE_WEBHOOK_SECRET`
-  という同一 env を使う。Stripe はエンドポイントURLごとに別の署名シークレットを発行するため、
-  2つ登録すると片方は必ず署名検証に失敗する。→ どちらを本番に使うかを確定する必要がある。
-- PAY-2：本番想定の `/api/payment/webhook` は `stripe_sessions.status` を 'paid' に更新しないため、
-  その経路で払うと領収書が発行できない（2-2 で 'pending' のままなら該当）。
-- PAY-3/PAY-4：`/api/stripe/webhook` には全額決済(full)の分岐が無い、`/api/stripe/checkout` が
-  デポジット種別(percent/fixed)を無視する、という決済金額に関わる論点。
-
-これらは金銭に関わるためコード側で勝手に変更していない。
-（2026年11月13日時点の再確認：PAY-1 はコード上も未解消。`src/app/api/stripe/webhook/route.ts` と
-`src/app/api/payment/webhook/route.ts` がどちらも `STRIPE_WEBHOOK_SECRET` で署名検証している。
-どちらを本番エンドポイントにするか（または env 分離）の決定待ち。）Stripe Dashboard の実態を教えてもらえれば、
-正しい方向（単一 Webhook への統合 or env 分離）を確定して根治する。
+Stripe 時代の論点（PAY-1〜PAY-4：webhook が 2 本あり同じ署名シークレットを使う・領収書の状態・金額の分岐）は、
+2026年11月14日に決済を PAY.JP へ移したことで解消した。webhook は `/api/payjp/webhook` の 1 本で、
+`X-Payjp-Webhook-Token` を照合し、`src/lib/payjp-webhook.ts` が広告枠・有料オプション・予約の前払いへ振り分ける。
+前払いの金額は予約金額と店舗の前払い設定（fixed／percent）だけから決める（`src/lib/booking-payjp.ts`）。
