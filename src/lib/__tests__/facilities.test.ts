@@ -1240,6 +1240,13 @@ describe('getPopularFacilities (cache fallback)', () => {
     const result = await getPopularFacilities(6);
     expect(result.facilities).toEqual(facilities);
   });
+
+  test('B4-6: 読込エラーは [] としてキャッシュせず、error を返す', async () => {
+    const boom = { message: 'db down' };
+    mockFrom.mockReturnValue(fluent({ data: null, error: boom }));
+    const result = await getPopularFacilities(6);
+    expect(result).toEqual({ facilities: [], error: boom });
+  });
 });
 
 // ─── getFeaturedFacilities ───────────────────────────────────────────────────

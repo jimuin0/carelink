@@ -47,7 +47,8 @@ export async function GET(request: Request) {
     if (staffId && !uuidRegex.test(staffId)) {
       return NextResponse.json({ error: 'スタッフIDが不正です' }, { status: 400 });
     }
-    const currentYear = new Date().getFullYear();
+    // 実行環境の TZ（UTC）ではなく JST の年で判定する（元日 0〜9 時に前年扱いにしない）。
+    const currentYear = Number(todayJst().slice(0, 4));
     if (Number.isNaN(year) || Number.isNaN(month) || month < 1 || month > 12 || year < currentYear - 1 || year > currentYear + 2) {
       return NextResponse.json({ error: '年月が不正です' }, { status: 400 });
     }

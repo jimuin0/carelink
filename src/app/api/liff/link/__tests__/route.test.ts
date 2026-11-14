@@ -32,6 +32,7 @@ let mockGetUser: jest.Mock;
 let mockProfilesSelect: jest.Mock;
 let mockProfilesUpdate: jest.Mock;
 
+let mockLinksDeleteEq: jest.Mock;
 function setupDefaultMocks(
   hasUser: boolean = true,
   lineTokenValid: boolean = true,
@@ -77,12 +78,14 @@ function setupDefaultMocks(
     auth: { getUser: mockGetUser },
   });
 
+  mockLinksDeleteEq = jest.fn().mockResolvedValue({ error: null });
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
     rpc: mockRpc,
     from: jest.fn().mockReturnValue({
       select: mockProfilesSelect,
       update: mockProfilesUpdate,
+      delete: jest.fn().mockReturnValue({ eq: mockLinksDeleteEq }),
     }),
   });
 }
@@ -368,6 +371,18 @@ describe('POST/DELETE /api/liff/link', () => {
           updated_at: expect.any(String),
         })
       );
+    });
+
+    test('B8-L6: 解除で line_user_links の行も消す', async () => {
+      const res = await DELETE(makeDeleteRequest() as any);
+      expect(res.status).toBe(200);
+      expect(mockLinksDeleteEq).toHaveBeenCalledWith('user_id', 'user-123');
+    });
+
+    test('B8-L6: line_user_links の削除に失敗したら 500（成功と言わない）', async () => {
+      mockLinksDeleteEq.mockResolvedValue({ error: { message: 'db' } });
+      const res = await DELETE(makeDeleteRequest() as any);
+      expect(res.status).toBe(500);
     });
 
     test('rate limit params (5 req/min per IP)', async () => {

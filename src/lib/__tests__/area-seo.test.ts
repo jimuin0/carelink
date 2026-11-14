@@ -257,3 +257,14 @@ describe('enrichSeoContent', () => {
     await expect(enrichSeoContent(baseContent, '東京都')).rejects.toThrow('enrichSeoContent failed');
   });
 });
+
+describe('B4-5: 読込エラーを「文言なし」に化けさせない', () => {
+  test.each([1, 2, 3, 4])('%i 段目の読込エラーで例外にする（より汎用な段へ黙って落ちない）', async (failAt) => {
+    const { mockMaybeSingle } = buildSupabaseMock(null);
+    for (let i = 1; i <= 4; i++) {
+      mockMaybeSingle.mockResolvedValueOnce(i === failAt ? { data: null, error: { message: 'db down' } } : { data: null, error: null });
+    }
+    await expect(getAreaSeoContent('tokyo', 'shibuya', 'acupuncture')).rejects.toThrow('getAreaSeoContent failed');
+    expect(mockMaybeSingle).toHaveBeenCalledTimes(failAt);
+  });
+});

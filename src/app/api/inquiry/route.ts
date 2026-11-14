@@ -107,7 +107,8 @@ export const POST = withRoute(async (request) => {
     const ownerEmails = Array.from(new Set(
       ((ownerProfiles ?? []) as { email: string | null }[]).map((p) => p.email).filter(Boolean) as string[]
     ));
-    await Promise.allSettled(
+    // 送信は応答後に回す（Resend の遅延を利用者の応答時間にしない・完了は after() が保証）。
+    await runAfterResponse(() => Promise.allSettled(
       ownerEmails.map((facilityEmail) =>
         sendNewInquiryNotification({
           facilityEmail,
@@ -128,7 +129,7 @@ export const POST = withRoute(async (request) => {
           alertCaughtError('inquiry-email-owner', e, '/api/inquiry');
         })
       )
-    );
+    ));
   }
 
   // Slack通知（fire-and-forget）

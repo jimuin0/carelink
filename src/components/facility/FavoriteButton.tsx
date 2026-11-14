@@ -19,6 +19,8 @@ function FacilityFavoriteButton({ facilityId }: { facilityId: string }) {
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  // 更新に失敗して元の状態へ戻したことを利用者に伝える（黙って戻すと押せていないように見える・B6-10）。
+  const [failed, setFailed] = useState(false);
   const inFlight = useRef(false);
   const generation = useRef(0);
 
@@ -65,6 +67,7 @@ function FacilityFavoriteButton({ facilityId }: { facilityId: string }) {
     const epoch = generation.current;
     inFlight.current = true;
     setPending(true);
+    setFailed(false);
     const previousState = isFavorited;
     setIsFavorited(!previousState);
 
@@ -86,6 +89,7 @@ function FacilityFavoriteButton({ facilityId }: { facilityId: string }) {
         try { analytics.favoriteToggled(facilityId, newState ? 'add' : 'remove'); } catch { /* Optional telemetry cannot undo a confirmed mutation. */ }
       } else {
         setIsFavorited(previousState);
+        setFailed(true);
       }
     } catch {
       // 監査 A397: 通信断・不正な応答では、サーバーで反映されたかが分からない。元に戻すと実際と逆の表示になり、
@@ -107,6 +111,7 @@ function FacilityFavoriteButton({ facilityId }: { facilityId: string }) {
   }
 
   return (
+    <span className="relative inline-flex">
     <button
       type="button"
       onClick={handleToggle}
@@ -125,5 +130,11 @@ function FacilityFavoriteButton({ facilityId }: { facilityId: string }) {
         <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
       </svg>
     </button>
+    {failed && (
+      <span role="alert" className="absolute right-0 top-full z-10 mt-1 whitespace-nowrap rounded bg-white px-2 py-1 text-xs text-red-700 shadow">
+        お気に入りを更新できませんでした
+      </span>
+    )}
+    </span>
   );
 }

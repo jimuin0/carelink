@@ -1,6 +1,7 @@
 // Restricted to GitHub ephemeral PG17 or the explicit local shadow container. Never use
 // this as a production probe: it creates synthetic receipts and outbox rows.
 import { execFileSync, spawn } from 'node:child_process';
+import { homedir } from 'node:os';
 
 const localDocker = process.argv[2] === '--local-docker-shadow';
 const binary = localDocker ? 'docker' : 'psql';
@@ -21,7 +22,7 @@ async function main() {
   }
   let dbEnv;
   if (localDocker) {
-    if (process.env.DOCKER_HOST !== 'unix:///Users/kam/.carelink-vm-20261008/.docker/run/docker.sock') {
+    if (process.env.DOCKER_HOST !== `unix://${homedir()}/.carelink-vm-20261008/.docker/run/docker.sock`) {
       throw new Error('Local shadow container required.');
     }
     dbEnv = { PATH: process.env.PATH, DOCKER_HOST: process.env.DOCKER_HOST, DOCKER_CONFIG: process.env.DOCKER_CONFIG };

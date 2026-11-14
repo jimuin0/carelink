@@ -385,6 +385,25 @@ describe('POST /api/nps', () => {
     expect(res.status).toBe(500);
   });
 
+  test('B3-15: 存在しない facility_id（FK 23503）→ 400（500・Slack にしない）', async () => {
+    setupDefaultMocks(true, true);
+    mockInsert.mockResolvedValue({ error: { code: '23503', message: 'fk' } });
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8, facility_id: BOOKING_FACILITY_UUID }) as any);
+    expect(res.status).toBe(400);
+  });
+
+  test('Bnps: 未ログインで facility_id を指定 → 401・保存しない', async () => {
+    setupDefaultMocks(true);
+    mockGetUser = jest.fn().mockResolvedValue({ data: { user: null } });
+    const { createServerSupabaseAuthClient } = require('@/lib/supabase-server-auth');
+    createServerSupabaseAuthClient.mockResolvedValue({ auth: { getUser: mockGetUser }, from: jest.fn().mockReturnValue({}) });
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 10, facility_id: BOOKING_FACILITY_UUID }) as any);
+    expect(res.status).toBe(401);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
   test('rate limit params (5 req/hour)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 

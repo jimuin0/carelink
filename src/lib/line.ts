@@ -138,6 +138,9 @@ export async function sendLinePushWithOutcome(
   maxRetries = 3
 ): Promise<LineDeliveryOutcome> {
   const token = getToken();
+  // 同じ送信の再試行には同じ再送キーを付ける。タイムアウト等で「実は届いていた」送信を
+  // 再試行しても LINE 側で重複配信されない（B4-7）。受理済みのキーには 409 が返る。
+  const retryKey = globalThis.crypto.randomUUID();
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
@@ -146,12 +149,15 @@ export async function sendLinePushWithOutcome(
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
+          'X-Line-Retry-Key': retryKey,
         },
         body: JSON.stringify({ to: lineUserId, messages }),
         signal: AbortSignal.timeout(10000),
       });
 
       if (res.ok) return 'delivered';
+      // 409＝同じ再送キーの送信を LINE が既に受理済み（前の試行が届いていた）。
+      if (res.status === 409) return 'delivered';
 
       const errorText = await res.text().catch(() => '');
       console.error(`[LINE] Push failed: ${res.status} ${errorText}`);

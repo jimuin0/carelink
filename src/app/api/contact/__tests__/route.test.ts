@@ -33,6 +33,7 @@ jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn() }));
 jest.mock('@/lib/after-response', () => ({
   runAfterResponse: jest.fn((task: () => unknown) => jest.requireActual('@/lib/after-response').runAfterResponse(task)),
 }));
+jest.mock('@/lib/alert', () => ({ ...jest.requireActual('@/lib/alert'), alertCaughtError: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -40,6 +41,7 @@ import { sendNotify } from '@/lib/notify';
 import { sendOperatorNotification } from '@/lib/email';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { runAfterResponse } from '@/lib/after-response';
+import { alertCaughtError } from '@/lib/alert';
 import { POST } from '../route';
 
 let mockInsert: jest.Mock;
@@ -550,6 +552,9 @@ describe('POST /api/contact', () => {
 
     expect(res.status).toBe(200);
     expect(sendOperatorNotification).toHaveBeenCalledTimes(1);
+    // B3-20: console だけで終わらせず Slack へ警報する
+    await new Promise((r) => setImmediate(r));
+    expect(alertCaughtError).toHaveBeenCalledWith('contact-operator-email', expect.any(Error), '/api/contact');
   });
 
   test('operator email notification が reject しても 200', async () => {
@@ -569,6 +574,8 @@ describe('POST /api/contact', () => {
 
     expect(res.status).toBe(200);
     expect(sendOperatorNotification).toHaveBeenCalledTimes(1);
+    await new Promise((r) => setImmediate(r));
+    expect(alertCaughtError).toHaveBeenCalledWith('contact-operator-email', expect.any(Error), '/api/contact');
   });
 
   test('insert error → operator email notification is not sent', async () => {

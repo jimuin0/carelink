@@ -106,7 +106,8 @@ export default async function RootLayout({
                   "@type": "SearchAction",
                   target: {
                     "@type": "EntryPoint",
-                    urlTemplate: "https://carelink-jp.com/search?q={search_term_string}",
+                    // 検索画面が読むのは keyword（q は読まない・B8-L2）。
+                    urlTemplate: "https://carelink-jp.com/search?keyword={search_term_string}",
                   },
                   "query-input": "required name=search_term_string",
                 },

@@ -11,6 +11,8 @@ import { withRoute, serverError } from '@/lib/with-route';
 import { sendNotify } from '@/lib/notify';
 import { sendOperatorNotification } from '@/lib/email';
 import { runAfterResponse } from '@/lib/after-response';
+import { alertCaughtError } from '@/lib/alert';
+import { safeCaptureException } from '@/lib/safe';
 import { contactSchema } from '@/lib/validations-contact';
 import { zodErrorResponse } from '@/lib/api-validation';
 import { verifyRecaptcha } from '@/lib/recaptcha';
@@ -140,12 +142,18 @@ export const POST = withRoute(async (request) => {
       .then((ok) => {
         if (!ok) {
           console.error('[contact] Operator email notification failed');
+          // console だけでは誰も気づけない（Slack 通知も落ちていれば受付が無音になる）。
+          const err = new Error('contact operator email notification failed');
+          safeCaptureException(err, 'contact-operator-email');
+          alertCaughtError('contact-operator-email', err, '/api/contact');
         }
       })
       .catch((err) => {
         console.error('[contact] Operator email notification failed', {
           err,
         });
+        safeCaptureException(err, 'contact-operator-email');
+        alertCaughtError('contact-operator-email', err, '/api/contact');
       })
   );
 

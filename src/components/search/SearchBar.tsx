@@ -1,5 +1,6 @@
 'use client';
 
+import { SEARCH_HISTORY_KEY } from '@/lib/client-storage';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useSyncExternalStore } from 'react';
 import { businessTypes, prefectures } from '@/lib/constants';
@@ -8,7 +9,7 @@ import { businessTypeLabel } from '@/lib/business-type-label';
 import Button from '@/components/ui/Button';
 import Select from '@/components/ui/Select';
 
-const HISTORY_KEY = 'carelink_search_history';
+const HISTORY_KEY = SEARCH_HISTORY_KEY;
 const MAX_HISTORY = 5;
 
 function getSearchHistory(): string[] {

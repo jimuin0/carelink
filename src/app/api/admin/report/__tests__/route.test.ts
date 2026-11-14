@@ -236,3 +236,8 @@ test('GET: rows が null → 404', async () => {
   const res = await GET(makeRequest());
   expect(res.status).toBe(404);
 });
+
+test.each([['2026-02-30', '2026-03-31'], ['2026-01-01', '2026-13-01']])('B2-14: 実在しない日付 %s〜%s → 400（DB で 500 にしない）', async (from, to) => {
+  const res = await GET(makeRequest({ from, to }));
+  expect(res.status).toBe(400);
+});

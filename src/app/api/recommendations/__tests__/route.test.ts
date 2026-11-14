@@ -444,6 +444,37 @@ describe('GET /api/recommendations', () => {
     expect(json.type).toBe('personalized');
   });
 
+  test('B3-21: prefecture/city/business_type が null でも "null" で検索しない', async () => {
+    const { createClient } = require('@supabase/supabase-js');
+    const rows = [
+      { facility_id: 'fac-1', facility_profiles: { id: 'fac-1', business_type: 'acupuncture', prefecture: null, city: null } },
+      { facility_id: 'fac-2', facility_profiles: { id: 'fac-2', business_type: null, prefecture: '東京都', city: null } },
+    ];
+    const mockBkSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: rows }) }) }),
+    });
+    const mockFavSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: [] }) }),
+    });
+    const mockPopEq = jest.fn();
+    const mockPopOrder = jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: [] }) });
+    mockPopEq.mockReturnValue({ eq: mockPopEq, order: mockPopOrder });
+    const mockPopSel = jest.fn().mockReturnValue({ eq: mockPopEq });
+    createClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockBkSelect };
+        if (table === 'favorites') return { select: mockFavSelect };
+        if (table === 'facility_card_view') return { select: mockPopSel };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.based_on).toEqual({ business_type: 'acupuncture', prefecture: '東京都', city: null });
+    for (const call of mockPopEq.mock.calls) expect(call[1]).not.toBe('null');
+    expect(mockPopEq).toHaveBeenCalledWith('prefecture', '東京都');
+  });
+
   test('topType なし・topPref あり → business_type eq をスキップ', async () => {
     const { createClient } = require('@supabase/supabase-js');
     // Booking with empty-string business_type (falsy) but valid prefecture

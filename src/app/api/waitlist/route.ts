@@ -13,6 +13,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { serverError } from '@/lib/with-route';
+import { todayJst } from '@/lib/admin-date';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +47,11 @@ export async function POST(request: Request) {
     const parsed = WaitlistSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: '入力内容を確認してください' }, { status: 400 });
+    }
+
+    // 過去日（JST）のキャンセル待ちは空きが出る見込みが無く、通知の約束だけが残る。
+    if (parsed.data.date < todayJst()) {
+      return NextResponse.json({ error: '過去の日付は登録できません' }, { status: 400 });
     }
 
     const cookieStore = await cookies();
@@ -93,6 +99,19 @@ export async function POST(request: Request) {
 
     if (!facility) {
       return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
+    }
+
+    // メニュー・スタッフは指定された施設のものだけを受け付ける（他施設の ID を混ぜさせない）。
+    for (const [table, id] of [['facility_menus', data.menu_id], ['staff_profiles', data.staff_id]] as const) {
+      if (!id) continue;
+      const { data: owned, error: ownedError } = await supabase
+        .from(table)
+        .select('id')
+        .eq('id', id)
+        .eq('facility_id', data.facility_id)
+        .maybeSingle();
+      if (ownedError) return serverError('waitlist-post-owner', ownedError, '/api/waitlist', '登録に失敗しました');
+      if (!owned) return NextResponse.json({ error: '入力内容を確認してください' }, { status: 400 });
     }
 
     const { data: entry, error } = await supabase

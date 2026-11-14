@@ -32,21 +32,31 @@ function parseFontSubsets(css: string): FontSubset[] {
   }));
 }
 
+// 失敗した Promise はキャッシュに残さない（一過性の読込失敗で以後ずっと OG 画像が壊れないように）。
 function getFontSubsets(): Promise<FontSubset[]> {
-  return fontSubsetsPromise ??= readOgFontCss().then(parseFontSubsets);
+  return fontSubsetsPromise ??= readOgFontCss().then(parseFontSubsets).catch((e: unknown) => {
+    fontSubsetsPromise = undefined;
+    throw e;
+  });
 }
 
 function readFontData(fontPath: string): Promise<Uint8Array> {
   const cached = fontDataByPath.get(fontPath);
   if (cached) return cached;
 
-  const fontData = readOgFont(fontPath);
+  const fontData = readOgFont(fontPath).catch((e: unknown) => {
+    fontDataByPath.delete(fontPath);
+    throw e;
+  });
   fontDataByPath.set(fontPath, fontData);
   return fontData;
 }
 
 function initializeResvg(): Promise<void> {
-  return resvgInitialization ??= loadOgWasm().then((wasm) => initWasm(wasm));
+  return resvgInitialization ??= loadOgWasm().then((wasm) => initWasm(wasm)).catch((e: unknown) => {
+    resvgInitialization = undefined;
+    throw e;
+  });
 }
 
 async function buildFontBuffers(text: string): Promise<Uint8Array[]> {

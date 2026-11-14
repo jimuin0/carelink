@@ -32,6 +32,7 @@ jest.mock('@/lib/supabase-server', () => ({
 import { PATCH, DELETE } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 function makeRequest(method: string, body?: object) {
   return new Request(`http://localhost/api/admin/subscription-plans/${PLAN_UUID}`, {
@@ -223,6 +224,10 @@ test('DELETE: 契約中ユーザーあり → soft deactivate (200)', async () =
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.message).toContain('非公開');
+  // B2-8: 無効化にも監査ログを残す
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+    action: 'update', tableName: 'subscription_plans', recordId: PLAN_UUID, newValues: { is_active: false },
+  }));
 });
 
 test('DELETE: 契約中ユーザーなし → 正常削除 (200 deleted)', async () => {

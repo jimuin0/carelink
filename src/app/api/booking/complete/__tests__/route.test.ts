@@ -25,7 +25,7 @@ beforeEach(()=>{
 test('未認証は401・transactionなし',async()=>{mockGetUser.mockResolvedValue({data:{user:null}});expect((await POST(request())).status).toBe(401);expect(mockRpc).not.toHaveBeenCalled();});
 test('CSRFは403・transactionなし',async()=>{(checkCsrf as jest.Mock).mockReturnValue(new Response('',{status:403}));expect((await POST(request())).status).toBe(403);expect(mockRpc).not.toHaveBeenCalled();});
 test('rate-limitは429',async()=>{(checkRateLimit as jest.Mock).mockResolvedValue(true);expect((await POST(request())).status).toBe(429);});
-test.each([{}, {bookingId:'bad'}])('不正ID %jは400',async body=>expect((await POST(request(body))).status).toBe(400));
+test.each([{}, {bookingId:'bad'}, null, [], 'x', {bookingId:123}])('不正ID %jは400（B1-25: JSON の null でも500にしない）',async body=>expect((await POST(request(body))).status).toBe(400));
 test('不正JSONは400',async()=>expect((await POST(new Request('http://localhost/api/booking/complete',{method:'POST',body:'bad-json'}))).status).toBe(400));
 test('予約不在404',async()=>{mockFrom.mockReturnValue(chain(null));expect((await POST(request())).status).toBe(404);});
 test('別店舗のmembershipでは403・transactionなし',async()=>{mockFrom.mockImplementation(table=>chain(table==='bookings'?booking:null));expect((await POST(request())).status).toBe(403);expect(mockRpc).not.toHaveBeenCalled();});

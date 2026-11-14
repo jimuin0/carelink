@@ -312,8 +312,17 @@ describe('POST /api/chat', () => {
     await POST(makeRequest({ messages }) as any);
 
     const call = mockMessagesCreate.mock.calls[0];
-    expect(call[0].messages.length).toBe(10);
-    expect(call[0].messages[0].content).toBe('Message 5');
+    // 末尾10件は assistant（Message 5）始まりになるため、先頭の assistant を落とす
+    expect(call[0].messages.length).toBe(9);
+    expect(call[0].messages[0].content).toBe('Message 6');
+    expect(call[0].messages[0].role).toBe('user');
+  });
+
+  test('assistant だけの履歴は 400 で、日次上限を消費しない', async () => {
+    const res = await POST(makeRequest({ messages: [{ role: 'assistant', content: 'こんにちは' }] }) as any);
+    expect(res.status).toBe(400);
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+    expect(checkChatLimit).toHaveBeenCalledTimes(1);
   });
 
   test('calls Claude Haiku model', async () => {

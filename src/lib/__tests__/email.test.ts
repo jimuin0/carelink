@@ -1131,3 +1131,19 @@ describe('owner mail shows the points the customer used', () => {
     expect(mail.html).not.toContain('ポイント利用');
   });
 });
+
+describe('B4-10: 店舗向け予約メールの管理画面リンクに施設 ID を載せる', () => {
+  const FID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const { buildNewBookingNotificationEnvelope, buildBookingCancellationToFacilityEnvelope, buildBookingRescheduleToFacilityEnvelope } = require('../email');
+  const prev = { bookingDate: '2026-06-01', startTime: '10:00', endTime: '11:00' };
+  test.each([
+    ['新規', () => buildNewBookingNotificationEnvelope({ ...baseData, facilityId: FID, facilityEmail: 'o@example.invalid' })],
+    ['取消', () => buildBookingCancellationToFacilityEnvelope({ ...baseData, facilityId: FID, facilityEmail: 'o@example.invalid' })],
+    ['変更', () => buildBookingRescheduleToFacilityEnvelope({ ...baseData, facilityId: FID, facilityEmail: 'o@example.invalid', previous: prev })],
+  ])('%s', (_label, build) => {
+    expect(build().html).toContain(`/admin/bookings?facility_id=${FID}`);
+  });
+  test('施設 ID が無いときは従来のリンク', () => {
+    expect(buildNewBookingNotificationEnvelope({ ...baseData, facilityEmail: 'o@example.invalid' }).html).toContain('/admin/bookings"');
+  });
+});

@@ -27,6 +27,21 @@ function isAccountDraftKey(key: string): boolean {
   return key.startsWith(BOOKING_DRAFT_PREFIX) || key.startsWith(CLIENT_BOOKING_DRAFT_META_PREFIX);
 }
 
+/**
+ * localStorage に残す閲覧の履歴（検索語・最近見た施設）。退会後も同じ端末に残ると、
+ * 次にその端末を使う人へ前の人の検索・閲覧が見える（B6-13）。書き込む側もこの定数を使う。
+ */
+export const SEARCH_HISTORY_KEY = 'carelink_search_history';
+export const VIEWED_FACILITIES_KEY = 'viewed_facilities';
+const BROWSING_HISTORY_KEYS = [SEARCH_HISTORY_KEY, VIEWED_FACILITIES_KEY] as const;
+
+/** 閲覧の履歴を消す。履歴は退会を止める理由にしない（best-effort）。 */
+export function clearBrowsingHistory(): void {
+  for (const key of BROWSING_HISTORY_KEYS) {
+    try { localStorage.removeItem(key); } catch { /* 保存領域が使えない端末では残しようがない */ }
+  }
+}
+
 /** 施設 ID から下書きキーを組み立てる。組み立て方を1箇所に閉じ、消去側とのズレを防ぐ。 */
 export function bookingDraftKey(facilityId: string): string {
   return `${BOOKING_DRAFT_PREFIX}${facilityId}`;
@@ -50,6 +65,7 @@ export function clearStoredPersonalData(): void {
   } catch {
     // このlegacy helperは投げない。削除の成否を確定するcallerはasync検証を使う。
   }
+  clearBrowsingHistory();
 }
 
 export const LOCAL_DATA_CLEAR_FAILED = 'この端末の下書きの削除を確認できませんでした。ブラウザーの保存設定をご確認ください。';

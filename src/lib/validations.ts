@@ -38,7 +38,9 @@ export const salonStep1Schema = z.object({
   email: z.string().email('正しいメールアドレスを入力してください').max(254),
   phone: phoneField({ required: true }),
   contact_phone: phoneField(),
-  website: z.string().max(FACILITY_INPUT_LIMITS.website).url('正しいURLを入力してください').or(z.literal('')).optional(),
+  // http/https だけ（javascript: 等のスキームは z.url() を通ってしまい、リンクとして表示すると危険）。
+  website: z.string().max(FACILITY_INPUT_LIMITS.website).url('正しいURLを入力してください')
+    .refine((v) => /^https?:\/\//i.test(v), '正しいURLを入力してください').or(z.literal('')).optional(),
 });
 
 export const salonStep2Schema = z.object({

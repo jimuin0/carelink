@@ -116,6 +116,8 @@ export async function GET(request: Request) {
           .select('id, email, display_name, email_unsubscribed')
           .not('birth_date', 'is', null)
           .in('birth_md', targetMDs)
+          // 順序の無い range はページ間で行が重複・欠落し得る（PK で安定させる）。
+          .order('id', { ascending: true })
           .range(offset, offset + limit - 1);
         return { data: data as BirthdayProfile[] | null, error };
       },

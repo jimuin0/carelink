@@ -32,7 +32,6 @@ export const SESSION_RECORDING_PUBLIC_ROOTS: readonly string[] = [
   'salon',
   'search',
   'symptom',
-  'symptom-checker',
   'symptoms',
   'terms',
   'type',
@@ -44,6 +43,7 @@ export const SESSION_RECORDING_PUBLIC_ROOTS: readonly string[] = [
  * - mypage / liff: 予約・ポイント・プロフィールなど本人の情報
  * - auth: ログイン・登録（メールアドレス）
  * - intake: 問診（健康に関する情報）
+ * - symptom-checker: 症状チェック（利用者が選んだ自分の症状＝健康に関する情報が画面に表示される・B5-18）
  * - register / contact: 掲載申込・問い合わせ（氏名・連絡先）。旧 /recruit は 2026年10月23日に撤去し /register へ転送
  *   （分類に無いパスは録画しないので、転送の前後とも録画されない）
  * - unsubscribe: 配信停止（メールアドレス）
@@ -56,6 +56,7 @@ export const SESSION_RECORDING_PRIVATE_ROOTS: readonly string[] = [
   'liff',
   'mypage',
   'register',
+  'symptom-checker',
   'unsubscribe',
 ];
 

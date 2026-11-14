@@ -100,7 +100,7 @@ function setupDefaultMocks(
 
   // eq を変数化して呼び出し引数（'birth_md', todayMD）を検証可能にする。
   mockProfilesEq = jest.fn().mockReturnValue({
-    range: jest.fn().mockResolvedValue({ data: profileData }),
+    order: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: profileData }) }),
   });
   mockProfilesSelect = jest.fn().mockReturnValue({
     not: jest.fn().mockReturnValue({
@@ -197,7 +197,7 @@ describe('GET /api/cron/birthday-coupon', () => {
   test('profiles 取得が DB エラー → error ログ＋500（無音スキップにしない）', async () => {
     mockProfilesSelect.mockReturnValue({
       not: jest.fn().mockReturnValue({
-        in: jest.fn().mockReturnValue({
+        in: jest.fn().mockReturnValue({ order: jest.fn().mockReturnThis(),
           range: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }),
         }),
       }),
@@ -263,6 +263,8 @@ describe('GET /api/cron/birthday-coupon', () => {
     // (2026-07-16) 旧 `.filter('birth_date::text','like',...)` は PostgREST が
     // 演算子不在(42883)で本番500を出していたため `.eq('birth_md', todayMD)` に切替。
     expect(mockProfilesEq).toHaveBeenCalledWith('birth_md', ['06-15']);
+    // B1-20: ページングは順序を固定して行う
+    expect(mockProfilesEq.mock.results[0].value.order).toHaveBeenCalledWith('id', { ascending: true });
   });
 
   test('inserts 100 points per user with reason=birthday_YYYY', async () => {
@@ -364,7 +366,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              in: jest.fn().mockReturnValue({
+              in: jest.fn().mockReturnValue({ order: jest.fn().mockReturnThis(),
                 range: jest.fn().mockResolvedValue({
                   data: [{ id: 'user-1', email: 'user@example.com', display_name: null }],
                 }),
@@ -393,7 +395,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              in: jest.fn().mockReturnValue({
+              in: jest.fn().mockReturnValue({ order: jest.fn().mockReturnThis(),
                 range: jest.fn().mockResolvedValue({
                   data: [{ id: 'user-1', email: 'user@example.com', display_name: '<a href="https://evil.example">x</a>&\'' }],
                 }),
@@ -424,7 +426,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              in: jest.fn().mockReturnValue({
+              in: jest.fn().mockReturnValue({ order: jest.fn().mockReturnThis(),
                 range: jest.fn().mockResolvedValue({ data: [{ id: 'user-unsub', email: 'u@e.com', display_name: 'U', email_unsubscribed: true }] }),
               }),
             }),
@@ -655,7 +657,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              in: jest.fn().mockReturnValue({
+              in: jest.fn().mockReturnValue({ order: jest.fn().mockReturnThis(),
                 range: jest.fn().mockResolvedValue({
                   data: [{ id: 'u1', email: null, display_name: 'No Email' }],
                 }),

@@ -91,7 +91,8 @@ export default async function MySubscriptionsPage() {
                 const st = STATUS_LABEL[sub.status] ?? { label: sub.status, cls: 'bg-gray-100 text-gray-600' };
                 const used = sub.sessions_used_this_month;
                 const total = plan?.sessions_per_month ?? 1;
-                const pct = Math.min(100, Math.round((used / total) * 100));
+                // DB は 0 回を拒否しないので、0 で割って NaN%（バーが壊れる）にしない（B8-L）。
+                const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
                 const resetDate = new Date(sub.month_reset_at).toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' });
 
                 return (

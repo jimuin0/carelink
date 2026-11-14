@@ -120,6 +120,16 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
       .select();
     if (deactivateErr) return serverError('admin-subscription-plans-delete-deactivate', deactivateErr, '/api/admin/subscription-plans/[id]');
     if (!deactivated || deactivated.length === 0) return NextResponse.json({ error: 'プランが見つかりません' }, { status: 404 });
+    // 削除の代わりに無効化した場合も監査ログに残す（B2-8）。
+    void writeAuditLog({
+      userId: user.id,
+      facilityId,
+      action: 'update',
+      tableName: 'subscription_plans',
+      recordId: params.id,
+      newValues: { is_active: false },
+      ipAddress: ip,
+    });
     return NextResponse.json({ message: '契約中ユーザーがいるため非公開にしました' });
   }
 

@@ -681,3 +681,8 @@ test('GET: 複数メニューの名前解決クエリが失敗 → 500（不完�
   expect(res.status).toBe(500);
   expect(await res.text()).not.toContain('カット');
 });
+
+test.each([['2026-02-30', '2026-03-31'], ['2026-01-01', '2026-13-01']])('B2-14: 実在しない日付 %s〜%s → 400（DB で 500 にしない）', async (from, to) => {
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, from, to }));
+  expect(res.status).toBe(400);
+});
