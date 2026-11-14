@@ -28,7 +28,14 @@ jest.mock('@/lib/catalogs', () => ({ getCatalogsByFacility: jest.fn(async () => 
 jest.mock('@/lib/blog', () => ({ getBlogSummariesByFacility: jest.fn() }));
 jest.mock('@/lib/facility-qa-visibility', () => ({ hasPublicQa: jest.fn() }));
 const mockPublicSpecialHours = jest.fn(async () => ({ data: null, error: null }));
-jest.mock('@/lib/supabase-server', () => ({ createServerSupabaseClient: () => ({ rpc: mockPublicSpecialHours }), createServiceRoleClient: () => ({}) }));
+let mockPublicTableResult: { data: unknown; error: unknown } = { data: [], error: null };
+const mockPublicFrom = jest.fn(() => {
+  const chain: Record<string, unknown> = {};
+  for (const m of ['select', 'eq', 'order']) chain[m] = () => chain;
+  chain.then = (resolve: (v: unknown) => unknown) => Promise.resolve(mockPublicTableResult).then(resolve);
+  return chain;
+});
+jest.mock('@/lib/supabase-server', () => ({ createServerSupabaseClient: () => ({ rpc: mockPublicSpecialHours, from: mockPublicFrom }), createServiceRoleClient: () => ({}) }));
 jest.mock('@/lib/facility-publish-gate', () => ({ checkBookingReadiness: jest.fn(async () => ({ readiness: { ready: false }, error: null })) }));
 
 // 表示部品は中身を問わないので置き換える。タブは全タブの見出しと中身を並べて出す（どのタブがあるかを見るため）。
@@ -80,6 +87,7 @@ const posts = [
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockPublicTableResult = { data: [], error: null };
   (getFacilityBySlug as jest.Mock).mockResolvedValue({ facility });
   (getBlogSummariesByFacility as jest.Mock).mockResolvedValue({ posts, total: 2 });
   (hasPublicQa as jest.Mock).mockResolvedValue(true);
@@ -228,4 +236,14 @@ describe('メニュー・写真・口コミの読み取り失敗', () => {
     await expect(Page(props())).rejects.toThrow('Facility detail lookup failed');
     expect(safeCaptureException).toHaveBeenCalledWith(expect.any(Error), 'facility-detail:core-lookup');
   });
+});
+
+// 監査 A189: 症状・資格の取得失敗が握り潰され、「施術情報」タブが無言で消えていた。
+test('施術情報（症状・資格）の取得に失敗したら通知したうえで施設ページは表示する', async () => {
+  (getFacilityBySlug as jest.Mock).mockResolvedValue({ facility: { ...facility, business_type: '鍼灸院・整骨院' } });
+  mockPublicTableResult = { data: null, error: { message: 'synthetic' } };
+  const html = renderToStaticMarkup(await Page(props()));
+  expect(html).toContain('テスト施設');
+  expect(safeCaptureException).toHaveBeenCalledWith(expect.any(Error), 'facility-detail:symptoms');
+  expect(safeCaptureException).toHaveBeenCalledWith(expect.any(Error), 'facility-detail:certifications');
 });

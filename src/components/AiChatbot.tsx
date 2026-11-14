@@ -120,7 +120,9 @@ export default function AiChatbot() {
       }
       setMessages([...newMessages, { role: 'assistant', content: data.reply }]);
       setInput(current => current === userMsg.content ? '' : current);
-      if (!open) setUnread(true);
+      // 送信時点の open を閉じ込めて判定すると、送信後に閉じた場合に未読が付かなかった（監査 A269）。
+      // 返答が届いたら常に未読を立て、バッジは「閉じているときだけ」表示し、開閉のたびに消す。
+      setUnread(true);
     } catch (error) {
       if (epoch !== cleanupEpoch.current) return;
       setErrorMessage(error instanceof RecaptchaClientError ? RECAPTCHA_CLIENT_UNAVAILABLE_MESSAGE
@@ -130,7 +132,7 @@ export default function AiChatbot() {
       if (activeController.current === controller) activeController.current = null;
       if (epoch === cleanupEpoch.current) { inFlight.current = false; setLoading(false); }
     }
-  }, [messages, loading, open]);
+  }, [messages, loading]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -156,7 +158,7 @@ export default function AiChatbot() {
                 <p className="text-sky-100 text-xs">ご質問にお答えします</p>
               </div>
             </div>
-            <button type="button" onClick={() => setOpen(false)}
+            <button type="button" onClick={() => { setOpen(false); setUnread(false); }}
               className="min-w-[44px] min-h-[44px] -mr-2 flex items-center justify-center text-white/80 hover:text-white transition-colors"
               aria-label="閉じる">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -245,9 +247,8 @@ export default function AiChatbot() {
       <button
         type="button"
         onClick={() => {
-          const next = !open;
-          setOpen(next);
-          if (next) setUnread(false);
+          setOpen(!open);
+          setUnread(false);
         }}
         aria-label={open ? 'チャットを閉じる' : 'AIアシスタントに質問する'}
         style={offsetStyle}

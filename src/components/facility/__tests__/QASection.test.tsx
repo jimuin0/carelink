@@ -17,12 +17,12 @@ jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: jest.f
 const fetchMock = jest.fn();
 const insert = jest.fn();
 
-function mockSupabase({ userId = 'user-1' as string | null } = {}) {
+function mockSupabase({ userId = 'user-1' as string | null, rows = [] as unknown[] } = {}) {
   const select = jest.fn(() => ({
     eq: () => ({
       eq: () => ({
         eq: () => ({
-          order: () => Promise.resolve({ data: [], error: null }),
+          order: () => Promise.resolve({ data: rows, error: null }),
         }),
       }),
     }),
@@ -137,4 +137,24 @@ describe('質問だけの入口（askOnly）', () => {
     expect((opened.container.querySelector('details#qa-ask') as HTMLDetailsElement).open).toBe(true);
     await screen.findByLabelText('質問を入力');
   });
+});
+
+// 監査 A273: 日付を端末の時刻帯で読んでいたため、JST と 1 日ずれ得た（ReviewList は Asia/Tokyo 固定）。
+test('質問日・回答日は JST の日付で出す（端末の時刻帯に依らない）', async () => {
+  // jest の process.env は複製のため TZ を実行中に変えられない。代わりに「端末の時刻帯で読む」
+  // getFullYear/getMonth/getDate を西半球の端末相当（前日）に差し替え、表示がそれに引きずられないことを見る。
+  const spies = [
+    jest.spyOn(Date.prototype, 'getDate').mockReturnValue(1),
+    jest.spyOn(Date.prototype, 'getMonth').mockReturnValue(9),
+    jest.spyOn(Date.prototype, 'getFullYear').mockReturnValue(2026),
+  ];
+  try {
+    mockSupabase({ rows: [{ id: 'q1', question: '駐車場は？', answer: 'あります', status: 'answered', is_public: true, created_at: '2026-10-01T16:00:00Z', answered_at: '2026-10-31T15:30:00Z' }] });
+    render(<QASection facilityId="f1" />);
+    expect(await screen.findByText('2026/10/02')).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: /駐車場は？/ }));
+    expect(screen.getByText('回答日: 2026/11/01')).toBeInTheDocument();
+  } finally {
+    spies.forEach((spy) => spy.mockRestore());
+  }
 });

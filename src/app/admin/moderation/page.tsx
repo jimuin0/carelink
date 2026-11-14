@@ -71,8 +71,12 @@ export default function ModerationPage() {
   const [reviewNote, setReviewNote] = useState('');
   const [snapshot, setSnapshot] = useState<ModerationReviewSnapshot | null>(null);
   const operationLock = useRef(false);
+  // 読み込みの世代。審査後の再取得（load）と絞り込み変更の取得が重なったとき、
+  // 後から届いた古い応答で表示中のフィルタと違う一覧に上書きしないため、最新の世代だけを反映する。
+  const loadSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     try {
     const supabase = createBrowserSupabaseClient();
     let query = supabase
@@ -83,6 +87,7 @@ export default function ModerationPage() {
     if (statusFilter) query = query.eq('status', statusFilter);
     setLoadError(false);
     const { data, error } = await query;
+    if (seq !== loadSeq.current) return;
     if (error) { setLoadError(true); setLoading(false); return; }
     // select('*') の生の行は status が string・auto_flags が Json のため、画面が期待する
     // ModerationItem 型へランタイム検証しつつ詰め替える（上記コメント参照）。
@@ -101,7 +106,7 @@ export default function ModerationPage() {
       created_at: row.created_at,
     })));
     setLoading(false);
-    } catch { setLoadError(true); setLoading(false); }
+    } catch { if (seq === loadSeq.current) { setLoadError(true); setLoading(false); } }
   }, [statusFilter]);
 
   // load は更新ボタン・審査後の再取得などイベントハンドラから引き続き呼ぶため関数として残し、
@@ -109,6 +114,8 @@ export default function ModerationPage() {
   // set-state-in-effect：effect から外部関数を直接呼ぶと同期 setState とみなされ検出される）。
   useEffect(() => {
     let cancelled = false;
+    const seq = ++loadSeq.current;
+    const stale = () => cancelled || seq !== loadSeq.current;
     (async () => {
       const supabase = createBrowserSupabaseClient();
       let query = supabase
@@ -119,7 +126,7 @@ export default function ModerationPage() {
       if (statusFilter) query = query.eq('status', statusFilter);
       setLoadError(false);
       const { data, error } = await query;
-      if (cancelled) return;
+      if (stale()) return;
       if (error) { setLoadError(true); setLoading(false); return; }
       // select('*') の生の行は status が string・auto_flags が Json のため、画面が期待する
       // ModerationItem 型へランタイム検証しつつ詰め替える（上記コメント参照）。
@@ -138,7 +145,7 @@ export default function ModerationPage() {
         created_at: row.created_at,
       })));
       setLoading(false);
-    })().catch(() => { if (!cancelled) { setLoadError(true); setLoading(false); } });
+    })().catch(() => { if (!stale()) { setLoadError(true); setLoading(false); } });
     return () => { cancelled = true; };
   }, [statusFilter]);
 

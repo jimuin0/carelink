@@ -1,8 +1,8 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
-const mockStatus=jest.fn();
-jest.mock('@/lib/supabase-server',()=>({createServiceRoleClient:()=>({from:()=>({select:()=>({eq:()=>({maybeSingle:mockStatus})})})})}));
+const mockStatus=jest.fn();const mockEq=jest.fn();
+jest.mock('@/lib/supabase-server',()=>({createServiceRoleClient:()=>{const chain:Record<string,unknown>={select:()=>chain,eq:(...a:unknown[])=>{mockEq(...a);return chain;},maybeSingle:mockStatus};return {from:()=>chain};}}));
 jest.mock('@/lib/intake-config',()=>({INTAKE_CUSTOMER_ENABLED:false}));
 jest.mock('@/components/push/PushPermissionBanner',()=>({__esModule:true,default:()=>null}));
 import BookingCompletePage from '../page';
@@ -57,4 +57,11 @@ it('array query values use the first value instead of throwing',async()=>{
  mockStatus.mockResolvedValue({data:{status:'confirmed'}});
  render(await BookingCompletePage({...props,searchParams:Promise.resolve({id:['beaf0000-0000-4000-8000-000000000001','x']} as unknown as {id?:string})}));
  expect(screen.getByText('予約番号: BEAF0000')).toBeVisible();
+});
+
+// 監査 A187: 予約 ID だけで状態を読むと、別施設の slug のページからも他人の予約状態が見えた。
+it('予約の状態は URL の施設に属する予約に限って読む',async()=>{
+ mockStatus.mockResolvedValue({data:{status:'confirmed'}});render(await BookingCompletePage(props));
+ expect(mockEq).toHaveBeenCalledWith('id','beaf0000-0000-4000-8000-000000000001');
+ expect(mockEq).toHaveBeenCalledWith('facility_profiles.slug','synthetic');
 });

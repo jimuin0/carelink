@@ -99,29 +99,35 @@ export default function EditPlatformBlogPage(props: Props) {
     if (!validateJson(contentJson)) return;
     setSaving(true);
 
-    const res = await fetch(`/api/admin/platform-blog/${params.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        slug,
-        title,
-        description,
-        category,
-        tags: tags.split(',').map((t: string) => t.trim()).filter(Boolean),
-        reading_time: readingTime,
-        content: JSON.parse(contentJson),
-        is_published: isPublished,
-      }),
-    });
+    try {
+      const res = await fetch(`/api/admin/platform-blog/${params.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slug,
+          title,
+          description,
+          category,
+          tags: tags.split(',').map((t: string) => t.trim()).filter(Boolean),
+          reading_time: readingTime,
+          content: JSON.parse(contentJson),
+          is_published: isPublished,
+        }),
+      });
 
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      setToast({ type: 'error', message: e.error || '保存に失敗しました' });
-    } else {
-      setDirty(false);
-      setToast({ type: 'success', message: '保存しました' });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '保存に失敗しました' });
+      } else {
+        setDirty(false);
+        setToast({ type: 'success', message: '保存しました' });
+      }
+    } catch {
+      // 通信失敗でも「保存中...」のまま固めず、失敗を伝える
+      setToast({ type: 'error', message: '通信に失敗しました。保存されていない可能性があります' });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const handleDelete = () => {

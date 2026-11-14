@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader } from '@/components/admin/SbUi';
 
 interface Flag {
@@ -23,41 +24,64 @@ export default function AbTestsPage() {
   const [flags, setFlags] = useState<Flag[]>([]);
   const [results, setResults] = useState<Record<string, AbResult>>({});
   const [loading, setLoading] = useState(true);
+  // 取得失敗を「対象フラグ0件」と偽らない。reject でもスピナーを止めて失敗を出す。
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // アンマウント後の setState を防ぐため、非同期処理を effect 内へ inline し cancelled フラグで守る
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      const res = await fetch('/api/admin/feature-flags?ab=1');
-      const json = res.ok ? await res.json() : { flags: [] };
+      try {
+        const res = await fetch('/api/admin/feature-flags?ab=1');
+        if (!res.ok) throw new Error(`feature-flags ${res.status}`);
+        const json = await res.json();
 
-      const loadedFlags: Flag[] = json.flags ?? [];
-      if (cancelled) return;
-      setFlags(loadedFlags);
+        const loadedFlags: Flag[] = json.flags ?? [];
+        if (cancelled) return;
+        setFlags(loadedFlags);
 
-      // 各フラグのA/B結果を並行取得
-      const resultMap: Record<string, AbResult> = {};
-      await Promise.all(
-        loadedFlags.map(async (f) => {
-          const res = await fetch(`/api/ab-test?key=${encodeURIComponent(f.key)}`);
-          if (res.ok) {
-            const r = await res.json();
-            if (r.control || r.treatment) resultMap[f.key] = r;
-          }
-        })
-      );
-      if (cancelled) return;
-      setResults(resultMap);
-      setLoading(false);
+        // 各フラグのA/B結果を並行取得（個々の失敗は「計測データなし」として扱う補助表示）
+        const resultMap: Record<string, AbResult> = {};
+        await Promise.all(
+          loadedFlags.map(async (f) => {
+            try {
+              const res = await fetch(`/api/ab-test?key=${encodeURIComponent(f.key)}`);
+              if (res.ok) {
+                const r = await res.json();
+                if (r.control || r.treatment) resultMap[f.key] = r;
+              }
+            } catch {
+              // 補助表示のため握り、他のフラグの表示を続ける
+            }
+          })
+        );
+        if (cancelled) return;
+        setResults(resultMap);
+        setLoadError(false);
+        setLoading(false);
+      } catch {
+        if (cancelled) return;
+        setLoadError(true);
+        setLoading(false);
+      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   if (loading) return <AdminPageLoading />;
+  if (loadError) {
+    return (
+      <div className="space-y-5 max-w-4xl">
+        <SbPageHeader title="A/Bテスト管理" description="記録済みのA/Bテスト計測結果を表示します" />
+        <LoadError onRetry={() => { setLoading(true); setLoadError(false); setReloadKey((k) => k + 1); }} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 max-w-4xl">

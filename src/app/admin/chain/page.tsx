@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import BulkActions from './BulkActions';
@@ -53,10 +53,8 @@ export default async function ChainManagementPage() {
 
   const facilityIds = memberships.map((m) => m.facility_id);
 
-  const admin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  // service role は単一の生成口（CLAUDE.md「Supabase クライアントの使い分け」）を通す。型付き Database も配線される。
+  const admin = createServiceRoleClient();
 
   // 施設基本情報
   const { data: facilities, error: facilityError } = await admin

@@ -76,7 +76,7 @@ export default async function PlatformBlogPage() {
                     <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">{post.category}</span>
                   </SbTd>
                   <SbTd className="text-gray-500 text-xs hidden md:table-cell">
-                    {new Date(post.updated_at).toLocaleDateString('ja-JP')}
+                    {new Date(post.updated_at).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}
                   </SbTd>
                   <SbTd>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${

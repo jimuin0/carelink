@@ -132,21 +132,26 @@ function EditBlogForm({ requested }: { requested: string | null }) {
     if (saving || !title || !content || !facilityId) return;
     setSaving(true);
 
-    const res = await fetch(`/api/admin/blog/${postId}?facility_id=${facilityId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, content, is_published: isPublished }),
-    });
-
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      setToast({ type: 'error', message: e.error || '保存に失敗しました' });
-    } else {
-      setDirty(false);
-      setToast({ type: 'success', message: '保存しました' });
-      setTimeout(() => router.push(listHref), 1000);
+    try {
+      const res = await fetch(`/api/admin/blog/${postId}?facility_id=${facilityId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content, is_published: isPublished }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '保存に失敗しました' });
+      } else {
+        setDirty(false);
+        setToast({ type: 'success', message: '保存しました' });
+        setTimeout(() => router.push(listHref), 1000);
+      }
+    } catch {
+      // 通信失敗でも「保存中...」のまま固めず、失敗を伝える
+      setToast({ type: 'error', message: '通信に失敗しました。保存されていない可能性があります' });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const handleDelete = () => {
@@ -156,12 +161,16 @@ function EditBlogForm({ requested }: { requested: string | null }) {
   const doDelete = async () => {
     setConfirmDelete(false);
     if (!facilityId) return;
-    const res = await fetch(`/api/admin/blog/${postId}?facility_id=${facilityId}`, { method: 'DELETE' });
-    if (!res.ok) {
-      setToast({ type: 'error', message: '削除に失敗しました' });
-      return;
+    try {
+      const res = await fetch(`/api/admin/blog/${postId}?facility_id=${facilityId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        setToast({ type: 'error', message: '削除に失敗しました' });
+        return;
+      }
+      router.push(listHref);
+    } catch {
+      setToast({ type: 'error', message: '通信に失敗しました。削除されていない可能性があります' });
     }
-    router.push(listHref);
   };
 
   if (loading) return <AdminPageLoading />;

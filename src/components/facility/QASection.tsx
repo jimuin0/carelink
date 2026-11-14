@@ -109,8 +109,8 @@ export default function QASection({ facilityId, askOnly = false, loginHref }: Pr
 
   function formatDate(dateStr: string | null) {
     if (!dateStr) return '';
-    const d = new Date(dateStr);
-    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+    // 端末の時刻帯ではなく JST で日付を出す（ReviewList と揃える・監査 A273）
+    return new Date(dateStr).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' });
   }
 
   const questionForm = (

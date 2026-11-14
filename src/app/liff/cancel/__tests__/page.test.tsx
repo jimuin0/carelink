@@ -251,3 +251,12 @@ describe('キャンセル結果が不明なとき', () => {
     expect(await screen.findByText(/キャンセルの結果を確認できませんでした/)).toBeInTheDocument();
   });
 });
+
+// 監査 A196: booking_id を URL エンコードせず連結しており、任意のクエリを API へ足せた。
+test('booking_id は URL エンコードして API へ渡す（クエリを注入できない）', async () => {
+  mockBookingParam = 'b1&facility_id=other';
+  mockFetch(false, {});
+  render(<LiffCancelPage />);
+  await screen.findByRole('alert');
+  expect(global.fetch).toHaveBeenCalledWith('/api/liff/bookings?booking_id=b1%26facility_id%3Dother', expect.anything());
+});

@@ -3,6 +3,12 @@
 import { useState, useEffect } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import LoadError from '@/components/admin/LoadError';
+import { jstMonthInfo } from '@/lib/admin-date';
+import { fetchAllPaged } from '@/lib/paginate';
+
+function ymdOfMonth({ year, month }: { year: number; month: number }): string {
+  return `${year}-${String(month).padStart(2, '0')}-01`;
+}
 
 interface StaffSales {
   staff_id: string;
@@ -27,15 +33,24 @@ export default function StaffSalesTab({ facilityId }: { facilityId: string }) {
       try {
         const supabase = createBrowserSupabaseClient();
         setLoadError(false);
-        const now = new Date();
-        const startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+        // 今月の範囲は JST の月境界で作る（ブラウザのローカル時刻だと海外端末で月がずれる）。
+        // 上限（翌月1日未満）も付け、PostgREST の既定上限（1000行）を越える分はページングで全件読む。
+        const startDate = ymdOfMonth(jstMonthInfo(0));
+        const endDate = ymdOfMonth(jstMonthInfo(1));
 
-        const { data: bookings, error: bErr } = await supabase
-          .from('bookings')
-          .select('staff_id, total_price')
-          .eq('facility_id', facilityId)
-          .eq('status', 'completed')
-          .gte('booking_date', startDate);
+        const { rows: bookings, error: bErr } = await fetchAllPaged<{ staff_id: string | null; total_price: number | null }>(
+          async (offset, limit) =>
+            await supabase
+              .from('bookings')
+              .select('staff_id, total_price')
+              .eq('facility_id', facilityId)
+              .eq('status', 'completed')
+              .gte('booking_date', startDate)
+              .lt('booking_date', endDate)
+              .order('id', { ascending: true })
+              .range(offset, offset + limit - 1),
+          { failOnTruncation: true },
+        );
 
         if (bErr) {
           if (!cancelled) { setLoadError(true); setLoading(false); }
@@ -53,7 +68,7 @@ export default function StaffSalesTab({ facilityId }: { facilityId: string }) {
         const staffMap = Object.fromEntries((staffList || []).map((s) => [s.id, s.name]));
         const salesMap: Record<string, { revenue: number; count: number }> = {};
 
-        for (const b of bookings || []) {
+        for (const b of bookings) {
           if (!b.staff_id) continue;
           if (!salesMap[b.staff_id]) salesMap[b.staff_id] = { revenue: 0, count: 0 };
           salesMap[b.staff_id].revenue += b.total_price ?? 0;

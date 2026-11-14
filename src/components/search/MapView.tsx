@@ -26,9 +26,14 @@ export default function MapView({ facilities }: Props) {
 
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
+    // leaflet の読み込み（await）中に cleanup が走ると、その時点ではまだ地図が無く何も外せない。
+    // 後から古い loadMap が同じ div に L.map を作り、次の effect の L.map が
+    // 'Map container is already initialized' で落ちていた（監査 A274）。cancelled で古い読み込みを止める。
+    let cancelled = false;
 
     const loadMap = async () => {
       const L = (await import('leaflet')).default;
+      if (cancelled || !mapRef.current) return;
 
       // Load Leaflet CSS from local assets (no external CDN dependency)
       if (!document.getElementById('leaflet-css')) {
@@ -87,9 +92,10 @@ export default function MapView({ facilities }: Props) {
 
     // 読み込み失敗(オフライン/タイル取得失敗等)を握り潰すと「読み込み中」が永久固着するため、
     // エラー状態を立てて利用者に再読み込みを案内する。
-    loadMap().catch(() => setLoadError(true));
+    loadMap().catch(() => { if (!cancelled) setLoadError(true); });
 
     return () => {
+      cancelled = true;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;

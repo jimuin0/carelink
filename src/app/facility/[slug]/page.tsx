@@ -188,6 +188,9 @@ export default async function FacilityPage(props: Props) {
       publicSupa.from('facility_symptoms').select('symptom_id, description, symptoms(name, slug, category)').eq('facility_id', facility.id),
       publicSupa.from('facility_certifications').select('*').eq('facility_id', facility.id).order('sort_order'),
     ]);
+    // 取得失敗は他のタブと同じく通知する（以前は握り潰され、「施術情報」タブが無言で消えていた）。
+    if (sympRes.error) safeCaptureException(new Error('Facility symptoms lookup failed'), 'facility-detail:symptoms');
+    if (certRes.error) safeCaptureException(new Error('Facility certifications lookup failed'), 'facility-detail:certifications');
     facilitySymptoms = sympRes.data || [];
     certifications = certRes.data || [];
   }

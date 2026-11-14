@@ -8,6 +8,7 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 import type { Facility } from '@/types';
 import { formatFacilityLocality } from '@/lib/facility-location';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import { UUID_REGEX } from '@/lib/constants';
 
 // 【2026年7月8日 恒久根治】比較対象(searchParams.ids)はリクエスト毎に変わるため、他の
 // DB駆動ページ(revalidate=3600で統一)とは異なりキャッシュしてはいけない。明示指定が無いのは
@@ -27,7 +28,8 @@ interface Props {
 
 export default async function ComparePage(props: Props) {
   const searchParams = firstSearchParams(await props.searchParams);
-  const ids = searchParams.ids?.split(',').filter(Boolean).slice(0, 3) || [];
+  // UUID 以外（?ids=abc 等）は問い合わせに渡さない。渡すと PostgREST が 22P02 を返し、DB 障害と区別できなくなる。
+  const ids = searchParams.ids?.split(',').filter((id) => UUID_REGEX.test(id)).slice(0, 3) || [];
   if (ids.length === 0) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-12 text-center">
@@ -39,12 +41,14 @@ export default async function ComparePage(props: Props) {
   }
 
   const supabase = createServerSupabaseClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('facility_profiles')
     .select('id, name, slug, business_type, prefecture, city, access_info, nearest_station, rating_avg, rating_count, main_photo_url, seat_count, phone, parking, credit_card, features, regular_holiday, business_hours')
     .in('id', ids)
     .eq('status', 'published');
 
+  // 取得失敗を「該当なし（404）」に化けさせない（error.tsx に委ね、障害として扱う）。
+  if (error) throw new Error('COMPARE_FACILITIES_UNAVAILABLE');
   const facilities = (data || []) as Facility[];
   if (facilities.length === 0) notFound();
 
@@ -53,7 +57,7 @@ export default async function ComparePage(props: Props) {
   // N+1 だった。.in('facility_id', ids) 一発で全施設分をまとめて取得し、JS側で facility_id ごとに
   // グルーピングする（.order('price') は結果セット全体への適用だが、facility_id で絞り込んでも
   // 元の相対順序は保たれるため、施設ごとの min/max 抽出は従来と同じ結果になる）。
-  const { data: allMenus } = await supabase
+  const { data: allMenus, error: menuError } = await supabase
     .from('facility_menus')
     .select('facility_id, price')
     .in('facility_id', facilities.map((f) => f.id))
@@ -61,6 +65,8 @@ export default async function ComparePage(props: Props) {
     // 非公開メニューは比較ページの価格帯に含めない。null/true は表示(既存維持)。
     .or('is_published.is.null,is_published.eq.true')
     .order('price');
+  // 価格の取得失敗を「価格未登録（-）」と偽らない。
+  if (menuError) throw new Error('COMPARE_MENU_PRICES_UNAVAILABLE');
   const priceMap = Object.fromEntries(
     facilities.map((f) => {
       const prices = (allMenus || [])

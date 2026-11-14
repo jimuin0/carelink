@@ -86,7 +86,7 @@ export default async function CouponNotebookPage() {
                   <p className="font-bold text-sm mt-0.5">{coupon.name}</p>
                   {coupon.valid_until && (
                     <p className="text-xs text-gray-500 mt-1">
-                      有効期限: {new Date(coupon.valid_until).toLocaleDateString('ja-JP')}
+                      有効期限: {new Date(coupon.valid_until).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}
                     </p>
                   )}
                 </div>

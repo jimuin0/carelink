@@ -351,8 +351,8 @@ describe('/auth/signup', () => {
     submit();
 
     await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
-    // 呼ばれた引数まで検証する（redirect 未指定時の既定値 = DEFAULT_REDIRECT）。
-    expect(mockReplace).toHaveBeenCalledWith('/mypage');
+    // 呼ばれた引数まで検証する（redirect 未指定時は login と同じ /auth/landing＝店舗オーナーは /admin へ振り分く・監査 A190）。
+    expect(mockReplace).toHaveBeenCalledWith('/auth/landing');
     expect(mockRefresh).toHaveBeenCalledTimes(1);
   });
 
