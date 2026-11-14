@@ -256,19 +256,21 @@ async function patchImpl(request: NextRequest) {
   // If a booking_id is supplied, verify it belongs to this subscription's user and facility.
   // This prevents a user from "burning" a session without an actual booking.
   if (useParsed.data.booking_id) {
-    const { data: bk } = await admin
+    const { data: bk, error: bkError } = await admin
       .from('bookings')
       .select('id, user_id, facility_id')
       .eq('id', useParsed.data.booking_id)
       .maybeSingle();
+    if (bkError) return serverError('admin-user-subscriptions-booking-read', bkError, '/api/admin/user-subscriptions');
     if (!bk) {
       return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
     }
-    // Booking must belong to the subscription's user (self) or the same facility (admin recording)
+    // 予約は「契約者本人の」かつ「契約施設の」予約でなければならない。以前はどちらか一方で
+    // 通していたため、同じ施設の他人の予約IDで枠を消費記録できた（低 A136）。
     const subFacilityId = (sub.subscription_plans as { facility_id: string } | null)?.facility_id;
     const bookingOwnsUser = bk.user_id === sub.user_id;
     const bookingInFacility = subFacilityId ? bk.facility_id === subFacilityId : false;
-    if (!bookingOwnsUser && !bookingInFacility) {
+    if (!bookingOwnsUser || !bookingInFacility) {
       return NextResponse.json({ error: '予約がサブスクリプションと一致しません' }, { status: 400 });
     }
 

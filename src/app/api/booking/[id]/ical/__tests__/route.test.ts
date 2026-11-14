@@ -436,8 +436,10 @@ describe('GET /api/booking/[id]/ical', () => {
     expect(text).toContain('SUMMARY:Salon NoOptional - 施術');
     // No DTSTART / DTEND / LOCATION lines should be present
     // route は `DTSTART;TZID=...:` の形で出すため、'DTSTART:' の不在では何も確かめられない（点検 A71）。
-    expect(text).not.toMatch(/^DTSTART[;:]/m);
-    expect(text).not.toMatch(/^DTEND[;:]/m);
+    // VTIMEZONE の STANDARD にも DTSTART があるので、VEVENT の中だけを見る（低 A141）。
+    const event = text.slice(text.indexOf('BEGIN:VEVENT'));
+    expect(event).not.toMatch(/^DTSTART[;:]/m);
+    expect(event).not.toMatch(/^DTEND[;:]/m);
     expect(text).not.toContain('LOCATION:');
   });
 
@@ -525,4 +527,14 @@ test.each(['24:00', '24:00:00'])('iCal API normalizes midnight %s across a month
   expect(calendar).toContain('DTSTART;TZID=Asia/Tokyo:20300131T230000');
   expect(calendar).toContain('DTEND;TZID=Asia/Tokyo:20300201T000000');
   expect(calendar).not.toContain('T240000');
+});
+
+// 予約の状態を反映し、TZID には VTIMEZONE の定義を付ける（低 A140・A141）。
+test.each([['cancelled','CANCELLED'],['pending','TENTATIVE'],['confirmed','CONFIRMED'],['completed','CONFIRMED']])('booking status %s → STATUS:%s', async (status, expected) => {
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  createServiceRoleClient.mockReturnValue({from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:{id:BOOKING_UUID,user_id:'user-123',status,booking_date:'2030-01-31',start_time:'10:00:00',end_time:'11:00:00'},error:null})})})})});
+  const response=await GET(makeRequest() as any,{params:Promise.resolve({id:BOOKING_UUID})});
+  const calendar=await response.text();
+  expect(calendar).toContain(`STATUS:${expected}`);
+  expect(calendar).toMatch(/BEGIN:VTIMEZONE\r\nTZID:Asia\/Tokyo\r\n[\s\S]*TZOFFSETTO:\+0900[\s\S]*END:VTIMEZONE\r\nBEGIN:VEVENT/);
 });

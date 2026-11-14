@@ -91,12 +91,13 @@ export async function GET(request: Request) {
     .limit(20);
 
   if (reviewsErr) return serverError('admin-review-summary-fetch', reviewsErr, '/api/admin/review-summary');
-  if (!reviews || reviews.length < 3) {
+  // 本文が空の口コミを除いた後で件数を数える（除外前に数えると実質3件未満で要約し得た・低 A139）。
+  const withComment = (reviews ?? []).filter((r) => r.comment);
+  if (withComment.length < 3) {
     return NextResponse.json({ summary: null, reason: '口コミが少なすぎます（3件以上必要）' });
   }
 
-  const reviewText = reviews
-    .filter((r) => r.comment)
+  const reviewText = withComment
     .map((r, i) => `[${i + 1}] 総合${r.rating}点: ${sanitizeForPrompt(r.comment as string)}`)
     .join('\n');
 

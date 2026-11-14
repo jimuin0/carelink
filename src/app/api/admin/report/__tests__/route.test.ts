@@ -171,6 +171,8 @@ test('GET: Content-Disposition ヘッダーが filename 付き', async () => {
   const cd = res.headers.get('Content-Disposition');
   expect(cd).toContain('attachment');
   expect(cd).toContain('report_2026-01-01_2026-01-31.csv');
+  // 売上データはキャッシュさせない（低 A138）。
+  expect(res.headers.get('Cache-Control')).toBe('no-store');
 });
 
 test('GET: to === from（1日範囲）→ 200', async () => {

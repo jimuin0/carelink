@@ -100,6 +100,8 @@ export async function GET(request: NextRequest) {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="report_${from}_${to}.csv"`,
+      // 売上データを中間キャッシュ・ブラウザキャッシュに残さない（低 A138）。
+      'Cache-Control': 'no-store',
     },
   });
   } catch (error) {

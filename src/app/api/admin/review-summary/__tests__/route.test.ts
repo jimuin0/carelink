@@ -261,3 +261,13 @@ test.each(['auth-data-error', 'auth-null-error', 'auth-throw', 'member-data-erro
  expect(getMockCreate()).not.toHaveBeenCalled();
  expect(mockAdminFrom).not.toHaveBeenCalled();
 });
+
+// 本文が空の口コミを除いた件数で判定する（低 A139）。
+test('GET: 3件あるが1件は本文が空 → summary: null（要約しない）', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(reviewsChain([SAMPLE_REVIEWS[0], SAMPLE_REVIEWS[1], { ...SAMPLE_REVIEWS[2], comment: '' }]));
+  const res = await GET(makeRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.summary).toBeNull();
+});
