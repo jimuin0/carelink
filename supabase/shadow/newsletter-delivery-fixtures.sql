@@ -131,6 +131,31 @@ DROP TRIGGER synthetic_reject_token_mark ON public.email_unsubscribe_tokens;
 SET CONSTRAINTS guard_newsletter_send_operation IMMEDIATE;
 DO $$ BEGIN BEGIN UPDATE public.newsletter_campaigns SET status='draft' WHERE id='ed120000-0000-4000-8000-000000000001';SET CONSTRAINTS guard_newsletter_send_operation IMMEDIATE;RAISE EXCEPTION 'published reset passed';EXCEPTION WHEN check_violation THEN IF SQLERRM<>'NEWSLETTER_PUBLISHED_OPERATION_IMMUTABLE' THEN RAISE;END IF;END;END $$;
 DO $$ BEGIN BEGIN UPDATE public.newsletter_campaigns SET stats=stats||'{"accepted":999}'::jsonb WHERE id='ed120000-0000-4000-8000-000000000001';SET CONSTRAINTS guard_newsletter_send_operation IMMEDIATE;RAISE EXCEPTION 'false completion stats passed';EXCEPTION WHEN check_violation THEN IF SQLERRM<>'NEWSLETTER_LEDGER_STATE_MISMATCH' THEN RAISE;END IF;END;END $$;
+-- Regression (B9-5): permanent failures must not leave a campaign in 'sending' forever.
+-- Every recipient of the second campaign fails permanently; the campaign completes as 'sent'
+-- once all states are final, and the failures stay in stats (failed / bounced).
+DO $$ DECLARE audience text[]; links jsonb; q uuid; stamp timestamptz; n int; i int:=0; BEGIN
+ SELECT array_agg(email ORDER BY email),jsonb_object_agg(email,'https://carelink-jp.com/unsubscribe?n='||repeat('c',64)) INTO audience,links FROM public.newsletter_current_recipients('user_digest') email;
+ n:=cardinality(audience);
+ PERFORM pg_temp.assert_newsletter(n>=2,'failure fixture needs at least two recipients');
+ PERFORM public.publish_newsletter_send_operation('ed110000-0000-4000-8000-000000000001','ed120000-0000-4000-8000-000000000002','2026-10-09',audience,links,'CareLink <newsletter@carelink-jp.com>');
+ FOR q IN SELECT r.queue_id FROM public.newsletter_send_recipients r JOIN public.newsletter_send_operations o ON o.operation_id=r.operation_id
+   WHERE o.campaign_id='ed120000-0000-4000-8000-000000000002' ORDER BY r.email LOOP
+  stamp:=clock_timestamp();PERFORM pg_temp.claim_newsletter(q,stamp);
+  UPDATE public.webhook_retry_queue SET status='failed',processed_at=clock_timestamp(),last_error='synthetic permanent failure' WHERE id=q;
+  i:=i+1;
+  PERFORM pg_temp.assert_newsletter((SELECT state='failed' FROM public.newsletter_send_recipients WHERE queue_id=q),'permanent failure ledger');
+  IF i<n THEN
+   PERFORM pg_temp.assert_newsletter((SELECT status='sending' AND sent_at IS NULL AND (stats->>'failed')::int=i AND (stats->>'queued')::int=n-i
+    FROM public.newsletter_campaigns WHERE id='ed120000-0000-4000-8000-000000000002'),'unfinished recipients keep the campaign sending with exact delta counts');
+  END IF;
+ END LOOP;
+ PERFORM pg_temp.assert_newsletter((SELECT status='sent' AND sent_at IS NOT NULL AND (stats->>'failed')::int=n AND (stats->>'bounced')::int=n
+   AND (stats->>'accepted')::int=0 AND (stats->>'queued')::int=0 AND (stats->>'total')::int=n
+   FROM public.newsletter_campaigns WHERE id='ed120000-0000-4000-8000-000000000002'),'all-final campaign completes with failures recorded');
+ PERFORM pg_temp.assert_newsletter((SELECT c.stats->'failed'=public.newsletter_operation_receipt(c.id)->'failed' AND c.stats->'queued'=public.newsletter_operation_receipt(c.id)->'queued'
+   FROM public.newsletter_campaigns c WHERE c.id='ed120000-0000-4000-8000-000000000002'),'delta counters equal the ledger recount');
+END $$;
 SET CONSTRAINTS guard_newsletter_send_operation IMMEDIATE;
 SELECT 'newsletter publication/replay/provider/suppression/rejection/permissions/rollback checks passed';
 ROLLBACK;
