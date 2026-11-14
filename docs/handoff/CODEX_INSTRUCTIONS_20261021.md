@@ -1,7 +1,6 @@
 # Codex への引継ぎ指示書（2026-10-21 時点）
 
-Claude Code（2026-10-20〜21）から Codex へ戻すための指示書。Codex はこの文書を最初に読み、
-末尾の「Codex へ貼る依頼文」に従って作業を再開する。過去の経緯は [RESUME.md](../../RESUME.md)
+Claude Code（2026-10-20〜21）から Codex へ戻すための引継ぎ記録。末尾の依頼文と当時の環境・状態は履歴であり、現在の会話のGOAL、checkout、許可を上書きしない。現行の安全条件は引き続き守る。過去の経緯は [RESUME.md](../../RESUME.md)
 ・[HANDOFF_AUDIT.md](../../HANDOFF_AUDIT.md)・[AGENTS.md](../../AGENTS.md) にある。
 
 **2026-10-24 訂正**：下表 3 の「回答待ち」は古い。[PostGIS 実測と対応手順](POSTGIS_SECURITY_ADVISOR_20261024.md)を現在の正とする。
@@ -9,9 +8,7 @@ Claude Code（2026-10-20〜21）から Codex へ戻すための指示書。Codex
 
 ## 1. 現在地（2026-10-21 実測）
 
-本指示書のマージ後は main の HEAD と本番 version が `9ae6af7` から進む（docs だけでも production はビルドされるため）。
-再開時は `git log --oneline 9ae6af79..origin/main` が docs/handoff 変更だけであることと、本番 version が
-その HEAD と一致し `healthy` であることを確認する。食い違いがあればそれ自体を調べる。
+以下は 2026-10-21 の記録。以後アプリも更新されており、当時の HEAD と本番 version の一致を現在の前提にしない。配信確認が必要な作業では対象コミット、実際のビルド省略、公開 version と health を照合する。
 
 | 項目 | 値 |
 |---|---|
@@ -21,10 +18,8 @@ Claude Code（2026-10-20〜21）から Codex へ戻すための指示書。Codex
 | Render cron | PR #734 の 5 サービス集約は切替完了（10/19 05:57 UTC 頃）。旧サービスは suspend 済み |
 | 未マージ PR | #627（Stripe 依存更新。決済は保留のため触らない） |
 
-引継ぎ検証の注意：`python3 scripts/verify-handoff.py` は **main では必ず失敗する**
-（マニフェストは引継ぎコミット `447f71cb` 時点のファイル hash を固定しているため。コード変更後の
-main では `missing or modified` になる）。照合は `git worktree add --detach <空ディレクトリ> 447f71cb`
-で取り出して実行する（2026-10-21 実測で `Manifest verified: 1941 files`）。マニフェストは再生成しない。
+引継ぎ検証の注意：`python3 scripts/verify-handoff.py` は、マニフェストに記録されたファイルの hash と作業場所の内容を照合する。引継ぎコミット `447f71cb` の対象ファイルに後続変更があれば、main でも `missing or modified` になる。ブランチ名だけで結果を決めつけない。
+2026-10-21 の記録では `447f71cb` を別worktreeに取り出して `Manifest verified: 1941 files` と確認した。これは当時の結果であり、今回の照合結果ではない。マニフェストは再生成しない。
 
 ## 2. 引継ぎ以降にマージ・本番反映したもの
 
@@ -88,12 +83,13 @@ Stripe/決済（PR #627 含む）・キャンセル待ち・Google カレンダ�
     その後に migration を適用する。逆にすると、新しいアプリが配信されるまでの間、旧アプリが失敗する
     （例：`20261020150500` の anon 実行権の取り消しは、#745 の service role 呼び出しが配信される前だと空き枠 API が失敗し得る）。
   - 一度に両方が要る変更は、追加の migration → アプリ → 縮小の migration の段階に分ける。
-- **ブランチ保護**：必須チェックは Lint & Type Check / Unit Tests + Coverage / Security Audit。ブランチが最新であることが必要、
+- **ブランチ保護（2026-10-21 時点の記録）**：マージ時は現在の実設定を確認する。GitHub Actions が実行できない場合は、共通指示に従い対象PRの先頭コミットでローカル代替検証の全項目を実施する。未実行CIを成功扱いせず、実際の保護設定と権限を守る。
+  当時の必須チェックは Lint & Type Check / Unit Tests + Coverage / Security Audit。ブランチが最新であることが必要、
   レビュー会話の解決が必須。E2E は必須ではないが結果は必ず確認する。auto-merge は使わない。
 - **Codex レビューボット**（`chatgpt-codex-connector`）が P1/P2 を付ける。指摘は直してから返信し、GraphQL で解決済みにしないとマージできない。
 - **スキーマ指紋**：migration を足したら `src/lib/schema-fingerprint.expected.json` を再生成する。ローカルに PG17 が無ければ
   CI（`schema-fingerprint.yml`）の成果物 `schema-fingerprint-expected` を取り込む。`storage` スキーマは対象外。
-- docs だけの変更は Vercel のプレビュービルドが省かれる（`scripts/vercel-should-build.sh`）。production は常にビルドされる。
+- ビルド省略条件は現行の `scripts/vercel-should-build.sh` を参照する。前回成功配信以降の差分が安全対象のみなら production でも省略され得る。省略時は新しい配信物が作られたと扱わない。
 - 店舗オーナーとしての操作（写真登録など）はエージェントがパスワードを入力しない。本人にログインしてもらってから行う。
 - 本番での試験予約・試験送信・データ削除はしない。予約フローは確認画面まで（送信ボタンは押さない）で確認する。
 
@@ -115,7 +111,7 @@ from o;
 -- 2026-10-21: objects=65, unreferenced=64
 ```
 
-## Codex へ貼る依頼文
+## 当時 Codex へ貼る依頼文（履歴）
 
 ```text
 jimuin0/carelink の最新 main を取得し、docs/handoff/CODEX_INSTRUCTIONS_20261021.md を最初に読んでください。続けて RESUME.md・AGENTS.md・CLAUDE.md を読んでください。

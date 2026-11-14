@@ -1,5 +1,6 @@
 # CareLink: business timings remain in src/lib/cron-jobs.data.json.
 # Existing names retain environment bindings; removed services must be suspended
+# (carelink-cron-heartbeat was folded into carelink-health-check; delete that service)
 # after the coordinated CARELINK_CRON_DISPATCH_FROM cutover (see docs).
 
 services:
@@ -61,29 +62,12 @@ services:
       - fromGroup: carelink-cron-env
 
   - type: cron
-    name: carelink-cron-heartbeat
-    runtime: node
-    region: oregon
-    schedule: "7,37 * * * *"
-    buildCommand: echo "no build (Node 標準のみ)"
-    startCommand: node scripts/cron-call.mjs cron-heartbeat
-    buildFilter:
-      paths:
-        - scripts/**
-        - src/lib/cron-jobs.data.json
-        - src/lib/cron-dispatch.mjs
-        - src/lib/render-cron.mjs
-        - render.yaml
-        - package.json
-        - package-lock.json
-    envVars:
-      - fromGroup: carelink-cron-env
-
-  - type: cron
     name: carelink-health-check
     runtime: node
     region: oregon
-    schedule: "*/5 * * * *"
+    # Both monitors share this service (MONITOR_RUNNER in src/lib/cron-dispatch.mjs):
+    # the health probe on every tick, cron-heartbeat at its canonical 7,37 slots.
+    schedule: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
     buildCommand: echo "no build (Node 標準のみ)"
     startCommand: node scripts/health-check.mjs
     buildFilter:
