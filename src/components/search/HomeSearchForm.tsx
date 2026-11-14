@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { prefectures } from '@/lib/constants';
 import { analytics } from '@/lib/analytics';
+import { geoSearchPath } from '@/lib/geo-url-precision';
 import SearchSuggest from './SearchSuggest';
 import StationSearch from './StationSearch';
 
@@ -29,7 +30,9 @@ export default function HomeSearchForm() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setGeoLoading(false);
-        router.push(`/search?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`);
+        // URL は履歴・ログに残るため、座標は約1kmに丸めてから載せる
+        const path = geoSearchPath(pos.coords.latitude, pos.coords.longitude);
+        if (path) router.push(path);
       },
       () => setGeoLoading(false),
       { timeout: 10000 }
