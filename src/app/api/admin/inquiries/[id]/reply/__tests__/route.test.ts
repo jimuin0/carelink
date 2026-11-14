@@ -520,7 +520,7 @@ describe('POST /api/admin/inquiries/[id]/reply', () => {
 
   test('未認証・非admin・CSRF失敗では送信しない', async () => {
     mockAnonFrom.mockReturnValue(profileChain({ is_platform_admin: false, display_name: null }));
-    expect((await POST(makeRequest(), makeProps())).status).toBe(401);
+    expect((await POST(makeRequest(), makeProps())).status).toBe(403);
     mockAnonFrom.mockReturnValue(profileChain({ is_platform_admin: true, display_name: '運営担当' }));
     mockGetUser.mockResolvedValue({ data: { user: null } });
     expect((await POST(makeRequest(), makeProps())).status).toBe(401);
@@ -740,7 +740,7 @@ describe('GET /api/admin/inquiries/[id]/reply', () => {
     expect((await GET(new NextRequest('http://localhost/api/admin/inquiries/no/reply'), makeProps('no'))).status).toBe(400);
     mockAnonFrom.mockReturnValue(profileChain({ is_platform_admin: false, display_name: null }));
     const unauthorized = await GET(new NextRequest('http://localhost/api/admin/inquiries/' + INQUIRY_UUID + '/reply'), makeProps());
-    expect(unauthorized.status).toBe(401);
+    expect(unauthorized.status).toBe(403);
     expect(unauthorized.headers.get('Cache-Control')).toBe('no-store');
   });
 

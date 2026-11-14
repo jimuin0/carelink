@@ -121,7 +121,7 @@ test('PATCH: 非管理者 → 401 (IDOR防止)', async () => {
   mockAdminFrom.mockReturnValue(planChain(null)); // plan not found or no access
   mockAnonFrom.mockReturnValue(memberChain(null));
   const res = await PATCH(makeRequest('PATCH', { name: 'test' }), makeProps());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 // ─── PATCH: schema validation ─────────────────────────────────────────────────
@@ -357,7 +357,7 @@ test('DELETE: 非管理者 → 401', async () => {
   mockAdminFrom.mockReturnValue(planChain(null));
   mockAnonFrom.mockReturnValue(memberChain(null));
   const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('PATCH: x-forwarded-for ヘッダから IP 取得', async () => {
@@ -486,7 +486,7 @@ test('PATCH: plan 存在・facility_members null → verifyAdmin null → 401（
   mockAdminFrom.mockReturnValue(planChain({ facility_id: FACILITY_UUID }));
   mockAnonFrom.mockReturnValue(memberChain(null));
   const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 // Branch coverage: L97 — user_subscriptions count クエリ失敗 → 500

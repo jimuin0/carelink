@@ -69,7 +69,7 @@ test('RPC transport rejection is handled as failure without audit', async () => 
 test.each([null, { is_platform_admin: false }])('non-admin profile %j is forbidden', async data => {
   mockAnonFrom.mockReturnValue(chain(data)); expect((await PATCH(request(), props())).status).toBe(403); expect(mockAdminFrom).not.toHaveBeenCalled();
 });
-test('unauthenticated is forbidden', async () => { mockGetUser.mockResolvedValue({ data: { user: null } }); expect((await PATCH(request(), props())).status).toBe(403); });
+test('unauthenticated is 401', async () => { mockGetUser.mockResolvedValue({ data: { user: null } }); expect((await PATCH(request(), props())).status).toBe(401); });
 test('rate limited is 429', async () => { (checkRateLimit as jest.Mock).mockReturnValue(true); expect((await PATCH(request(), props())).status).toBe(429); });
 test('CSRF rejection is preserved', async () => { const response = new Response('csrf', { status: 403 }); (checkCsrf as jest.Mock).mockReturnValue(response); expect(await PATCH(request(), props())).toBe(response); });
 test('invalid route id is 400', async () => { expect((await PATCH(request(), props('bad-id'))).status).toBe(400); });

@@ -85,7 +85,7 @@ async function getImpl(request: NextRequest) {
   if (userId && !UUID_REGEX.test(userId)) return NextResponse.json({ error: 'Invalid user_id' }, { status: 400 });
 
   const isAdmin = await checkAdminMembership(supabase, user.id, facilityId);
-  if (!isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isAdmin) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   const admin = createServiceRoleClient();
   // profiles(display_name, email) を embed しない：user_subscriptions.user_id は auth.users(id) を参照し
@@ -136,7 +136,7 @@ async function postImpl(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
   const isAdmin = await checkAdminMembership(supabase, user.id, parsed.data.facility_id);
-  if (!isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isAdmin) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   // 付与先がこの店舗の予約者か・プランがこの店舗のものか・今も owner / admin かを、
   // RPC が INSERT と同じトランザクションで確かめる（src/lib/facility-customer-grant.ts）。
@@ -195,7 +195,7 @@ async function patchImpl(request: NextRequest) {
     if (!sub) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     const isAdmin = await checkAdminMembership(supabase, user.id, sub.facility_id);
-    if (!isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!isAdmin) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
     // 状態遷移ガード（SSOT）。現在の状態から到達不可能な遷移は弾く。無条件 update による
     // 不正な巻き戻し（例：解約→一時停止、期限切れ→契約中の無期限復活、同状態の無意味な再書込）を防ぐ。
@@ -251,7 +251,7 @@ async function patchImpl(request: NextRequest) {
   const facilityId = (sub.subscription_plans as { facility_id: string } | null)?.facility_id;
   const isAdminUser = facilityId ? await checkAdminMembership(supabase, user.id, facilityId) : false;
   const isOwner = sub.user_id === user.id;
-  if (!isOwner && !isAdminUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isOwner && !isAdminUser) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   if (sub.status !== 'active') return NextResponse.json({ error: 'サブスクリプションが有効ではありません' }, { status: 400 });
   if (sub.ends_at && new Date(sub.ends_at) < new Date()) return NextResponse.json({ error: '有効期限が切れています' }, { status: 400 });

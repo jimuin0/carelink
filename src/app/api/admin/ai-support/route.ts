@@ -57,7 +57,7 @@ async function checkSupportAccess(): Promise<NextResponse | null> {
       .limit(1)
       .maybeSingle();
     if (membershipError) return authUnavailable('admin-ai-support-access', '/api/admin/ai-support');
-    if (!mem) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!mem) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
     return null;
   } catch {
     return authUnavailable('admin-ai-support-access', '/api/admin/ai-support');

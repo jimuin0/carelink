@@ -81,8 +81,8 @@ test.each([
 
 test('revoked membership blocks reading and writing', async () => {
   membership.mockResolvedValue({ data: null, error: null });
-  expect((await GET(new NextRequest(url))).status).toBe(401);
-  expect((await PUT(put(body))).status).toBe(401);
+  expect((await GET(new NextRequest(url))).status).toBe(403);
+  expect((await PUT(put(body))).status).toBe(403);
   expect(read).not.toHaveBeenCalled(); expect(rpc).not.toHaveBeenCalled();
 });
 
@@ -106,7 +106,7 @@ test('csrf and rate-limit failures stop before authorization', async () => {
 });
 
 test('invalid facility and unavailable authentication stop before writing', async () => {
-  expect((await GET(new NextRequest('http://localhost/api/admin/special-hours?facility_id=bad'))).status).toBe(401);
+  expect((await GET(new NextRequest('http://localhost/api/admin/special-hours?facility_id=bad'))).status).toBe(403);
   getUser.mockResolvedValue({ data: { user: null }, error: { status: 503, message: 'unavailable' } });
   expect((await GET(new NextRequest(url))).status).toBe(503);
   expect((await PUT(put(body))).status).toBe(503);

@@ -94,13 +94,13 @@ test('PATCH: 不正なUUID → 400', async () => {
 test('PATCH: 非プラットフォーム管理者 → 401', async () => {
   mockAnonFrom.mockReturnValue(profileChain({ is_platform_admin: false }));
   const res = await PATCH(makeRequest(), makeProps());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('PATCH: profile が null → 401', async () => {
   mockAnonFrom.mockReturnValue(profileChain(null));
   const res = await PATCH(makeRequest(), makeProps());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('PATCH: 不正なticket_status → 400', async () => {

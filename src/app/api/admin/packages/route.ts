@@ -1,3 +1,4 @@
+import { adminUnauthenticated } from '@/lib/admin-denial';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -25,12 +26,12 @@ type AdminContext =
   | { userId: string; facilityId: string; response?: undefined }
   | { response: NextResponse };
 
-// 未認証・非メンバーは 401、DB 障害は 500（障害を 401 に化けさせない）
+// 未認証は 401・非メンバーは 403（点検 A205）、DB 障害は 500（障害を 401/403 に化けさせない）
 async function getAdminContext(request: NextRequest): Promise<AdminContext> {
-  const unauthorized = { response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
+  const unauthorized = { response: NextResponse.json({ error: '権限がありません' }, { status: 403 }) };
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return unauthorized;
+  if (!user) return { response: adminUnauthenticated() };
 
   const facilityId = request.nextUrl.searchParams.get('facility_id');
   if (!facilityId || !UUID_REGEX.test(facilityId)) return unauthorized;

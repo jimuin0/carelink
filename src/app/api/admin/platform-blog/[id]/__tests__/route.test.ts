@@ -93,10 +93,10 @@ beforeEach(() => {
 
 // ─── PATCH ────────────────────────────────────────────────────────────────────
 
-test('PATCH: 未認証 → 403', async () => {
+test('PATCH: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await PATCH(makePatchRequest({ title: '新しいタイトル' }), makeProps());
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(401);
 });
 
 test('PATCH: レートリミット → 429', async () => {
@@ -147,10 +147,10 @@ test('PATCH: 正常更新 → 200 with post', async () => {
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
 
-test('DELETE: 未認証 → 403', async () => {
+test('DELETE: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await DELETE(makeDeleteRequest(), makeProps());
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(401);
 });
 
 test('DELETE: 不正UUID → 400', async () => {

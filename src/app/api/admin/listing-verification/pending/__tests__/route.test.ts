@@ -1,10 +1,10 @@
 /** @jest-environment node */
 import { NextRequest,NextResponse } from 'next/server';
 import { GET } from '../route';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 jest.mock('@/lib/with-route',()=>({withRoute:(handler:(request:Request)=>Promise<Response>)=>handler}));
-jest.mock('@/lib/platform-admin',()=>({requirePlatformAdmin:jest.fn()}));
+jest.mock('@/lib/platform-admin',()=>({requirePlatformAdminApi:jest.fn()}));
 jest.mock('@/lib/supabase-server',()=>({createServiceRoleClient:jest.fn()}));
 
 const fid='11111111-1111-4111-8111-111111111111',did='22222222-2222-4222-8222-222222222222';
@@ -23,9 +23,9 @@ function setup(options:{ docs?:unknown; profiles?:unknown; approvals?:unknown; i
   jest.mocked(createServiceRoleClient).mockReturnValue({from,storage:{from:()=>({info})}} as never);
   return {chain,info};
 }
-beforeEach(()=>{jest.clearAllMocks();jest.mocked(requirePlatformAdmin).mockResolvedValue({id:fid} as never);});
+beforeEach(()=>{jest.clearAllMocks();jest.mocked(requirePlatformAdminApi).mockResolvedValue({id:fid} as never);});
 test('運営以外を拒否し、カーソルを検証する',async()=>{
-  jest.mocked(requirePlatformAdmin).mockResolvedValueOnce(null).mockResolvedValueOnce(NextResponse.json({}, {status:503}));
+  jest.mocked(requirePlatformAdminApi).mockResolvedValueOnce(NextResponse.json({ error: '権限がありません' }, { status: 403 })).mockResolvedValueOnce(NextResponse.json({}, {status:503}));
   expect((await GET(request())).status).toBe(403);
   expect((await GET(request())).status).toBe(503);
   expect((await GET(request('?time=invalid&id=bad'))).status).toBe(400);

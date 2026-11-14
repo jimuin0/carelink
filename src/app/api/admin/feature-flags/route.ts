@@ -6,7 +6,7 @@ import { writePlatformControl, platformControlResponse } from '@/lib/platform-co
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -23,9 +23,8 @@ async function handleGET(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const adminUser = await requirePlatformAdmin();
+  const adminUser = await requirePlatformAdminApi();
   if (adminUser instanceof NextResponse) return adminUser;
-  if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const { ab } = Object.fromEntries(request.nextUrl.searchParams);
 
@@ -65,9 +64,8 @@ async function handlePOST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const adminUser = await requirePlatformAdmin();
+  const adminUser = await requirePlatformAdminApi();
   if (adminUser instanceof NextResponse) return adminUser;
-  if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await request.json().catch(() => null);
   const parsed = flagCreateSchema.safeParse(body);

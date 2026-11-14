@@ -21,7 +21,7 @@ const updateSchema = z.object({
   sort_order: z.number().int().optional(),
 });
 
-/** 権限確認。null＝権限なし（401）。DB 障害は 500 の応答を返す（中 A12）。 */
+/** 権限確認。null＝権限なし（403）。DB 障害は 500 の応答を返す（中 A12）。 */
 async function verifyAdmin(planId: string, userId: string): Promise<string | NextResponse | null> {
   const admin = createServiceRoleClient();
   const { data: plan, error: planError } = await admin.from('subscription_plans').select('facility_id').eq('id', planId).single();
@@ -58,7 +58,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   const facilityId = await verifyAdmin(params.id, user.id);
   if (facilityId instanceof NextResponse) return facilityId;
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!facilityId) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   const body = await request.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
@@ -100,7 +100,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   const facilityId = await verifyAdmin(params.id, user.id);
   if (facilityId instanceof NextResponse) return facilityId;
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!facilityId) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   const admin = createServiceRoleClient();
 

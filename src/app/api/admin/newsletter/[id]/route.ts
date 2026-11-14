@@ -7,7 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { serverError } from '@/lib/with-route';
 import { inspectNewsletterOperation, publishNewsletterOperation, NewsletterSendError } from '@/lib/newsletter-send';
 
@@ -26,9 +26,8 @@ async function handlePATCH(req: NextRequest, props: { params: Promise<{ id: stri
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
-  const user = await requirePlatformAdmin();
+  const user = await requirePlatformAdminApi();
   if (user instanceof NextResponse) return user;
-  if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json().catch(() => null);
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });

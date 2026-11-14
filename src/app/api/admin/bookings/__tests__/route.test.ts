@@ -81,7 +81,7 @@ test.each(['returned', 'thrown', 'error-and-user'])('認証確認不能 %s は50
 });
 test('非管理者は401、所属確認障害は500で正常や非所属に変換しない', async () => {
   mockFrom.mockReturnValueOnce(member(null));
-  expect((await POST(request(body()) as never)).status).toBe(401);
+  expect((await POST(request(body()) as never)).status).toBe(403);
   mockFrom.mockReturnValueOnce(member(null, { message: 'DB unavailable' }));
   expect((await POST(request(body()) as never)).status).toBe(500);
   expect(mockRpc).not.toHaveBeenCalled();

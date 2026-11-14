@@ -1,3 +1,4 @@
+import { adminUnauthenticated } from '@/lib/admin-denial';
 import { readAuthorization } from '@/lib/authorization-read';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
@@ -103,11 +104,11 @@ const statusSchema = z.object({
   status: z.enum(['draft', 'published', 'suspended']),
 });
 
-async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | 'unavailable' | null> {
+async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | 'unavailable' | 'unauthenticated' | null> {
   const supabase = await createServerSupabaseAuthClient();
   const verification = await verifyAuthUser(supabase.auth);
   if (verification.state === 'unavailable') return 'unavailable';
-  if (verification.state !== 'verified') return null;
+  if (verification.state !== 'verified') return 'unauthenticated';
   const user = verification.user;
 
   const facilityId = request.nextUrl.searchParams.get('facility_id');
@@ -149,7 +150,8 @@ async function patchSettings(request: NextRequest) {
 
   const auth = await getAdminInfo(request);
   if (auth === 'unavailable') return authUnavailable('admin-settings-auth', '/api/admin/settings');
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (auth === 'unauthenticated') return adminUnauthenticated();
+  if (!auth) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   const body = await request.json().catch(() => null);
 

@@ -173,7 +173,7 @@ test('GET: 不正なfacility_id UUID → 400', async () => {
 test('GET: 非管理者 → 401 (IDOR防止)', async () => {
   mockAnonFrom.mockReturnValue(memberChain(null));
   const res = await GET(makeGetRequest());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('GET: 管理者 → 200 with subscriptions', async () => {
@@ -273,7 +273,7 @@ test('POST: 不正ボディ → 400', async () => {
 test('POST: 非管理者 → 401', async () => {
   mockAnonFrom.mockReturnValue(memberChain(null));
   const res = await POST(makePostRequest());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('POST: プランが見つからない → 404', async () => {
@@ -690,7 +690,7 @@ test('PATCH: ステータス変更で非管理者 → 401', async () => {
   });
   mockAnonFrom.mockReturnValue(memberChain(null)); // not admin
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, status: 'paused' }));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 // ─── PATCH: session use additional branches ───────────────────────────────────
@@ -707,7 +707,7 @@ test('PATCH: 本人でも管理者でもない → 401', async () => {
   mockAnonFrom.mockReturnValue(memberChain(null)); // not admin
   mockAdminFrom.mockReturnValue(singleChain(buildActiveSub()));
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('PATCH: booking_id が存在しない → 404', async () => {
@@ -792,7 +792,7 @@ test('PATCH: subscription_plans null (facilityId=null) かつ本人でない →
     subscription_plans: null,
   })));
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('PATCH: PATCH 不正ボディ (JSON パース失敗) → 400', async () => {

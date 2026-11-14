@@ -99,10 +99,10 @@ beforeEach(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
 });
 
-test('PATCH: 未認証 → 403', async () => {
+test('PATCH: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await PATCH(makeRequest({ status: 'approved' }), makeProps());
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(401);
 });
 test.each([{ status: 'approved' }, { action: 'unclaim' }])('Auth outage cannot review or release a claim %#', async body => {
   mockGetUser.mockResolvedValue({ data: { user: null }, error: new AuthRetryableFetchError('synthetic-private', 503) });
@@ -241,10 +241,10 @@ test('PATCH unclaim: 非プラットフォーム管理者 → 403（claim は焼
   expect(chain.update).not.toHaveBeenCalled();
 });
 
-test('PATCH unclaim: 未認証 → 403', async () => {
+test('PATCH unclaim: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await PATCH(makeRequest({ action: 'unclaim' }), makeProps());
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(401);
 });
 
 test('PATCH unclaim: 存在しない登録 → 404', async () => {

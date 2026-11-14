@@ -94,7 +94,7 @@ test('GET: レートリミット → 429', async () => {
 test('GET: 非管理者 → 401', async () => {
   mockAnonFrom.mockReturnValue(memberSingle(null));
   const res = await GET(makeGetRequest());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 
@@ -141,13 +141,13 @@ test('GET: レスポンスが { menus: [] } 形式', async () => {
 
 test('GET: facility_id クエリなし → 401', async () => {
   const res = await GET(makeGetRequest(null));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 
 test('GET: facility_id が不正UUID → 401', async () => {
   const res = await GET(makeGetRequest('bad-uuid'));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { withRoute } from '@/lib/with-route';
 import { isMissingSalonPhoto } from '@/lib/salon-photo-contract';
@@ -16,9 +16,8 @@ const cursor = z.object({ time:z.string().regex(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d
 
 /** Only actually uploaded documents appear; a prepared upload is not a submission. */
 export const GET = withRoute(async request => {
-  const user=await requirePlatformAdmin();
+  const user = await requirePlatformAdminApi();
   if (user instanceof NextResponse) return user;
-  if (!user) return NextResponse.json({ error:'権限がありません' },{ status:403,headers });
   const params=new URL(request.url).searchParams;
   const rawTime=params.get('time'),rawId=params.get('id');
   const next=rawTime || rawId ? cursor.safeParse({time:rawTime,id:rawId}) : null;

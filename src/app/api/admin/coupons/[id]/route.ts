@@ -85,7 +85,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     catch(error){return serverError('admin-coupons-access',error,'/api/admin/coupons/[id]');}
   }
   if (facilityId === COUPON_NOT_FOUND) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!facilityId) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   const body = await request.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
@@ -103,7 +103,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     p_actor_id:user.id,p_facility_id:facilityId,p_coupon_id:params.id,p_operation_id:operationId,p_kind:'update',
     p_fields:couponFields,p_target_menu_ids:targetMenuIds ?? null,
   });
-  if(error?.code==='42501')return NextResponse.json({error:'Unauthorized'},{status:401});
+  if(error?.code==='42501')return NextResponse.json({ error: '権限がありません' }, { status: 403 });
   if(error?.code==='22023')return NextResponse.json({error:'クーポンまたは対象メニューが不正です'},{status:400});
   if(error?.code==='23505')return NextResponse.json({error:'この操作は別の入力で保存済みです。一覧で保存内容を確認してください。'},{status:409});
   if(error?.code==='P0002')return NextResponse.json({error:'この操作のクーポンは削除済みです。一覧で確認してください。'},{status:410});
@@ -152,7 +152,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     catch(error){return serverError('admin-coupons-access',error,'/api/admin/coupons/[id]');}
   }
   if (facilityId === COUPON_NOT_FOUND) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!facilityId) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   const admin = createServiceRoleClient();
 
@@ -162,7 +162,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     p_actor_id:user.id,p_facility_id:facilityId,p_coupon_id:params.id,p_operation_id:operationId,p_kind:'retire',
     p_fields:{},p_target_menu_ids:null,
   });
-  if(error?.code==='42501')return NextResponse.json({error:'Unauthorized'},{status:401});
+  if(error?.code==='42501')return NextResponse.json({ error: '権限がありません' }, { status: 403 });
   if(error?.code==='23505')return NextResponse.json({error:'この操作は別の内容で処理済みです。一覧で確認してください。'},{status:409});
   if(error)return serverError('admin-coupons-retire',databaseDiagnostic(error),'/api/admin/coupons/[id]');
   if(raw===null)return NextResponse.json({error:'クーポンが見つかりません'},{status:404});

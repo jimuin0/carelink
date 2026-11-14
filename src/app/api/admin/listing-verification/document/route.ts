@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { readListingEvidence } from '@/lib/listing-verification-review';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { withRoute } from '@/lib/with-route';
@@ -12,9 +12,8 @@ const ids = z.object({ facilityId:z.uuid(),documentId:z.uuid() }).strict();
 const noStore = { 'Cache-Control':'no-store' };
 
 export const GET = withRoute(async request => {
-  const user = await requirePlatformAdmin();
+  const user = await requirePlatformAdminApi({ headers: noStore });
   if (user instanceof NextResponse) return user;
-  if (!user) return NextResponse.json({ error:'権限がありません' },{ status:403,headers:noStore });
   const query = new URL(request.url).searchParams;
   const input = ids.safeParse({ facilityId:query.get('facility_id'),documentId:query.get('document_id') });
   if (!input.success) return NextResponse.json({ error:'書類を確認できません' },{ status:400,headers:noStore });

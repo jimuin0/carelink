@@ -1,11 +1,11 @@
 /** @jest-environment node */
 import { NextRequest, NextResponse } from 'next/server';
 import { POST } from '../route';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { approveListingEvidence } from '@/lib/listing-verification-review';
 
 jest.mock('@/lib/with-route', () => ({ withRoute:(handler:(request:Request)=>Promise<Response>)=>handler }));
-jest.mock('@/lib/platform-admin', () => ({ requirePlatformAdmin:jest.fn() }));
+jest.mock('@/lib/platform-admin', () => ({ requirePlatformAdminApi:jest.fn() }));
 jest.mock('@/lib/listing-verification-review', () => ({ ...jest.requireActual('@/lib/listing-verification-review'),approveListingEvidence:jest.fn() }));
 jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient:()=>({}) }));
 jest.mock('@/lib/rate-limit', () => ({ mutationRateLimit:{} }));
@@ -14,10 +14,10 @@ const input={ facilityId:'22222222-2222-4222-8222-222222222222',documentIds:['33
   expectedIdentity:{ name:'合成店舗',prefecture:'大阪府',city:'大阪市',address:'合成1' },documentVerified:true,authorityVerified:true };
 const request=(body:unknown)=>new NextRequest('http://localhost/api/admin/listing-verification/approve',
   { method:'POST',headers:{ 'content-type':'application/json' },body:JSON.stringify(body) });
-beforeEach(()=>{ jest.clearAllMocks(); (requirePlatformAdmin as jest.Mock).mockResolvedValue({ id:actor }); });
+beforeEach(()=>{ jest.clearAllMocks(); (requirePlatformAdminApi as jest.Mock).mockResolvedValue({ id:actor }); });
 
 test('運営管理者以外は承認できない',async()=>{
-  (requirePlatformAdmin as jest.Mock).mockResolvedValueOnce(null).mockResolvedValueOnce(NextResponse.json({}, { status:503 }));
+  (requirePlatformAdminApi as jest.Mock).mockResolvedValueOnce(NextResponse.json({ error: '権限がありません' }, { status: 403 })).mockResolvedValueOnce(NextResponse.json({}, { status:503 }));
   expect((await POST(request(input))).status).toBe(403);
   expect((await POST(request(input))).status).toBe(503);
   expect(approveListingEvidence).not.toHaveBeenCalled();

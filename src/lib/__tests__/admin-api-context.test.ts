@@ -81,7 +81,7 @@ test('schedule context verifies the requested staff only after membership', asyn
   expect(mockServiceFrom).toHaveBeenCalledWith('staff_profiles');
 });
 test.each([null, '', 'malformed'])('missing or malformed selection is denied before membership %#', async selected => {
-  await expectStatus(getAdminApiContext(request('POST', selected)), 401);
+  await expectStatus(getAdminApiContext(request('POST', selected)), 403);
   expect(mockAuthFrom).not.toHaveBeenCalled();
   expect(mockServiceClient).not.toHaveBeenCalled();
 });
@@ -100,7 +100,7 @@ test('membership is checked for the requested store, not for whichever store the
 });
 test('a missing membership is denied without service access', async () => {
   mockMembership.mockResolvedValue({ data: null, error: null });
-  await expectStatus(getAdminApiContext(request()), 401);
+  await expectStatus(getAdminApiContext(request()), 403);
   expect(mockServiceClient).not.toHaveBeenCalled();
 });
 test('a mismatched membership cannot redirect the selected facility', async () => {
@@ -110,7 +110,7 @@ test('a mismatched membership cannot redirect the selected facility', async () =
 });
 test.each([null, { id: facilityId }])('missing or mismatched staff never grants a schedule context %#', async data => {
   mockStaff.mockResolvedValue({ data, error: null });
-  await expectStatus(getAdminApiContext(request(), staffId), data === null ? 401 : 503);
+  await expectStatus(getAdminApiContext(request(), staffId), data === null ? 403 : 503);
 });
 test('creating the auth client may fail without granting access', async () => {
   mockAuthClient.mockRejectedValue(new Error('synthetic failure'));
@@ -148,7 +148,7 @@ test.each(routes)('%s rejects ambiguous identity and membership before service a
 });
 test.each(routes)('%s refuses a store the user does not manage before any write', async (_name, method, handler) => {
   mockMembership.mockResolvedValue({ data: null, error: null });
-  await expectStatus(handler(request(method), { params: Promise.resolve({ id: staffId }) }), 401);
+  await expectStatus(handler(request(method), { params: Promise.resolve({ id: staffId }) }), 403);
   expect(mockServiceClient).not.toHaveBeenCalled();
 });
 test.each(routes.filter(route => route[3]))('%s refuses ambiguous staff before schedule mutations', async (_name, method, handler) => {

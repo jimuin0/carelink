@@ -59,7 +59,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   const facilityId = await verifyCatalogAdmin(params.id, user.id);
   if (facilityId instanceof NextResponse) return facilityId;
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!facilityId) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   const body = await request.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
@@ -104,7 +104,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   const facilityId = await verifyCatalogAdmin(params.id, user.id);
   if (facilityId instanceof NextResponse) return facilityId;
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!facilityId) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   const data = await manageAdminContent({actorId:user.id,facilityId,recordId:params.id,kind:'catalog:delete',values:{}});
   if (data instanceof NextResponse) return data;

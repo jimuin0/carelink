@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     .in('role', ['owner', 'admin'])
     .single();
   if (membershipError && membershipError.code !== 'PGRST116') return serverError('admin-user-packages-membership', membershipError, '/api/admin/user-packages');
-  if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!membership) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   const admin = createServiceRoleClient();
   // profiles(display_name, email) を PostgREST embed しない：user_packages.user_id は auth.users(id) を
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
     .in('role', ['owner', 'admin'])
     .single();
   if (membershipError && membershipError.code !== 'PGRST116') return serverError('admin-user-packages-membership', membershipError, '/api/admin/user-packages');
-  if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!membership) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   // 付与先がこの店舗の予約者か・回数券がこの店舗のものか・今も owner / admin かを、
   // RPC が INSERT と同じトランザクションで確かめる（src/lib/facility-customer-grant.ts）。
@@ -181,7 +181,7 @@ export async function PATCH(request: NextRequest) {
     if (mError && mError.code !== 'PGRST116') return serverError('admin-user-packages-membership', mError, '/api/admin/user-packages');
     isAdmin = !!m;
   }
-  if (!isOwner && !isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isOwner && !isAdmin) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
   // 早期リターン用の事前チェック（UX目的・非決定的な多層防御の一部）。読み取り時点の値に基づく
   // ため TOCTOU の余地はあるが、真の冪等性・原子性は下の RPC 内部（行ロック配下）が担保する。

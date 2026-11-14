@@ -106,7 +106,7 @@ test('GET: レートリミット → 429', async () => {
 test('GET: 非管理者 → 401', async () => {
   mockAnonFrom.mockReturnValue(memberSingle(null));
   const res = await GET(makeGetRequest());
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('GET: 正常取得 → 200 with plans', async () => {
@@ -129,7 +129,7 @@ test('POST: 未認証 → 401', async () => {
 test('POST: 非管理者 → 401', async () => {
   mockAnonFrom.mockReturnValue(memberSingle(null));
   const res = await POST(makePostRequest(validBody()));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('POST: sessions_per_month が 0 → 400', async () => {
@@ -247,12 +247,12 @@ test('GET: レスポンスが { plans: [] } 形式', async () => {
 
 test('GET: facility_id クエリなし → 401', async () => {
   const res = await GET(makeGetRequest(null));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('GET: facility_id 不正UUID → 401', async () => {
   const res = await GET(makeGetRequest('bad-uuid'));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('POST: レートリミット → 429', async () => {

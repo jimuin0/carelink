@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
       .select('facility_id').eq('user_id', user.id).eq('facility_id', d.facility_id)
       .in('role', ['owner', 'admin']).maybeSingle();
     if (memberError) return serverError('admin-bookings-membership', memberError, '/api/admin/bookings', '権限の確認に失敗しました');
-    if (!member) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!member) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
     // Price, current authorization, reservation, all menus and immutable
     // operation record are committed together. A retry does not create again.
     const { data, error } = await createServiceRoleClient().rpc('create_manual_booking_atomic', {

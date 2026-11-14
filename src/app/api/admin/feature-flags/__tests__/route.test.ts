@@ -90,10 +90,10 @@ beforeEach(() => {
 
 // ─── GET ──────────────────────────────────────────────────────────────────────
 
-test('GET: 未認証 → 403', async () => {
+test('GET: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await GET(makeGetRequest());
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(401);
 });
 
 test('GET: レートリミット → 429', async () => {
@@ -141,10 +141,10 @@ test('GET: ab 指定なし → 絞り込みをしない', async () => {
 
 // ─── POST ─────────────────────────────────────────────────────────────────────
 
-test('POST: 未認証 → 403', async () => {
+test('POST: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await POST(makePostRequest({ key: 'test_flag' }));
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(401);
 });
 
 test('POST: 一般ユーザー → 403', async () => {

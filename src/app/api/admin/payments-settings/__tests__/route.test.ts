@@ -85,13 +85,13 @@ test('PATCH: レートリミット → 429', async () => {
 
 test('PATCH: facility_id なし → 401', async () => {
   const res = await PATCH(makeRequest({ deposit_type: 'none', deposit_amount: 0 }, null));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('PATCH: 非管理者 → 401', async () => {
   mockAnonFrom.mockReturnValue(memberSingle(null));
   const res = await PATCH(makeRequest({ deposit_type: 'none', deposit_amount: 0 }));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('PATCH: 不正な deposit_type → 400', async () => {

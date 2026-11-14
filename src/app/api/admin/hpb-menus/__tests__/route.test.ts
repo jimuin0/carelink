@@ -89,16 +89,16 @@ test('GET: 未認証 → 401', async () => {
 });
 
 test('GET: facility_id なし → 401', async () => {
-  expect((await GET(makeReq('GET', null))).status).toBe(401);
+  expect((await GET(makeReq('GET', null))).status).toBe(403);
 });
 
 test('GET: 不正UUID → 401', async () => {
-  expect((await GET(makeReq('GET', 'bad'))).status).toBe(401);
+  expect((await GET(makeReq('GET', 'bad'))).status).toBe(403);
 });
 
 test('GET: 非メンバー → 401', async () => {
   mockAnonFrom.mockReturnValue(memberSingle(null));
-  expect((await GET(makeReq('GET'))).status).toBe(401);
+  expect((await GET(makeReq('GET'))).status).toBe(403);
 });
 
 test('GET: listHpbMenus が null → 500', async () => {
@@ -132,7 +132,7 @@ test('POST: rate limit → 429', async () => {
 
 test('POST: 非メンバー → 401', async () => {
   mockAnonFrom.mockReturnValue(memberSingle(null));
-  expect((await POST(makeReq('POST'))).status).toBe(401);
+  expect((await POST(makeReq('POST'))).status).toBe(403);
 });
 
 test('POST: hpb_sln_id 未設定 → 400', async () => {
@@ -240,7 +240,7 @@ test('PUT: rate limit → 429', async () => {
 
 test('PUT: 非メンバー → 401', async () => {
   mockAnonFrom.mockReturnValue(memberSingle(null));
-  expect((await PUT(makeBodyReq('PUT', { hpb_sln_id: 'H1' }))).status).toBe(401);
+  expect((await PUT(makeBodyReq('PUT', { hpb_sln_id: 'H1' }))).status).toBe(403);
 });
 
 test('PUT: 不正な店舗ID(記号) → 400', async () => {
@@ -293,7 +293,7 @@ test('PATCH: rate limit → 429', async () => {
 
 test('PATCH: 非メンバー → 401', async () => {
   mockAnonFrom.mockReturnValue(memberSingle(null));
-  expect((await PATCH(makeBodyReq('PATCH', { ref_id: 'CP1', is_hidden: true }))).status).toBe(401);
+  expect((await PATCH(makeBodyReq('PATCH', { ref_id: 'CP1', is_hidden: true }))).status).toBe(403);
 });
 
 test('PATCH: 不正body(ref_id無し) → 400', async () => {

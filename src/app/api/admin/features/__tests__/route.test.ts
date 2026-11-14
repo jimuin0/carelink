@@ -87,13 +87,13 @@ test('POST: レートリミット → 429', async () => {
 test('POST: is_platform_admin=false → 401', async () => {
   mockAnonFrom.mockReturnValue(profileChain(false));
   const res = await POST(makeRequest(validBody()));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('POST: profileレコードなし → 401', async () => {
   mockAnonFrom.mockReturnValue(profileChain(null));
   const res = await POST(makeRequest(validBody()));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('POST: title が空 → 400', async () => {

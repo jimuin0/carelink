@@ -3,7 +3,7 @@ import { writePlatformEditor } from '@/lib/platform-editor-write';
 import { platformControlResponse } from '@/lib/platform-control-write';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
@@ -47,9 +47,8 @@ async function handlePATCH(request: NextRequest, props: { params: Promise<{ id: 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
   // feature_articles はサイトワイドコンテンツ(facility_idを持たない) — プラットフォーム管理者のみ編集可（監査A6b）
-  const user = await requirePlatformAdmin();
+  const user = await requirePlatformAdminApi();
   if (user instanceof NextResponse) return user;
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const userId = user.id;
 
   const body = await request.json().catch(() => null);
@@ -129,9 +128,8 @@ async function handleDELETE(request: NextRequest, props: { params: Promise<{ id:
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const user = await requirePlatformAdmin();
+  const user = await requirePlatformAdminApi();
   if (user instanceof NextResponse) return user;
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const userId = user.id;
 
   // 【2026年7月10日 恒久根治】削除件数を検証せず常に成功を返していたため、存在しないIDの

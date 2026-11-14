@@ -1,15 +1,15 @@
 /** @jest-environment node */
 import { NextRequest,NextResponse } from 'next/server';
 import { GET } from '../route';
-import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { requirePlatformAdminApi } from '@/lib/platform-admin';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 jest.mock('@/lib/with-route',()=>({ withRoute:(handler:(request:Request)=>Promise<Response>)=>handler }));
-jest.mock('@/lib/platform-admin',()=>({ requirePlatformAdmin:jest.fn() }));
+jest.mock('@/lib/platform-admin',()=>({ requirePlatformAdminApi:jest.fn() }));
 jest.mock('@/lib/supabase-server',()=>({ createServiceRoleClient:jest.fn() }));
 const req=(q:string)=>new NextRequest(`http://localhost/api/admin/listing-verification/facilities?q=${encodeURIComponent(q)}`);
-beforeEach(()=>{ jest.clearAllMocks(); jest.mocked(requirePlatformAdmin).mockResolvedValue({ id:'11111111-1111-4111-8111-111111111111' } as never); });
+beforeEach(()=>{ jest.clearAllMocks(); jest.mocked(requirePlatformAdminApi).mockResolvedValue({ id:'11111111-1111-4111-8111-111111111111' } as never); });
 test('運営以外の検索と短すぎる検索を拒否する',async()=>{
-  jest.mocked(requirePlatformAdmin).mockResolvedValueOnce(null).mockResolvedValueOnce(NextResponse.json({}, { status:503 }));
+  jest.mocked(requirePlatformAdminApi).mockResolvedValueOnce(NextResponse.json({ error: '権限がありません' }, { status: 403 })).mockResolvedValueOnce(NextResponse.json({}, { status:503 }));
   expect((await GET(req('店舗'))).status).toBe(403);
   expect((await GET(req('店舗'))).status).toBe(503);
   expect((await GET(req('店'))).status).toBe(400);

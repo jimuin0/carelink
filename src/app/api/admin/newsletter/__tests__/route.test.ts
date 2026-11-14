@@ -96,10 +96,10 @@ beforeEach(() => {
 
 // ─── GET ──────────────────────────────────────────────────────────────────────
 
-test('GET: 未認証 → 403', async () => {
+test('GET: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await GET(makeGetRequest());
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(401);
 });
 
 test('GET: レートリミット → 429', async () => {
@@ -125,10 +125,10 @@ test('GET: 正常取得 → 200 with campaigns', async () => {
 
 // ─── POST ─────────────────────────────────────────────────────────────────────
 
-test('POST: 未認証 → 403', async () => {
+test('POST: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await POST(makePostRequest(validPostBody()));
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(401);
 });
 
 test('POST: レートリミット → 429', async () => {

@@ -1,3 +1,4 @@
+import { adminForbidden, adminUnauthenticated } from '@/lib/admin-denial';
 import { writePlatformControl, platformControlResponse } from '@/lib/platform-control-write';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPlatformSupportUser } from '@/lib/platform-support-auth';
@@ -37,7 +38,8 @@ async function handlePATCH(request: NextRequest, props: { params: Promise<{ id: 
 
   const verification = await verifyPlatformSupportUser();
   if (verification.state === 'unavailable') return authUnavailable('admin-inquiries-patch', '/api/admin/inquiries/[id]');
-  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (verification.state === 'unauthenticated') return adminUnauthenticated();
+  if (verification.state !== 'verified') return adminForbidden();
   const adminUserId = verification.user.id;
 
   const body = await request.json().catch(() => null);

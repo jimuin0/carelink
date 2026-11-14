@@ -47,7 +47,7 @@ test('platform drafts, guide failures and revoked writes stay scoped to owned fi
   const removedGbp=await db.from('gbp_posts').select('id').eq('id',gbpId);expect(removedGbp.error).toBeNull();expect(removedGbp.data).toEqual([]);
   const featureList=await page.request.get('/api/admin/features');expect(featureList.status()).toBe(200);expect((await featureList.json()).features.some((f:{id:string})=>f.id===feature.id)).toBe(true);
   expect((await db.from('profiles').update({is_platform_admin:false}).eq('id',actor)).error).toBeNull();
-  const denied=await page.request.patch(`/api/admin/features/${feature.id}`,{headers,data:{is_active:true}});expect(denied.status()).toBe(401);
+  const denied=await page.request.patch(`/api/admin/features/${feature.id}`,{headers,data:{is_active:true}});expect(denied.status()).toBe(403);expect(await denied.json()).toMatchObject({error:'権限がありません'});
   const unchanged=await db.from('feature_articles').select('is_active').eq('id',feature.id).single();expect(unchanged.error).toBeNull();expect(unchanged.data?.is_active).toBe(false);
   expect((await db.from('profiles').update({is_platform_admin:true}).eq('id',actor)).error).toBeNull();
   expect((await page.request.delete(`/api/admin/features/${feature.id}`,{headers})).status()).toBe(200);

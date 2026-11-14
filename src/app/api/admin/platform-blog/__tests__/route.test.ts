@@ -71,10 +71,10 @@ beforeEach(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
 });
 
-test('POST: 未認証 → 403', async () => {
+test('POST: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await POST(makeRequest(validBody()));
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(401);
 });
 
 test('POST: レートリミット → 429', async () => {

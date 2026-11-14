@@ -89,13 +89,13 @@ test('POST: レートリミット → 429', async () => {
 
 test('POST: facility_id なし → 401', async () => {
   const res = await POST(makeRequest(validBody(), null));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('POST: 非管理者 → 401 (IDOR防止)', async () => {
   mockAnonFrom.mockReturnValue(memberSingle(null));
   const res = await POST(makeRequest(validBody()));
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('POST: name が空 → 400', async () => {
@@ -208,7 +208,7 @@ test('POST: facility_id が不正UUID → 401', async () => {
     body: JSON.stringify(validBody()),
   });
   const res = await POST(req);
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(403);
 });
 
 test('POST: writeAuditLog が呼ばれる', async () => {

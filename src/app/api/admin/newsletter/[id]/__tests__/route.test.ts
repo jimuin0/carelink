@@ -1,23 +1,24 @@
 /** @jest-environment node */
+import { NextResponse } from 'next/server';
 import { legacyEditorRpc, type EditorArgs } from '@/test-utils/platform-editor-rpc';
 
 jest.mock('@/lib/csrf',()=>({checkCsrf:jest.fn(()=>null)}));
 jest.mock('@/lib/rate-limit',()=>({checkRateLimit:jest.fn(()=>false)}));
-jest.mock('@/lib/platform-admin',()=>({requirePlatformAdmin:jest.fn(()=>({id:'e1000000-0000-4000-8000-000000000002'}))}));
+jest.mock('@/lib/platform-admin',()=>({requirePlatformAdminApi:jest.fn(()=>({id:'e1000000-0000-4000-8000-000000000002'}))}));
 jest.mock('@/lib/audit-logger',()=>({writeAuditLog:jest.fn(),getRequestContext:()=>({})}));
 const mockFrom=jest.fn();
 const mockRpc=jest.fn((_name:string,args:EditorArgs)=>legacyEditorRpc(mockFrom,args));jest.mock('@/lib/supabase-server',()=>({createServiceRoleClient:()=>({from:mockFrom,rpc:mockRpc})}));
 jest.mock('@/lib/newsletter-send',()=>{const actual=jest.requireActual('@/lib/newsletter-send');return {...actual,inspectNewsletterOperation:jest.fn(),publishNewsletterOperation:jest.fn()};});
-import {PATCH} from '../route';import {NextRequest} from 'next/server';import {checkCsrf} from '@/lib/csrf';import {checkRateLimit} from '@/lib/rate-limit';import {requirePlatformAdmin} from '@/lib/platform-admin';import {inspectNewsletterOperation,publishNewsletterOperation,NewsletterSendError} from '@/lib/newsletter-send';
+import {PATCH} from '../route';import {NextRequest} from 'next/server';import {checkCsrf} from '@/lib/csrf';import {checkRateLimit} from '@/lib/rate-limit';import {requirePlatformAdminApi} from '@/lib/platform-admin';import {inspectNewsletterOperation,publishNewsletterOperation,NewsletterSendError} from '@/lib/newsletter-send';
 const id='e1000000-0000-4000-8000-000000000001';const revision='2026-10-09T00:00:00Z';const campaign={id,status:'draft',campaign_type:'user_digest',updated_at:revision};
 function chain(data:unknown,error:unknown=null){const c:Record<string,unknown>={};for(const m of ['select','eq','update'])c[m]=jest.fn(()=>c);c.single=jest.fn().mockResolvedValue({data,error});c.then=(resolve:(x:unknown)=>unknown)=>Promise.resolve({data,error}).then(resolve);return c;}
 const req=(body:unknown)=>new NextRequest(`http://localhost/api/admin/newsletter/${id}`,{method:'PATCH',body:JSON.stringify(body),headers:{'Content-Type':'application/json'}});
 const props={params:Promise.resolve({id})};
-beforeEach(()=>{jest.clearAllMocks();mockFrom.mockReset();(checkCsrf as jest.Mock).mockReturnValue(null);(checkRateLimit as jest.Mock).mockReturnValue(false);(requirePlatformAdmin as jest.Mock).mockResolvedValue({id});mockFrom.mockReturnValue(chain(campaign));(inspectNewsletterOperation as jest.Mock).mockResolvedValue(null);(publishNewsletterOperation as jest.Mock).mockResolvedValue({operation_id:id});});
+beforeEach(()=>{jest.clearAllMocks();mockFrom.mockReset();(checkCsrf as jest.Mock).mockReturnValue(null);(checkRateLimit as jest.Mock).mockReturnValue(false);(requirePlatformAdminApi as jest.Mock).mockResolvedValue({id});mockFrom.mockReturnValue(chain(campaign));(inspectNewsletterOperation as jest.Mock).mockResolvedValue(null);(publishNewsletterOperation as jest.Mock).mockResolvedValue({operation_id:id});});
 test('csrf guard',async()=>{(checkCsrf as jest.Mock).mockReturnValue(new Response('',{status:403}));expect((await PATCH(req({action:'send'}),props)).status).toBe(403);expect(mockFrom).not.toHaveBeenCalled();});
 test('rate guard',async()=>{(checkRateLimit as jest.Mock).mockResolvedValue(true);expect((await PATCH(req({}),props)).status).toBe(429);});
 test('UUID guard',async()=>{expect((await PATCH(req({}),{params:Promise.resolve({id:'bad'})})).status).toBe(400);});
-test('fresh platform guard',async()=>{(requirePlatformAdmin as jest.Mock).mockResolvedValue(null);expect((await PATCH(req({}),props)).status).toBe(403);});
+test('fresh platform guard',async()=>{(requirePlatformAdminApi as jest.Mock).mockResolvedValue(NextResponse.json({ error: '権限がありません' }, { status: 403 }));expect((await PATCH(req({}),props)).status).toBe(403);});
 test.each([{data:null,error:null},{data:null,error:{code:'PGRST116'}}])('definite absent =>404 %p',async r=>{mockFrom.mockReturnValue(chain(r.data,r.error));expect((await PATCH(req({}),props)).status).toBe(404);});
 test('campaign data plus error never continues',async()=>{mockFrom.mockReturnValue(chain(campaign,{code:'08006'}));expect((await PATCH(req({action:'send'}),props)).status).toBe(500);expect(inspectNewsletterOperation).not.toHaveBeenCalled();});
 test.each(['cancel'])('%s CAS empty returns conflict',async action=>{mockFrom.mockReturnValueOnce(chain({...campaign,status:action==='cancel'?'scheduled':'draft'})).mockReturnValueOnce(chain([]));expect((await PATCH(req({action}),props)).status).toBe(409);});
