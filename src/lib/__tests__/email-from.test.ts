@@ -1,6 +1,7 @@
 import {
   fromEnv,
   newsletterFromEnv,
+  resolvedNewsletterFromEnv,
   productionResolvedFrom,
   resolvedFromEnv,
   DEFAULT_NEWSLETTER_FROM,
@@ -139,10 +140,13 @@ describe('env から解決する入口', () => {
    * ニュースレターも同じ検証を通す。ここが素通りだと、購読者への配信だけが
    * 未検証ドメインで丸ごと不達になる（同じ穴が別経路に残る）。
    */
-  it('newsletterFromEnv は未検証ドメインの指定を既定値へ倒す', () => {
+  // 低 A219: 倒し先は通常通知の noreply@ ではなくニュースレター専用の既定値。倒れた事実も返す。
+  it('newsletterFromEnv は未検証ドメインの指定をニュースレター既定値へ倒す', () => {
     setNodeEnv('production');
     process.env.NEWSLETTER_EMAIL_FROM = 'CareLink <news@resend.dev>';
-    expect(newsletterFromEnv()).toBe(DEFAULT_FROM);
+    expect(newsletterFromEnv()).toBe(DEFAULT_NEWSLETTER_FROM);
+    expect(newsletterFromEnv()).not.toBe(DEFAULT_FROM);
+    expect(resolvedNewsletterFromEnv()).toMatchObject({ fellBack: true, from: DEFAULT_NEWSLETTER_FROM, rawDomain: 'resend.dev' });
   });
 
   it('newsletterFromEnv は未設定なら検証済みの専用アドレスを使う', () => {

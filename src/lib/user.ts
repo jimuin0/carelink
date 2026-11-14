@@ -19,15 +19,18 @@ import type { Database } from '@/types/database.types';
 // getUserProfile() の戻り値型を実際に select('*') が返す DB 行の型（Row 型）に変更し、
 // 実行時の挙動（`return data` そのもの）は一切変えずに型だけを実態に正直にする。
 export async function getUserProfile(): Promise<Database['public']['Tables']['profiles']['Row'] | null> {
+  // 認証基盤・DB の障害を「未ログイン」「プロフィール無し」と区別する（getUserFavorites と同じ方針・低 A223）。
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') throw new Error('PROFILE_UNAVAILABLE');
+  if (identity.state === 'unauthenticated') return null;
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('profiles')
     .select('*')
-    .eq('id', user.id)
+    .eq('id', identity.user.id)
     .maybeSingle();
+  if (error) throw new Error('PROFILE_UNAVAILABLE');
 
   return data;
 }
@@ -92,16 +95,19 @@ export async function toggleFavorite(facilityId: string): Promise<{ isFavorited:
 }
 
 export async function checkFavorite(facilityId: string): Promise<boolean> {
+  // 障害を「お気に入りでない」と区別する（低 A223）。
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return false;
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') throw new Error('FAVORITES_UNAVAILABLE');
+  if (identity.state === 'unauthenticated') return false;
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('favorites')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('user_id', identity.user.id)
     .eq('facility_id', facilityId)
     .maybeSingle();
+  if (error) throw new Error('FAVORITES_UNAVAILABLE');
 
   return !!data;
 }

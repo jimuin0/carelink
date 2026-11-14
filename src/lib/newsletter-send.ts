@@ -3,7 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database-overrides';
 import { fetchAllPaged } from './paginate';
 import { newsletterUnsubUrl } from './newsletter-unsub';
-import { newsletterFromEnv } from './email-from';
+import { resolvedNewsletterFromEnv } from './email-from';
+import { alertWarning } from './alert';
 
 const receiptSchema = z.object({
   operation_id: z.string().uuid(), campaign_id: z.string().uuid(),
@@ -77,9 +78,16 @@ export async function publishNewsletterOperation(client: Client, actorId: string
   if (emails.length === 0) throw new NewsletterSendError(409, '配信対象がありません。送信は開始していません。');
   const links: Record<string, string> = {};
   for (const email of emails) links[email] = newsletterUnsubUrl(email);
+  const sender = resolvedNewsletterFromEnv();
+  // 送信元の設定ミスで既定値へ倒れたことを無音にしない（配信は既定値で続ける・低 A219）。
+  if (sender.fellBack) {
+    alertWarning('NEWSLETTER_EMAIL_FROM が送信できない値のため、既定のニュースレター送信元で配信します。設定を確認してください。', {
+      route: 'newsletter-send', extra: { rawDomain: sender.rawDomain, formatOk: sender.formatOk, domainOk: sender.domainOk },
+    });
+  }
   const result = await rpc(client, 'publish_newsletter_send_operation', {
     p_actor_id: actorId, p_campaign_id: campaign.id, p_expected_revision: expectedRevision,
-    p_expected_emails: emails, p_unsubscribe_links: links, p_from: newsletterFromEnv(),
+    p_expected_emails: emails, p_unsubscribe_links: links, p_from: sender.from,
   });
   if (result.error !== null) rpcError(result.error);
   return parseReceipt(result.data, campaign.id);

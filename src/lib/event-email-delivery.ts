@@ -59,7 +59,10 @@ export async function sendDurableEventEmail(resend: Resend, envelope: EventEmail
       }).eq('id', id).eq('status', 'processing').eq('claimed_at', claimEpoch)
         .eq('delivery_started_at', claimEpoch).select('id').maybeSingle();
       if (error || pending?.id !== id) return fail();
-      return fail();
+      // 自動再送へ正常に回せた。結果は「不明」ではないので「結果未確認」の error 警報は出さない
+      // （本当に不明なケースと区別できず照合作業を増やしていた・低 A218）。再送の失敗・上限到達は
+      // webhook-retry が通知する。
+      return false;
     }
     const accepted = await sendCall;
     if (!accepted.data || !UUID_REGEX.test(accepted.data.id)) return fail();
