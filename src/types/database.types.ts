@@ -7451,6 +7451,10 @@ export type Database = {
         Args: { p_facility_id: string }
         Returns: boolean
       }
+      facility_photo_url_is_own_storage: {
+        Args: { p_facility_id: string; p_url: string }
+        Returns: boolean
+      }
       facility_shortest_booking_minutes: {
         Args: { p_facility_id: string }
         Returns: number
