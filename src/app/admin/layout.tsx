@@ -235,11 +235,7 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
   if (!authorization) return <AccessVerificationUnavailable />;
   const [{ data: memberships, error: memberError }, { data: profile, error: profileError }] = authorization;
 
-  // profiles の行が無い（PGRST116）ことは権限確認の失敗ではない（is_platform_admin＝false と同じ）。
-  // ただし新規予約のメール・プッシュは profiles を宛先にするため、この人には届かない（点検 B4-13）。
-  // その事実を管理画面の上部で知らせる（下の profileMissing）。
-  const profileMissing = profileError?.code === 'PGRST116';
-  if (memberError || (profileError && !profileMissing)) return <AccessVerificationUnavailable />;
+  if (memberError || profileError) return <AccessVerificationUnavailable />;
 
   if (!memberships || memberships.length === 0) {
     // A platform-only operator can answer inquiries without creating a dummy
@@ -327,14 +323,6 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
           <AdminUserMenu />
         </div>
       </div>
-
-      {profileMissing && (
-        <div role="status" className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm text-amber-900">
-          アカウント情報の一部が欠けているため、新規予約のメール・プッシュ通知があなたに届いていません。
-          新しい予約は<Link href="/admin/bookings" className="underline font-semibold">予約一覧</Link>でご確認ください。
-          直すには<Link href="/admin/help" className="underline">ヘルプ</Link>から運営へご連絡ください。
-        </div>
-      )}
 
       {/* 上部タブナビ（2段・desktop） */}
       <AdminTopNav groups={visibleNavGroups} />

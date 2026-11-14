@@ -135,29 +135,3 @@ test.each([false, true])('準備中の画面（決済管理・チュートリア
   // 使える画面は消していない
   for (const href of ['/admin/api-keys', '/admin/settings', '/admin/manual', '/admin/staff']) expect(visible).toContain(href);
 });
-
-describe('オーナーの profiles が無いとき（点検 B4-13）', () => {
-  async function renderWithProfile(result: unknown) {
-    auth.mockResolvedValue({ data: { user: { id: 'owner' } } });
-    membership.mockResolvedValue({ data: [{ role: 'owner', facility_id: 'facility', facility_profiles: { name: 'Test facility' } }] });
-    profile.mockResolvedValue(result);
-    const layout = AdminLayout({ children: <div>content</div> });
-    const shell = layout.props.children as ReactElement<{ children: ReactNode }>;
-    const renderServer = shell.type as (props: { children: ReactNode }) => Promise<ReactElement>;
-    return render(await renderServer(shell.props));
-  }
-  test('行が無い（PGRST116）なら管理画面は開け、予約通知が届いていないことを知らせる', async () => {
-    const { container } = await renderWithProfile({ data: null, error: { code: 'PGRST116' } });
-    expect(container.textContent).toContain('content');
-    expect(container.textContent).toContain('新規予約のメール・プッシュ通知があなたに届いていません');
-    expect(visibleHrefs()).not.toContain('/admin/features');
-  });
-  test('profiles があれば知らせない', async () => {
-    const { container } = await renderWithProfile({ data: { is_platform_admin: false }, error: null });
-    expect(container.textContent).not.toContain('通知があなたに届いていません');
-  });
-  test('PGRST116 以外の失敗は従来どおり確認不能画面', async () => {
-    const { container } = await renderWithProfile({ data: null, error: { code: '522' } });
-    expect(container.textContent).not.toContain('content');
-  });
-});
