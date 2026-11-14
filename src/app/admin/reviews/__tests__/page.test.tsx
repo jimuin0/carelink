@@ -30,6 +30,7 @@ const mockFetch = jest.fn();
 const queries: { table: string; calls: unknown[][] }[] = [];
 let reviews: Record<string, unknown>[] = [];
 let updateError: unknown = null;
+let updatedRows: unknown = [{ id: 'updated' }];
 
 jest.mock('next/navigation', () => ({
   useSearchParams: () => mockParams,
@@ -58,6 +59,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   queries.length = 0;
   updateError = null;
+  updatedRows = [{ id: 'updated' }];
   mockParams = new URLSearchParams();
   reviews = [review(R1, '店舗Bのお客様', 'published', 'none')];
   mockFrom.mockImplementation((table: string) => {
@@ -65,7 +67,7 @@ beforeEach(() => {
     queries.push({ table, calls });
     const chain: Record<string, unknown> = {};
     for (const m of ['select', 'eq', 'in', 'order', 'limit', 'update']) chain[m] = (...args: unknown[]) => { calls.push([m, ...args]); return chain; };
-    chain.then = (resolve: (v: unknown) => unknown) => resolve({ data: table === 'facility_reviews' ? null : [], error: table === 'facility_reviews' ? updateError : null });
+    chain.then = (resolve: (v: unknown) => unknown) => resolve({ data: table === 'facility_reviews' ? updatedRows : [], error: table === 'facility_reviews' ? updateError : null });
     return chain;
   });
   mockFetch.mockImplementation(() => json(200, { reviews }));
@@ -190,7 +192,7 @@ describe('公開・非表示の切り替え', () => {
     fireEvent.click(await screen.findByRole('button', { name: '非表示にする' }));
     expect(await screen.findByText('非表示にしました')).toBeInTheDocument();
     const update = queries.find((q) => q.table === 'facility_reviews')!.calls;
-    expect(update).toEqual([['update', { status: 'hidden' }], ['eq', 'id', R1], ['eq', 'facility_id', A]]);
+    expect(update).toEqual([['update', { status: 'hidden' }], ['eq', 'id', R1], ['eq', 'facility_id', A], ['select', 'id']]);
     expect(listCalls()).toHaveLength(1);
     expect(screen.getByRole('button', { name: '公開する' })).toBeEnabled();
   });
@@ -232,6 +234,16 @@ describe('公開・非表示の切り替え', () => {
     render(<AdminReviewsPage />);
     fireEvent.click(await screen.findByRole('button', { name: '非表示にする' }));
     expect(await screen.findByText('更新に失敗しました')).toBeInTheDocument();
+  });
+
+  // 点検 B7-10: 0 行更新（RLS で弾かれた等）を成功と表示しない。
+  test('0 行更新なら『更新に失敗しました』で、表示も切り替えない', async () => {
+    reviews = [review(R1, '公開中のお客様', 'published', 'none')];
+    updatedRows = [];
+    render(<AdminReviewsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: '非表示にする' }));
+    expect(await screen.findByText('更新に失敗しました')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '非表示にする' })).toBeInTheDocument();
   });
 });
 

@@ -26,6 +26,8 @@ export default function CustomerSegmentChart({ facilityId }: { facilityId: strin
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [total, setTotal] = useState(0);
+  // 監査 A386: 分類前（segment が NULL）の顧客は円グラフに入らないため、別に数えて明示する。
+  const [unclassified, setUnclassified] = useState(0);
 
   // React Compiler の set-state-in-effect 対策：useCallback + 呼び出し という形は
   // 「effect が外部関数を呼び、その中で setState する」構造として検出されるため、
@@ -51,12 +53,13 @@ export default function CustomerSegmentChart({ facilityId }: { facilityId: strin
       if (error) { setLoadError(true); setLoading(false); return; }
       if (segments) {
         const counts: Record<string, number> = {};
+        let nullCount = 0;
         for (const s of segments) {
           // customer_segments.segment は migration 上 NOT NULL 制約が無い
           // （supabase/migrations/20260404000002_dashboard_enhancement.sql）。
           // セグメント算出バッチがまだ回っていない顧客は null になり得るため、
           // null をキーにできない（識別不能な値）ので集計対象から除外する。
-          if (s.segment === null) continue;
+          if (s.segment === null) { nullCount += 1; continue; }
           counts[s.segment] = (counts[s.segment] || 0) + 1;
         }
         const chartData = Object.entries(counts).map(([key, value]) => ({
@@ -66,6 +69,7 @@ export default function CustomerSegmentChart({ facilityId }: { facilityId: strin
         }));
         setData(chartData);
         setTotal(segments.length);
+        setUnclassified(nullCount);
       }
       setLoading(false);
     })().catch(() => {
@@ -83,12 +87,15 @@ export default function CustomerSegmentChart({ facilityId }: { facilityId: strin
       <button type="button" onClick={retry} className="text-xs text-sky-600 underline mt-1">再試行</button>
     </div>
   );
-  if (data.length === 0) return <p className="text-sm text-gray-500 text-center py-8">顧客データがありません</p>;
+  if (total === 0) return <p className="text-sm text-gray-500 text-center py-8">顧客データがありません</p>;
+  if (data.length === 0) return <p className="text-sm text-gray-500 text-center py-8">顧客 {total}人はまだ分類されていません（分類は週1回更新されます）</p>;
 
   return (
     <div className="bg-white rounded-xl p-4">
       <h3 className="text-sm font-bold text-gray-800 mb-1">顧客セグメント</h3>
-      <p className="text-xs text-gray-500 mb-4">総顧客数: {total}人</p>
+      <p className="text-xs text-gray-500 mb-4">
+        総顧客数: {total}人{unclassified > 0 && `（うち未分類 ${unclassified}人はグラフに含みません）`}
+      </p>
       <ResponsiveContainer width="100%" height={250}>
         <PieChart>
           <Pie

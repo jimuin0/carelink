@@ -88,7 +88,9 @@ function FacilityFavoriteButton({ facilityId }: { facilityId: string }) {
         setIsFavorited(previousState);
       }
     } catch {
-      if (generation.current === epoch) setIsFavorited(previousState);
+      // 監査 A397: 通信断・不正な応答では、サーバーで反映されたかが分からない。元に戻すと実際と逆の表示になり、
+      // 再度押すと利用者の意図と逆になるため、「確認できません」にして再読み込みを促す。
+      if (generation.current === epoch) setUnavailable(true);
     } finally {
       if (generation.current === epoch) { inFlight.current = false; setPending(false); }
     }

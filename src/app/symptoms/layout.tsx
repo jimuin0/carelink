@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
-// symptoms/page.tsx は 'use client' のため、この layout.tsx（サーバーコンポーネント）で
-// 固有の metadata を定義する。ルート layout の title.template '%s | CareLink' が自動付与するため
+// /symptoms の metadata はこの layout.tsx だけで定義する（page.tsx は AI 設定で表示を切り替える
+// サーバーコンポーネントで、metadata は持たない）。ルート layout の title.template '%s | CareLink' が自動付与するため
 // title に「| CareLink」は付けない（付けると二重化する）。openGraph.title はテンプレ非適用のため
 // 明示的にフル文字列を設定する。
 export const metadata: Metadata = {

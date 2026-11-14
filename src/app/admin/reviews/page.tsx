@@ -172,12 +172,15 @@ function AdminReviewsContent() {
     setUpdating(review.id);
     try {
       const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase
+      // 点検 B7-10: RLS で弾かれた・行が無い更新は例外にならず 0 行になる。成功と表示しないよう行数を確かめる。
+      const { data: updated, error } = await supabase
         .from('facility_reviews')
         .update({ status: newStatus })
         .eq('id', review.id)
-        .eq('facility_id', facilityId);
+        .eq('facility_id', facilityId)
+        .select('id');
       if (error) throw error;
+      if (!Array.isArray(updated) || updated.length === 0) throw new Error('No review updated');
       // 公開に切り替えたときは、その間に運営の審査が始まっていないかを読み直して確かめる
       // （読み直せないときは切り替えた結果だけを反映し、一覧はそのまま残す）。
       const reloaded = newStatus === 'published' ? await fetchReviews(facilityId, filter) : null;

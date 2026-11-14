@@ -85,3 +85,22 @@ test('Cookie の設定を開き直している間は出さず、閉じたら戻�
   act(() => closeCookieSettings());
   expect(screen.getByRole('link', { name: '無料で会員登録する' })).toBeInTheDocument();
 });
+
+// 監査 A403: sessionStorage が例外を投げる環境でも表示でき、閉じるボタンが効く。
+test('sessionStorage が使えなくても表示でき、閉じるボタンで閉じられる', async () => {
+  localStorage.setItem(COOKIE_CONSENT_STORAGE_KEY, '{}');
+  const getSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key: string) {
+    if (this === window.sessionStorage) throw new Error('SecurityError');
+    return Object.prototype.hasOwnProperty.call(this, key) ? (this as unknown as Record<string, string>)[key] : null;
+  });
+  const setSpy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function () { throw new Error('QuotaExceededError'); });
+  try {
+    await renderCta();
+    expect(screen.getByRole('link', { name: '無料で会員登録する' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
+  } finally {
+    getSpy.mockRestore();
+    setSpy.mockRestore();
+  }
+});

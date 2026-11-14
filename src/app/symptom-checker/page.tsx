@@ -30,6 +30,8 @@ export default function SymptomCheckerPage() {
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [searchError, setSearchError] = useState(false);
+  // 監査 A345: 症状マスタに無い名前を黙って落とさず、見つからなかったことを表示する。
+  const [unmatched, setUnmatched] = useState<string[]>([]);
 
   const toggleSymptom = (s: string) => {
     setSelected(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
@@ -39,6 +41,9 @@ export default function SymptomCheckerPage() {
     if (selected.length === 0) return;
     setSearching(true);
     setSearchError(false);
+    // 前回の結果を残したまま今回の結果として見せない。
+    setResults([]);
+    setUnmatched([]);
 
     try {
       const { data: symptoms, error } = await supabase
@@ -47,8 +52,10 @@ export default function SymptomCheckerPage() {
         .in('name', selected);
 
       // 取得失敗を「対応店舗なし」に偽装せず、検索失敗として明示する
-      if (error) { setSearchError(true); return; }
-      if (symptoms) {
+      if (error || !symptoms) { setSearchError(true); return; }
+      {
+        const found = new Set(symptoms.map((s) => s.name));
+        setUnmatched(selected.filter((name) => !found.has(name)));
         // 数えるのは公開中の施設だけ（症状ページに実際に並ぶ施設と同じ条件）。
         // 下書き・非公開の施設と結びついた行まで数えると、「1件」と出たのに開くと0件になる。
         // 件数の取得に失敗したら「0件」と表示せず、検索失敗として扱う。
@@ -134,6 +141,11 @@ export default function SymptomCheckerPage() {
         {searched && (
           <div className="mt-8">
             <h2 className="text-lg font-bold mb-4">対応可能な症状</h2>
+            {!searchError && unmatched.length > 0 && (
+              <p className="mb-3 text-xs text-gray-500" role="status">
+                次の症状は現在お取り扱いの情報がありません：{unmatched.join('、')}
+              </p>
+            )}
             {searchError ? (
               <div className="text-center py-10 bg-gray-50 rounded-xl" role="alert">
                 <p className="text-rose-600 text-sm font-bold">検索に失敗しました</p>
@@ -170,7 +182,7 @@ export default function SymptomCheckerPage() {
               </div>
             ) : (
               <div className="text-center py-10 bg-gray-50 rounded-xl">
-                <p className="text-gray-500 text-sm">現在、対応可能な店舗が登録されていません</p>
+                <p className="text-gray-500 text-sm">選んだ症状の情報が見つかりませんでした</p>
                 <Link href="/search" className="text-sky-700 text-sm mt-2 inline-block hover:underline">全店舗を検索 →</Link>
               </div>
             )}

@@ -64,17 +64,17 @@ function UnsubscribeContent() {
           {status === 'error' && '❌'}
         </div>
         <h1 className="jp-balance text-xl font-bold mb-2">
-          {status === 'confirm' && 'メール配信を停止しますか？'}
+          {status === 'confirm' && 'お知らせメールの配信を停止しますか？'}
           {status === 'loading' && '処理中...'}
           {status === 'success' && '配信停止しました'}
           {status === 'already' && '既に配信停止済みです'}
           {status === 'error' && 'エラーが発生しました'}
         </h1>
         <p className="text-gray-500 text-sm">
-          {status === 'confirm' && '下のボタンを押すと CareLink からのメール配信を停止します。'}
+          {status === 'confirm' && '下のボタンを押すと CareLink からのお知らせメール（ニュースレター）の配信を停止します。ご予約の確認など手続きのメールは引き続き届きます。'}
           {status === 'loading' && 'しばらくお待ちください...'}
-          {status === 'success' && 'CareLink からのメール配信を停止しました。再び受信するにはマイページから設定を変更してください。'}
-          {status === 'already' && '既にメール配信停止済みです。再度受信するにはマイページから設定を変更してください。'}
+          {status === 'success' && 'CareLink からのお知らせメールの配信を停止しました。ご予約に関するメールは引き続き届きます。再び受信するにはマイページから設定を変更してください。'}
+          {status === 'already' && 'お知らせメールは既に配信停止済みです。再度受信するにはマイページから設定を変更してください。'}
           {status === 'error' && 'リンクが無効か期限切れです。マイページから設定を変更してください。'}
         </p>
         {status === 'confirm' && (

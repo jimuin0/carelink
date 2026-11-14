@@ -1,13 +1,8 @@
-import type { Metadata } from 'next';
 import Button from '@/components/ui/Button';
 import { isAiEnabled } from '@/lib/integration-availability';
 import SymptomCheckerClient from './SymptomCheckerClient';
 
-export const metadata: Metadata = {
-  title: 'AI症状チェッカー',
-  alternates: { canonical: '/symptoms' },
-};
-
+// metadata は layout.tsx が単一の定義元（監査 A348：page と layout で二重定義になっていた）。
 /**
  * AI 症状チェッカーの入口（サーバコンポーネントの門番）。
  *
@@ -29,7 +24,8 @@ export default function SymptomsPage() {
           ただいま準備を進めています。お急ぎの場合は、症状別のページや検索からお探しください。
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Button href="/symptom/stiff-shoulder" prefetch="auto">症状から探す</Button>
+          {/* 監査 A347: 特定の症状ページ（施設0件の noindex になり得る）ではなく、症状を選べるチェッカーへ送る。 */}
+          <Button href="/symptom-checker" prefetch="auto">症状から探す</Button>
           <Button href="/search" variant="secondary" prefetch="auto">サロン・クリニックを検索</Button>
         </div>
       </div>

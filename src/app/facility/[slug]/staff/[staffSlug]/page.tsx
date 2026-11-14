@@ -88,7 +88,7 @@ export default async function StaffDetailPage(props: Props) {
             <div>
               <h1 className="jp-balance text-xl sm:text-2xl font-bold">{staff.name}</h1>
               {staff.position && <p className="text-sm text-gray-500 mt-1">{staff.position}</p>}
-              {staff.years_experience && (
+              {!!staff.years_experience && (
                 <p className="text-sm text-gray-500">経験{staff.years_experience}年</p>
               )}
               {staff.instagram_url && /^https?:\/\//i.test(staff.instagram_url) && (

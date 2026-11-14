@@ -1,7 +1,7 @@
 'use client';
 
 import { dayLabels, dayOrder } from '@/lib/constants';
-import { MAX_BUSINESS_PERIODS, type BusinessPeriod } from '@/lib/business-hours';
+import { MAX_BUSINESS_PERIODS, businessMinute, type BusinessPeriod } from '@/lib/business-hours';
 import type { HoursDraft, HoursWindow } from '@/lib/business-hours-form';
 import { SbInput } from './SbUi';
 import { useState } from 'react';
@@ -34,7 +34,7 @@ export default function BusinessHoursEditor({ hours, closedDays, onDayChange, on
         <legend className="px-1 text-sm font-bold">{dayLabels[day]}曜日</legend>
         <label className="mb-3 inline-flex items-center gap-2 text-sm">
           <input type="checkbox" aria-label={`${dayLabels[day]}曜日に営業する`} checked={!closed} onChange={() => onToggleClosed(day)} />
-          この曜日に営業を開始する
+          この曜日に営業する
         </label>
         {closed ? <p className="text-sm text-gray-500">休み（前日からの営業は継続します）</p> : <>
           <div className="space-y-3">{periods.map((period, index) => {
@@ -44,7 +44,14 @@ export default function BusinessHoursEditor({ hours, closedDays, onDayChange, on
               <SbInput type="time" aria-label={`${label}開店時間`} value={period.open} onChange={event => update(index, 'open', event.target.value)} onInput={event => update(index, 'open', event.currentTarget.value)} onBlur={event => update(index, 'open', event.target.value)} className="min-w-0 w-full! py-2! px-2! text-sm" />
               <span aria-hidden="true">〜</span>
               <SbInput type="text" placeholder="18:00" maxLength={5} aria-label={`${label}閉店時間`} value={period.close} onChange={event => update(index, 'close', event.target.value)} onInput={event => update(index, 'close', event.currentTarget.value)} onBlur={event => update(index, 'close', event.target.value)} className="min-w-0 w-full! py-2! px-2! text-sm" />
-              {period.close && period.open && period.close < period.open && <span className="col-start-3 text-xs text-gray-600">翌日</span>}
+              {/* 監査 A388: 文字列の大小ではなく分に直して比べる（"9:00" < "18:00" が偽になるため）。形式違いはその場で知らせる。 */}
+              {(() => {
+                const openMinute = businessMinute(period.open);
+                const closeMinute = businessMinute(period.close, true);
+                if (period.close && closeMinute === null) return <span className="col-start-3 text-xs text-rose-700">「18:00」の形で入力してください</span>;
+                if (openMinute !== null && closeMinute !== null && closeMinute < openMinute) return <span className="col-start-3 text-xs text-gray-600">翌日</span>;
+                return null;
+              })()}
               {periods.length > 1 && <button type="button" aria-label={`${dayLabels[day]}曜日の時間帯${index + 1}を削除`} onClick={() => {
                 if (period.open || period.close) setPendingRemoval({ day, index });
                 else setPeriods(day, periods.filter((_, at) => at !== index));

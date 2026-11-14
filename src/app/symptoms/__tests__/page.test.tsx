@@ -95,3 +95,18 @@ describe('SymptomsPage - 検索リンクのパラメータ整合性', () => {
     expect(href).not.toContain('pref=');
   });
 });
+
+// 監査 A347/A348: AI 未設定時の「症状から探す」は症状チェッカーへ送り、metadata は layout だけが持つ。
+describe('SymptomsPage - AI 未設定時の案内', () => {
+  const original = process.env.ANTHROPIC_API_KEY;
+  afterEach(() => { process.env.ANTHROPIC_API_KEY = original; });
+  test('「症状から探す」は /symptom-checker を指す', () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    render(<SymptomsPage />);
+    expect(screen.getByRole('link', { name: '症状から探す' })).toHaveAttribute('href', '/symptom-checker');
+  });
+  test('page は metadata を export しない（layout が単一の定義元）', () => {
+    expect(require('../page').metadata).toBeUndefined();
+    expect(require('../layout').metadata.alternates.canonical).toBe('/symptoms');
+  });
+});

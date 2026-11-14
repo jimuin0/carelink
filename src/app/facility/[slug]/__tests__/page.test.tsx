@@ -247,3 +247,16 @@ test('施術情報（症状・資格）の取得に失敗したら通知した�
   expect(safeCaptureException).toHaveBeenCalledWith(expect.any(Error), 'facility-detail:symptoms');
   expect(safeCaptureException).toHaveBeenCalledWith(expect.any(Error), 'facility-detail:certifications');
 });
+
+// 点検 B8-L: 本文の無い口コミで JSON-LD に reviewBody: null を出さない。
+test('本文の無い口コミの Review JSON-LD に reviewBody を含めない', async () => {
+  const { getFacilityReviews } = jest.requireMock('@/lib/facilities') as { getFacilityReviews: jest.Mock };
+  getFacilityReviews.mockResolvedValueOnce({ reviews: [
+    { id: 'r1', rating: 5, reviewer_name: '合成', comment: null, created_at: '2026-10-01T00:00:00Z' },
+  ] });
+  const html = renderToStaticMarkup(await Page(props()));
+  const scripts = [...html.matchAll(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  const reviewLd = scripts.find((s) => s.includes('"@type":"Review"'));
+  expect(reviewLd).toBeDefined();
+  expect(reviewLd).not.toContain('reviewBody');
+});
