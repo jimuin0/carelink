@@ -14,6 +14,14 @@ test('frequent jobs retain exact minute offsets', () => {
   assert.equal(jstSchedule('*/5 * * * *'), '5分ごと');
   assert.equal(jstSchedule('5 * * * *'), '毎時 5分');
 });
+test('a phase-shifted every-N runner list keeps its N-minute cadence', () => {
+  assert.equal(jstSchedule('2,7,12,17,22,27,32,37,42,47,52,57 * * * *'), '5分ごと');
+  assert.equal(jstSchedule('0,20,40 * * * *'), '20分ごと');
+  // Not covering the hour, uneven, or descending stay as exact minutes.
+  assert.equal(jstSchedule('2,7,12 * * * *'), '毎時 2・7・12分');
+  assert.equal(jstSchedule('0,10,20,25,40 * * * *'), '毎時 0・10・20・25・40分');
+  assert.equal(jstSchedule('40,20,0 * * * *'), '毎時 40・20・0分');
+});
 test('unsupported or invalid calendar expressions fail before export', () => {
   for (const cron of ['0 0 1 * *', '60 1 * * *', '0 24 * * *', '0 1 * * 8', '* * * * *', '0 1 * * mon', '0 1 * * * extra']) {
     assert.throws(() => jstSchedule(cron));
@@ -38,6 +46,9 @@ test('consolidated admin export preserves each business time and maps to the ret
   assert.deepEqual(result.find(r => r.job_id === 'flag-reviews').cron_services, ['carelink-webhook-retry']);
   assert.deepEqual(result.find(r => r.job_id === 'threads-backfill').cron_services, ['carelink-booking-reminder']);
   assert.deepEqual(result.find(r => r.job_id === 'weekly-report').cron_services, ['carelink-daily-summary']);
+  // Both monitors run on the single retained monitor service.
+  assert.deepEqual(result.find(r => r.job_id === 'cron-heartbeat').cron_services, ['carelink-health-check']);
+  assert.equal(result.find(r => r.job_id === 'health-check').time, '5分ごと');
   assert.throws(() => exportSchedules(jobs, blueprint.replace('5,50 * * * *', '5 * * * *')));
   assert.throws(() => exportSchedules(jobs.slice(1), blueprint));
   assert.throws(() => exportSchedules([...jobs, jobs[0]], blueprint));
