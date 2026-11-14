@@ -55,7 +55,7 @@ describe('SymptomsPage - 鍵未設定時（準備中）', () => {
     expect(screen.getByRole('heading', { name: 'AI症状チェッカーは準備中です' })).toBeInTheDocument();
     expect(screen.queryByLabelText('症状・お悩みを入力')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '症状を分析する' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '症状から探す' })).toHaveAttribute('href', '/symptom/stiff-shoulder');
+    expect(screen.getByRole('link', { name: '症状から探す' })).toHaveAttribute('href', '/symptom-checker');
     expect(screen.getByRole('link', { name: 'サロン・クリニックを検索' })).toHaveAttribute('href', '/search');
   });
 });
