@@ -44,3 +44,13 @@ test('削除が成功したら一覧へ戻る', async () => {
   await openAndDelete();
   expect(mockPush).toHaveBeenCalledWith('/admin/platform-blog');
 });
+
+// 監査 A175: 保存に try/finally が無く、通信断で「保存中...」のまま固まりエラーも出なかった。
+test('保存が通信断でもボタンを戻してエラーを出す', async () => {
+  const params = Promise.resolve({ id: 'p1' });
+  await act(async () => { render(<Suspense fallback={null}><Page params={params} /></Suspense>); });
+  global.fetch = jest.fn(async () => { throw new Error('network'); }) as unknown as typeof fetch;
+  await act(async () => { fireEvent.click(await screen.findByRole('button', { name: '保存' })); });
+  expect(await screen.findByText(/通信に失敗しました/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: '保存' })).toBeTruthy();
+});

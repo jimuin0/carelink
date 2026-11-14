@@ -31,10 +31,11 @@ function isCompletionReconciliationError(message: unknown): boolean {
 export const POST = withRoute(async (request) => {
     const ip = getClientIp(request);
 
-    const body = await request.json().catch(() => ({}));
-    const { bookingId } = body;
+    const body: unknown = await request.json().catch(() => null);
+    // JSON の null・配列・文字列でも分割代入で TypeError（→500）にしない。
+    const bookingId = body && typeof body === 'object' ? (body as { bookingId?: unknown }).bookingId : undefined;
 
-    if (!bookingId || !uuidRegex.test(bookingId)) {
+    if (typeof bookingId !== 'string' || !uuidRegex.test(bookingId)) {
       return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });
     }
 

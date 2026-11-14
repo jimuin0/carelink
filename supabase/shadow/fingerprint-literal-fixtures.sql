@@ -1,5 +1,7 @@
 -- Disposable shadow only. Every catalog change is rolled back; no business rows.
 \set ON_ERROR_STOP on
+-- 接続先ガード（CLAUDE.md 鉄則5）：facility_profiles へ ACCESS EXCLUSIVE を取る前に、使い捨て DB 以外では落とす。
+DO $$ BEGIN IF current_database() NOT LIKE 'carelink_shadow%' THEN RAISE EXCEPTION 'DISPOSABLE_DB_REQUIRED'; END IF; END $$;
 BEGIN;
 CREATE TABLE public.fingerprint_literal_fixture (value text DEFAULT 'a  b', CONSTRAINT fp_literal_check CHECK (value <> 'a  b'));
 ALTER TABLE public.fingerprint_literal_fixture ENABLE ROW LEVEL SECURITY;

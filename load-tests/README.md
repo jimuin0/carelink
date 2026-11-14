@@ -8,34 +8,33 @@ k6 を使った負荷テストスイート。
 brew install k6
 ```
 
+## 実行先の制限
+
+すべてのスクリプトは `local-target.mjs` の `requireLocalLoadTarget` を通り、**ループバック（`localhost` / `127.0.0.1` / `[::1]`）以外の `TARGET_URL` は起動時に拒否する**。本番・staging などリモートへの負荷は掛けられない（掛けてはいけない）。`TARGET_URL` 未指定時は `http://localhost:3000`。
+
 ## テスト一覧
 
 | ファイル | 目的 | 実行時間目安 |
 |---------|------|-------------|
-| `concurrent-booking.js` | 100同時予約・ダブルブッキング防止確認 | 約2分 |
+| `concurrent-booking.js` | 同じ予約依頼（同一 Idempotency-Key）を2本同時に送り、受付結果が一致するかの確認（同時大量予約の検査ではない。DB 側の件数保証は PG17 の並行性ゲートが担う） | 1分未満 |
 | `search-load.js` | 検索エンドポイント負荷・スパイク | 約3分 |
 | `api-rate-limit.js` | レート制限の正確性検証 | 約2分 |
 | `soak-test.js` | 長時間安定性・メモリリーク検出 | 30分（短縮可） |
 
 ## 実行方法
 
-### 1. ダブルブッキング防止テスト
+### 1. 同一依頼の受付一致テスト
+使い捨てのローカル DB に合成施設を用意し、その内容を書いた fixture（`kind: carelink-isolated-booking-v2` ほか、スクリプト冒頭の検査を満たすもの）を絶対パスで渡す。fixture が無いと起動時に失敗する。
 ```bash
 k6 run \
-  -e TARGET_URL=https://carelink-jp.com \
-  -e FACILITY_ID=<テスト用施設ID> \
-  -e MENU_ID=<テスト用メニューID> \
-  -e TEST_USER_TOKEN=<JWTトークン> \
+  -e TARGET_URL=http://localhost:3309 \
+  -e CARELINK_BOOKING_FIXTURE_FILE=/absolute/local/fixture.json \
   concurrent-booking.js
 ```
 
 ### 2. 検索負荷テスト
 ```bash
-# ローカル
 k6 run search-load.js
-
-# 本番
-k6 run -e TARGET_URL=https://carelink-jp.com search-load.js
 ```
 
 ### 3. レート制限精度テスト
@@ -49,7 +48,7 @@ k6 run api-rate-limit.js
 k6 run -e DURATION=5m soak-test.js
 
 # フル版（30分）
-k6 run -e TARGET_URL=https://carelink-jp.com soak-test.js
+k6 run soak-test.js
 ```
 
 ## 判定基準
@@ -65,7 +64,5 @@ k6 run -e TARGET_URL=https://carelink-jp.com soak-test.js
 
 ## 注意事項
 
-⚠️ 本番環境での実行時は必ずテスト用施設IDを使用すること  
-⚠️ テスト用予約日付は `2099-12-31` などの遠未来の日付を使用すること  
-⚠️ テスト後は作成した予約データを削除すること  
-⚠️ ソークテストは非ピーク時間帯（深夜）に実行すること  
+⚠️ 実行先はローカルの使い捨て環境だけ（リモートはスクリプトが拒否する）
+⚠️ テスト後は作成した合成データを使い捨て環境ごと破棄すること

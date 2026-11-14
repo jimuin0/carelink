@@ -70,12 +70,15 @@ export async function GET(request: NextRequest) {
     const visitedIds = new Set<string>();
 
     const processEntry = (entry: { facility_id: string; facility_profiles: unknown }) => {
-      const p = entry.facility_profiles as { id: string; business_type: string; prefecture: string; city: string } | null;
+      const p = entry.facility_profiles as { id: string; business_type: string | null; prefecture: string | null; city: string | null } | null;
       if (!p) return;
       visitedIds.add(p.id);
-      typeCount[p.business_type] = (typeCount[p.business_type] ?? 0) + 1;
-      const key = `${p.prefecture}:${p.city}`;
-      prefCityCount[key] = (prefCityCount[key] ?? 0) + 1;
+      // null を文字列 "null" として数えると、その値で検索して必ず 0 件になる（B3-21）。
+      if (p.business_type) typeCount[p.business_type] = (typeCount[p.business_type] ?? 0) + 1;
+      if (p.prefecture) {
+        const key = `${p.prefecture}:${p.city ?? ''}`;
+        prefCityCount[key] = (prefCityCount[key] ?? 0) + 1;
+      }
     };
 
     for (const b of bookings ?? []) processEntry(b as { facility_id: string; facility_profiles: unknown });
@@ -86,7 +89,8 @@ export async function GET(request: NextRequest) {
     // 最も頻出の業種・エリアを取得
     const topType = Object.entries(typeCount).sort((a, b) => b[1] - a[1])[0]?.[0];
     const topPrefCity = Object.entries(prefCityCount).sort((a, b) => b[1] - a[1])[0]?.[0];
-    const [topPref, topCity] = topPrefCity ? topPrefCity.split(':') : [null, null];
+    const [topPref, rawTopCity] = topPrefCity ? topPrefCity.split(':') : [null, null];
+    const topCity = rawTopCity || null;
 
     if (!topType && !topPref) {
       // 履歴なし → 人気施設を返す（ユーザー非依存・limit別に5分キャッシュ、監査P1）

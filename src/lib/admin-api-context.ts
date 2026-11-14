@@ -20,8 +20,10 @@ export async function getAdminApiContext(
     if (identity.state === 'unavailable') return unavailable();
     if (identity.state === 'unauthenticated') return denied();
 
-    const facilityId = request.nextUrl.searchParams.get('facility_id');
-    if (!facilityId || !UUID_REGEX.test(facilityId)) return denied();
+    const rawFacilityId = request.nextUrl.searchParams.get('facility_id');
+    if (!rawFacilityId || !UUID_REGEX.test(rawFacilityId)) return denied();
+    // DB（uuid 型）は小文字で返すので、照合の前に揃える（大文字の指定を 503 にしない・B2-18）。
+    const facilityId = rawFacilityId.toLowerCase();
     const membership = await readAuthorization(supabase.from('facility_members').select('facility_id')
       .eq('user_id', identity.user.id).eq('facility_id', facilityId)
       .in('role', ['owner', 'admin']).maybeSingle());
@@ -30,6 +32,7 @@ export async function getAdminApiContext(
     if (membership.data?.facility_id !== facilityId) return unavailable();
 
     if (staffId !== undefined) {
+      staffId = staffId.toLowerCase();
       const staff = await readAuthorization(createServiceRoleClient().from('staff_profiles').select('id')
         .eq('id', staffId).eq('facility_id', facilityId).maybeSingle());
       if (staff.error !== null) return unavailable();

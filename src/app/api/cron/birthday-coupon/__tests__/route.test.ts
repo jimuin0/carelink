@@ -100,11 +100,12 @@ function setupDefaultMocks(
 
   // eq を変数化して呼び出し引数（'birth_md', todayMD）を検証可能にする。
   mockProfilesEq = jest.fn().mockReturnValue({
-    range: jest.fn().mockResolvedValue({ data: profileData }),
+    order: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: profileData }) }),
   });
   mockProfilesSelect = jest.fn().mockReturnValue({
     not: jest.fn().mockReturnValue({
       eq: mockProfilesEq,
+      in: mockProfilesEq,
     }),
   });
 
@@ -196,7 +197,7 @@ describe('GET /api/cron/birthday-coupon', () => {
   test('profiles 取得が DB エラー → error ログ＋500（無音スキップにしない）', async () => {
     mockProfilesSelect.mockReturnValue({
       not: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
+        in: jest.fn().mockReturnValue({ order: jest.fn().mockReturnThis(),
           range: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }),
         }),
       }),
@@ -261,7 +262,9 @@ describe('GET /api/cron/birthday-coupon', () => {
     // 旧テストは toHaveBeenCalled() のみで、todayMD 生成にバグが入っても気付けない偽陽性だった。
     // (2026-07-16) 旧 `.filter('birth_date::text','like',...)` は PostgREST が
     // 演算子不在(42883)で本番500を出していたため `.eq('birth_md', todayMD)` に切替。
-    expect(mockProfilesEq).toHaveBeenCalledWith('birth_md', '06-15');
+    expect(mockProfilesEq).toHaveBeenCalledWith('birth_md', ['06-15']);
+    // B1-20: ページングは順序を固定して行う
+    expect(mockProfilesEq.mock.results[0].value.order).toHaveBeenCalledWith('id', { ascending: true });
   });
 
   test('inserts 100 points per user with reason=birthday_YYYY', async () => {
@@ -316,20 +319,29 @@ describe('GET /api/cron/birthday-coupon', () => {
     expect(res.status).toBe(200);
   });
 
-  test('email includes 100pt amount in subject', async () => {
-    setupDefaultMocks(1);
+  test('件名は誕生日の挨拶・本文に 100ポイント付与を明記する', async () => {
+    setupDefaultMocks(1, 0);
+    const emailSend = jest.fn().mockResolvedValue({ data: { id: 'sent' } });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
 
     await GET(makeRequest() as any);
 
-    // Email should include "100ポイント" or similar
+    expect(emailSend).toHaveBeenCalledTimes(1);
+    const sent = emailSend.mock.calls[0][0];
+    expect(sent.subject).toBe('🎂 お誕生日おめでとうございます！CareLink より');
+    expect(sent.html).toContain('<strong>100ポイント</strong>をプレゼントしました');
   });
 
-  test('email includes points confirmation link', async () => {
-    setupDefaultMocks(1);
+  test('メール本文にポイント確認ページ（/mypage/points）へのリンクを入れる', async () => {
+    setupDefaultMocks(1, 0);
+    const emailSend = jest.fn().mockResolvedValue({ data: { id: 'sent' } });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
 
     await GET(makeRequest() as any);
 
-    // Email should include mypage/points link
+    expect(emailSend.mock.calls[0][0].html).toContain('href="https://carelink-jp.com/mypage/points"');
   });
 
   test('メール本文に display_name を使う', async () => {
@@ -354,7 +366,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
+              in: jest.fn().mockReturnValue({ order: jest.fn().mockReturnThis(),
                 range: jest.fn().mockResolvedValue({
                   data: [{ id: 'user-1', email: 'user@example.com', display_name: null }],
                 }),
@@ -383,7 +395,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
+              in: jest.fn().mockReturnValue({ order: jest.fn().mockReturnThis(),
                 range: jest.fn().mockResolvedValue({
                   data: [{ id: 'user-1', email: 'user@example.com', display_name: '<a href="https://evil.example">x</a>&\'' }],
                 }),
@@ -414,7 +426,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
+              in: jest.fn().mockReturnValue({ order: jest.fn().mockReturnThis(),
                 range: jest.fn().mockResolvedValue({ data: [{ id: 'user-unsub', email: 'u@e.com', display_name: 'U', email_unsubscribed: true }] }),
               }),
             }),
@@ -432,12 +444,13 @@ describe('GET /api/cron/birthday-coupon', () => {
     expect(emailSend).not.toHaveBeenCalled();     // メールは送らない
   });
 
-  test('limits profile query to 500', async () => {
-    setupDefaultMocks(500);
+  test('同日誕生日が 500 人を超えても打ち切らず全員に付与する（旧 .limit(500) の撤去）', async () => {
+    setupDefaultMocks(501);
 
     await GET(makeRequest() as any);
 
-    // Should process up to 500 profiles
+    expect(mockPointsInsert).toHaveBeenCalledTimes(501);
+    expect(mockPointsInsert).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'user-500' }));
   });
 
   test('(c) email送信throw → claim は先に成立済み・claim DELETE で解放される（翌 run で再送）', async () => {
@@ -644,7 +657,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
+              in: jest.fn().mockReturnValue({ order: jest.fn().mockReturnThis(),
                 range: jest.fn().mockResolvedValue({
                   data: [{ id: 'u1', email: null, display_name: 'No Email' }],
                 }),
@@ -824,4 +837,20 @@ describe('GET /api/cron/birthday-coupon', () => {
     warnSpy.mockRestore();
   });
 
+});
+
+// 2/29 生まれは平年の 2/28 に対象にする（低 A142）。閏年は 2/29 当日だけ。
+describe('2/29 生まれの扱い', () => {
+  test.each([
+    ['2027-02-28T03:00:00Z', ['02-28', '02-29']],
+    ['2028-02-28T03:00:00Z', ['02-28']],
+    ['2028-02-29T03:00:00Z', ['02-29']],
+    ['2100-02-28T03:00:00Z', ['02-28', '02-29']],
+    ['2000-02-28T03:00:00Z', ['02-28']],
+  ])('%s → %j', async (now, expected) => {
+    setupDefaultMocks(0);
+    jest.setSystemTime(new Date(now));
+    await GET(makeRequest() as any);
+    expect(mockProfilesEq).toHaveBeenCalledWith('birth_md', expected);
+  });
 });

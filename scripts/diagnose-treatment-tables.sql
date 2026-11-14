@@ -68,8 +68,10 @@ ORDER BY tablename, policyname;
 --     【何の警告も無く全て消える】。施設が減っていないかをまず見る。
 SELECT status, count(*) AS facilities FROM facility_profiles GROUP BY status ORDER BY status;
 
--- ②-c 監査ログに削除の記録が残っていないか（audit_logs は fire-and-forget なので
---     「無い＝やっていない」の証明にはならないが、「有る＝やった」の証拠にはなる）。
+-- ②-c 監査ログに削除の記録が残っていないか。writeAuditLog は runAfterResponse（Next の after()）経由で
+--     応答後の実行が保証されている（2026年8月12日 PR#587/#588 以降）。ただしそれ以前の期間・
+--     監査ログを書かない経路（SQL Editor での直接削除・ON DELETE CASCADE の連鎖）・書き込み自体の失敗は
+--     記録に残らないので、「無い＝やっていない」の決め手にはしない。「有る＝やった」の証拠にはなる。
 SELECT created_at, user_id, action, table_name, record_id
 FROM audit_logs
 WHERE table_name IN ('treatment_catalogs', 'treatment_plans', 'treatment_records', 'facility_profiles')

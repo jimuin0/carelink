@@ -1,6 +1,6 @@
 # ADR-0002: Upstash 障害時の in-memory rate-limit フォールバック
 Date: 2026-05-24
-Status: Accepted
+Status: Superseded（Upstash は廃止済み。現在は Supabase RPC `check_rate_limit` を優先し、失敗時のみ in-memory へ倒す＝`src/lib/rate-limit.ts`）
 
 ## Context
 Upstash Redis インスタンス `precious-bluebird-74789.upstash.io` が削除/凍結され DNS NXDOMAIN となった。`src/lib/rate-limit.ts` の `checkRateLimit()` 内で `limiter.limit(ip)` が `fetch failed (ENOTFOUND)` を throw し、各 mutation API（`/api/profile`, `/api/notify`, `/api/contact` 等）が一律 500 を返す状態に陥っていた。

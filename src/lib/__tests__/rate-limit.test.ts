@@ -187,6 +187,17 @@ describe('checkRateLimit', () => {
     consoleSpy.mockRestore();
   });
 
+  test('B5-12: RPC が data:null（エラー無し）でも素通しにせず in-memory で制限する', async () => {
+    (createServiceRoleClient as jest.Mock).mockReturnValue({
+      rpc: jest.fn().mockResolvedValue({ data: null, error: null }),
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    // 上限 1：1 回目は通し、2 回目は in-memory 判定で制限される
+    expect(await checkRateLimit(null, '7.7.7.7', 1, 60000, 'rl:null-data')).toBe(false);
+    expect(await checkRateLimit(null, '7.7.7.7', 1, 60000, 'rl:null-data')).toBe(true);
+    consoleSpy.mockRestore();
+  });
+
   test('falls back to in-memory when createServiceRoleClient throws (non-Error)', async () => {
     (createServiceRoleClient as jest.Mock).mockImplementation(() => {
       throw 'string-error';

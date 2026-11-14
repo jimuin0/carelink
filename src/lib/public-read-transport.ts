@@ -10,7 +10,12 @@ function dispatcherReader() {
     allowH2: false,
     keepAliveTimeout: 60_000,
     keepAliveMaxTimeout: 60_000,
-  }));
+  })).catch((error: unknown) => {
+    // A failed load/construction must not be cached for the process lifetime;
+    // the next read retries instead of failing forever.
+    dispatcher = undefined;
+    throw error;
+  });
 }
 
 // Keep public and trusted-server sockets separate. Neither pool stores headers,

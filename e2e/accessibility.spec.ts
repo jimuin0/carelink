@@ -62,40 +62,37 @@ test.describe('フォームアクセシビリティ', () => {
   test('ログインフォームの input に label がある', async ({ page }) => {
     await page.goto('/auth/login');
     const emailInput = page.locator('input[type="email"], input[name="email"]').first();
-    if (await emailInput.isVisible()) {
-      const id = await emailInput.getAttribute('id');
-      const ariaLabel = await emailInput.getAttribute('aria-label');
-      const ariaLabelledBy = await emailInput.getAttribute('aria-labelledby');
-      const hasLabel = id
-        ? (await page.locator(`label[for="${id}"]`).count()) > 0
-        : false;
-      expect(hasLabel || !!ariaLabel || !!ariaLabelledBy).toBe(true);
-    }
+    // 入力欄が無い（描画されない）ことも失敗として扱う。if で囲むと要素が消えても緑になる。
+    await expect(emailInput).toBeVisible();
+    const id = await emailInput.getAttribute('id');
+    const ariaLabel = await emailInput.getAttribute('aria-label');
+    const ariaLabelledBy = await emailInput.getAttribute('aria-labelledby');
+    const hasLabel = id
+      ? (await page.locator(`label[for="${id}"]`).count()) > 0
+      : false;
+    expect(hasLabel || !!ariaLabel || !!ariaLabelledBy).toBe(true);
   });
 
   test('必須フィールドに required 属性がある', async ({ page }) => {
     await page.goto('/auth/login');
     const emailInput = page.locator('input[type="email"]').first();
-    if (await emailInput.isVisible()) {
-      const required = await emailInput.getAttribute('required');
-      const ariaRequired = await emailInput.getAttribute('aria-required');
-      expect(required !== null || ariaRequired === 'true').toBe(true);
-    }
+    await expect(emailInput).toBeVisible();
+    const required = await emailInput.getAttribute('required');
+    const ariaRequired = await emailInput.getAttribute('aria-required');
+    expect(required !== null || ariaRequired === 'true').toBe(true);
   });
 
   test('エラー時に role="alert" が表示される', async ({ page }) => {
     await page.goto('/auth/login');
     const submitBtn = page.getByRole('button', { name: /ログイン|Login/ }).first();
-    if (await submitBtn.isVisible()) {
-      await submitBtn.click();
-      await page.waitForTimeout(500);
-      const alerts = page.locator('[role="alert"], .error, [aria-live="polite"]');
-      // フォームバリデーションが発動する
-      const count = await alerts.count();
-      // HTML5 validation か aria alert どちらかが存在する
+    await expect(submitBtn).toBeVisible();
+    await submitBtn.click();
+    // HTML5 validation か aria alert のどちらかが出るまで待つ（固定の待ち時間に頼らない）
+    await expect.poll(async () => {
+      const count = await page.locator('[role="alert"], .error, [aria-live="polite"]').count();
       const emailInvalid = await page.locator('input[type="email"]:invalid').count();
-      expect(count > 0 || emailInvalid > 0).toBe(true);
-    }
+      return count > 0 || emailInvalid > 0;
+    }).toBe(true);
   });
 });
 
@@ -109,25 +106,24 @@ test.describe('キーボードナビゲーション', () => {
 
   test('Skip to main content リンクが存在する', async ({ page }) => {
     await page.goto('/');
-    await page.keyboard.press('Tab');
-    // 最初の Tab でスキップリンクにフォーカスが当たることが理想
-    const skipLink = page.locator('a[href="#main"], a[href="#content"], a:has-text("スキップ"), a:has-text("Skip")').first();
-    // 存在する場合のみチェック
-    if (await skipLink.count() > 0) {
-      await expect(skipLink).toBeDefined();
-    }
+    // スキップリンクがあり、飛び先の <main> が実在し、フォーカスすると見えること。
+    // （WebKit は既定で Tab がリンクに止まらないため、キー操作ではなく focus() で確かめる）
+    const skipLink = page.locator('a[href="#main-content"]').first();
+    await expect(skipLink).toHaveCount(1);
+    await expect(page.locator('#main-content')).toHaveCount(1);
+    await skipLink.focus();
+    await expect(skipLink).toBeFocused();
+    await expect(skipLink).toBeVisible();
   });
 
   test('検索フォームに Enter キーで送信できる', async ({ page }) => {
     await page.goto('/search');
     const searchInput = page.locator('input[type="search"], input[placeholder*="検索"]').first();
-    if (await searchInput.isVisible()) {
-      await searchInput.fill('テスト');
-      await searchInput.press('Enter');
-      await page.waitForLoadState('networkidle');
-      // クラッシュしないことを確認
-      expect(page.url()).toBeTruthy();
-    }
+    await expect(searchInput).toBeVisible();
+    await searchInput.fill('テスト');
+    await searchInput.press('Enter');
+    // Enter で送信され、キーワードが URL に載ること
+    await expect(page).toHaveURL(/[?&]keyword=(%E3%83%86%E3%82%B9%E3%83%88|テスト)/);
   });
 });
 

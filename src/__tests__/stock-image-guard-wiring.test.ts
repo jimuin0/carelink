@@ -12,7 +12,10 @@
  * 検査は3本:
  *   1. 画像URLフィールドを受け取る API ルートは、2つのガードのどちらかを参照している
  *   2. migration / seed / アプリコードにストック画像の URL が新たに増えていない
- *   3. next.config.mjs の images.unsplash.com 許可が残っている（先に外すと本番が壊れる）
+ *   3. next.config.mjs の next/image 許可ホストにストック写真サービスが無く、自 Supabase Storage だけである
+ *      （2026年8月12日に本番の画像列を棚卸しして 0 件を確認し、images.unsplash.com の許可を撤去した。
+ *       以後の危険は「うっかり足し戻す」ことなので、検査は「外すな」から「足すな」へ反転済み。
+ *       許可を戻してはいけない。画像は自 Storage へ移すのが正しい直し方）
  */
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { join, relative, sep } from 'path';

@@ -163,9 +163,9 @@ test('PATCH: verified_type 省略時は phone がデフォルト', async () => {
   expect(json.verified_type).toBe('phone');
 });
 
-test('PATCH: レートリミット params (10/60s)', () => {
+test('PATCH: レートリミット params (10/60s)', async () => {
   (checkRateLimit as jest.Mock).mockClear();
-  PATCH(makeRequest({ facility_id: FACILITY_UUID, is_verified: true }));
+  await PATCH(makeRequest({ facility_id: FACILITY_UUID, is_verified: true }));
   const call = (checkRateLimit as jest.Mock).mock.calls[0];
   expect(call[2]).toBe(10);
   expect(call[3]).toBe(60_000);

@@ -422,3 +422,12 @@ test('予期しない例外 → 500（内部情報は漏らさない）', async 
   const json = await res.json();
   expect(JSON.stringify(json)).not.toContain('boom');
 });
+
+// LINE 経路でも施設名が読めないまま送らない（低 A119）。
+test('line: 施設名が読めない → 500 で送信しない', async () => {
+  cfg.entitlements = [{ facility_id: 'fac-1', option_key: 'time_adjust_line' }];
+  cfg.facility = null;
+  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line' }));
+  expect(res.status).toBe(500);
+  expect(mockSendLineText).not.toHaveBeenCalled();
+});

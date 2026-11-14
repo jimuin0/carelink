@@ -904,11 +904,15 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
     const origKey = process.env.RESEND_API_KEY;
     delete process.env.RESEND_API_KEY;
     jest.resetModules();
-    jest.mock('resend', () => ({ Resend: jest.fn() }));
+    // 送信関数を Resend の send に実際に配線しておく。キー未設定なのにどこかで送信すれば
+    // mockNoSend が呼ばれて落ちる（配線の無い jest.fn() を not.toHaveBeenCalled() しても何も確かめない）。
+    const mockNoSend = jest.fn().mockResolvedValue({ data: { id: 'should-not-send' }, error: null });
+    const mockResendCtor = jest.fn().mockImplementation(() => ({ emails: { send: mockNoSend } }));
+    jest.doMock('resend', () => ({ Resend: mockResendCtor }));
     jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
     const mod = require('../email');
-    const noSendMock = jest.fn();
+    const noSendMock = mockNoSend;
 
     const minData = {
       customerName: 'テスト',
@@ -1125,5 +1129,21 @@ describe('owner mail shows the points the customer used', () => {
   it('customer-facing mails never show the points row (only the owner notification passes it)', () => {
     const mail = require('../email').buildBookingConfirmationEnvelope({ ...baseData, totalPrice: 6000 }) as { html: string };
     expect(mail.html).not.toContain('ポイント利用');
+  });
+});
+
+describe('B4-10: 店舗向け予約メールの管理画面リンクに施設 ID を載せる', () => {
+  const FID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const { buildNewBookingNotificationEnvelope, buildBookingCancellationToFacilityEnvelope, buildBookingRescheduleToFacilityEnvelope } = require('../email');
+  const prev = { bookingDate: '2026-06-01', startTime: '10:00', endTime: '11:00' };
+  test.each([
+    ['新規', () => buildNewBookingNotificationEnvelope({ ...baseData, facilityId: FID, facilityEmail: 'o@example.invalid' })],
+    ['取消', () => buildBookingCancellationToFacilityEnvelope({ ...baseData, facilityId: FID, facilityEmail: 'o@example.invalid' })],
+    ['変更', () => buildBookingRescheduleToFacilityEnvelope({ ...baseData, facilityId: FID, facilityEmail: 'o@example.invalid', previous: prev })],
+  ])('%s', (_label, build) => {
+    expect(build().html).toContain(`/admin/bookings?facility_id=${FID}`);
+  });
+  test('施設 ID が無いときは従来のリンク', () => {
+    expect(buildNewBookingNotificationEnvelope({ ...baseData, facilityEmail: 'o@example.invalid' }).html).toContain('/admin/bookings"');
   });
 });

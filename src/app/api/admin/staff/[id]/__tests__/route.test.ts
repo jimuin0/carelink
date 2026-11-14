@@ -27,7 +27,7 @@ test.each([
 test('invalid JSON causes no mutation',async()=>{const r=new NextRequest('http://localhost/api/admin/staff/'+id,{method:'PATCH',body:'{'});expect((await PATCH(r,props())).status).toBe(400);});
 test('successful edit has one atomic call with verified actor and scope',async()=>{
  const r=await PATCH(request(),props());expect(r.status).toBe(200);expect(await r.json()).toEqual({staff:{id,facility_id:facility,name:'Staff'}});
- expect(mockRpc).toHaveBeenCalledWith('save_admin_staff_atomic',{p_actor_id:actor,p_facility_id:facility,p_staff_id:id,p_menu_ids:null,p_values:{name:'Staff',position:null,bio:null,specialties:[],years_experience:null,instagram_url:null,nomination_fee:0,line_works_channel_id:null,line_works_notify_all:false}});
+ expect(mockRpc).toHaveBeenCalledWith('save_admin_staff_atomic',{p_actor_id:actor,p_facility_id:facility,p_staff_id:id,p_menu_ids:null,p_values:{name:'Staff'}});
  expect(mockDirect).not.toHaveBeenCalled();expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({userId:actor,facilityId:facility,recordId:id}));
 });
 test.each([[[]],[[menu]]])('assignment clear/replacement %p stays inside the atomic call',async menu_ids=>{expect((await PATCH(request({name:'S',menu_ids}),props())).status).toBe(200);expect(mockRpc.mock.calls[0][1].p_menu_ids).toEqual(menu_ids);expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({newValues:expect.objectContaining({menu_ids})}));expect(mockDirect).not.toHaveBeenCalled();});
@@ -36,3 +36,9 @@ test.each([0,99999])('nomination fee boundary %s survives',async nomination_fee=
 test('full optional fields survive without clearing is_active implicitly',async()=>{const body={name:'S',position:'Stylist',bio:'Bio',specialties:['Cut'],years_experience:2,instagram_url:'https://example.invalid/staff',nomination_fee:10,line_works_channel_id:'channel',line_works_notify_all:true};await PATCH(request(body),props());expect(mockRpc.mock.calls[0][1].p_values).toEqual(body);expect(mockRpc.mock.calls[0][1].p_values).not.toHaveProperty('is_active');});
 test('empty instagram normalizes to null',async()=>{await PATCH(request({name:'S',instagram_url:''}),props());expect(mockRpc.mock.calls[0][1].p_values.instagram_url).toBeNull();});
 test.each([['42501',403],['22023',400],['P0002',404],['23505',409],['40001',409],['XX000',500]])('atomic SQL error %s is not audited as successful',async(code,status)=>{mockRpc.mockResolvedValue({data:null,error:{code,message:code==='42501'?'STAFF_FORBIDDEN':'PRIVATE'}});const r=await PATCH(request({name:'S',menu_ids:[menu,menu]}),props());expect(r.status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expect(mockDirect).not.toHaveBeenCalled();});
+
+// 送っていない列は載せない＝RPC 側で現在値のまま（低 A133）。送った列は null・空文字も含めてそのまま渡す。
+test('only submitted fields are sent; explicit clears are kept',async()=>{
+ const r=await PATCH(request({name:'S',bio:null,specialties:[],years_experience:3,instagram_url:'',nomination_fee:500,position:'店長',line_works_channel_id:null,line_works_notify_all:true}),props());expect(r.status).toBe(200);
+ expect(mockRpc.mock.calls[0][1].p_values).toEqual({name:'S',position:'店長',bio:null,specialties:[],years_experience:3,instagram_url:null,nomination_fee:500,line_works_channel_id:null,line_works_notify_all:true});
+});

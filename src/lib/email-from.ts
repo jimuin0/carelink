@@ -88,12 +88,25 @@ export function productionResolvedFrom(): ResolvedFrom {
   return resolveFrom(process.env.EMAIL_FROM, true);
 }
 
-/** ニュースレター配信の送信元。EMAIL_FROM と同じ検証を通す。 */
-export function newsletterFromEnv(): string {
-  return resolveFrom(
+/**
+ * ニュースレター配信の送信元（診断情報つき）。EMAIL_FROM と同じ検証を通す。
+ * 検証に落ちたときは通常通知の noreply@ ではなく newsletter@ の既定値へ倒す
+ * （noreply@ に倒すと「別アドレスにして配信停止の扱いを分ける」前提が崩れる・低 A219）。
+ * 倒れた事実（fellBack）は呼び出し側（newsletter-send.ts）が警報する。
+ */
+export function resolvedNewsletterFromEnv(): ResolvedFrom {
+  const resolved = resolveFrom(
     process.env.NEWSLETTER_EMAIL_FROM || DEFAULT_NEWSLETTER_FROM,
     process.env.NODE_ENV === 'production'
-  ).from;
+  );
+  return resolved.fellBack
+    ? { ...resolved, from: DEFAULT_NEWSLETTER_FROM, sendingDomain: DEFAULT_FROM_DOMAIN }
+    : resolved;
+}
+
+/** ニュースレター配信の送信元。 */
+export function newsletterFromEnv(): string {
+  return resolvedNewsletterFromEnv().from;
 }
 
 /**

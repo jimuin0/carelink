@@ -48,12 +48,11 @@ export const RATCHET_RULES = [
 ];
 
 /**
- * 現在の負債件数。CI 37865994726（2026年10月9日、66dbad45）で3件を実測。
+ * 現在の負債件数＝0 件（2026年10月28日。経緯は下の「BASELINE の変遷」）。
  * 返済したらこの数を下げること（下げ忘れは checkDebt が検知する）。
  *
- * 内訳（3 件）:
- *   incompatible-library 1 件 … ReviewForm。react-hook-form の watch()。
- *   no-location-assign   2 件 … 退会後の全リロード（mypage/profile と WithdrawalSettings）。
+ * 内訳: なし。以前の 3 件（ReviewForm の watch() 1 件・退会後の全リロード 2 件）は
+ * いずれも解消済み。以下の個別の記録は、同じ指摘が再発したときの判断材料として残している。
  *
  * 🔴 【2026年8月18日 実測】react-hook-form を 7.82.0 → 7.85.0 へ上げても incompatible-library は
  * 3 件のまま消えなかった（上流未対応）。「次のリリースで消えるかもしれない」ではなく、

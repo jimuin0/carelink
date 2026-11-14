@@ -246,6 +246,14 @@ describe('salonStep1Schema 追加分岐', () => {
     const result = salonStep1Schema.safeParse({ ...validData, website: 'https://example.com' });
     expect(result.success).toBe(true);
   });
+
+  test.each(['javascript:alert(1)', 'data:text/html,x', 'ftp://example.com'])('B5-13: website の http/https 以外 %s は拒否', (website) => {
+    expect(salonStep1Schema.safeParse({ ...validData, website }).success).toBe(false);
+  });
+
+  test('B5-13: website の http:// は受け付ける', () => {
+    expect(salonStep1Schema.safeParse({ ...validData, website: 'http://example.com' }).success).toBe(true);
+  });
 });
 
 describe('salonStep2Schema 追加分岐', () => {

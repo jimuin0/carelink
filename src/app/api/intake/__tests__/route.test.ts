@@ -317,7 +317,17 @@ describe('POST /api/intake', () => {
       }),
     }) as any);
 
-    expect([200, 201]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, id: 'response-123' });
+    // 認証ユーザー・検証済み ID・回答をそのまま保存する（予約未指定は null）
+    expect(mockInsert).toHaveBeenCalledWith({
+      template_id: '11111111-1111-1111-1111-111111111111',
+      facility_id: '11111111-1111-1111-1111-111111111111',
+      booking_id: null,
+      user_id: 'user-123',
+      customer_name: 'Test User',
+      responses: { condition: 'healthy' },
+    });
   });
 
   test('rate limiting → 429', async () => {
@@ -591,8 +601,55 @@ describe('GET /api/intake – cookie callback invocable', () => {
         facility_id: '11111111-1111-1111-1111-111111111111',
       }),
     }) as any);
-    expect([200, 201, 400, 500]).toContain(res.status);
+    // ゲスト（未ログイン）でも予約未指定なら受け付け、user_id は null で保存する
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, id: 'resp-1' });
+    expect(insertFn).toHaveBeenCalledWith(expect.objectContaining({ user_id: null, booking_id: null, customer_name: 'Test', responses: {} }));
     expect(mockCookieStore.getAll).toHaveBeenCalled();
+  });
+});
+
+// 低 A155: 読み取り失敗を「問診なし」「見つからない」（利用者の誤り）に見せない。
+describe('intake の読み取り失敗は 500', () => {
+  function failingClient(user: { id: string } | null) {
+    const { createServerClient } = require('@supabase/ssr');
+    const insert = jest.fn();
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user } }) },
+      from: jest.fn(() => ({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }),
+        insert,
+      })),
+    });
+    return insert;
+  }
+  const postBody = (extra: Record<string, unknown> = {}) => new Request('http://localhost/api/intake', {
+    method: 'POST',
+    body: JSON.stringify({ template_id: '11111111-1111-1111-1111-111111111111', customer_name: 'Test', facility_id: '11111111-1111-1111-1111-111111111111', ...extra }),
+  });
+
+  test('GET: テンプレートの読み取り失敗 → 500（template:null にしない）', async () => {
+    failingClient(null);
+    const { GET } = await import('../route');
+    const req = new Request('http://localhost/api/intake?facility_id=11111111-1111-1111-1111-111111111111');
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url) });
+    expect((await GET(req as any)).status).toBe(500);
+  });
+
+  test('POST: 予約の読み取り失敗 → 500（403 にしない）', async () => {
+    const insert = failingClient({ id: 'user-123' });
+    const { POST } = await import('../route');
+    expect((await POST(postBody({ booking_id: '22222222-2222-2222-2222-222222222222' }) as any)).status).toBe(500);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  test('POST: テンプレートの読み取り失敗 → 500（403 にしない）', async () => {
+    const insert = failingClient(null);
+    const { POST } = await import('../route');
+    expect((await POST(postBody() as any)).status).toBe(500);
+    expect(insert).not.toHaveBeenCalled();
   });
 });
 
@@ -627,3 +684,4 @@ describe('問診 非表示ゲート（INTAKE_CUSTOMER_ENABLED=false）', () => {
     expect(res.status).toBe(404);
   });
 });
+

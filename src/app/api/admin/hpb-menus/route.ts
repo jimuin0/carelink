@@ -14,6 +14,7 @@ import {
 } from '@/lib/hpb-menu';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { serverError } from '@/lib/with-route';
+import { alertCaughtError } from '@/lib/alert';
 
 // HPB 店舗ID(slnID)は英数字のみ(例 H000537368)。空文字は「未設定に戻す」。
 const slnSchema = z.object({
@@ -138,6 +139,8 @@ export async function POST(request: NextRequest) {
     );
   }
   if (!result.complete) {
+    // 502 は withRoute の戻り値監視（>=500 を通知）を通らないため、ここで明示的に通知する（低 A121）。
+    alertCaughtError('admin-hpb-menus-incomplete', new Error('HPB menu scrape incomplete'), '/api/admin/hpb-menus');
     return NextResponse.json({ ...response, error: '一部を保存しましたが、HPBからの取得を完了できませんでした。' }, { status: 502 });
   }
   return NextResponse.json(response);

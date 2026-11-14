@@ -147,18 +147,25 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
     setSaving(true);
     setError(null);
 
-    const supabase = createBrowserSupabaseClient();
-    const { error: upsertErr } = await supabase
-      .from('facility_reminder_settings')
-      // 切り替えた列だけを書く（他の列を画面の値で上書きしない）。
-      .upsert({ facility_id: facilityId, [key]: newSettings[key] } as { facility_id: string } & Partial<ReminderSettings>, { onConflict: 'facility_id' });
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { error: upsertErr } = await supabase
+        .from('facility_reminder_settings')
+        // 切り替えた列だけを書く（他の列を画面の値で上書きしない）。
+        .upsert({ facility_id: facilityId, [key]: newSettings[key] } as { facility_id: string } & Partial<ReminderSettings>, { onConflict: 'facility_id' });
 
-    if (upsertErr) {
-      // 保存失敗は silent にせず巻き戻して可視化（楽観更新の取り消し）
+      if (upsertErr) {
+        // 保存失敗は silent にせず巻き戻して可視化（楽観更新の取り消し）
+        setSettings(settings);
+        setError('設定の保存に失敗しました。時間をおいて再度お試しください。');
+      }
+    } catch {
+      // 通信断（例外）でも巻き戻し、トグルを無効のまま固めない（監査 A267）
       setSettings(settings);
       setError('設定の保存に失敗しました。時間をおいて再度お試しください。');
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const handleBuy = async (optionKey: string, contactOnly: boolean) => {

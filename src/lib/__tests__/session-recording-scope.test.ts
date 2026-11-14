@@ -32,7 +32,6 @@ describe('録画してよい公開ページ', () => {
     '/facility/some-salon/catalog',
     '/blog/hello',
     '/feature/spring',
-    '/symptom-checker',
     '/type/hair-salon',
     '/salon/premium',
     '/privacy',
@@ -54,6 +53,7 @@ describe('録画しない画面（お客様・店舗・申込者の情報を表�
     '/auth/login',
     '/auth/signup',
     '/intake/some-salon',
+    '/symptom-checker', // B5-18: 選んだ症状（健康情報）が画面に出る
     '/liff/bookings',
     '/register',
     '/register/recover',

@@ -109,10 +109,17 @@ export async function GET(request: Request) {
   const cronAuthError = checkCronAuth(request);
   if (cronAuthError) return cronAuthError;
 
-  const admin = createServiceRoleClient();
   const startedAt = new Date();
-
-  const { data, error } = await admin.rpc('get_public_columns');
+  let admin: ReturnType<typeof createServiceRoleClient>;
+  let data: unknown;
+  let error: { message: string } | null;
+  try {
+    // クライアント生成（env 欠落）や RPC の reject も cron_logs に error として残す。
+    admin = createServiceRoleClient();
+    ({ data, error } = await admin.rpc('get_public_columns'));
+  } catch (e) {
+    return cronError('schema-drift-check', startedAt, e, { message: 'Internal Server Error' });
+  }
   if (error) {
     return cronError('schema-drift-check', startedAt, error, { message: 'Internal Server Error' });
   }

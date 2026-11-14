@@ -22,6 +22,7 @@ import { facilitySetupSteps, loadFacilitySetupFacts, type FacilitySetupStep, typ
 import { listingPublishMissing } from '@/lib/facility-publish-gate';
 import { LISTING_PUBLISH_REQUIREMENT } from '@/lib/register-photo-policy';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
+import { todayJst } from '@/lib/admin-date';
 import { BOOKING_CSV_MAX_ROWS, buildBookingCsv, readBookingCsvRows } from '@/lib/booking-csv-export';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import BusinessHoursEditor from '@/components/admin/BusinessHoursEditor';
@@ -726,7 +727,8 @@ function AdminSettingsContent() {
               const url = URL.createObjectURL(blob);
               const a = document.createElement('a');
               a.href = url;
-              a.download = `carelink-bookings-${new Date().toISOString().slice(0, 10)}.csv`;
+              // ファイル名の日付は JST（toISOString は UTC なので JST 0〜9時に前日になる）
+              a.download = `carelink-bookings-${todayJst()}.csv`;
               a.click();
               setTimeout(() => URL.revokeObjectURL(url), 200);
               setCsvTruncated(truncated);
@@ -736,6 +738,8 @@ function AdminSettingsContent() {
                   ? `CSVをダウンロードしました（新しい順に${BOOKING_CSV_MAX_ROWS.toLocaleString()}件まで）`
                   : `CSVをダウンロードしました（${rows.length.toLocaleString()}件）`,
               });
+            } catch {
+              setToast({ type: 'error', message: 'CSVの作成に失敗しました。再度お試しください' });
             } finally {
               setCsvExporting(false);
             }

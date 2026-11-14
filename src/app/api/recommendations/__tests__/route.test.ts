@@ -295,10 +295,10 @@ describe('GET /api/recommendations', () => {
     expect(eqColumns).not.toContain('is_published');
   });
 
-  test('rate limit params (30 req/min per IP)', () => {
+  test('rate limit params (30 req/min per IP)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
-    GET(makeRequest(6, undefined, '192.168.1.1') as any);
+    await GET(makeRequest(6, undefined, '192.168.1.1') as any);
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
@@ -307,10 +307,10 @@ describe('GET /api/recommendations', () => {
     expect(call[4]).toBe('recommendations');
   });
 
-  test('extracts last (trusted) IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
-    GET(makeRequest(6, undefined, '10.0.0.1, 192.168.1.1') as any);
+    await GET(makeRequest(6, undefined, '10.0.0.1, 192.168.1.1') as any);
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
@@ -328,11 +328,11 @@ describe('GET /api/recommendations', () => {
     expect(mockFavoritesSelect().eq().limit).toHaveBeenCalledWith(20);
   });
 
-  test('x-forwarded-for ヘッダーなし → "unknown" を使用', () => {
+  test('x-forwarded-for ヘッダーなし → "unknown" を使用', async () => {
     (checkRateLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/recommendations', { method: 'GET' });
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    GET(req as any);
+    await GET(req as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('unknown');
   });
@@ -442,6 +442,37 @@ describe('GET /api/recommendations', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.type).toBe('personalized');
+  });
+
+  test('B3-21: prefecture/city/business_type が null でも "null" で検索しない', async () => {
+    const { createClient } = require('@supabase/supabase-js');
+    const rows = [
+      { facility_id: 'fac-1', facility_profiles: { id: 'fac-1', business_type: 'acupuncture', prefecture: null, city: null } },
+      { facility_id: 'fac-2', facility_profiles: { id: 'fac-2', business_type: null, prefecture: '東京都', city: null } },
+    ];
+    const mockBkSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: rows }) }) }),
+    });
+    const mockFavSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: [] }) }),
+    });
+    const mockPopEq = jest.fn();
+    const mockPopOrder = jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: [] }) });
+    mockPopEq.mockReturnValue({ eq: mockPopEq, order: mockPopOrder });
+    const mockPopSel = jest.fn().mockReturnValue({ eq: mockPopEq });
+    createClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockBkSelect };
+        if (table === 'favorites') return { select: mockFavSelect };
+        if (table === 'facility_card_view') return { select: mockPopSel };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.based_on).toEqual({ business_type: 'acupuncture', prefecture: '東京都', city: null });
+    for (const call of mockPopEq.mock.calls) expect(call[1]).not.toBe('null');
+    expect(mockPopEq).toHaveBeenCalledWith('prefecture', '東京都');
   });
 
   test('topType なし・topPref あり → business_type eq をスキップ', async () => {

@@ -376,3 +376,18 @@ describe('公開中の店舗のダッシュボード', () => {
     expect(findElementsWithDirectText(await AdminDashboard({ searchParams: Promise.resolve({}) }), '掲載ページを見る')).toHaveLength(0);
   });
 });
+
+// 監査 A176: 「本日の予約」件数にキャンセル済みが入り、同じ画面の2週間表（cancelled 除外）と食い違っていた。
+test('本日の予約件数はキャンセル済みを除いて数える', async () => {
+  mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published' });
+  await AdminDashboard({ searchParams: Promise.resolve({}) });
+  const client = await (createServerSupabaseAuthClient as jest.Mock).mock.results.at(-1)!.value;
+  const bookingChains = (client.from as jest.Mock).mock.calls
+    .map(([table]: [string], i: number) => (table === 'bookings' ? (client.from as jest.Mock).mock.results[i].value : null))
+    .filter(Boolean) as Record<string, jest.Mock>[];
+  const todayCount = bookingChains.find((c) =>
+    c.select.mock.calls.some(([cols, opts]) => cols === 'id' && opts?.head === true)
+    && c.eq.mock.calls.some(([col]) => col === 'booking_date'));
+  expect(todayCount).toBeDefined();
+  expect(todayCount!.neq).toHaveBeenCalledWith('status', 'cancelled');
+});

@@ -25,7 +25,9 @@ const BOOKING = {
   menu_id: null,
   staff_id: null,
   status: 'confirmed',
-  booking_date: '2026-06-20',
+  // 近日公開表示・カレンダー同期は「開始前の予約」を前提にした検査。固定の過去日だと
+  // 実行日によって開始後の予約になり、開始後に隠す変更を見逃すため、他のテストと同じく遠い未来日にする。
+  booking_date: '2099-06-20',
   start_time: '10:00:00',
   end_time: '11:00:00',
   customer_name: 'テスト太郎',

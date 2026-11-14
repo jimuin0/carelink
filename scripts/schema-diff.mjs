@@ -33,9 +33,9 @@
  *   差分を 1 件も主張してはいけない。実際、2 を入れる前に CareLink の期待値を
  *   soel の本番と突合して「RLS が 90 本欠落」という存在しない事故を報告しかけた。
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 
@@ -213,9 +213,11 @@ export function readLines(path) {
 
 function main(argv) {
   const args = argv.slice(2);
-  const files = args.filter((a) => !a.startsWith('--'));
   const allowIdx = args.indexOf('--allow');
   const minIdx = args.indexOf('--min-lines');
+  // オプションの値（--allow <file> / --min-lines N）を位置引数と取り違えない（点検 B10-19）。
+  const optionValueAt = new Set([allowIdx, minIdx].filter((i) => i >= 0).map((i) => i + 1));
+  const files = args.filter((a, i) => !a.startsWith('--') && !optionValueAt.has(i));
   const minLines = minIdx >= 0 ? Number(args[minIdx + 1]) : 500;
 
   if (files.length < 2) {
@@ -270,6 +272,7 @@ function main(argv) {
   return 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// 空白・日本語・シンボリックリンクを含むパスでも起動判定が外れないよう、実パスの URL に正規化して比べる（点検 B10-19）。
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   process.exit(main(process.argv));
 }

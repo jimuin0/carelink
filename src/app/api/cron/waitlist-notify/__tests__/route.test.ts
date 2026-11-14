@@ -5,9 +5,9 @@
  * Key assertions:
  *   - CRON_SECRET validation
  *   - 48h expiry for notified waitlist entries
- *   - Recent cancellations detection (1h window)
+ *   - Recent cancellations detection (2h window・cron 間隔 1h に 1h の重なりを持たせる)
  *   - Atomic claim pattern (CAS guard) to prevent duplicate notifications
- *   - Notification via email + LINE
+ *   - Notification via email（LINE では送らない）
  *   - Limits to 3 people per slot
  */
 
@@ -190,24 +190,47 @@ describe('GET /api/cron/waitlist-notify', () => {
     errSpy.mockRestore();
   });
 
-  test('finds recently cancelled bookings (1h window)', async () => {
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-    // Verify time window logic was applied
+  test('finds recently cancelled bookings (2h window)', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+    jest.setSystemTime(new Date('2026-05-15T03:00:00Z'));
+    try {
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      const eq = mockSelectCancels().eq;
+      expect(eq).toHaveBeenCalledWith('status', 'cancelled');
+      expect(eq().gte).toHaveBeenCalledWith('updated_at', '2026-05-15T01:00:00.000Z');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
-  test('ignores past-date cancellations', async () => {
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
+  test('ignores past-date cancellations（JST の今日以降だけ）', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+    // UTC では 5/14 だが JST では 5/15。UTC 基準だと前日のキャンセルが混入する。
+    jest.setSystemTime(new Date('2026-05-14T16:00:00Z'));
+    try {
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      expect(mockSelectCancels().eq().gte().gte).toHaveBeenCalledWith('booking_date', '2026-05-15');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('expires notified waitlist after 48h', async () => {
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-    // Verify that notified→expired transition was attempted
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+    jest.setSystemTime(new Date('2026-05-15T03:00:00Z'));
+    try {
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      // calls[0] が期限切れ処理（notified かつ 48h 以上前に通知した行だけを expired へ）
+      expect(mockUpdateWaitlist.mock.calls[0]).toEqual([{ status: 'expired' }, { count: 'exact' }]);
+      const chain = mockUpdateWaitlist.mock.results[0].value;
+      expect(chain.eq).toHaveBeenCalledWith('status', 'notified');
+      expect(chain.lt).toHaveBeenCalledWith('notified_at', '2026-05-13T03:00:00.000Z');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('finds matching waiters by facility, date, time', async () => {
@@ -311,38 +334,34 @@ describe('GET /api/cron/waitlist-notify', () => {
 
     await GET(makeRequest() as any);
 
-    if (mockSendEmail.mock.calls.length > 0) {
-      expect(mockSendEmail).toHaveBeenCalled();
-    }
+    expect(mockSendEmail).toHaveBeenCalled();
   });
 
   test('email includes facility name', async () => {
     await GET(makeRequest() as any);
 
-    if (mockSendEmail.mock.calls.length > 0) {
-      const call = mockSendEmail.mock.calls[0];
-      const html = call[0].html || '';
-      expect(html).toContain('Test Salon');
-    }
+    expect(mockSendEmail).toHaveBeenCalled();
+    const call = mockSendEmail.mock.calls[0];
+    const html = call[0].html || '';
+    expect(html).toContain('Test Salon');
   });
 
   test('email includes booking time', async () => {
     await GET(makeRequest() as any);
 
-    if (mockSendEmail.mock.calls.length > 0) {
-      const call = mockSendEmail.mock.calls[0];
-      const html = call[0].html || '';
-      expect(html).toContain('10:00');
-    }
+    expect(mockSendEmail).toHaveBeenCalled();
+    const call = mockSendEmail.mock.calls[0];
+    const html = call[0].html || '';
+    expect(html).toContain('10:00');
   });
 
   test('includes customer name in email', async () => {
     await GET(makeRequest() as any);
 
-    if (mockSendEmail.mock.calls.length > 0) {
-      const call = mockSendEmail.mock.calls[0];
-      expect(call[0].to).toBeDefined();
-    }
+    expect(mockSendEmail).toHaveBeenCalled();
+    const call = mockSendEmail.mock.calls[0];
+    expect(call[0].to).toBe('waiter0@example.com');
+    expect(call[0].html).toContain('Waiter 0様');
   });
 
   test('handles no recent cancellations → 200 with 0 notified', async () => {
@@ -593,9 +612,8 @@ describe('GET /api/cron/waitlist-notify', () => {
 
     await GET(makeRequest() as any);
 
-    if (mockSendEmail.mock.calls.length > 0) {
-      expect(mockSendEmail.mock.calls[0][0].from).toBe('Custom <custom@example.com>');
-    }
+    expect(mockSendEmail).toHaveBeenCalled();
+    expect(mockSendEmail.mock.calls[0][0].from).toBe('Custom <custom@example.com>');
     delete process.env.EMAIL_FROM;
   });
 
@@ -606,9 +624,8 @@ describe('GET /api/cron/waitlist-notify', () => {
     await GET(makeRequest() as any);
 
     // メール送信が発生しており、デフォルト from を使うことを確認
-    if (mockSendEmail.mock.calls.length > 0) {
-      expect(mockSendEmail.mock.calls[0][0].from).toBe('CareLink <noreply@carelink-jp.com>');
-    }
+    expect(mockSendEmail).toHaveBeenCalled();
+    expect(mockSendEmail.mock.calls[0][0].from).toBe('CareLink <noreply@carelink-jp.com>');
   });
 
   test('非 Error スロー → String() フォールバック → 500', async () => {

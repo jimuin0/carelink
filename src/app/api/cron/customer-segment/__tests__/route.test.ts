@@ -243,42 +243,81 @@ describe('GET /api/cron/customer-segment', () => {
     expect(gteCall).toHaveBeenCalled();
   });
 
-  test('classifies segment: vip (5+ visits, 0-30 days)', async () => {
-    // Setup should automatically create vip segment based on booking data
-    const res = await GET(makeRequest() as any);
+  // 分類は「来店回数」と「最終来店からの日数」で決まる。境界の両側を 1 回の実行に載せ、
+  // upsert に渡った segment を顧客ごとに確かめる（閾値を壊せば必ずどれかが食い違う）。
+  // 現在時刻は beforeEach で 2026-05-15T00:00:00Z に固定している。
+  function useBookings(rows: Array<{ email: string; name: string; date: string; price?: number }>) {
+    setupDefaultMocks(1);
+    const data = rows.map((r, i) => ({
+      id: `b-${i}`,
+      email_canonical: r.email,
+      phone: null,
+      customer_name: r.name,
+      booking_date: r.date,
+      total_price: r.price ?? 1000,
+      status: 'completed',
+    }));
+    mockBookingsSelect = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          in: jest.fn().mockReturnValue({
+            gte: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data, error: null }) }),
+          }),
+        }),
+      }),
+    });
+  }
+  const visits = (email: string, name: string, n: number, last: string) =>
+    Array.from({ length: n }, (_, i) => ({ email, name, date: i === 0 ? last : '2025-12-01' }));
+  function segmentsByName(): Record<string, any> {
+    const rows = mockUpsert.mock.calls.flatMap((c: any[]) => c[0]);
+    return Object.fromEntries(rows.map((r: any) => [r.customer_name, r]));
+  }
 
+  test('classifies segment: 回数と日数の境界ごとに vip / regular / at_risk / lost / new へ分ける', async () => {
+    useBookings([
+      ...visits('vip@example.com', 'vip30', 5, '2026-04-15'),        // 5回・30日 → vip
+      ...visits('reg31@example.com', 'vip31', 5, '2026-04-14'),      // 5回・31日 → regular
+      ...visits('four@example.com', 'four0', 4, '2026-05-15'),       // 4回・0日 → regular（5回未満は vip にしない）
+      ...visits('reg60@example.com', 'reg60', 2, '2026-03-16'),      // 2回・60日 → regular
+      ...visits('risk61@example.com', 'risk61', 2, '2026-03-15'),    // 2回・61日 → at_risk
+      ...visits('risk120@example.com', 'risk120', 2, '2026-01-15'),  // 2回・120日 → at_risk
+      ...visits('lost@example.com', 'lost121', 2, '2026-01-14'),     // 2回・121日 → lost
+      ...visits('new@example.com', 'new1', 1, '2025-01-01'),         // 1回 → new（日数に関係なく）
+    ]);
+    const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
+    const seg = segmentsByName();
+    expect(Object.fromEntries(Object.entries(seg).map(([k, v]) => [k, v.segment]))).toEqual({
+      vip30: 'vip',
+      vip31: 'regular',
+      four0: 'regular',
+      reg60: 'regular',
+      risk61: 'at_risk',
+      risk120: 'at_risk',
+      lost121: 'lost',
+      new1: 'new',
+    });
   });
 
-  test('classifies segment: regular (2+ visits, 31-60 days)', async () => {
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-  });
-
-  test('classifies segment: at_risk (2+ visits, 61-120 days)', async () => {
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-  });
-
-  test('classifies segment: lost (2+ visits, 120+ days)', async () => {
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-  });
-
-  test('classifies segment: new (0-1 visits)', async () => {
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-  });
-
-  test('aggregates by email (deduplication)', async () => {
-    // Multiple bookings from same email should aggregate
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
+  test('aggregates by email (deduplication): 同じメールの予約を 1 人にまとめ、回数・金額・初回/最終来店を集計する', async () => {
+    useBookings([
+      { email: 'same@example.com', name: 'Same', date: '2026-05-01', price: 3000 },
+      { email: 'same@example.com', name: 'Same', date: '2026-02-01', price: 2000 },
+      { email: 'same@example.com', name: 'Same', date: '2026-04-01', price: 1000 },
+    ]);
+    await GET(makeRequest() as any);
+    const rows = mockUpsert.mock.calls.flatMap((c: any[]) => c[0]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      facility_id: 'fac-0',
+      customer_email: 'same@example.com',
+      total_visits: 3,
+      total_spent: 6000,
+      first_visit_date: '2026-02-01',
+      last_visit_date: '2026-05-01',
+      segment: 'regular',
+    });
   });
 
   test('no bookings for facility → skipped', async () => {
@@ -321,14 +360,11 @@ describe('GET /api/cron/customer-segment', () => {
   test('upsert includes facility_id and customer_email', async () => {
     await GET(makeRequest() as any);
 
-    if (mockUpsert.mock.calls.length > 0) {
-      const call = mockUpsert.mock.calls[0];
-      const rows = call[0];
-      if (Array.isArray(rows) && rows.length > 0) {
-        expect(rows[0]).toHaveProperty('facility_id');
-        expect(rows[0]).toHaveProperty('customer_email');
-      }
-    }
+    expect(mockUpsert).toHaveBeenCalled();
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(Array.isArray(rows) && rows.length > 0).toBe(true);
+    expect(rows[0]).toHaveProperty('facility_id');
+    expect(rows[0]).toHaveProperty('customer_email');
   });
 
   test('handles bookings without email → skipped', async () => {
@@ -371,27 +407,21 @@ describe('GET /api/cron/customer-segment', () => {
   test('includes first_visit_date and last_visit_date', async () => {
     await GET(makeRequest() as any);
 
-    if (mockUpsert.mock.calls.length > 0) {
-      const call = mockUpsert.mock.calls[0];
-      const rows = call[0];
-      if (Array.isArray(rows) && rows.length > 0) {
-        expect(rows[0]).toHaveProperty('first_visit_date');
-        expect(rows[0]).toHaveProperty('last_visit_date');
-      }
-    }
+    expect(mockUpsert).toHaveBeenCalled();
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(Array.isArray(rows) && rows.length > 0).toBe(true);
+    expect(rows[0]).toHaveProperty('first_visit_date');
+    expect(rows[0]).toHaveProperty('last_visit_date');
   });
 
   test('calculates days_since_last_visit', async () => {
     await GET(makeRequest() as any);
 
-    if (mockUpsert.mock.calls.length > 0) {
-      const call = mockUpsert.mock.calls[0];
-      const rows = call[0];
-      if (Array.isArray(rows) && rows.length > 0) {
-        expect(rows[0]).toHaveProperty('segment');
-        expect(typeof rows[0].segment).toBe('string');
-      }
-    }
+    expect(mockUpsert).toHaveBeenCalled();
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(Array.isArray(rows) && rows.length > 0).toBe(true);
+    expect(rows[0]).toHaveProperty('segment');
+    expect(typeof rows[0].segment).toBe('string');
   });
 
   test('RFMは completed のみで集計する（confirmed混入＝未来予約のVIP誤分類/負recency防止の回帰）', async () => {
@@ -405,27 +435,21 @@ describe('GET /api/cron/customer-segment', () => {
   test('sums total_spent across visits', async () => {
     await GET(makeRequest() as any);
 
-    if (mockUpsert.mock.calls.length > 0) {
-      const call = mockUpsert.mock.calls[0];
-      const rows = call[0];
-      if (Array.isArray(rows) && rows.length > 0) {
-        expect(rows[0]).toHaveProperty('total_spent');
-        expect(typeof rows[0].total_spent).toBe('number');
-      }
-    }
+    expect(mockUpsert).toHaveBeenCalled();
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(Array.isArray(rows) && rows.length > 0).toBe(true);
+    expect(rows[0]).toHaveProperty('total_spent');
+    expect(typeof rows[0].total_spent).toBe('number');
   });
 
   test('counts visits per email', async () => {
     await GET(makeRequest() as any);
 
-    if (mockUpsert.mock.calls.length > 0) {
-      const call = mockUpsert.mock.calls[0];
-      const rows = call[0];
-      if (Array.isArray(rows) && rows.length > 0) {
-        expect(rows[0]).toHaveProperty('total_visits');
-        expect(typeof rows[0].total_visits).toBe('number');
-      }
-    }
+    expect(mockUpsert).toHaveBeenCalled();
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(Array.isArray(rows) && rows.length > 0).toBe(true);
+    expect(rows[0]).toHaveProperty('total_visits');
+    expect(typeof rows[0].total_visits).toBe('number');
   });
 
   // -----------------------------------------------------------------------
@@ -582,12 +606,10 @@ describe('GET /api/cron/customer-segment', () => {
 
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
-    if (mockUpsert.mock.calls.length > 0) {
-      const rows = mockUpsert.mock.calls[0][0];
-      if (Array.isArray(rows) && rows.length > 0) {
-        expect(rows[0].segment).toBe('lost');
-      }
-    }
+    expect(mockUpsert).toHaveBeenCalled();
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(Array.isArray(rows) && rows.length > 0).toBe(true);
+    expect(rows[0].segment).toBe('lost');
 
     jest.useRealTimers();
   });
@@ -622,13 +644,11 @@ describe('GET /api/cron/customer-segment', () => {
 
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
-    if (mockUpsert.mock.calls.length > 0) {
-      const rows = mockUpsert.mock.calls[0][0];
-      if (Array.isArray(rows) && rows.length > 0) {
-        expect(rows[0].first_visit_date).toBe('2026-01-01');
-        expect(rows[0].last_visit_date).toBe('2026-05-01');
-      }
-    }
+    expect(mockUpsert).toHaveBeenCalled();
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(Array.isArray(rows) && rows.length > 0).toBe(true);
+    expect(rows[0].first_visit_date).toBe('2026-01-01');
+    expect(rows[0].last_visit_date).toBe('2026-05-01');
   });
 
   // Branch coverage: line 90 - b.email が null → customerMap.get も set もしない
@@ -657,13 +677,11 @@ describe('GET /api/cron/customer-segment', () => {
 
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
-    if (mockUpsert.mock.calls.length > 0) {
-      const rows = mockUpsert.mock.calls[0][0];
-      if (Array.isArray(rows)) {
-        // Only the valid@example.com entry should be upserted
-        expect(rows.every((r: any) => r.customer_email !== null)).toBe(true);
-      }
-    }
+    expect(mockUpsert).toHaveBeenCalled();
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(Array.isArray(rows) && rows.length > 0).toBe(true);
+    // Only the valid@example.com entry should be upserted
+    expect(rows.every((r: any) => r.customer_email !== null)).toBe(true);
   });
 
   // Branch coverage: line 86 - new customerMap entry with null customer_name → name: '' (|| '' falsy branch)
@@ -692,13 +710,11 @@ describe('GET /api/cron/customer-segment', () => {
 
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
-    if (mockUpsert.mock.calls.length > 0) {
-      const rows = mockUpsert.mock.calls[0][0];
-      if (Array.isArray(rows) && rows.length > 0) {
-        // name should be '' (empty string fallback) not null
-        expect(rows[0].customer_name).toBe('');
-      }
-    }
+    expect(mockUpsert).toHaveBeenCalled();
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(Array.isArray(rows) && rows.length > 0).toBe(true);
+    // name should be '' (empty string fallback) not null
+    expect(rows[0].customer_name).toBe('');
   });
 
   // Branch coverage: line 90 - new customerMap entry with null total_price → spent: 0 (|| 0 falsy branch)
@@ -727,12 +743,10 @@ describe('GET /api/cron/customer-segment', () => {
 
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
-    if (mockUpsert.mock.calls.length > 0) {
-      const rows = mockUpsert.mock.calls[0][0];
-      if (Array.isArray(rows) && rows.length > 0) {
-        expect(rows[0].total_spent).toBe(0);
-      }
-    }
+    expect(mockUpsert).toHaveBeenCalled();
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(Array.isArray(rows) && rows.length > 0).toBe(true);
+    expect(rows[0].total_spent).toBe(0);
   });
 
   // Branch coverage: classifySegment at_risk branch (2+ visits, daysSince 61-120)
@@ -769,12 +783,10 @@ describe('GET /api/cron/customer-segment', () => {
 
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
-    if (mockUpsert.mock.calls.length > 0) {
-      const rows = mockUpsert.mock.calls[0][0];
-      if (Array.isArray(rows) && rows.length > 0) {
-        expect(rows[0].segment).toBe('at_risk');
-      }
-    }
+    expect(mockUpsert).toHaveBeenCalled();
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(Array.isArray(rows) && rows.length > 0).toBe(true);
+    expect(rows[0].segment).toBe('at_risk');
 
     jest.useRealTimers();
   });
@@ -1077,14 +1089,19 @@ describe('今回の集計に現れなかったお客様の行は消す', () => {
     errorSpy.mockRestore();
   });
 
-  test('予約を件数上限で打ち切った回は消さない（読めなかったお客様の行を消さない）', async () => {
+  // 低 A148: 打ち切った回は途中までのデータで RFM を上書きせず、消しもせず、失敗として残す。
+  test('予約を件数上限で打ち切った回は書き込まず・消さず・error で残す', async () => {
     setupDefaultMocks(1, 0);
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const fullPage = Array(1000).fill(bOnly[0]);
     mockBookingsIn.mockReturnValue({ gte: () => ({ range: async () => ({ data: fullPage, error: null }) }) });
     useStore(initialRows());
     const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
-    expect(mockUpsert).toHaveBeenCalled();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ truncatedFacilities: 1, processingFailures: 1 });
+    expect(logCronRun).toHaveBeenCalledWith('customer-segment', 'error', expect.any(Date), expect.anything());
+    errorSpy.mockRestore();
+    expect(mockUpsert).not.toHaveBeenCalled();
     expect(mockStaleDelete).not.toHaveBeenCalled();
     expect(store.some((r) => r.facility_id === 'fac-0' && r.customer_email === 'a@example.com')).toBe(true);
   });

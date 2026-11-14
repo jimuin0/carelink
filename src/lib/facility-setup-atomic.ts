@@ -1,15 +1,17 @@
 import { z } from 'zod';
 import { businessTypes, UUID_REGEX } from './constants';
+import { FACILITY_INPUT_LIMITS } from './facility-input-limits';
 import type { createServiceRoleClient } from './supabase-server';
 import { isSalonIntentProof, salonIntentProofHash } from './salon-submission-proof';
 
 export const facilitySetupInput = z.object({
-  facility_name: z.string().trim().min(1).max(200).optional(),
+  // 上限は管理画面の編集と同じ FACILITY_INPUT_LIMITS に揃える（作成時だけ短い上限で断らない・低 A217）。
+  facility_name: z.string().trim().min(1).max(FACILITY_INPUT_LIMITS.name).optional(),
   business_type: z.string().refine(value => businessTypes.includes(value)).optional(),
   phone: z.string().trim().max(20).optional(),
   prefecture: z.string().trim().max(20).optional(),
-  city: z.string().trim().max(50).optional(),
-  address: z.string().trim().max(200).optional(),
+  city: z.string().trim().max(FACILITY_INPUT_LIMITS.city).optional(),
+  address: z.string().trim().max(FACILITY_INPUT_LIMITS.address).optional(),
   license_warranted: z.literal(true),
   intentId: z.string().regex(UUID_REGEX).optional(),
   recoveryId: z.string().regex(UUID_REGEX).optional(),

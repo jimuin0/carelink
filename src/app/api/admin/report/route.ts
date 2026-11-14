@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
+import { isValidIsoDate } from '@/lib/date-utils';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { serverError, authUnavailable } from '@/lib/with-route';
@@ -32,15 +33,12 @@ export async function GET(request: NextRequest) {
   if (!UUID_REGEX.test(facilityId)) {
     return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
   }
-  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-  if (!dateRegex.test(from) || !dateRegex.test(to)) {
+  // 形式だけでなく実在する暦日か（2026-02-30 等で DB が拒否して 500 にならないよう・B2-14）。
+  if (!isValidIsoDate(from) || !isValidIsoDate(to)) {
     return NextResponse.json({ error: 'from, to must be YYYY-MM-DD' }, { status: 400 });
   }
   const fromDate = new Date(from);
   const toDate = new Date(to);
-  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
-    return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
-  }
   if (toDate < fromDate) {
     return NextResponse.json({ error: 'to must be >= from' }, { status: 400 });
   }
@@ -100,6 +98,8 @@ export async function GET(request: NextRequest) {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="report_${from}_${to}.csv"`,
+      // 売上データを中間キャッシュ・ブラウザキャッシュに残さない（低 A138）。
+      'Cache-Control': 'no-store',
     },
   });
   } catch (error) {

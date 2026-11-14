@@ -678,15 +678,23 @@ describe('GET /api/cron/booking-reminder', () => {
     });
     mockLineReminder.mockResolvedValue('permanent');
 
-    const json = await (await GET(makeRequest() as any)).json();
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
 
     expect(json.processed).toBe(0);
     expect(json.skipped).toBe(1);
     expect(mockEmailReminder).not.toHaveBeenCalled();
     expect(mockDelete).not.toHaveBeenCalled();
+    // 届かなかった件数として警報し、run は 503
+    expect(res.status).toBe(503);
+    expect(alertWarning).toHaveBeenCalledWith(
+      expect.stringContaining('送信失敗 1件'),
+      expect.objectContaining({ route: '/api/cron/booking-reminder' }),
+    );
   });
 
-  test('LINE: 恒久的な失敗で退避メールも失敗 → claim を解放して翌 run に委ねる', async () => {
+  // 送信は 9 時台の run だけなので「翌 run で再送」はしない。claim は解放するが、届かなかった件数として警報する。
+  test('LINE: 恒久的な失敗で退避メールも失敗 → claim を解放し、自動再送されない旨を警報する', async () => {
     setup({
       bookings: { data: [booking({ booking_date: D7, user_id: 'u1', email: 'customer@example.com' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
@@ -696,11 +704,18 @@ describe('GET /api/cron/booking-reminder', () => {
     mockLineReminder.mockResolvedValue('permanent');
     mockEmailReminder.mockResolvedValue('rejected');
 
-    const json = await (await GET(makeRequest() as any)).json();
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
 
     expect(json.processed).toBe(0);
     expect(json.skipped).toBe(1);
     expect(mockDelete).toHaveBeenCalled();
+    expect(res.status).toBe(503);
+    expect(alertWarning).toHaveBeenCalledWith(
+      expect.stringContaining('送信失敗 1件'),
+      expect.objectContaining({ route: '/api/cron/booking-reminder' }),
+    );
+    expect((alertWarning as jest.Mock).mock.calls[0][0]).toContain('自動では再送されません');
   });
 
   test("LINE: 一時的な失敗かつ claim 解放失敗 → 可視化（本体は継続）", async () => {

@@ -162,6 +162,14 @@ describe('POST /api/push/subscribe', () => {
     expect(res.status).toBe(400);
   });
 
+  test('B3-19: keys が文字列でない（オブジェクト・数値）→ 400・保存しない', async () => {
+    for (const keys of [{ p256dh: { x: 1 }, auth: 'def' }, { p256dh: 'abc', auth: 12345 }, { p256dh: ['a'], auth: ['b'] }]) {
+      const res = await POST(makeRequest({ endpoint: 'https://fcm.googleapis.com/fcm/send/abc123', keys }) as any);
+      expect(res.status).toBe(400);
+    }
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
   test('missing p256dh key → 400', async () => {
     const res = await POST(
       makeRequest({ endpoint: 'https://example.com', keys: { auth: 'def' } }) as any

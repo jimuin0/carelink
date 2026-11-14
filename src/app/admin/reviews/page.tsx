@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState, useCallback, useRef } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -95,36 +95,36 @@ function AdminReviewsContent() {
   const [confirmPublish, setConfirmPublish] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  const loadReviews = useCallback(async (fId: string) => {
-    setLoadError(false);
-    const list = await fetchReviews(fId, filter);
-    if (!list) { setLoadError(true); return [] as AdminReview[]; }
-    setReviews(list);
-    return list;
-  }, [filter]);
-
   // React Compiler の set-state-in-effect 対策：user→membership→facilityId→口コミ＋返信取得の
   // 全工程を useCallback 関数として effect の依存に置き外部から直接呼ぶのではなく、effect 内に
   // inline した非同期IIFEとして定義する（React 公式が推奨する形）。リトライ時も facilityId を
   // 再導出する必要があるため引き続き全工程をここに集約し、リトライは reloadKey のインクリメント
-  // で effect を再発火させる形に統一する（取得ロジックの二重定義を避ける）。依存配列は元の
-  // reload の依存（[loadReviews]）と同じ反応性を保つため loadReviews を含める（filter 変更で
-  // loadReviews の identity が変われば、従来どおりこの effect も再実行される）。
+  // で effect を再発火させる形に統一する（取得ロジックの二重定義を避ける）。
+  // 絞り込み（filter）の変更もこの effect 1 本で再取得する（以前は filter 用の effect が別にあり、
+  // 切り替えのたびに API を 2 回呼んでいた）。cleanup で cancelled を立て、素早く切り替えたときに
+  // 古い絞り込みの応答が後から届いて一覧を上書きしないようにする。
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       const supabase = createBrowserSupabaseClient();
       setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
+      if (cancelled) return;
       if (!user) { setLoading(false); return; }
       // 店舗が 1 つなら自動で選ばれ、複数なら明示の選択が要る（勝手に 1 店舗を選ばない）。
       // 自分の店舗でない facility_id は例外になり、下の catch で読み込み失敗として表示する。
       const selection = await loadAdminFacilitySelection(supabase, user.id, requestedFacility);
+      if (cancelled) return;
       setFacilityChoices(selection.choices);
       if (!selection.selectedId) { setLoading(false); return; }
       setFacilityId(selection.selectedId);
-      const loaded = await loadReviews(selection.selectedId);
+      const list = await fetchReviews(selection.selectedId, filter);
+      if (cancelled) return;
+      if (!list) { setLoadError(true); setLoading(false); return; }
+      setReviews(list);
+      const loaded = list;
       // 返信は補助情報（無ければ非表示）。主表示の口コミは loadReviews 側で error 処理済みのため
       // ここでの失敗は致命的でなく、取得できた分のみ表示する。
       // review_replies に facility_id 列は無いため、当施設の口コミ ID 群で review_id を絞る。
@@ -136,6 +136,7 @@ function AdminReviewsContent() {
             .in('review_id', reviewIds)
             .order('created_at')
         : { data: [] as { id: string; review_id: string; content: string; created_at: string | null }[] };
+      if (cancelled) return;
       if (rows) {
         const map: Record<string, ReviewReply> = {};
         for (const r of rows) {
@@ -159,18 +160,9 @@ function AdminReviewsContent() {
         });
       }
       setLoading(false);
-    })().catch(() => { setLoadError(true); setLoading(false); });
-  }, [loadReviews, reloadKey, requestedFacility]);
-
-  // 監査P13: この effect は filter 変更時の再取得用。従来は reload() が facilityId を
-  // セットした初回にも発火し、reload 内の loadReviews と合わせて初回に2回フェッチしていた。
-  // 初回（facilityId 確定＝reload が取得済み）の1回はスキップし、以降の filter 変更時のみ再取得する。
-  const filterEffectInitialized = useRef(false);
-  useEffect(() => {
-    if (!facilityId) return;
-    if (!filterEffectInitialized.current) { filterEffectInitialized.current = true; return; }
-    loadReviews(facilityId);
-  }, [filter, facilityId, loadReviews]);
+    })().catch(() => { if (!cancelled) { setLoadError(true); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [filter, reloadKey, requestedFacility]);
 
   const toggleStatus = async (review: AdminReview) => {
     if (!facilityId || updating) return;
@@ -180,12 +172,15 @@ function AdminReviewsContent() {
     setUpdating(review.id);
     try {
       const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase
+      // 点検 B7-10: RLS で弾かれた・行が無い更新は例外にならず 0 行になる。成功と表示しないよう行数を確かめる。
+      const { data: updated, error } = await supabase
         .from('facility_reviews')
         .update({ status: newStatus })
         .eq('id', review.id)
-        .eq('facility_id', facilityId);
+        .eq('facility_id', facilityId)
+        .select('id');
       if (error) throw error;
+      if (!Array.isArray(updated) || updated.length === 0) throw new Error('No review updated');
       // 公開に切り替えたときは、その間に運営の審査が始まっていないかを読み直して確かめる
       // （読み直せないときは切り替えた結果だけを反映し、一覧はそのまま残す）。
       const reloaded = newStatus === 'published' ? await fetchReviews(facilityId, filter) : null;

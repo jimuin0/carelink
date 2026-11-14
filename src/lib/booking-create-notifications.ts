@@ -56,7 +56,7 @@ export async function buildBookingCreateNotifications(db: SupabaseClient, input:
   // 電話番号・備考は店舗向けだけに渡す（お客様向けの控えには載せない）。
   // ポイント利用も店舗向けに出す。料金（totalPrice）はポイント利用後の金額なので、
   // これが無いとメニュー価格との差の理由（クーポンか、ポイントか）が店舗に分からない。
-  const ownerData = { ...data, customerPhone: input.phone ?? null, note: input.note ?? null, pointsUsed };
+  const ownerData = { ...data, facilityId: input.facility_id, customerPhone: input.phone ?? null, note: input.note ?? null, pointsUsed };
   const plan: BookingCreateNotification[] = [{ kind: 'email', role: 'customer', target: input.email,
     envelope: status === 'confirmed' ? buildBookingConfirmedEnvelope(data) : buildBookingConfirmationEnvelope(data) }];
   const ownerEmails = new Set<string>();

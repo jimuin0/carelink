@@ -729,3 +729,10 @@ test('toSchemaRow：想定外の形（非object/null/配列/table_name型不一�
   const rowsArg = (computeDrift as jest.Mock).mock.calls[0][1];
   expect(rowsArg).toEqual([{ table_name: 'facility_profiles', column_name: 'id' }]);
 });
+
+test('B1-28: get_public_columns RPC が reject しても未捕捉例外にせず cron_logs に error を残す', async () => {
+  mockRpc.mockImplementation(() => Promise.reject(new Error('network down')));
+  const res = await GET(req());
+  expect(res.status).toBe(500);
+  expect(logCronRun).toHaveBeenCalledWith('schema-drift-check', 'error', expect.any(Date), expect.objectContaining({ error_msg: 'network down' }));
+});

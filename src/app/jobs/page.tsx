@@ -141,6 +141,8 @@ export default async function JobsListPage(props: { searchParams: Promise<Search
                 ? `¥${j.salary_min.toLocaleString()}〜¥${j.salary_max.toLocaleString()}`
                 : j.salary_min
                 ? `¥${j.salary_min.toLocaleString()}〜`
+                : j.salary_max
+                ? `〜¥${j.salary_max.toLocaleString()}` // 上限だけの求人も詳細ページと同じく金額を出す（監査 A197）
                 : j.salary_note || '応相談';
             return (
               <Link key={j.id} href={`/jobs/${j.id}`} className="block px-4 sm:px-6 py-4 hover:bg-gray-50 transition-colors">

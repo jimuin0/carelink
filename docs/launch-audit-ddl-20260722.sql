@@ -136,6 +136,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_intake_active_per_facility
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 【C1】キーワード検索を最寄駅名でも一致させる（facility_card_view に nearest_station を射影）
+-- ✅ 実施済み（2026年11月14日追記）: migration 20260722000002 で射影済み。キーワード検索の修正も
+--   その後の migration（20260812000002 等）で進んでいる。以下は当時の作業指示の記録で、現在の指示ではない。
 -- 現状：facility_card_view は nearest_station を射影せず access_info のみ。PR #518 のコード修正は
 --   クラッシュ（存在しない列参照の400全滅）を access_info への差替で止めたが、GPS経路が使う専用列
 --   nearest_station での駅名検索は非GPS経路で失われている（症状は止まったが完全対称ではない）。

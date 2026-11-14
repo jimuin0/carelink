@@ -108,11 +108,11 @@ function usageLogSelectChain(existing: unknown) {
 }
 
 // booking 検証用の maybeSingle チェーン
-function bookingChain(data: unknown) {
+function bookingChain(data: unknown, error: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
   };
 }
 
@@ -719,7 +719,8 @@ test('PATCH: booking_id が存在しない → 404', async () => {
   expect(res.status).toBe(404);
 });
 
-test('PATCH: booking_id が施設の予約に一致 → 正常 (200)', async () => {
+// 低 A136: 同じ施設でも他人の予約では消費記録できない（本人かつ契約施設の予約だけ）。
+test('PATCH: booking_id が同施設だが他人の予約 → 400', async () => {
   let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
@@ -730,7 +731,7 @@ test('PATCH: booking_id が施設の予約に一致 → 正常 (200)', async () 
     return insertChain();
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(400);
 });
 
 test('PATCH: 月リセット境界でも RPC が原子的に処理 → 200', async () => {
@@ -758,7 +759,7 @@ test('PATCH: facility_id なしサブスク (subscription_plans が null) → �
   expect(res.status).toBe(200);
 });
 
-test('PATCH: booking_id が本サブスクのuser_id所属 → 200', async () => {
+test('PATCH: booking_id が本人の予約だが別施設 → 400', async () => {
   let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
@@ -769,7 +770,7 @@ test('PATCH: booking_id が本サブスクのuser_id所属 → 200', async () =>
     return insertChain();
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(400);
 });
 
 // Branch coverage: line 137 — PATCH で !user → 401
@@ -818,18 +819,103 @@ test('PATCH: subscription_plans.facility_id=null かつ booking が別ユーザ�
   expect(json.error).toMatch(/予約がサブスクリプションと一致しません/);
 });
 
-test('PATCH: usage log insert 失敗時も 200 を返す（best-effort・冪等ログ警告のみ）', async () => {
-  // logErr が非 null のブランチ（L301 の if(logErr)）をカバーする。
-  // RPC でセッション消費は成功しているため、ログ挿入失敗でも 200 を返す設計。
+test('PATCH: 利用ログの記録は RPC に一本化されている（route 自身は INSERT しない）', async () => {
+  // 監査D2: ログ INSERT は consume_subscription_session の内部（行ロック配下）に統合済み。
+  // route が別途 INSERT する作りへ戻ると二重消費の窓が復活するため、INSERT が呼ばれないことと
+  // RPC に消費の引数が渡ることの両方を確かめる。
+  let callNum = 0;
+  const strayInsert = jest.fn(() => Promise.resolve({ error: null }));
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildActiveSub());
+    return { insert: strayInsert };
+  });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, notes: 'memo' }));
+  expect(res.status).toBe(200);
+  expect(strayInsert).not.toHaveBeenCalled();
+  expect(callNum).toBe(1);
+  expect(mockAdminRpc).toHaveBeenCalledWith('consume_subscription_session', {
+    p_subscription_id: SUB_UUID,
+    p_booking_id: undefined,
+    p_notes: 'memo',
+  });
+});
+
+// ─── 点検 A134/A135：消費の監査・事前照会の障害 ─────────────────────────────────
+test('PATCH: セッション消費に成功したら監査ログを残す', async () => {
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  (writeAuditLog as jest.Mock).mockClear();
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub()));
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
+  expect(res.status).toBe(200);
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+    action: 'update',
+    tableName: 'user_subscriptions',
+    recordId: SUB_UUID,
+    newValues: expect.objectContaining({ consumed: 1, booking_id: null }),
+  }));
+});
+
+test('PATCH: 予約の照会が DB 障害 → 500（404 にしない）', async () => {
   let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return singleChain(buildActiveSub());
-    return { insert: jest.fn(() => Promise.resolve({ error: { message: 'log insert failed' } })) };
+    return {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { code: '08006', message: 'down' } })),
+    };
   });
-  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
-  const json = await res.json();
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
+  expect(res.status).toBe(500);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+
+test('PATCH: 利用記録の事前照会が DB 障害 → 500（素通りさせない）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildActiveSub());
+    if (callNum === 2) return bookingChain({ id: BOOKING_UUID, user_id: USER_ID, facility_id: FACILITY_UUID });
+    return {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { code: '08006', message: 'down' } })),
+    };
+  });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
+  expect(res.status).toBe(500);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+
+test('PATCH: booking_id が本人かつ契約施設の予約 → 200', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildActiveSub());
+    if (callNum === 2) return bookingChain({ id: BOOKING_UUID, user_id: USER_ID, facility_id: FACILITY_UUID });
+    if (callNum === 3) return usageLogSelectChain(null);
+    return insertChain();
+  });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
   expect(res.status).toBe(200);
-  expect(json.subscription).toBeDefined();
+});
+
+test('PATCH: 予約の読み取り失敗 → 500（見つからない扱いにしない）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildActiveSub());
+    return bookingChain(null, { message: 'db down' });
+  });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
+  expect(res.status).toBe(500);
 });

@@ -12,7 +12,7 @@
 
 ### 自動検知パス
 - **Slack `#alerts-prod`**: Vercel Deployment failed Webhook
-- **GitHub Actions**: `Deploy Watch` ワークフロー（Phase 2 で導入）が red
+- ~~**GitHub Actions**: `Deploy Watch` ワークフローが red~~ → `deploy-watch.yml` は 2026年7月25日から `disabled_manually` で発火しない。当てにせず、Vercel の通知と Dashboard で確認する
 - **GitHub PR**: build dry-run の Check が ❌
 
 ### 手動検知パス

@@ -75,6 +75,12 @@ describe('logout releases this device push subscription before signOut', () => {
   expect(mockUnsubscribe).toHaveBeenCalledTimes(1); expect(mockSignOut).toHaveBeenCalledTimes(1);
  });
 });
+// 監査 A385: ログアウト未確認のまま「ログイン画面へ進む」を出さない（管理画面のメニュー）。
+test('admin unconfirmed logout does not offer the login link', async () => {
+ mockSignOut.mockResolvedValue({ error: { message: 'synthetic SDK failure' } }); await open('admin');
+ expect(await screen.findByRole('alert')).toHaveTextContent('ログアウトを確認できませんでした');
+ expect(screen.queryByRole('link', { name: 'ログイン画面へ進む' })).not.toBeInTheDocument();
+});
 test('public malformed SDK success is unconfirmed and does not claim anonymous state', async () => {
  mockSignOut.mockResolvedValue(undefined); await open('public'); expect(await screen.findByRole('alert')).toHaveTextContent('ログアウトを確認できません'); expect(mockPush).not.toHaveBeenCalled();
 });

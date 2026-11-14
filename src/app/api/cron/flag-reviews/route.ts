@@ -13,7 +13,6 @@ import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchAllPaged } from '@/lib/paginate';
-import { alertWarning } from '@/lib/alert';
 import { UUID_REGEX } from '@/lib/constants';
 import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err';
 
@@ -63,16 +62,13 @@ export async function GET(request: Request) {
       }),
     );
     if (rpcError) {
-      // 検知1(同一IP大量投稿スパム)が丸ごと無音で no-op 化する障害。console.error のみだと
-      // Vercel ログに埋没し誰も気づけないため、恒久検知として Slack へ警報する
-      // （検知2は RPC に依存せず独立して動くため cron 全体は 'success' のまま継続する）。
+      // 検知1(同一IP大量投稿スパム)が無効化される障害。部分的な成功として記録しないよう run を
+      // error で止める（検知2も走らせない＝テスト「IP detection read error does not continue with
+      // partial success」が固定）。通知は cronError → logCronRun('error') が Slack へ出すので、
+      // ここで alertWarning を重ねない（以前は二重通知していた・低 A147）。
       console.error('[flag-reviews] find_bulk_review_ips RPC failed:', {
         errorMessage: summarizeDependencyError(rpcError),
       });
-      alertWarning(
-        'flag-reviews: find_bulk_review_ips RPC 失敗（検知1: 同一IP大量投稿スパム検知が無効化）',
-        { route: '/api/cron/flag-reviews', extra: { errorMessage: summarizeDependencyError(rpcError) } },
-      );
       return cronError('flag-reviews', startedAt, rpcError, { message: 'error' });
     }
 

@@ -10,6 +10,9 @@
  */
 
 import { createHmac } from 'crypto';
+
+const mockRunAfterResponse = jest.fn((t: () => PromiseLike<unknown>) => Promise.resolve(t()).then(() => undefined));
+jest.mock('@/lib/after-response', () => ({ runAfterResponse: (t: () => PromiseLike<unknown>) => mockRunAfterResponse(t) }));
 import { POST } from '../route';
 
 const SECRET = 'test-signing-secret';
@@ -34,7 +37,21 @@ beforeEach(() => {
   process.env.SLACK_SIGNING_SECRET = SECRET;
 });
 
+afterAll(() => {
+  delete process.env.SLACK_SIGNING_SECRET;
+});
+
 describe('POST /api/slack/interactions', () => {
+  // webhook は署名検証だけが本人性の根拠。署名鍵の未設定で素通りする退行を止める（fail-closed）。
+  test.each([['未設定', undefined], ['空文字', '']])('SLACK_SIGNING_SECRET %s → 署名が付いていても 401 no_signing_secret', async (_label, value) => {
+    if (value === undefined) delete process.env.SLACK_SIGNING_SECRET;
+    else process.env.SLACK_SIGNING_SECRET = value;
+    const payload = encodeURIComponent(JSON.stringify({ type: 'block_actions', actions: [{ type: 'button', action_id: 'unknown_action' }] }));
+    const res = await POST(makeSignedRequest(`payload=${payload}`));
+    expect(res.status).toBe(401);
+    expect((await res.json()).reason).toBe('no_signing_secret');
+  });
+
   test('署名ヘッダなし → 401', async () => {
     const req = new Request('http://localhost/api/slack/interactions', {
       method: 'POST',
@@ -110,5 +127,17 @@ describe('POST /api/slack/interactions', () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
     expect((await res.json()).ok).toBe(true);
+  });
+
+  test('B3-18: action_id が Object.prototype のキー（constructor）でも handler として呼ばない', async () => {
+    mockRunAfterResponse.mockClear();
+    {
+      for (const id of ['constructor', 'toString', '__proto__']) {
+        const payload = { type: 'block_actions', actions: [{ type: 'button', action_id: id, value: 'v' }] };
+        const res = await POST(makeSignedRequest(`payload=${encodeURIComponent(JSON.stringify(payload))}`));
+        expect(res.status).toBe(200);
+      }
+      expect(mockRunAfterResponse).not.toHaveBeenCalled();
+    }
   });
 });

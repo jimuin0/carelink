@@ -128,6 +128,12 @@ describe('POST /api/symptoms/suggest', () => {
   test('prefecture あり → プロンプトに都道府県を含む', async () => {
     const res = await POST(makeRequest({ symptoms: '腰が痛い', prefecture: '東京都', recaptcha_token: 'valid-token' }) as any);
     expect(res.status).toBe(200);
+    expect(mockCreate.mock.calls[0][0].messages[0].content).toContain('<prefecture>東京都</prefecture>');
+  });
+
+  test('prefecture なし → プロンプトに prefecture タグを入れない', async () => {
+    await POST(makeRequest({ symptoms: '肩こり', recaptcha_token: 'valid-token' }) as any);
+    expect(mockCreate.mock.calls[0][0].messages[0].content).not.toContain('<prefecture>');
   });
 
   test('valid request → 200', async () => {
@@ -159,16 +165,16 @@ describe('POST /api/symptoms/suggest', () => {
     expect(res.status).toBe(500);
   });
 
-  test('rate limit params (10 req/min per IP)', () => {
+  test('rate limit params (10 req/min per IP)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    POST(makeRequest(validRequest, '192.168.1.1') as any);
+    await POST(makeRequest(validRequest, '192.168.1.1') as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[2]).toBe(10);
   });
 
-  test('extracts last (trusted) IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    POST(makeRequest(validRequest, '10.0.0.1, 192.168.1.1') as any);
+    await POST(makeRequest(validRequest, '10.0.0.1, 192.168.1.1') as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
   });
@@ -183,14 +189,14 @@ describe('POST /api/symptoms/suggest', () => {
     expect(res.status).toBe(400);
   });
 
-  test('x-forwarded-for ヘッダーなし → "unknown" を使用', () => {
+  test('x-forwarded-for ヘッダーなし → "unknown" を使用', async () => {
     (checkRateLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/symptoms/suggest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(validRequest),
     });
-    POST(req as any);
+    await POST(req as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('unknown');
   });

@@ -66,7 +66,9 @@ export async function GET(request: Request) {
           .select('id, name, status')
           .gte('created_at', staleAfter)
           .lte('created_at', minAgeBefore)
-          .neq('status', 'published')       // 公開済みは対象外
+          // 準備中（draft）だけ。公開済みに加え、運営が停止（suspended）した施設にも
+          // 「掲載準備が途中です」を送らない。
+          .eq('status', 'draft')
           .is('onboarding_email_sent_at', null) // 未送信のみ
           .order('created_at', { ascending: true })
           .range(offset, offset + limit - 1);

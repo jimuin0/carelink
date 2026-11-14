@@ -7,7 +7,7 @@
  *   - Non-platform-admin → 401
  *   - image_url: must be valid URL or empty
  *   - sort_order max 9999
- *   - DELETE: 404 not possible (no pre-check), DB fail → 500
+ *   - DELETE: 0件削除（存在しないID）→ 404, DB fail → 500
  */
 import { legacyEditorRpc, type EditorArgs } from '@/test-utils/platform-editor-rpc';
 

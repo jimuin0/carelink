@@ -23,7 +23,10 @@ export class BookingCreateClient {
   load() {
     const raw = this.storage.getItem(BOOKING_CREATE_PENDING_PREFIX + this.facilityId);
     if (!raw) return false;
-    const parsed = recordSchema.safeParse(JSON.parse(raw));
+    // 壊れた JSON も「読み取れない受付情報」として同じ案内にする（SyntaxError をそのまま投げない・B4-12）。
+    let stored: unknown;
+    try { stored = JSON.parse(raw); } catch { stored = null; }
+    const parsed = recordSchema.safeParse(stored);
     if (!parsed.success) throw new Error('受付情報を読み取れません。入力内容を保持したまま店舗へ受付状況を確認してください。');
     this.record = { ...parsed.data, id:parsed.data.id.toLowerCase() }; return true;
   }

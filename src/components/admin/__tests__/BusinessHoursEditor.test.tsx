@@ -55,3 +55,18 @@ test('canceling period deletion preserves the entered time', () => {
   fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
   expect(within(mon).getByLabelText('月曜日の2枠目の開店時間')).toHaveValue('09:00');
 });
+
+// 監査 A388/A389: 「翌日」は分で比較し、形式違いはその場で知らせる。見える文言は aria-label と同じ意味にする。
+test('overnight label compares minutes and flags a malformed closing time', () => {
+  render(<Editor />);
+  const mon = screen.getByRole('group', { name: '月曜日' });
+  expect(within(mon).getByText('この曜日に営業する')).toBeVisible();
+  fireEvent.change(within(mon).getByLabelText('月曜日の開店時間'), { target: { value: '10:00' } });
+  fireEvent.change(within(mon).getByLabelText('月曜日の閉店時間'), { target: { value: '9:00' } });
+  expect(within(mon).queryByText('翌日')).not.toBeInTheDocument();
+  expect(within(mon).getByText('「18:00」の形で入力してください')).toBeVisible();
+  fireEvent.change(within(mon).getByLabelText('月曜日の閉店時間'), { target: { value: '09:00' } });
+  expect(within(mon).getByText('翌日')).toBeVisible();
+  fireEvent.change(within(mon).getByLabelText('月曜日の閉店時間'), { target: { value: '24:00' } });
+  expect(within(mon).queryByText('翌日')).not.toBeInTheDocument();
+});

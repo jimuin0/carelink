@@ -83,7 +83,7 @@ function CancelContent() {
 
   useEffect(() => {
     if (liff.status !== 'ready' || !bookingId) return;
-    fetch(`/api/liff/bookings?booking_id=${bookingId}`, {
+    fetch(`/api/liff/bookings?booking_id=${encodeURIComponent(bookingId)}`, {
         headers: { Authorization: `Bearer ${liff.accessToken}` },
       })
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
@@ -95,7 +95,7 @@ function CancelContent() {
   const settleUncertainCancel = useCallback(async (id: string) => {
     if (liff.status !== 'ready') return;
     try {
-      const r = await fetch(`/api/liff/bookings?booking_id=${id}`, { headers: { Authorization: `Bearer ${liff.accessToken}` } });
+      const r = await fetch(`/api/liff/bookings?booking_id=${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${liff.accessToken}` } });
       const d = r.ok ? await r.json() : null;
       if (d?.booking?.status === 'cancelled') { setResult('success'); return; }
     } catch { /* 下の「確認できない」案内に倒す */ }

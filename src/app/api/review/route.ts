@@ -317,14 +317,17 @@ async function submitReview(request: Request, commit: { unknown: boolean }) {
       // role は push.ts(sendPushToFacilityOwners) と揃え owner に加え admin も対象にする
       // （2026年7月17日 恒久根治：admin ロールは Push は受け取るがメール通知は owner 限定のため
       // 受け取れない非対称があった）。
-      const { data: ownerRows } = await supabase
+      const { data: ownerRows, error: ownerRowsError } = await supabase
         .from('facility_members')
         .select('user_id')
         .eq('facility_id', parsed.data.facility_id)
         .in('role', ['owner', 'admin']);
+      // 宛先の読み取り失敗を「宛先0件」として黙って送らないことにしない（下の catch で通知する・低 A161）。
+      if (ownerRowsError) throw new Error('review notification owners lookup failed', { cause: ownerRowsError });
       const ownerUserIds = Array.from(new Set((ownerRows ?? []).map((o) => o.user_id).filter(Boolean)));
       if (ownerUserIds.length > 0) {
-        const { data: ownerProfiles } = await supabase.from('profiles').select('email').in('id', ownerUserIds);
+        const { data: ownerProfiles, error: ownerProfilesError } = await supabase.from('profiles').select('email').in('id', ownerUserIds);
+        if (ownerProfilesError) throw new Error('review notification owner emails lookup failed', { cause: ownerProfilesError });
         const ownerEmails = Array.from(new Set(
           ((ownerProfiles ?? []) as { email: string | null }[]).map((p) => p.email).filter(Boolean) as string[]
         ));

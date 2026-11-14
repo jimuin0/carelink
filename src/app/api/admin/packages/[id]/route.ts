@@ -16,7 +16,7 @@ const updateSchema = z.object({
   menu_id: z.string().uuid().nullable().optional(),
   session_count: z.number().int().min(1).max(100).optional(),
   bonus_count: z.number().int().min(0).max(50).optional(),
-  price: z.number().int().min(0).optional(),
+  price: z.number().int().min(0).max(9999999).optional(),
   valid_days: z.number().int().min(1).max(3650).optional(),
   notes: z.string().max(500).optional(),
   is_active: z.boolean().optional(),
@@ -121,7 +121,10 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   // 購入済みユーザーがいる場合は無効化のみ（削除しない）
   const { count, error: countErr } = await admin.from('user_packages').select('id', { count: 'exact', head: true }).eq('package_id', params.id);
   if (countErr) return serverError('admin-packages-delete-count', countErr, '/api/admin/packages/[id]');
-  if (count && count > 0) {
+  // 件数が取れない応答（count=null）を「購入者 0 人」と読み替えると、購入者のいるパッケージを
+  // 取り消せない物理削除へ進めてしまう。確定できないときは削除しない。
+  if (typeof count !== 'number') return serverError('admin-packages-delete-count', new Error('user_packages count unavailable'), '/api/admin/packages/[id]');
+  if (count > 0) {
     // 更新件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（購入済みユーザー確認後に
     // 既削除等）による0件更新も「成功」と偽装していた（phantom success）。.select() で更新行を受け取り、
     // 0件なら404を返す（customers/[id]・menus/[id]・catalog/[id] と同型）。
@@ -133,6 +136,16 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
       .select();
     if (deactivateErr) return serverError('admin-packages-delete-deactivate', deactivateErr, '/api/admin/packages/[id]');
     if (!deactivated || deactivated.length === 0) return NextResponse.json({ error: 'パッケージが見つかりません' }, { status: 404 });
+    void writeAuditLog({
+      userId: auth.userId,
+      facilityId: auth.facilityId,
+      action: 'update',
+      tableName: 'service_packages',
+      recordId: params.id,
+      oldValues: { is_active: true },
+      newValues: { is_active: false, reason: 'delete_requested_with_purchasers' },
+      ipAddress: ip,
+    });
     return NextResponse.json({ message: '購入済みユーザーがいるため非公開にしました' });
   }
 

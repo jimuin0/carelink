@@ -171,20 +171,66 @@ describe('prefectureSlugs — 全47都道府県の値を検証', () => {
   });
 });
 
-describe('businessTypeSlugs — 全8業種の値を検証', () => {
-  const expected: [string, string][] = [
-    ['hair-salon', 'ヘアサロン'],
-    ['nail-eyelash', 'ネイル・まつげサロン'],
-    ['relaxation', 'リラクサロン'],
-    ['esthetic', 'エステサロン'],
-    ['beauty-clinic', '美容クリニック'],
-    ['acupuncture', '鍼灸院・整骨院'],
-    ['care-service', '介護・デイサービス'],
-    ['other', 'その他'],
-  ];
+// 医療31区分（medical-business-types.ts）の値も 1 件ずつ固定する。SSOT から自動生成すると
+// 値の取り違えを同じ取り違えで期待してしまうため、ここでは文字列を直書きする。
+const MEDICAL_EXPECTED: [string, string][] = [
+    ['hospital', '病院'],
+    ['general-hospital', '総合病院'],
+    ['general-clinic', '診療所・クリニック（複数診療科）'],
+    ['internal-medicine', '内科'],
+    ['respiratory-medicine', '呼吸器内科'],
+    ['cardiology', '循環器内科'],
+    ['gastroenterology', '消化器内科'],
+    ['diabetes-medicine', '糖尿病内科'],
+    ['nephrology', '腎臓内科'],
+    ['neurology', '脳神経内科'],
+    ['surgery', '外科'],
+    ['orthopedic-surgery', '整形外科'],
+    ['neurosurgery', '脳神経外科'],
+    ['plastic-surgery', '形成外科'],
+    ['pediatrics', '小児科'],
+    ['otorhinolaryngology', '耳鼻咽喉科'],
+    ['ophthalmology', '眼科'],
+    ['dermatology', '皮膚科'],
+    ['urology', '泌尿器科'],
+    ['obstetrics-gynecology', '産婦人科'],
+    ['gynecology', '婦人科'],
+    ['psychiatry', '精神科'],
+    ['psychosomatic-medicine', '心療内科'],
+    ['allergology', 'アレルギー科'],
+    ['rheumatology', 'リウマチ科'],
+    ['rehabilitation-medicine', 'リハビリテーション科'],
+    ['dentistry', '歯科'],
+    ['pediatric-dentistry', '小児歯科'],
+    ['orthodontics', '矯正歯科'],
+    ['oral-surgery', '歯科口腔外科'],
+    ['other-medical-clinic', 'その他の医療機関'],
+];
+const NON_MEDICAL_EXPECTED: [string, string][] = [
+  ['hair-salon', 'ヘアサロン'],
+  ['nail-eyelash', 'ネイル・まつげサロン'],
+  ['relaxation', 'リラクサロン'],
+  ['esthetic', 'エステサロン'],
+  ['beauty-clinic', '美容クリニック'],
+  ['acupuncture', '鍼灸院・整骨院'],
+  ['care-service', '介護・デイサービス'],
+  ['other', 'その他'],
+];
+const ALL_BUSINESS_TYPES_EXPECTED = [...NON_MEDICAL_EXPECTED, ...MEDICAL_EXPECTED];
 
-  test.each(expected)('businessTypeSlugs[%s] === %s', (slug, name) => {
+describe('businessTypeSlugs — 全39業種（非医療8＋医療31）の値を検証', () => {
+  test('件数は 39（直書きの期待表と過不足が無い）', () => {
+    expect(Object.keys(businessTypeSlugs).sort()).toEqual(ALL_BUSINESS_TYPES_EXPECTED.map(([slug]) => slug).sort());
+  });
+
+  test.each(ALL_BUSINESS_TYPES_EXPECTED)('businessTypeSlugs[%s] === %s', (slug, name) => {
     expect(businessTypeSlugs[slug]).toBe(name);
+  });
+
+  test.each(MEDICAL_EXPECTED)('医療 %s: 正引き・逆引き・存在チェックが一致する（%s）', (slug, name) => {
+    expect(getBusinessTypeName(slug)).toBe(name);
+    expect(getBusinessTypeSlug(name)).toBe(slug);
+    expect(isValidBusinessTypeSlug(slug)).toBe(true);
   });
 });
 
@@ -288,7 +334,7 @@ describe('isValidPrefectureSlug — 全スラッグが true', () => {
   });
 });
 
-describe('isValidBusinessTypeSlug — 全スラッグが true', () => {
+describe('isValidBusinessTypeSlug — 非医療8業種が true（医療31区分は上の表で検証）', () => {
   const slugs = ['hair-salon', 'nail-eyelash', 'relaxation', 'esthetic', 'beauty-clinic', 'acupuncture', 'care-service', 'other'];
 
   test.each(slugs)('isValidBusinessTypeSlug(%s) === true', (slug) => {

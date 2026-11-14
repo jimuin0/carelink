@@ -967,6 +967,17 @@ describe('POST /api/admin/booking-status - notifications', () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
+    const { writeAuditLog } = jest.requireMock('@/lib/audit-logger');
+    expect(writeAuditLog).toHaveBeenCalledTimes(1);
+    expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+      userId,
+      action: 'update',
+      tableName: 'bookings',
+      recordId: validBookingId,
+      oldValues: { status: 'pending' },
+      newValues: { status: 'confirmed', reason: null },
+      userAgent: 'TestAgent/1.0',
+    }));
   });
 
   test('通知元施設が失われた場合は空名称で送らず保存前に失敗する', async () => {
@@ -1006,16 +1017,9 @@ describe('POST /api/admin/booking-status - notifications', () => {
     expect(buildBookingConfirmedEnvelope).toHaveBeenCalledWith(expect.objectContaining({ totalPrice: undefined }));
   });
 
-  // Branch coverage: line 177 branch 1 (FALSE) — statusLabels[status] が falsy のとき 'ステータス更新' を使う
-  // The only way to exercise this is to reach the push code with a status not in statusLabels.
-  // Since validStatuses and statusLabels share the same keys, we mock sendPushToUser and
-  // verify the fallback by spying on the completed transition (which has a truthy label),
-  // then also add a direct unit-level probe via a status that reaches push code.
-  // In practice, statusLabels covers all validStatuses so the || branch is defensive code.
-  // We exercise it by using 'completed' → user_id set → push fires with a truthy label (TRUE branch confirmed).
-  // For the FALSE branch we add a test that validates the fallback string path is reachable if
-  // statusLabels lookup returns undefined — this is tested via jest.spyOn on the statusLabels Map.
-  test('completed + user_id あり → sendPushToUser が施術完了ラベルで呼ばれる（line 177 false 分岐カバー）', async () => {
+  // 状態ごとの通知見出し。statusLabels は検証済みの全状態を持つので、既定文言 'ステータス更新' は
+  // 防御コード（route.ts で istanbul ignore 済み）で、ここでは検証しない。
+  test('completed + user_id あり → sendPushToUser が施術完了ラベルで呼ばれる', async () => {
     setupSuccessMock('confirmed');
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'completed' }));
     expect(res.status).toBe(200);
@@ -1029,8 +1033,8 @@ describe('POST /api/admin/booking-status - notifications', () => {
     );
   });
 
-  // Branch coverage: line 177 — statusLabels[status] のトゥルーブランチ（no_show で '来店確認が取れませんでした'）
-  test('no_show → sendPushToUser の title に statusLabels["no_show"] が使われる（line 177 true 分岐）', async () => {
+  // no_show の見出しは「来店確認が取れませんでした」
+  test('no_show → sendPushToUser の title に statusLabels["no_show"] が使われる', async () => {
     setupSuccessMock('confirmed');
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'no_show' }));
     expect(res.status).toBe(200);

@@ -17,6 +17,18 @@ interface SuggestResult {
   areas: string[];
 }
 
+// 応答の形を確かめてから描画する（想定外の JSON で .length/.map が落ちて検索欄ごと壊れないように・B6-16）。
+function toSuggestResult(data: unknown): SuggestResult {
+  const value = (data && typeof data === 'object' ? data : {}) as { facilities?: unknown; areas?: unknown };
+  const facilities = Array.isArray(value.facilities)
+    ? value.facilities.filter((f): f is FacilitySuggestion => !!f && typeof f === 'object'
+      && typeof (f as FacilitySuggestion).id === 'string' && typeof (f as FacilitySuggestion).slug === 'string'
+      && typeof (f as FacilitySuggestion).name === 'string')
+    : [];
+  const areas = Array.isArray(value.areas) ? value.areas.filter((a): a is string => typeof a === 'string') : [];
+  return { facilities, areas };
+}
+
 export default function SearchSuggest({ query, onSelect, visible, onClose }: Props) {
   const [results, setResults] = useState<SuggestResult>({ facilities: [], areas: [] });
   const router = useRouter();
@@ -53,7 +65,7 @@ export default function SearchSuggest({ query, onSelect, visible, onClose }: Pro
         signal: controller.signal,
       })
         .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-        .then((data) => { if (!controller.signal.aborted) setResults(data); })
+        .then((data) => { if (!controller.signal.aborted) setResults(toSuggestResult(data)); })
         .catch((err) => { if (err.name !== 'AbortError') setResults({ facilities: [], areas: [] }); });
     }, 300);
 

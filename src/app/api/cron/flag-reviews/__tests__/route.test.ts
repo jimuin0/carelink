@@ -68,6 +68,8 @@ test.each(['bulk','duplicate'])('%s read failure is never reported as an empty s
 test('IP detection read error does not continue with partial success',async()=>{
  rpc.mockResolvedValue({data:[{reviewer_ip:'192.0.2.1'}],error:{message:'permission denied',code:'42501'}});
  expect((await GET(request())).status).toBe(500);expect(select).not.toHaveBeenCalled();expect(logCronRun).not.toHaveBeenCalled();
+ // 通知は cronError 側の 1 回だけ（alertWarning と二重にしない・低 A147）。
+ expect(jest.requireMock('@/lib/alert').alertWarning).not.toHaveBeenCalled();
 });
 test.each([null,{},[{id:'bad'}],[{id:id(8)}],[{id:id(1)},{id:id(1)}],[null],[{id:1}]])('unconfirmed result %j cannot inflate the processed count',async data=>{
  rpc.mockImplementation((name:string)=>Promise.resolve({data:name==='find_bulk_review_ips'?[{reviewer_ip:'192.0.2.1'}]:data,error:null}));

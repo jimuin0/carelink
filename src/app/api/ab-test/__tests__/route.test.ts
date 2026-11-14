@@ -153,9 +153,9 @@ describe('POST /api/ab-test', () => {
     expect(res.status).toBe(200);
   });
 
-  test('rate limit params (100 req/min per IP)', () => {
+  test('rate limit params (100 req/min per IP)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    POST(makePostRequest(validEvent, '192.168.1.1') as any);
+    await POST(makePostRequest(validEvent, '192.168.1.1') as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[2]).toBe(100);
   });
@@ -281,10 +281,10 @@ describe('GET /api/ab-test', () => {
     expect(json.lift).toBeDefined();
   });
 
-  test('rate limit params (20 req/min per IP)', () => {
+  test('rate limit params (20 req/min per IP)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
     setupDefaultMocks(true, true);
-    GET(makeGetRequest('exp-123', '192.168.1.1') as any);
+    await GET(makeGetRequest('exp-123', '192.168.1.1') as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[2]).toBe(20);
   });

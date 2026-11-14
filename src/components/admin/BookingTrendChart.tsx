@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { addDays, todayJst } from '@/lib/admin-date';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 interface DayData {
@@ -28,14 +29,15 @@ export default function BookingTrendChart({ facilityId }: { facilityId: string }
     (async () => {
       const supabase = createBrowserSupabaseClient();
       setLoadError(false);
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      // 監査 A387: 今日を含む JST の30日分（今日-29日〜今日）。ローカル時刻から引いて UTC の日付を
+      // 取り出すと開始日が1日早くなり、見出しの「過去30日」より1日多く表示されていた。
+      const startDate = addDays(todayJst(), -29);
 
       const { data: rows, error } = await supabase
         .from('daily_revenue_summary')
         .select('date, booking_count, completed_count, cancelled_count')
         .eq('facility_id', facilityId)
-        .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
+        .gte('date', startDate)
         .order('date', { ascending: true });
 
       if (cancelled) return;

@@ -296,6 +296,48 @@ test('再読込で元の入力を失っても保存済み原操作をGET照合�
   expect(fetchMock.mock.calls[0][1]).toEqual({ cache: 'no-store' });
 });
 
+test('照合結果 retired（原予約は削除済み）→ 同じ操作で作り直さず、保存済みIDを消して案内する', async () => {
+  sessionStorage.setItem('carelink-manual-booking:f1', '66666666-6666-4666-8666-666666666666');
+  const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ state: 'retired' }) });
+  global.fetch = fetchMock as unknown as typeof fetch;
+  setup();
+  fireEvent.click(screen.getByRole('button', { name: /新規予約を追加/ }), { clientX: 0 });
+  fireEvent.click(screen.getByRole('button', { name: '予約を確定' }));
+  expect(await screen.findByText(/原予約は削除済みです。同じ操作では再作成しません/)).toBeInTheDocument();
+  // GET 照合の 1 回だけ。POST（新規作成）はしない
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls[0][0]).toContain('operation_id=66666666');
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  expect(sessionStorage.getItem('carelink-manual-booking:f1')).toBeNull();
+  // ダイアログは開いたまま（内容を確認して新規登録できる）
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+});
+
+test('照合結果 absent → 新しいIDを作らず、保存済みの同じ operation_id で新規 POST へ進む', async () => {
+  const user = userEvent.setup();
+  sessionStorage.setItem('carelink-manual-booking:f1', '66666666-6666-4666-8666-666666666666');
+  // 別の ID が採番されたら検出できるよう、randomUUID は保存済み ID と違う値を返す
+  Object.defineProperty(crypto, 'randomUUID', { configurable: true, value: () => '99999999-9999-4999-8999-999999999999' });
+  const fetchMock = jest.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ state: 'absent' }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, id: '77777777-7777-4777-8777-777777777777' }) });
+  global.fetch = fetchMock as unknown as typeof fetch;
+  setup();
+  fireEvent.click(screen.getByRole('button', { name: /新規予約を追加/ }), { clientX: 0 });
+  await user.type(screen.getByLabelText(/お客様名/), '合成テスト');
+  await user.click(screen.getByRole('checkbox'));
+  await user.click(screen.getByRole('button', { name: '予約を確定' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock.mock.calls[0][0]).toContain('operation_id=66666666-6666-4666-8666-666666666666');
+  expect(fetchMock.mock.calls[1][0]).toBe('/api/admin/bookings');
+  expect(fetchMock.mock.calls[1][1].method).toBe('POST');
+  const body = JSON.parse(fetchMock.mock.calls[1][1].body);
+  expect(body.operation_id).toBe('66666666-6666-4666-8666-666666666666');
+  expect(body.customer_name).toBe('合成テスト');
+  expect(sessionStorage.getItem('carelink-manual-booking:f1')).toBeNull();
+});
+
 test('照合失敗は不在とみなさずPOSTしない。保存不能も送信前に止める', async () => {
   const fetchMock = jest.fn().mockRejectedValue(new Error('unavailable'));
   global.fetch = fetchMock as unknown as typeof fetch;

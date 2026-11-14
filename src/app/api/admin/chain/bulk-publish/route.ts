@@ -32,7 +32,12 @@ export async function POST(req: NextRequest) {
 
   const parsed: unknown = await req.json().catch(() => null);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
-  const { facility_ids, is_published } = parsed as { facility_ids?: unknown; is_published?: unknown };
+  const { facility_ids: rawFacilityIds, is_published } = parsed as { facility_ids?: unknown; is_published?: unknown };
+  // UUID は大文字でも有効。DB（uuid 型）が返す小文字と突き合わせるため、ここで小文字へ揃える
+  // （揃えないと反映済みなのに「結果を確認できない」500 になる・B2-5）。
+  const facility_ids = Array.isArray(rawFacilityIds)
+    ? rawFacilityIds.map((id: unknown) => (typeof id === 'string' ? id.toLowerCase() : id))
+    : rawFacilityIds;
   if (typeof is_published !== 'boolean') {
     return NextResponse.json({ error: 'facility_ids and is_published are required' }, { status: 400 });
   }

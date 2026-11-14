@@ -227,12 +227,19 @@ test('15分より古いドラフトは復元されない（陳腐化データに
 
 test('破損した sessionStorage データは無視され通常フローを継続する（例外を投げない）', async () => {
   sessionStorage.setItem(draftKey(), 'not-valid-json{{{');
+  const errorSpy = jest.spyOn(console, 'error');
 
-  expect(() => {
-    render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
-  }).not.toThrow();
+  // render は effect 内の非同期例外を投げないので not.toThrow では何も確かめられない。
+  // 代わりに「ドラフトが消費・削除された」「エラー表示が出ない」「メニュー選択のまま」を結果として見る。
+  render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
 
+  await waitFor(() => expect(sessionStorage.getItem(draftKey())).toBeNull());
   await screen.findByText('次へ（日時を選ぶ）');
+  expect(screen.queryByText('日時を選択')).not.toBeInTheDocument();
+  expect(screen.queryByText(BOOKING_DRAFT_STORAGE_FAILED)).not.toBeInTheDocument();
+  expect(screen.queryByText(BOOKING_DRAFT_OBSOLETE)).not.toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(errorSpy.mock.calls.filter((c) => !String(c[0]).includes('act('))).toEqual([]);
 });
 
 test('他施設のドラフトは復元されない（facility.id でスコープされる）', async () => {
@@ -268,4 +275,24 @@ test('profile pre-fill never overwrites a name or email the visitor already ente
   await waitFor(() => expect(readPointsBalance).toHaveBeenCalled());
   expect(screen.getByLabelText(/お名前/)).toHaveValue('家族の名前');
   expect(screen.getByLabelText(/メールアドレス/)).toHaveValue('family@example.com');
+});
+
+// 監査 A391: 残高の取得前に「残高0」でクランプして、復元したポイント利用額を消さない。
+test('復元したポイント利用額は、残高を取得し終えるまで0に潰されない', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'verified-owner' } } });
+  let resolveBalance!: (v: number) => void;
+  (readPointsBalance as jest.Mock).mockImplementation(() => new Promise<number>((r) => { resolveBalance = r; }));
+  (global.fetch as jest.Mock).mockImplementation(slotsWeekFetch([{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }]));
+  sessionStorage.setItem(draftKey(), JSON.stringify({
+    savedAt: Date.now(), menuIds: ['menu-1'], staffId: null, couponId: null, selectedDate: '2099-01-15',
+    customerName: '復元太郎', email: 'restore@example.com', phone: '', note: '', usePoints: true, pointsToUse: 500,
+  }));
+  render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
+  await screen.findByText('日時を選択');
+  fireEvent.click((await screen.findAllByText('△'))[0]);
+  fireEvent.click(screen.getByText('次へ（確認・予約）'));
+  await screen.findByText('予約内容の確認・お客様情報');
+  await waitFor(() => expect(readPointsBalance).toHaveBeenCalled());
+  resolveBalance(1000);
+  expect(await screen.findByText('お支払い金額: ¥4,500')).toBeInTheDocument();
 });

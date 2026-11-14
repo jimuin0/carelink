@@ -21,6 +21,7 @@ async function fixture(body, run) {
       const fs = require('node:fs');
       fs.writeFileSync('child.pid', String(process.pid));
       ${body}
+      // {"preloadEntriesOnStart":false}
     `);
     await run(cwd, await availablePort());
   } finally {
@@ -127,4 +128,15 @@ test('bounds readiness and force-stops a child that ignores graceful shutdown', 
     await assert.rejects(warmRuntimeCompileCache({ cwd, port, timeoutMs: 1000, shutdownMs: 100 }), /readiness deadline/);
     await assertStopped(cwd);
   });
+});
+
+test('server.js に置換対象が無ければ起動せずに止める（空振りで成功扱いにしない）', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'carelink-compile-cache-test-'));
+  try {
+    await writeFile(join(cwd, 'server.js'), 'require("node:fs").writeFileSync("started", "1");');
+    await assert.rejects(warmRuntimeCompileCache({ cwd, port: await availablePort() }), /preloadEntriesOnStart/);
+    await assert.rejects(readFile(join(cwd, 'started')), { code: 'ENOENT' });
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });

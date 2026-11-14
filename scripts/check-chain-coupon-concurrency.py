@@ -1,4 +1,4 @@
-"""Real PG17 platform-editor write races in a disposable database only."""
+"""Real PG17 chain bulk-coupon write races in a disposable database only."""
 import json, os, queue, subprocess, sys, threading, time
 
 LOCAL = sys.argv[1:] == ['--local-shadow']

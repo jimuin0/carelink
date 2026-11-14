@@ -12,7 +12,7 @@ jest.mock('recharts', () => ({
   Pie: () => null, Cell: () => null, Tooltip: () => null, Legend: () => null,
 }));
 
-let rows: { segment: string }[] = [];
+let rows: { segment: string | null }[] = [];
 let counts: { all: number | null; repeat: number | null; error?: unknown } = { all: 0, repeat: 0 };
 jest.mock('@/lib/supabase-browser', () => ({
   createBrowserSupabaseClient: () => ({
@@ -48,4 +48,24 @@ test('リピート率の件数を取れなければ失敗を表示する', async
   counts = { all: null, repeat: null, error: { message: 'db down' } };
   render(<RepeatRateCard facilityId="f1" />);
   expect(await screen.findByRole('alert')).toBeTruthy();
+});
+
+// 監査 A386: 未分類（NULL）を総数の内訳として明示し、全員 NULL でも「顧客データがありません」と言わない。
+test('未分類の顧客は総数の内訳として明示する', async () => {
+  rows = [{ segment: 'new' }, { segment: null }, { segment: null }];
+  render(<CustomerSegmentChart facilityId="f1" />);
+  expect(await screen.findByText(/総顧客数: 3人（うち未分類 2人はグラフに含みません）/)).toBeTruthy();
+});
+
+test('全員が未分類なら「顧客データがありません」とは出さない', async () => {
+  rows = [{ segment: null }, { segment: null }];
+  render(<CustomerSegmentChart facilityId="f1" />);
+  expect(await screen.findByText(/顧客 2人はまだ分類されていません/)).toBeTruthy();
+  expect(screen.queryByText('顧客データがありません')).toBeNull();
+});
+
+test('顧客が0人なら「顧客データがありません」', async () => {
+  rows = [];
+  render(<CustomerSegmentChart facilityId="f1" />);
+  expect(await screen.findByText('顧客データがありません')).toBeTruthy();
 });

@@ -38,6 +38,33 @@ function walkRoutes(dir: string): string[] {
  */
 const FLOATING_NOTIFY_RE = /^[ \t]*sendNotify\(/m;
 
+/**
+ * 【許可リスト方式】上の行頭検査は `void sendNotify(…)` や `const p = sendNotify(…)` を素通しする。
+ * そこで、`sendNotify(` の呼び出しはすべて直前が `await ` か `runAfterResponse(() => ` であることを要求する
+ * （それ以外の書き方は、待たれているかを機械的に保証できないので一律に落とす）。
+ */
+const SAFE_PREFIX_RE = /(?:\bawait[ \t]+|\brunAfterResponse\(\s*\(\s*\)\s*=>\s*)$/;
+function unsafeNotifyCalls(src: string): string[] {
+  const out: string[] = [];
+  for (const m of src.matchAll(/\bsendNotify\s*\(/g)) {
+    const before = src.slice(0, m.index);
+    // 定義（export async function sendNotify(）は呼び出しではない
+    if (/\bfunction[ \t]+$/.test(before)) continue;
+    if (!SAFE_PREFIX_RE.test(before)) out.push(src.slice(Math.max(0, m.index - 40), m.index + 12).replace(/\s+/g, ' ').trim());
+  }
+  return out;
+}
+
+function walkSources(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) { if (entry !== '__tests__') out.push(...walkSources(full)); }
+    else if (/\.tsx?$/.test(full) && !/\.test\.tsx?$/.test(full)) out.push(full);
+  }
+  return out;
+}
+
 describe('応答後の Slack 通知が投げっぱなしになっていない', () => {
   const routes = walkRoutes(join(ROOT, 'src/app/api'));
 
@@ -56,6 +83,23 @@ describe('応答後の Slack 通知が投げっぱなしになっていない', 
     ]);
     // Registration must not add a second, direct notification path beside its durable outbox.
     expect(readFileSync(join(ROOT, 'src/app/api/salons/commit/route.ts'), 'utf8')).not.toContain('sendNotify(');
+  });
+
+  it('許可リスト検査は void・変数受け・then 連鎖の投げっぱなしも検出する（負の対照つき）', () => {
+    expect(unsafeNotifyCalls('  void sendNotify({ type: "x" });')).toHaveLength(1);
+    expect(unsafeNotifyCalls('  const p = sendNotify({ type: "x" });')).toHaveLength(1);
+    expect(unsafeNotifyCalls('  if (ok) sendNotify({}).then(log);')).toHaveLength(1);
+    expect(unsafeNotifyCalls('  runAfterResponse(() => sendNotify({\n  }));')).toEqual([]);
+    expect(unsafeNotifyCalls('  const r = await sendNotify({});')).toEqual([]);
+    expect(unsafeNotifyCalls('export async function sendNotify(payload) {}')).toEqual([]);
+  });
+
+  it('src/app と src/lib（lib のヘルパー経由を含む）の sendNotify 呼び出しは await か runAfterResponse 経由だけ', () => {
+    const files = [...walkSources(join(ROOT, 'src/app')), ...walkSources(join(ROOT, 'src/lib'))];
+    expect(files.length).toBeGreaterThan(100);
+    const offenders = files.flatMap((f) =>
+      unsafeNotifyCalls(readFileSync(f, 'utf8')).map((c) => `${relative(ROOT, f).split(sep).join('/')}: ${c}`));
+    expect(offenders).toEqual([]);
   });
 
   it('投げっぱなしの sendNotify が残っていない', () => {

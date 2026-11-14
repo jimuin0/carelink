@@ -23,15 +23,18 @@ import { join } from 'path';
 
 const MIGRATIONS = join(process.cwd(), 'supabase/migrations');
 
+/**
+ * search_facilities_nearby の定義文。schema 修飾（public.）・引用符・空白/改行・大小文字の違いでも拾う。
+ * 固定文字列の includes だと `CREATE OR REPLACE FUNCTION public.search_facilities_nearby(` の新定義を
+ * 見落とし、古い定義を検査し続けて緑になる。
+ */
+const DEFINITION_RE = /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:"?public"?\.)?"?search_facilities_nearby"?\s*\(/i;
+
 /** search_facilities_nearby を定義する migration のうち、版番号が最大＝最終的に有効なもの。 */
 function latestSearchRpcMigration(): string {
   const files = readdirSync(MIGRATIONS)
     .filter((f) => f.endsWith('.sql'))
-    .filter((f) =>
-      readFileSync(join(MIGRATIONS, f), 'utf8').includes(
-        'CREATE OR REPLACE FUNCTION search_facilities_nearby('
-      )
-    )
+    .filter((f) => DEFINITION_RE.test(readFileSync(join(MIGRATIONS, f), 'utf8')))
     .sort();
   expect(files.length).toBeGreaterThan(0);
   return readFileSync(join(MIGRATIONS, files[files.length - 1]), 'utf8');
@@ -50,6 +53,26 @@ function keywordBlock(sql: string): string {
 function leftOperands(sql: string): string[] {
   return [...sql.matchAll(/^\s*(?:OR\s+)?(.+?)\s+ILIKE/gm)].map((m) => m[1].trim());
 }
+
+describe('定義文の検出（最新定義の取りこぼし防止）', () => {
+  it.each([
+    'CREATE OR REPLACE FUNCTION search_facilities_nearby(',
+    'CREATE OR REPLACE FUNCTION public.search_facilities_nearby(',
+    'create or replace function "public"."search_facilities_nearby" (',
+    'CREATE OR REPLACE FUNCTION\n  public.search_facilities_nearby\n(',
+    'CREATE FUNCTION public.search_facilities_nearby(',
+  ])('%j を定義として拾う', (text) => {
+    expect(DEFINITION_RE.test(text)).toBe(true);
+  });
+
+  it.each([
+    'ALTER FUNCTION public.search_facilities_nearby(double precision) SET search_path = public',
+    'GRANT EXECUTE ON FUNCTION search_facilities_nearby(',
+    'CREATE OR REPLACE FUNCTION search_facilities_nearby_v2(',
+  ])('%j は定義として拾わない', (text) => {
+    expect(DEFINITION_RE.test(text)).toBe(false);
+  });
+});
 
 describe('GPS 検索のキーワード照合が NULL 安全', () => {
   const sql = latestSearchRpcMigration();

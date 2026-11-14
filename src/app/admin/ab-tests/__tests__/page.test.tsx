@@ -51,3 +51,23 @@ test('ロールアウト率を設定したフラグは、設定値と記録済�
   expect(screen.getByText('20%')).toBeVisible();
   expect(screen.getByText('計測データはありません')).toBeVisible();
 });
+
+// 監査 A172: 取得失敗（非200）を「対象フラグ0件」と偽り、fetch の reject ではスピナーが永久に続いていた。
+test.each([
+  ['非200', () => Promise.resolve({ ok: false, status: 500, json: async () => ({}) })],
+  ['通信断', () => Promise.reject(new TypeError('Failed to fetch'))],
+])('%s なら「0件」と出さず読み込み失敗を出す', async (_label, reply) => {
+  mockFetch.mockImplementation(reply);
+  render(<Page />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('データの読み込みに失敗しました');
+  expect(screen.queryByText(/フラグはありません/)).not.toBeInTheDocument();
+});
+
+test('個々の計測結果の取得が通信断でもフラグ一覧の表示を止めない', async () => {
+  mockFetch
+    .mockResolvedValueOnce(json({ flags: [{ key: 'exp_a', enabled: true, rollout_pct: 50, description: null }] }))
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+  render(<Page />);
+  expect(await screen.findByText('exp_a')).toBeVisible();
+  expect(screen.getByText('計測データはありません')).toBeVisible();
+});
