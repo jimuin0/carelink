@@ -184,7 +184,10 @@ SET LOCAL ROLE authenticated;
 DO $$ BEGIN
  BEGIN DELETE FROM public.facility_photos WHERE id='f8520000-0000-4000-8000-000000000002';
   RAISE EXCEPTION 'legacy direct delete still accepted'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
- UPDATE public.facility_photos SET photo_url='https://example.invalid/a2-replaced.png' WHERE id='f8520000-0000-4000-8000-000000000002';
+ -- 点検 A66（20261113120000）：外部ホストの URL へは書き換えられない
+ BEGIN UPDATE public.facility_photos SET photo_url='https://example.invalid/a2-replaced.png' WHERE id='f8520000-0000-4000-8000-000000000002';
+  RAISE EXCEPTION 'external photo URL accepted'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+ UPDATE public.facility_photos SET photo_url='https://example.invalid/storage/v1/object/public/photos/facilities/f8510000-0000-4000-8000-000000000001/a2-replaced.png' WHERE id='f8520000-0000-4000-8000-000000000002';
 END $$;
 RESET ROLE;
 SELECT pg_temp.assert_modphoto((SELECT main_photo_url IS NULL FROM public.facility_profiles WHERE id='f8510000-0000-4000-8000-000000000001'),'authorized browser URL edit clears old main through narrow trigger');
