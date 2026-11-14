@@ -138,3 +138,14 @@ describe('質問だけの入口（askOnly）', () => {
     await screen.findByLabelText('質問を入力');
   });
 });
+
+// 監査 A405: 質問日は端末の時刻帯ではなく JST の日付で出す。
+test('質問日は JST の日付で表示する', async () => {
+  const row = { id: 'q1', question: '合成の質問', answer: null, created_at: '2026-11-30T15:30:00Z', answered_at: null };
+  (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
+    auth: { getUser: () => Promise.resolve({ data: { user: null } }) },
+    from: jest.fn(() => ({ select: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ order: () => Promise.resolve({ data: [row], error: null }) }) }) }) }) })),
+  });
+  render(<QASection facilityId="f1" />);
+  expect(await screen.findByText(/2026\/12\/01/)).toBeInTheDocument();
+});

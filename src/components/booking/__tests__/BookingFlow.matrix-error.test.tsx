@@ -3,7 +3,7 @@
  *
  * 【2026年7月15日 恒治の回帰】
  * defect1: /api/slots の取得失敗（非ok・例外）を「空きなし（満席）」に偽装せず、明確に区別された
- *   エラーUI（バナー＋再試行ボタン）を出すことを検証する。AbortError は失敗として扱わないことも検証。
+ *   エラーUI（バナー＋再試行ボタン）を出すことを検証する。自分で中断していない AbortError は失敗として扱う（監査 A393）。
  * defect8: 指名なし（おまかせ）時、同一時間帯に複数スタッフの空きがある場合の代表スタッフ選出が
  *   fetch 完了順（非決定的）ではなく、staff 配列順（決定的）で選ばれることを検証する。
  */
@@ -68,16 +68,16 @@ describe('defect1: /api/slots 取得失敗の顕在化', () => {
     await screen.findByText('空き状況を取得できませんでした。通信状況をご確認のうえ再度お試しください。');
   });
 
-  test('AbortError は失敗として扱わない（エラーUIを出さない）', async () => {
+  // 監査 A393: こちらが中断していない AbortError で空のマトリクスを「満席」と見せない。
+  test('自分で中断していない AbortError は取得失敗としてエラーUIを出す', async () => {
     const abortError = new DOMException('aborted', 'AbortError');
     global.fetch = jest.fn(() => Promise.reject(abortError)) as unknown as typeof fetch;
 
     render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
     await goToDatetimeStep();
 
-    // ローディングが終わるまで待つ
-    await waitFor(() => expect(screen.queryByText('この期間は予約可能な時間帯がありません。別の週をお選びください。')).toBeInTheDocument());
-    expect(screen.queryByText('空き状況を取得できませんでした。通信状況をご確認のうえ再度お試しください。')).not.toBeInTheDocument();
+    await screen.findByText('空き状況を取得できませんでした。通信状況をご確認のうえ再度お試しください。');
+    expect(screen.queryByText('この期間は予約可能な時間帯がありません。別の週をお選びください。')).not.toBeInTheDocument();
   });
 
   test('再試行ボタンを押すと再度 /api/slots を呼び直す', async () => {

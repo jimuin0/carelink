@@ -248,19 +248,30 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
     }
   };
 
+  // GBP 管理画面を開いただけでは投稿したかは分からないため、開くリンクと「投稿済みにする」操作は分けている（点検 A332）。
+  const [markingPostId, setMarkingPostId] = useState<string | null>(null);
   const markPublished = async (id: string) => {
-    const res = await fetch('/api/admin/gbp/posts', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, status: 'published', published_at: new Date().toISOString() }),
-    });
-    if (!res.ok) {
-      const e = await res.json().catch(() => null);
-      setToast({ type: 'error', message: e?.error ?? '操作に失敗しました' });
-      return;
+    if (markingPostId) return;
+    setMarkingPostId(id);
+    try {
+      const publishedAt = new Date().toISOString();
+      const res = await fetch('/api/admin/gbp/posts', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: 'published', published_at: publishedAt }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => null);
+        setToast({ type: 'error', message: e?.error ?? '操作に失敗しました' });
+        return;
+      }
+      setPosts((prev) => prev.map((p) => p.id === id ? { ...p, status: 'published', published_at: publishedAt } : p));
+      setToast({ type: 'success', message: 'GBP投稿済みとしてマークしました' });
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally {
+      setMarkingPostId(null);
     }
-    setPosts((prev) => prev.map((p) => p.id === id ? { ...p, status: 'published', published_at: new Date().toISOString() } : p));
-    setToast({ type: 'success', message: 'GBP投稿済みとしてマークしました' });
   };
 
   if (loading) return <AdminPageLoading />;
@@ -629,7 +640,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
               ) : (
                 <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-500">
                   <p>クチコミデータの取得には <span className="text-sky-500">GOOGLE_MAPS_API_KEY</span> の設定が必要です</p>
-                  <p className="text-xs mt-2">Vercelの環境変数に設定してください</p>
+                  <p className="text-xs mt-2">設定は運営が行います。お困りの場合はお問い合わせください</p>
                 </div>
               )}
             </>
@@ -757,7 +768,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                           {post.status === 'published' ? '投稿済み' : post.status === 'scheduled' ? '予定' : '下書き'}
                         </span>
                         <span className="text-xs text-gray-500">{post.post_type}</span>
-                        <span className="text-xs text-gray-500">{new Date(post.created_at).toLocaleDateString('ja-JP')}</span>
+                        <span className="text-xs text-gray-500">{new Date(post.created_at).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}</span>
                       </div>
                       {post.title && <p className="text-sm font-medium text-gray-800">{post.title}</p>}
                       <p className="text-sm text-gray-600 line-clamp-2 mt-0.5">{post.body}</p>
@@ -766,10 +777,13 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                       {post.status !== 'published' && (
                         <>
                           <a href={gbpManageUrl} target="_blank" rel="noopener noreferrer"
-                             onClick={() => markPublished(post.id)}
                              className="text-xs bg-sky-600 text-white px-3 py-1 rounded-sm hover:bg-sky-700 text-center">
                             GBPに投稿 ↗
                           </a>
+                          <button type="button" onClick={() => markPublished(post.id)} disabled={markingPostId === post.id}
+                                  className="text-xs bg-green-50 text-green-700 px-3 py-1 rounded-sm hover:bg-green-100 disabled:opacity-50">
+                            投稿済みにする
+                          </button>
                         </>
                       )}
                       <button type="button" onClick={() => setConfirmDeletePostId(post.id)} disabled={deletingPostId === post.id}

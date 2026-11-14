@@ -36,8 +36,23 @@ test('an invalid success response cannot confirm the optimistic state', async ()
   (fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({}) });
   render(<FavoriteButton facilityId="facility-a" />);
   fireEvent.click(await screen.findByRole('button', { name: 'お気に入りに追加' }));
-  await waitFor(() => expect(screen.getByRole('button', { name: 'お気に入りに追加' })).toBeEnabled());
+  // 監査 A397: 結果不明を「元の状態」と断定せず、確認できない状態にする。
+  expect(await screen.findByRole('button', { name: 'お気に入り状態を確認できません' })).toBeDisabled();
   expect(mockAnalytics).not.toHaveBeenCalled();
+});
+
+test('a network failure does not roll back to a state that may be wrong', async () => {
+  (fetch as jest.Mock).mockRejectedValue(new Error('offline'));
+  render(<FavoriteButton facilityId="facility-a" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'お気に入りに追加' }));
+  expect(await screen.findByRole('button', { name: 'お気に入り状態を確認できません' })).toBeDisabled();
+});
+
+test('an explicit server rejection restores the previous state', async () => {
+  (fetch as jest.Mock).mockResolvedValue({ ok: false, json: async () => ({}) });
+  render(<FavoriteButton facilityId="facility-a" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'お気に入りに追加' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'お気に入りに追加' })).toBeEnabled());
 });
 
 test('a completed old-facility toggle cannot change a new facility state or analytics', async () => {

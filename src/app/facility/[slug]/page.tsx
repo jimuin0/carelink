@@ -563,7 +563,8 @@ export default async function FacilityPage(props: Props) {
                   itemReviewed: { '@type': 'LocalBusiness', name: facility.name },
                   reviewRating: { '@type': 'Rating', ratingValue: r.rating, bestRating: 5 },
                   author: { '@type': 'Person', name: r.reviewer_name || '匿名' },
-                  reviewBody: r.comment,
+                  // 点検 B8-L: 本文の無い口コミで reviewBody: null を出さない（上の LocalBusiness と同じ形）。
+                  ...(r.comment && { reviewBody: r.comment }),
                   datePublished: r.created_at?.split('T')[0],
                 }))
               ),

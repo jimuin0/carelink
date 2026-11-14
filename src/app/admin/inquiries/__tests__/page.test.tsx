@@ -202,16 +202,17 @@ test('a ticket mutation refreshes the latest filter instead of its stale capture
     pendingPatch.resolve(response({ ok: true }));
     await pendingPatch.promise;
   });
-  await waitFor(() => expect(screen.getByText('クローズ済み問い合わせ')).toBeVisible());
+  // 監査 A339 以降、更新成功後に一覧を読み直さない。古いフィルタでの読み直しも当然起きない。
   const listUrls = mockFetch.mock.calls.filter(([, init]) => init?.method !== 'PATCH').map(([url]) => url);
   expect(listUrls.filter((url) => url === '/api/admin/inquiries?status=open')).toHaveLength(1);
-  expect(listUrls).toContain('/api/admin/inquiries?status=closed');
+  expect(listUrls.filter((url) => url === '/api/admin/inquiries?status=closed')).toHaveLength(1);
 
   await act(async () => {
-    firstClosedList.resolve(response({ contacts: [], nextCursor: null }));
+    firstClosedList.resolve(response({ contacts: [closedRow], nextCursor: null }));
     await firstClosedList.promise;
   });
   await waitFor(() => expect(screen.getByText('クローズ済み問い合わせ')).toBeVisible());
+  expect(closedListCalls).toBe(1);
 });
 
 test('a ticket mutation completing after unmount does not start a new PII list request', async () => {
@@ -362,4 +363,22 @@ test('確定要求の通信例外は結果不明として扱い、送信もし�
   fireEvent.click(await screen.findByLabelText('送信サービスのログに該当メールが無いことを確認しました'));
   fireEvent.click(screen.getByRole('button', { name: '未送信として確定（メールは送りません）' }));
   expect(await screen.findByText('確定結果を確認できません。送信状況を再読み込みしてください')).toBeVisible();
+});
+
+// 監査 A339: 更新成功後に1ページ目から読み直さない（追加読み込み・展開中の行を消さない）。
+test('a successful ticket update keeps the loaded rows and updates only that row', async () => {
+  mockFetch.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith('/reply')) return Promise.resolve(response({ reply: null }));
+    if (init?.method === 'PATCH') return Promise.resolve(response({ ok: true }));
+    return Promise.resolve(response({ contacts: [row], nextCursor: null }));
+  });
+  render(<Page />);
+  fireEvent.click(await screen.findByText('合成問い合わせ'));
+  fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'resolved' } });
+  await screen.findByText('更新しました');
+  const listCalls = mockFetch.mock.calls.filter(([url, init]) => !String(url).endsWith('/reply') && init?.method !== 'PATCH');
+  expect(listCalls).toHaveLength(1);
+  expect(screen.getByText('合成問い合わせ')).toBeVisible();
+  expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('resolved');
 });

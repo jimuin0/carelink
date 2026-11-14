@@ -269,3 +269,23 @@ test('profile pre-fill never overwrites a name or email the visitor already ente
   expect(screen.getByLabelText(/お名前/)).toHaveValue('家族の名前');
   expect(screen.getByLabelText(/メールアドレス/)).toHaveValue('family@example.com');
 });
+
+// 監査 A391: 残高の取得前に「残高0」でクランプして、復元したポイント利用額を消さない。
+test('復元したポイント利用額は、残高を取得し終えるまで0に潰されない', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'verified-owner' } } });
+  let resolveBalance!: (v: number) => void;
+  (readPointsBalance as jest.Mock).mockImplementation(() => new Promise<number>((r) => { resolveBalance = r; }));
+  (global.fetch as jest.Mock).mockImplementation(slotsWeekFetch([{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }]));
+  sessionStorage.setItem(draftKey(), JSON.stringify({
+    savedAt: Date.now(), menuIds: ['menu-1'], staffId: null, couponId: null, selectedDate: '2099-01-15',
+    customerName: '復元太郎', email: 'restore@example.com', phone: '', note: '', usePoints: true, pointsToUse: 500,
+  }));
+  render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
+  await screen.findByText('日時を選択');
+  fireEvent.click((await screen.findAllByText('△'))[0]);
+  fireEvent.click(screen.getByText('次へ（確認・予約）'));
+  await screen.findByText('予約内容の確認・お客様情報');
+  await waitFor(() => expect(readPointsBalance).toHaveBeenCalled());
+  resolveBalance(1000);
+  expect(await screen.findByText('お支払い金額: ¥4,500')).toBeInTheDocument();
+});

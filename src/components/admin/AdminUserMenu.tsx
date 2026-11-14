@@ -121,7 +121,8 @@ export default function AdminUserMenu() {
         <button type="button" disabled={loggingOut} onClick={logoutNotice.cleanupOnly ? retryCleanup : handleLogout} className="mt-2 underline">
           {logoutNotice.cleanupOnly ? '端末の下書き削除を再試行' : 'ログアウトを再試行'}
         </button>
-        <Link href="/auth/login" className="ml-3 underline">ログイン画面へ進む</Link>
+        {/* 監査 A385: ログアウトを確認できていない間は、別アカウントのログインへ誘導しない。 */}
+        {logoutNotice.cleanupOnly && <Link href="/auth/login" className="ml-3 underline">ログイン画面へ進む</Link>}
       </div>}
     </div>
   );

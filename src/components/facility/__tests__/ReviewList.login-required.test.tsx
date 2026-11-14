@@ -155,3 +155,19 @@ test('通報 API が 401 を返した場合（セッション失効等）、ロ�
   });
   expect(screen.getByText('ログインが必要です')).toBeInTheDocument();
 });
+
+// 監査 A400: 「役に立った」の未ログイン導線も、ログイン後に元のページへ戻す。
+test('未ログインで「役に立った」を押すと redirect 付きでログインへ遷移する', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  render(<ReviewList reviews={[REVIEW]} />);
+  fireEvent.click(screen.getByRole('button', { name: /役に立った/ }));
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/auth/login?redirect=%2Ffacility%2Ftest-salon'));
+});
+
+// 監査 A399: 通報前の認証確認が失敗しても無反応にせず、エラーを出す。
+test('通報前のログイン確認が失敗したらエラーを表示する', async () => {
+  mockGetUser.mockRejectedValue(new Error('offline'));
+  render(<ReviewList reviews={[REVIEW]} />);
+  fireEvent.click(screen.getByRole('button', { name: 'この口コミを通報する' }));
+  expect(await screen.findByText('ログイン状態を確認できませんでした。通信状況をご確認のうえ再度お試しください')).toBeInTheDocument();
+});

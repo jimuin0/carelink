@@ -73,9 +73,10 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
           responses,
         }),
       });
-      const data = await res.json();
+      // 監査 A404: 本文が JSON でない失敗応答（502 の HTML 等）を「通信エラー」と取り違えない。
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(data.error || '送信に失敗しました');
+        setError((typeof data?.error === 'string' && data.error) || '送信に失敗しました');
         return;
       }
       setDone(true);

@@ -109,7 +109,8 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
       const supabase = createBrowserSupabaseClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        router.push('/auth/login');
+        // 監査 A400: 通報導線と同じく、ログイン後に元の施設ページへ戻す。
+        router.push(`/auth/login?redirect=${encodeURIComponent(pathname)}`);
         return;
       }
       const wasHelpful = myHelpful.has(reviewId);
@@ -140,13 +141,18 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
     if (reportingId || reportedSet.has(reviewId)) return;
     // 通報は要ログイン（2026年7月15日 HPB 準拠・神原さん確定）。未ログインは
     // 通報確認ダイアログでなくログイン誘導ダイアログを出す。
-    const supabase = createBrowserSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      setShowLoginPrompt(true);
-      return;
+    // 監査 A399: 認証確認の失敗を未処理の reject にせず、利用者に知らせる。
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setShowLoginPrompt(true);
+        return;
+      }
+      setConfirmReportId(reviewId);
+    } catch {
+      setToast({ type: 'error', message: 'ログイン状態を確認できませんでした。通信状況をご確認のうえ再度お試しください' });
     }
-    setConfirmReportId(reviewId);
   };
 
   const executeReport = async () => {

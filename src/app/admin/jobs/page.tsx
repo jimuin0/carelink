@@ -96,7 +96,7 @@ export default async function AdminJobsPage() {
                       {job.job_type}
                     </span>
                     <span className="text-micro text-gray-500">
-                      {new Date(job.created_at).toLocaleDateString('ja-JP')}
+                      {new Date(job.created_at).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}
                     </span>
                   </div>
                   <p className="font-bold truncate">{job.title}</p>
