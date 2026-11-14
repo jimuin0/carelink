@@ -26,7 +26,7 @@ curl -s https://carelink-jp.com/api/health | head -c 400
 Vercel 環境変数に `ALERT_CHECK_TOKEN`（20字以上のランダム文字列）と
 `SLACK_BOT_TOKEN` / `SLACK_DEFAULT_CHANNEL` を設定して Redeploy 後：
 ```
-curl -s "https://carelink-jp.com/api/alert-check?fire=1&token=（ALERT_CHECK_TOKENの値）"
+curl -s -H "Authorization: Bearer （ALERT_CHECK_TOKENの値）" "https://carelink-jp.com/api/alert-check?fire=1"
 ```
 期待：`{"ok":true,"fired":true,"slackConfigured":true,...}` かつ Slack の該当チャンネルに
 1分以内に 🔴 ERROR [alert-check] のテスト通知が届く。

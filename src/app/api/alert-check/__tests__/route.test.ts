@@ -16,8 +16,10 @@ import { GET } from '../route';
 
 const TOKEN = 'test-alert-token-1234567890';
 
-function req(qs: string): Request {
-  return new Request(`https://carelink-jp.com/api/alert-check${qs}`);
+function req(qs: string, token?: string, scheme = 'Bearer'): Request {
+  const headers: Record<string, string> = {};
+  if (token !== undefined) headers.authorization = `${scheme} ${token}`;
+  return new Request(`https://carelink-jp.com/api/alert-check${qs}`, { headers });
 }
 
 const ENV_KEYS = [
@@ -44,7 +46,7 @@ afterEach(() => {
 });
 
 test('ALERT_CHECK_TOKEN 未設定 → 500', async () => {
-  const res = await GET(req('?token=x&fire=1'));
+  const res = await GET(req('?fire=1', 'x'));
   expect(res.status).toBe(500);
   expect(await res.json()).toEqual({ ok: false, message: 'ALERT_CHECK_TOKEN not configured' });
   expect(alertError).not.toHaveBeenCalled();
@@ -53,9 +55,30 @@ test('ALERT_CHECK_TOKEN 未設定 → 500', async () => {
 test('token 不一致（同長・内容違い）→ 401', async () => {
   process.env.ALERT_CHECK_TOKEN = TOKEN;
   const wrong = 'X'.repeat(TOKEN.length);
-  const res = await GET(req(`?token=${wrong}&fire=1`));
+  const res = await GET(req('?fire=1', wrong));
   expect(res.status).toBe(401);
   expect(await res.json()).toEqual({ ok: false, message: 'invalid token' });
+  expect(alertError).not.toHaveBeenCalled();
+});
+
+test('正規 token でもクエリ（?token=）で来たら 401（URL に秘密値を載せない）', async () => {
+  process.env.ALERT_CHECK_TOKEN = TOKEN;
+  const res = await GET(req(`?token=${TOKEN}&fire=1`));
+  expect(res.status).toBe(401);
+  expect(alertError).not.toHaveBeenCalled();
+});
+
+test('ヘッダーが正しくてもクエリに token があれば 401', async () => {
+  process.env.ALERT_CHECK_TOKEN = TOKEN;
+  const res = await GET(req(`?token=${TOKEN}&fire=1`, TOKEN));
+  expect(res.status).toBe(401);
+  expect(alertError).not.toHaveBeenCalled();
+});
+
+test('Bearer 以外の方式（Basic）→ 401', async () => {
+  process.env.ALERT_CHECK_TOKEN = TOKEN;
+  const res = await GET(req('?fire=1', TOKEN, 'Basic'));
+  expect(res.status).toBe(401);
   expect(alertError).not.toHaveBeenCalled();
 });
 
@@ -70,7 +93,7 @@ test('正規 token + fire なし → 200 fired:false（dry check）', async () =
   process.env.ALERT_CHECK_TOKEN = TOKEN;
   process.env.SLACK_BOT_TOKEN = 'xoxb-abc';
   process.env.SLACK_DEFAULT_CHANNEL = 'C123';
-  const res = await GET(req(`?token=${TOKEN}`));
+  const res = await GET(req('', TOKEN));
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.ok).toBe(true);
@@ -85,7 +108,7 @@ test('正規 token + fire=1 + Slack設定あり + commit/env あり → fired:tr
   process.env.SLACK_DEFAULT_CHANNEL = 'C123';
   process.env.VERCEL_GIT_COMMIT_SHA = 'abcdef1234567';
   process.env.VERCEL_ENV = 'production';
-  const res = await GET(req(`?token=${TOKEN}&fire=1`));
+  const res = await GET(req('?fire=1', TOKEN));
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body).toMatchObject({ ok: true, fired: true, slackConfigured: true });
@@ -102,7 +125,7 @@ test('正規 token + fire=1 + Slack設定あり + commit/env あり → fired:tr
 test('fire=1 + SLACK_BOT_TOKEN あり・CHANNEL 欠落 → slackConfigured:false', async () => {
   process.env.ALERT_CHECK_TOKEN = TOKEN;
   process.env.SLACK_BOT_TOKEN = 'xoxb-abc';
-  const res = await GET(req(`?token=${TOKEN}&fire=1`));
+  const res = await GET(req('?fire=1', TOKEN));
   const body = await res.json();
   expect(body.fired).toBe(true);
   expect(body.slackConfigured).toBe(false);
@@ -113,7 +136,7 @@ test('fire=1 + SLACK_BOT_TOKEN あり・CHANNEL 欠落 → slackConfigured:false
 test('fire=1 + SLACK_BOT_TOKEN 欠落 + commit/env 欠落 → slackConfigured:false・commit_sha=null・env=NODE_ENV', async () => {
   process.env.ALERT_CHECK_TOKEN = TOKEN;
   // SLACK_* 未設定 / VERCEL_* 未設定（NODE_ENV は jest が 'test' を設定）
-  const res = await GET(req(`?token=${TOKEN}&fire=1`));
+  const res = await GET(req('?fire=1', TOKEN));
   const body = await res.json();
   expect(body.slackConfigured).toBe(false);
   expect(alertError).toHaveBeenCalledTimes(1);

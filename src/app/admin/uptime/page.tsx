@@ -106,7 +106,7 @@ export default async function UptimePage() {
             </p>
             <ol className="text-xs text-gray-600 space-y-1 list-decimal list-inside">
               <li>Vercel 環境変数に SLACK_BOT_TOKEN / SLACK_DEFAULT_CHANNEL を設定</li>
-              <li>疎通テスト：<code className="bg-gray-100 px-1 rounded-sm text-xs">/api/alert-check?fire=1&amp;token=&lt;ALERT_CHECK_TOKEN&gt;</code> を開く</li>
+              <li>疎通テスト：<code className="bg-gray-100 px-1 rounded-sm text-xs">curl -s -H &quot;Authorization: Bearer &lt;ALERT_CHECK_TOKEN&gt;&quot; https://carelink-jp.com/api/alert-check?fire=1</code> を実行（URL にトークンを載せない）</li>
               <li>Slack の通知チャンネルにテスト通知が届けば疎通OK</li>
             </ol>
           </div>

@@ -52,9 +52,9 @@
 > onRequestError → `src/lib/alert.ts`（Slack chat.postMessage）で行います。旧 `/api/sentry-check` は存在しません。
 - [ ] Vercel環境変数に `ALERT_CHECK_TOKEN=任意の長いランダム文字列（20字以上）` を追加
 - [ ] Vercel環境変数 `SLACK_BOT_TOKEN` と `SLACK_DEFAULT_CHANNEL`（例：#alerts-prod のID）が設定済みであること
-- [ ] Redeploy後、ブラウザで以下にアクセス（TOKENを実値に置換）：
+- [ ] Redeploy後、ターミナルで以下を実行（「ALERT_CHECK_TOKENの値」を実値に置換）。トークンは URL に載せない（`?token=` は 401 になる。履歴・ログに残るため）：
   ```
-  https://carelink-jp.com/api/alert-check?fire=1&token=YOUR_TOKEN
+  curl -s -H "Authorization: Bearer （ALERT_CHECK_TOKENの値）" "https://carelink-jp.com/api/alert-check?fire=1"
   ```
 - [ ] レスポンスに `"fired":true` かつ `"slackConfigured":true` が出ること
   - `"slackConfigured":false` なら SLACK_BOT_TOKEN / SLACK_DEFAULT_CHANNEL が未設定
