@@ -113,7 +113,7 @@ describe('B6-13: 退会時に閲覧の履歴（検索語・最近見た施設）
     expect(localStorage.getItem('cookie-consent')).toBe('kept');
   });
   it('localStorage が使えなくても退会の後始末は失敗にしない', async () => {
-    jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (this: Storage, key: string) {
+    jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (this: Storage, _key: string) {
       if (this === localStorage) throw new Error('blocked');
       return undefined as unknown as void;
     });

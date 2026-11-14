@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * B5-9: 失敗した読込 Promise をキャッシュに残さない（一過性の失敗で以後ずっと OG 画像が壊れないこと）。
  */
@@ -10,7 +10,6 @@ jest.mock('../og-image-assets', () => ({
   loadOgWasm: jest.fn(),
 }));
 
-/* eslint-disable @typescript-eslint/no-require-imports */
 // テストごとにモジュールのキャッシュ（CSS・フォント）を空にして読み込み直す。
 function load() {
   jest.resetModules();

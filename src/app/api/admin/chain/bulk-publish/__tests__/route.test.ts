@@ -513,3 +513,8 @@ test('B2-5: 大文字・小文字違いの同じ UUID は重複として 400', a
   const res = await POST(makeRequest(validBody({ facility_ids: [HEX_A, HEX_A.toUpperCase()] })));
   expect(res.status).toBe(400);
 });
+
+test('B2-5: 文字列でない facility_ids は小文字化せず 400', async () => {
+  const res = await POST(makeRequest(validBody({ facility_ids: [123] })));
+  expect(res.status).toBe(400);
+});
