@@ -27,3 +27,11 @@ test('通常の入力でも業種・地域を含めて検索する', () => {
   fireEvent.submit(container.querySelector('form')!);
   expect(push).toHaveBeenCalledWith(expect.stringMatching(/^\/search\?keyword=%E6%95%B4%E4%BD%93&type=/));
 });
+
+test('キーワード欄は React が値を上書きしない（再描画しても打った文字が消えない）', () => {
+  const { rerender } = render(<SearchBar />);
+  const input = screen.getByPlaceholderText('キーワード（店名・エリアなど）') as HTMLInputElement;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'テスト');
+  rerender(<SearchBar />);
+  expect(input.value).toBe('テスト');
+});
