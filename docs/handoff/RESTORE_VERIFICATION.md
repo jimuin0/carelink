@@ -1,5 +1,11 @@
 # 復元検証記録
 
+> ⚠️ **履歴として読むこと（2026年11月14日追記）。** この記録と `HANDOFF_MANIFEST.json`・`docs/handoff/*.json` は 2026年10月20日前後の引継ぎ一式の時点固定の証拠で、現在の main の状態を表さない。
+> - `HANDOFF_MANIFEST.json` のハッシュは「manifest を導入・更新したコミット」に対してだけ成り立つ（manifest 内の `commit_semantics`）。その後の変更で現在のファイルとは多数一致せず、追跡ファイル全体も網羅しない。現在の checkout に対して照合しても意味を持たない。
+> - `public-health.json` の `version`（c33a53a）や `git-inventory.json` の baseline も当時の値で、現行の配信版・HEAD ではない。
+> - 検証は Node 22.23.3 で行った。配信は `Dockerfile.vercel` の Node 24.22.1 で、配信と同じ実行環境での検証ではない。
+> - 末尾の `git clone --branch codex/carelink-resume-rules-20261020` は当時の引継ぎ専用の手順。現在これを実行すると古い一式を検証することになるので、現行の検証には使わない。
+
 対象機能基準: c33a53ac8c96422e4271e4a47d3403e226cecd91。
 引継ぎブランチのGitHub push後、元worktree外の空フォルダへremote cloneし、秘密.envなし・node_modules独立npm ciで検証する。
 実行結果は restore-results.json に記録する。未実施を成功扱いしない。

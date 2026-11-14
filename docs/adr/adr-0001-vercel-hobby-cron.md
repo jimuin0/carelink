@@ -1,6 +1,6 @@
 # ADR-0001: Vercel Hobby cron 制約 → GitHub Actions 移行
 Date: 2026-05-24
-Status: Accepted
+Status: Superseded（GitHub Actions の cron.yml は 2026年7月29日に disabled_manually。現在の定期実行は Render＝`render.yaml`・`docs/render-cron-consolidation.md`）
 
 ## Context（何が問題か）
 過去 38日間、Vercel 本番デプロイが全て失敗していた。原因は `vercel.json` に hourly (`0 * * * *`) や 15分毎 (`*/15 * * * *`) の cron が含まれており、Vercel Hobby プランの「cron は 1日 1回まで」「合計 2 件まで」制約に違反していたため。エラーコード: `cron_jobs_limits_reached`。

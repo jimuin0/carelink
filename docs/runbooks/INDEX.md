@@ -14,10 +14,10 @@
 ## 1. 検知方法
 
 ### 自動検知パス
-- **Slack `#alerts-prod`**: Sentry / Vercel Deployment / GitHub Actions failure 通知
+- **Slack `#alerts-prod`**: Vercel Deployment 失敗・`withRoute` の 500 通知・Render の `carelink-health-check` の通報（Sentry は廃止済み）
 - **Vercel Dashboard**: Deployments タブの failed / Functions タブの 5xx
-- **GitHub Actions**: `.github/workflows/` 配下の cron / CI が red
-- **Upstash / Supabase Dashboard**: usage / error チャートのスパイク
+- **GitHub Actions**: CI（`ci.yml` 等）が red。⚠️ `cron.yml` / `health-monitor.yml` / `deploy-watch.yml` は `disabled_manually` で発火しないため、cron の停止は GitHub 側では赤くならない。cron の実働は Render＝Render Dashboard と `cron_logs` の記録・`/api/health` の cron 鮮度で確認する
+- **Supabase Dashboard**: usage / error チャートのスパイク
 - **外形監視 `/api/health`**: 3 分連続失敗で通知
 
 ### 手動検知パス
@@ -42,7 +42,7 @@
 | API 5xx が急増 / Sentry エラー多発 | 5xx 急増 | [500-surge.md](./500-surge.md) |
 | `vercel deploy` 失敗 / build エラー / cron 設定拒否 | デプロイ失敗 | [deploy-failure.md](./deploy-failure.md) |
 | API キー / Webhook URL / token が git・log・Slack に出た | シークレット漏洩 | [secret-leak.md](./secret-leak.md) |
-| Supabase / Stripe / Upstash / Resend / LINE が応答しない | 外部依存ダウン | [external-dep-down.md](./external-dep-down.md) |
+| Supabase / 決済（PAY.JP） / Resend / LINE が応答しない | 外部依存ダウン | [external-dep-down.md](./external-dep-down.md) |
 | DB 接続不能 / マイグレ失敗 / RLS 違反 / trigger 異常 / 静かなドリフト（本番と repo 乖離） | DB 起因 | [database-incident.md](./database-incident.md) |
 
 ---

@@ -3,7 +3,15 @@
 **最終更新**: 2026年4月17日
 **バージョン**: 8.44.0
 **作成者**: Claude + 神原 良祐
-**プロジェクト**: ~/Projects/carelink/
+**プロジェクト**: このリポジトリ
+
+> ⚠️ **この文書は 2026年4月時点（v8.44.0）の記録で、現行構成の説明ではない（2026年11月14日追記）。** 現行の正は `CLAUDE.md` と各ソース。少なくとも次の記載は現在と異なる。
+> - Sentry（設定ファイル・`/api/sentry-check`）と Upstash は廃止済み。エラー通知は `withRoute` → Slack、レート制限は Supabase RPC `check_rate_limit`（`src/lib/rate-limit.ts`）。
+> - `vercel.json` の cron は無い。定期実行は Render（`render.yaml`・SSOT は `src/lib/cron-jobs.data.json`）。
+> - CSP は `next.config` の `'unsafe-inline'` ではなく、`src/middleware.ts` が付ける per-request nonce＋`'strict-dynamic'`。
+> - `/api/symptoms/suggest` は GET ではなく POST（AI 症状チェッカー）。
+> - `main` への直接 push はしない。ブランチ → PR → 必須 CI 通過後にマージする（ADR-0004）。
+> - 決済は Stripe を使わず PAY.JP を使う方針（2026年11月14日 本人決定）。本文中の Stripe の記載は旧方針の記録。
 
 > 医療・福祉・美容業界に特化した採用×集客プラットフォーム（HPB完全再現）。
 > - **LP（ランディングページ）**: 施設掲載登録・求職者登録・お問い合わせ
@@ -656,14 +664,15 @@ GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
 
 ### 5.1 デプロイ方法
 
-**GitHub連携で自動デプロイ**が設定済み。`git push origin main` するだけで自動的にビルド・デプロイされる。
+**GitHub連携で自動デプロイ**が設定済み。`main` にマージされると自動的にビルド・デプロイされる。`main` へ直接 push せず、PR 経由でマージする（ADR-0004・branch protection と必須 CI）。
 
 ```bash
-# 通常の開発フロー（pushで自動デプロイ）
+# 通常の開発フロー（PR 経由）
+git switch -c <作業ブランチ>
 git add <変更ファイル>
 git commit -m "変更内容"
-git push origin main
-# → Vercelが自動検知してビルド・デプロイ
+git push -u origin <作業ブランチ>
+gh pr create   # 必須 CI が通ってからマージ → 自動デプロイ
 ```
 
 > 手動デプロイが必要な場合: `npx vercel --prod`
@@ -2427,11 +2436,13 @@ npm run dev
 # 2. ビルドチェック
 npm run build
 
-# 3. コミット・プッシュ（自動デプロイ）
+# 3. ブランチでコミットし PR を作る（main へ直接 push しない・ADR-0004）
+git switch -c <作業ブランチ>
 git add <変更ファイル>
 git commit -m "変更内容"
-git push origin main
-# → Vercelが自動でビルド・デプロイ
+git push -u origin <作業ブランチ>
+gh pr create
+# → 必須 CI 通過後にマージすると自動でビルド・デプロイ
 ```
 
 ### 18.3 施設データの追加・編集

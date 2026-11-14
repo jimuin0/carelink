@@ -4,6 +4,10 @@
 対象ブランチ：`origin/main`（318ce92）時点のコード。行番号はこの時点のもの。
 検証方法：Opus 3体（うち1体は反証専任）＋ 使い捨て PostgreSQL 16 での実行検証。
 
+> ⚠️ **状態の注記（2026年11月14日追記）**: この文書は 2026年8月20日時点の指示書で、現在の作業指示ではない。実施前に必ず現行コードで再確認すること。少なくとも次は失効している。
+> - P0-2（無音の 500）: `src/lib/with-route.ts` は戻り値の `status >= 500` も通知するよう実装済み（CLAUDE.md「API ルートの標準形」の2026年8月20日訂正）。二重に直さない。
+> - 4-8（`/salon` の4ステップ図）: `/salon` は `/register` へ 308 転送に統合され、`src/app/salon/page.tsx` は削除済み。対象ファイルが存在しない。
+
 ---
 
 ## 0. 結論（先に読む）
@@ -205,7 +209,7 @@ desired_start_date: z.enum(DESIRED_START_DATES).or(z.literal('')).optional().nul
 
 ---
 
-### P0-2　無音の 500 を構造で塞ぐ 🔴
+### P0-2　無音の 500 を構造で塞ぐ 🔴（✅ 実装済み・冒頭の注記参照）
 
 **これが「誰も気づかなかった」真因。** `src/lib/with-route.ts` の catch は **throw された例外でしか発火しない**（`:116-127`）。ハンドラが `return NextResponse.json(..., {status:500})` した場合、`safeCaptureException` も `alertCaughtError` も呼ばれない。
 
@@ -367,7 +371,7 @@ CI の E2E はローカル Supabase（`config.toml:205` で `enable_confirmation
 | 4-5 | 引き継ぎキーが **`/register` のメールと signup のメールの完全一致のみ**。不一致だと営業時間・写真・特徴・PR が**無音で全て消える**。警告もプリフィルも無い | `facility/setup/route.ts:71-79`、`complete/page.tsx:81`（メールを渡していない） |
 | 4-6 | **営業時間が書き込み専用**。`business_hours_text` に保存されるが、読み手がリポジトリ全体に存在しない（型定義と書き込み元のみ）。確認ダイアログの「営業時間が管理画面に反映され」は**未達** | `facility/setup/route.ts:137` |
 | 4-7 | **`prefecture` / `city` が構造的に常に null**。`salons` に列が無く setup も補完しない。公開ゲートも要求しない（menu/photo/staff の3条件のみ）。`/search` は `.eq('prefecture')` で絞るので、**公開しても地域検索に出ない** | `facility-publish-gate.ts`、`facilities.ts:59`、`admin/page.tsx:54-60`（チェックリストに基本情報が無い） |
-| 4-8 | `/salon` の4ステップ図が、公開必須の**「スタッフ登録」を欠落**させている（`/register/complete` 側は正しく含む） | `src/app/salon/page.tsx:155-172` |
+| 4-8 | （✅ 失効：`/salon` は削除済み）`/salon` の4ステップ図が、公開必須の**「スタッフ登録」を欠落**させている（`/register/complete` 側は正しく含む） | `src/app/salon/page.tsx:155-172` |
 | 4-9 | `salons` への**重複送信ガードが無い**（`email`/`facility_name` に UNIQUE 無し・API も重複チェック無し）。タブ2枚・リロード再送で営業リードが重複する | `salons/route.ts:132-160` |
 
 ---

@@ -359,7 +359,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | onboarding-followup | `0 16 * * *` | 毎日 01:00 |
 | birthday-coupon | `0 14 * * *` | 毎日 23:00 |
 | flag-reviews | `0 * * * *` | 毎時 |
-| favorites-digest | `0 15 * * 1` | 月曜 00:00 |
+| favorites-digest | `0 15 * * 1` | 火曜 00:00 |
 | weekly-report | `10 22 * * 0` | 月曜 07:10 |
 | waitlist-notify | `30 * * * *` | 毎時30分 |
 | webhook-retry | `*/15 * * * *` | 15分毎 |
@@ -375,11 +375,11 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 
 当時の有効状態やサービス数を現在の実態と決めつけない。構成・集約の正は `src/lib/cron-jobs.data.json` と `docs/render-cron-consolidation.md`。必要な作業では実際の有効状態とログを確認し、完了済みの切替・旧サービスの停止・初回確認を重複実行しない。
 
-【経緯】public repo の GitHub Actions scheduled workflow は GitHub が有料/private を優先し大幅に間引く（実測で cron.yml 最大176分・health-monitor 最大283分の空白）。恒久解として `render.yaml`（Render Cron Jobs・機能ごとに独立サービス16本・SSOTは `src/lib/cron-jobs.data.json`、`src/__tests__/render-yaml-drift.test.ts` がドリフト検知）へ移行した（PR#382）。移行期間中は GitHub Actions + pg_cron + Render の三重化だったが、2026年7月29日に神原が `select cron.unschedule(jobname) from cron.job where jobname like 'carelink-%';` を実行し【pg_cron を撤去済み（15ジョブ全て解除・戻り値 true を確認）】。
+【経緯】public repo の GitHub Actions scheduled workflow は GitHub が有料/private を優先し大幅に間引く（実測で cron.yml 最大176分・health-monitor 最大283分の空白）。恒久解として `render.yaml`（Render Cron Jobs・当初は機能ごとに独立サービス16本。現在は統合 dispatcher（`scripts/cron-dispatch.mjs` の quarter-hour／hourly／calendar）3サービス＋`carelink-health-check` の計4サービス＝構成の正は `render.yaml` と `docs/render-cron-consolidation.md`・SSOTは `src/lib/cron-jobs.data.json`、`src/__tests__/render-yaml-drift.test.ts` がドリフト検知）へ移行した（PR#382）。移行期間中は GitHub Actions + pg_cron + Render の三重化だったが、2026年7月29日に神原が `select cron.unschedule(jobname) from cron.job where jobname like 'carelink-%';` を実行し【pg_cron を撤去済み（15ジョブ全て解除・戻り値 true を確認）】。
 
 【2026年8月12日時点の実態（GitHub API `GET /repos/jimuin0/carelink/actions/workflows` で確認）】
 - 実働しているのは【Render のみ】。根拠＝(a) pg_cron 撤去後も cron_logs が SSOT どおりの間隔で記録され続けている（webhook-retry 15分毎・cron-heartbeat 30分毎＝毎時07分/37分・flag-reviews 毎時）、(b) 下記のとおり GitHub Actions 側は無効化されていて発火し得ない。
-- 🔴 **`cron.yml` / `health-monitor.yml` / `deploy-watch.yml` は GitHub 上で `state: disabled_manually`＝発火しない**（無効化日時は workflow の `updated_at`：health-monitor と deploy-watch が 2026年7月25日、cron.yml が 2026年7月29日）。**ファイルが `.github/workflows/` に在ることを「保険が効いている」と読まないこと。** 3本とも Render 側に等価物があるため運用の穴は無い（cron 15本＋`carelink-health-check`）。再び保険として使いたい場合は、ファイルを足すのではなく GitHub の Actions 画面で **Enable workflow** する必要がある。
+- 🔴 **`cron.yml` / `health-monitor.yml` / `deploy-watch.yml` は GitHub 上で `state: disabled_manually`＝発火しない**（無効化日時は workflow の `updated_at`：health-monitor と deploy-watch が 2026年7月25日、cron.yml が 2026年7月29日）。**ファイルが `.github/workflows/` に在ることを「保険が効いている」と読まないこと。** 3本とも Render 側に等価物があるため運用の穴は無い（2026年8月12日時点。現在は統合 dispatcher 3サービスが cron 全件を起動し、`carelink-health-check` が外形監視を担う）。再び保険として使いたい場合は、ファイルを足すのではなく GitHub の Actions 画面で **Enable workflow** する必要がある。
 - health-monitor.yml の Render 代替は `carelink-health-check`（`scripts/health-check.mjs`・5分毎）。
 
 【将来 GitHub Actions を撤去する場合の注意】`.github/workflows/cron.yml` を削除すると `src/__tests__/cron-jobs-drift.test.ts`（SSOT ↔ cron.yml の三重管理ドリフト検知）が丸ごと成立しなくなる。同テストの削除または render.yaml 基準への作り替えをセットで行うこと。ドリフト検知自体は `render-yaml-drift.test.ts` が引き継げる。
@@ -417,6 +417,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | CARELINK_EDGE | 配信先が Cloudflare Workers のとき `cloudflare`（`wrangler.jsonc` の vars で設定）。`src/lib/client-ip.ts` が `cf-connecting-ip` を最優先にし、Cloudflare が上書きしない `x-real-ip` を信じなくなる。Vercel では設定しない（設定すると利用者が送った `cf-connecting-ip` を信じてしまう） |
 | SALON_REGISTRATION_V2_ENABLED | 受付v2の段階導入フラグ。未設定は無効。写真・原子的claim・migrationとE2Eのrelease gateが揃うまでtrueにしない。無効時は新規準備APIを404で停止するが、既発行intentの状態照会は本人確認・有効期限の検証を維持して利用可能。受付結果不明時の安全な照合を閉じない |
 | CRON_SECRET | Render Cron Jobs → `/api/cron/*` の Bearer 認証（未設定で全 cron 500・不一致で 401・`src/lib/cron-auth.ts`） |
+| CARELINK_CRON_DISPATCH_FROM | 統合 cron dispatcher の切替時刻（UTC・`YYYY-MM-DDTHH:MM:00Z`・`src/lib/cron-dispatch.mjs` の `cutoverTime`）。未設定なら旧ジョブを全て維持、形式不正は throw。`carelink-cron-env` で供給。手順は `docs/render-cron-consolidation.md` |
 | CARELINK_BASE_URL | Render cron dispatcher が叩く本番ベース URL（`src/lib/render-cron.mjs` の `resolveCronEndpoint`・未設定は throw。`render.yaml` の envVarGroup `carelink-cron-env` で全 cron サービスへ供給） |
 | RESEND_API_KEY | メール送信（未設定でメール系 cron は送信スキップ） |
 | EMAIL_FROM | 送信元。本番では検証済みドメイン以外だと既定値へ強制フォールバックする（`src/lib/email-from.ts`） |
@@ -692,6 +693,10 @@ DROP・台帳登録・migration 取り込みのいずれのアクションも不
 以後 cron の `driftExtra` にこの 11 本が現れることは無い想定。もし今後これらの名前で
 `driftExtra` が再び鳴ったら、それは「本番へ何者かが再作成した」新規事象であり、
 本節の解決済み扱いを再度見直すこと。
+
+⚠️ **追記（2026年11月）**: このうち `get_user_points_balance` は、その後 migration
+`20261011051400_user_points_balance_read.sql` で**新たに定義し直され**、`src/lib/points-balance.ts` が RPC として呼んでいる。
+上の「本番に不在」は 2026年8月11日時点の記録であり、現在この関数は migration 管理下で存在するのが正しい状態。
 
 <!-- BEGIN:nextjs-agent-rules -->
 

@@ -73,8 +73,8 @@ out-of-band（Dashboard SQL Editor 等での直接適用で repo 未反映）を
 **残る課題 / 後続 TODO**
 - staging Supabase プロジェクトの整備と `STAGING_SUPABASE_*` secrets 設定（神原さん作業）。
 - `supabase db diff` ベースの migration 差分ゲート（staging 整備が前提）。
-- `src/types/database.types.ts` は現状コードベースから未 import。Supabase クライアントへの
-  型付け（`createClient<Database>`）導入は別タスク（スコープ分離）。
+- ~~`src/types/database.types.ts` は現状コードベースから未 import。~~ → ✅ その後配線済み
+  （`supabase-server.ts` / `supabase-server-auth.ts` / `supabase-browser.ts` が `src/types/database-overrides.ts` の `Database` を渡す。CLAUDE.md の2026年8月20日訂正）。
 
 ## Alternatives（却下案と理由）
 
