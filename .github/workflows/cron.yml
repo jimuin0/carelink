@@ -56,9 +56,11 @@ on:
           - /api/cron/threads-backfill
           - /api/cron/threads-token-refresh
 
+# 同時刻に複数スケジュールが発火する（例: UTC 06:00 の flag-reviews と daily-summary）。
+# group を発火元の schedule／手動 job ごとに分け、別ジョブ同士が取り消し合わないようにする。
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.schedule || inputs.job || 'manual' }}
+  cancel-in-progress: false
 
 jobs:
   dispatch:

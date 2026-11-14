@@ -833,3 +833,55 @@ test('PATCH: usage log insert 失敗時も 200 を返す（best-effort・冪等�
   expect(res.status).toBe(200);
   expect(json.subscription).toBeDefined();
 });
+
+// ─── 点検 A134/A135：消費の監査・事前照会の障害 ─────────────────────────────────
+test('PATCH: セッション消費に成功したら監査ログを残す', async () => {
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  (writeAuditLog as jest.Mock).mockClear();
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub()));
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
+  expect(res.status).toBe(200);
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+    action: 'update',
+    tableName: 'user_subscriptions',
+    recordId: SUB_UUID,
+    newValues: expect.objectContaining({ consumed: 1, booking_id: null }),
+  }));
+});
+
+test('PATCH: 予約の照会が DB 障害 → 500（404 にしない）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildActiveSub());
+    return {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { code: '08006', message: 'down' } })),
+    };
+  });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
+  expect(res.status).toBe(500);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+
+test('PATCH: 利用記録の事前照会が DB 障害 → 500（素通りさせない）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildActiveSub());
+    if (callNum === 2) return bookingChain({ id: BOOKING_UUID, user_id: USER_ID, facility_id: FACILITY_UUID });
+    return {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { code: '08006', message: 'down' } })),
+    };
+  });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
+  expect(res.status).toBe(500);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
+});

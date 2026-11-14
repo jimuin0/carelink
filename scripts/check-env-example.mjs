@@ -18,7 +18,7 @@ const PATTERNS = [
   { name: 'Stripe secret key', re: /\bsk_live_[A-Za-z0-9]{20,}/ },
   { name: 'Stripe restricted key', re: /\brk_live_[A-Za-z0-9]{20,}/ },
   // Resend
-  { name: 'Resend API key', re: /\bre_[A-Za-z0-9]{20,}/ },
+  { name: 'Resend API key', re: /\bre_[A-Za-z0-9_]{20,}/ },
   // Supabase / 一般 JWT（3 セグメント Base64）
   { name: 'JWT token (likely Supabase service_role/anon)', re: /\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/ },
   // GitHub fine-grained PAT

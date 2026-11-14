@@ -213,6 +213,14 @@ test('DELETE: 購入済みユーザーがいる → 非公開化 → 200', async
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.message).toContain('非公開');
+  // 点検 A130：削除の代わりに非公開化した事実も監査に残す
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+    action: 'update',
+    tableName: 'service_packages',
+    recordId: PKG_UUID,
+    newValues: expect.objectContaining({ is_active: false }),
+  }));
 });
 
 test('DELETE: 購入済みユーザーあり・非公開化失敗 → 500', async () => {

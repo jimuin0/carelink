@@ -59,10 +59,12 @@ schema_paths = []
 
 [db.seed]
 # If enabled, seeds the database after migrations during a db reset.
-enabled = true
+# 無効にしている：supabase/seed.sql は存在しない（start / db reset のたびに「ファイルが無い」警告が出て、
+# 何も投入されないまま進んでいた）。ローカルの合成データは scripts/seed-facilities.mjs で入れる。
+enabled = false
 # Specifies an ordered list of seed files to load during db reset.
 # Supports glob patterns relative to supabase directory: "./seeds/*.sql"
-sql_paths = ["./seed.sql"]
+sql_paths = []
 
 [db.network_restrictions]
 # Enable management of network restrictions.

@@ -5,13 +5,15 @@
 // 接続先は使い捨てのローカルSupabase（port 54321）限定。本番・共有stagingでは使わない。
 //
 // 必須環境変数:
-//   NEXT_PUBLIC_SUPABASE_URL
-//   SUPABASE_SERVICE_ROLE_KEY
+//   CARELINK_DISPOSABLE_SUPABASE_URL（http://127.0.0.1:54321 など使い捨てローカル）
+//   NEXT_PUBLIC_SUPABASE_URL（上と同じ origin であること）
+//   SUPABASE_SERVICE_ROLE_KEY（ローカル Supabase のもの）
+// 引数: --local-test-data（必須）
 //
 // 動作:
 //   - 47都道府県 × 6施設 = 282施設を facility_profiles に INSERT
 //   - business_type は medical / welfare / beauty を均等配分
-//     （CareLinkの実際の業種スラッグ8種に展開）
+//     （保存値は src/lib/constants.ts の businessTypes の日本語名）
 //   - 各施設に 1〜3件の求人を facility_jobs に INSERT
 //   - すべて is_seed=true でフラグ管理 → cleanup-seed.mjs で一括削除可
 //   - 既存3施設は is_seed=false のまま無傷
@@ -25,7 +27,7 @@ const SUPABASE_URL = requireDisposableSeedTarget();
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
-  console.error('❌ NEXT_PUBLIC_SUPABASE_URL と SUPABASE_SERVICE_ROLE_KEY を .env.local に設定してください');
+  console.error('❌ 使い捨てローカル Supabase の SUPABASE_SERVICE_ROLE_KEY が必要です（CARELINK_DISPOSABLE_SUPABASE_URL=http://127.0.0.1:54321・NEXT_PUBLIC_SUPABASE_URL を同じ origin にし、--local-test-data を付けて実行。本番の値は使わない）');
   process.exit(1);
 }
 
@@ -55,19 +57,20 @@ const PREFECTURES = [
   ['kagoshima', '鹿児島県', '鹿児島市'], ['okinawa', '沖縄県', '那覇市'],
 ];
 
-// カテゴリ → CareLinkのbusiness_type値（DBで使われている表記）
+// カテゴリ → business_type の保存値（日本語の業種名＝src/lib/constants.ts の businessTypes。
+// 英語スラッグは URL 用で保存値ではないため、入れると業種検索・業種ページに出ない）
 const BUSINESS_TYPES = [
   // 美容
-  { type: 'hair-salon', category: 'beauty', namePool: ['ヘアサロン', 'Hair Salon', 'ビューティ'], jobs: ['美容師', 'スタイリスト', 'アシスタント'] },
-  { type: 'nail-eyelash', category: 'beauty', namePool: ['ネイル&アイ', 'Lash Studio', 'Nail Room'], jobs: ['ネイリスト', 'アイリスト'] },
-  { type: 'esthetic', category: 'beauty', namePool: ['エステ', 'Beauty Salon', 'リフレ'], jobs: ['エステティシャン'] },
-  { type: 'relaxation', category: 'beauty', namePool: ['リラク', 'Relax House', 'ボディケア'], jobs: ['セラピスト'] },
+  { type: 'ヘアサロン', category: 'beauty', namePool: ['ヘアサロン', 'Hair Salon', 'ビューティ'], jobs: ['美容師', 'スタイリスト', 'アシスタント'] },
+  { type: 'ネイル・まつげサロン', category: 'beauty', namePool: ['ネイル&アイ', 'Lash Studio', 'Nail Room'], jobs: ['ネイリスト', 'アイリスト'] },
+  { type: 'エステサロン', category: 'beauty', namePool: ['エステ', 'Beauty Salon', 'リフレ'], jobs: ['エステティシャン'] },
+  { type: 'リラクサロン', category: 'beauty', namePool: ['リラク', 'Relax House', 'ボディケア'], jobs: ['セラピスト'] },
   // 医療
-  { type: 'beauty-clinic', category: 'medical', namePool: ['美容クリニック', 'スキンクリニック', 'メディカルビューティ'], jobs: ['看護師', '受付'] },
-  { type: 'acupuncture', category: 'medical', namePool: ['鍼灸院', '整骨院', '接骨院'], jobs: ['鍼灸師', '柔道整復師', '受付'] },
+  { type: '美容クリニック', category: 'medical', namePool: ['美容クリニック', 'スキンクリニック', 'メディカルビューティ'], jobs: ['看護師', '受付'] },
+  { type: '鍼灸院・整骨院', category: 'medical', namePool: ['鍼灸院', '整骨院', '接骨院'], jobs: ['鍼灸師', '柔道整復師', '受付'] },
   // 福祉
-  { type: 'care-service', category: 'welfare', namePool: ['デイサービス', '介護センター', 'ケアホーム'], jobs: ['介護士', 'ケアマネージャー', '生活相談員'] },
-  { type: 'other', category: 'welfare', namePool: ['訪問ステーション', 'ヘルスケア', 'サポートセンター'], jobs: ['訪問介護員', '看護助手'] },
+  { type: 'その他', category: 'welfare', namePool: ['デイサービス', '介護センター', 'ケアホーム'], jobs: ['介護士', 'ケアマネージャー', '生活相談員'] },
+  { type: 'その他', category: 'welfare', namePool: ['訪問ステーション', 'ヘルスケア', 'サポートセンター'], jobs: ['訪問介護員', '看護助手'] },
 ];
 
 const FEATURES_POOL = ['駐車場あり', '駅近', '個室あり', 'カード決済可', '予約優先', 'キッズスペース', '深夜営業'];
@@ -82,16 +85,8 @@ const pickN = (arr, n) => [...arr].sort(() => Math.random() - 0.5).slice(0, n);
 const phone = () => `0${1 + rand(9)}-${1000 + rand(9000)}-${1000 + rand(9000)}`;
 const postal = () => `${100 + rand(900)}-${1000 + rand(9000)}`;
 
-// Unsplashの安定したID（美容/医療/福祉系の汎用写真）
-const PHOTO_IDS = [
-  'photo-1560066984-138dadb4c035', // 美容室
-  'photo-1522337360788-8b13dee7a37e', // ネイル
-  'photo-1519415943484-9fa1873496d4', // エステ
-  'photo-1540555700478-4be289fbecef', // クリニック
-  'photo-1576091160550-2173dba999ef', // 医療
-  'photo-1558960214-f4283a743867', // 介護
-];
-const photoUrl = () => `https://images.unsplash.com/${pick(PHOTO_IDS)}?w=800&q=80`;
+// 写真は入れない。ストック写真（Unsplash 等）は next.config.mjs の remotePatterns から撤去済みで
+// 表示時に 400 になる上、stock-image-guard の方針（ストック写真を保存しない）にも反するため。
 
 // ============================================================
 // 生成
@@ -113,7 +108,7 @@ function buildFacility(prefSlug, prefName, city, idx) {
       address: `${prefName}${city}本町${1 + rand(9)}-${1 + rand(20)}-${1 + rand(20)}`,
       access_info: `最寄り駅から徒歩${1 + rand(15)}分`,
       phone: phone(),
-      business_hours: { mon: '10:00-20:00', tue: '10:00-20:00', wed: 'closed', thu: '10:00-20:00', fri: '10:00-20:00', sat: '09:00-19:00', sun: '09:00-19:00' },
+      business_hours: { mon: { open: '10:00', close: '20:00' }, tue: { open: '10:00', close: '20:00' }, wed: null, thu: { open: '10:00', close: '20:00' }, fri: { open: '10:00', close: '20:00' }, sat: { open: '09:00', close: '19:00' }, sun: { open: '09:00', close: '19:00' } },
       regular_holiday: '水曜日',
       seat_count: 4 + rand(12),
       staff_count: 3 + rand(10),
@@ -122,7 +117,7 @@ function buildFacility(prefSlug, prefName, city, idx) {
       features: pickN(FEATURES_POOL, 2 + rand(3)),
       rating_avg: (3.5 + Math.random() * 1.4).toFixed(1),
       rating_count: 5 + rand(200),
-      main_photo_url: photoUrl(),
+      main_photo_url: null,
       status: 'published',
       is_seed: true,
     },
@@ -158,6 +153,7 @@ async function main() {
 
   let totalFacilities = 0;
   let totalJobs = 0;
+  const failures = [];
 
   for (const [prefSlug, prefName, city] of PREFECTURES) {
     const built = Array.from({ length: PER_PREFECTURE }).map((_, i) =>
@@ -172,6 +168,7 @@ async function main() {
 
     if (error) {
       console.error(`❌ ${prefName} INSERT失敗:`, error.message);
+      failures.push(`${prefName} 施設`);
       continue;
     }
 
@@ -185,6 +182,7 @@ async function main() {
       const { error: jobErr } = await supabase.from('facility_jobs').insert(jobsPayload);
       if (jobErr) {
         console.error(`⚠️ ${prefName} 求人INSERT失敗:`, jobErr.message);
+        failures.push(`${prefName} 求人`);
       } else {
         totalJobs += jobsPayload.length;
       }
@@ -192,6 +190,12 @@ async function main() {
 
     totalFacilities += inserted.length;
     console.log(`  ✓ ${prefName}: ${inserted.length}施設 / ${jobsPayload.length}求人`);
+  }
+
+  if (failures.length > 0) {
+    console.error(`\n❌ 一部の投入に失敗しました（${failures.length}件: ${failures.join(', ')}）。投入済み: 施設 ${totalFacilities}件 / 求人 ${totalJobs}件`);
+    console.error(`💡 片付ける場合: CARELINK_DISPOSABLE_SUPABASE_URL=${SUPABASE_URL} node --env-file=.env.local scripts/cleanup-seed.mjs --local-test-data`);
+    process.exit(1);
   }
 
   console.log(`\n✅ 完了: 施設 ${totalFacilities}件 / 求人 ${totalJobs}件 を投入しました`);

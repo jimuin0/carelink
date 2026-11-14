@@ -256,11 +256,12 @@ async function patchImpl(request: NextRequest) {
   // If a booking_id is supplied, verify it belongs to this subscription's user and facility.
   // This prevents a user from "burning" a session without an actual booking.
   if (useParsed.data.booking_id) {
-    const { data: bk } = await admin
+    const { data: bk, error: bkErr } = await admin
       .from('bookings')
       .select('id, user_id, facility_id')
       .eq('id', useParsed.data.booking_id)
       .maybeSingle();
+    if (bkErr) return serverError('admin-user-subscriptions-booking-read', bkErr, '/api/admin/user-subscriptions');
     if (!bk) {
       return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
     }
@@ -275,13 +276,14 @@ async function patchImpl(request: NextRequest) {
     // 早期リターン用の事前チェック（UX目的・非決定的な多層防御の一部）。
     // 真の冪等性は RPC 内部の行ロック配下チェック（監査D2）が担保する。ここでの
     // TOCTOU（事前SELECTと呼び出しの間の競合）は RPC 側の already_consumed で必ず捕捉される。
-    const { data: existingLog } = await admin
+    const { data: existingLog, error: existingLogErr } = await admin
       .from('subscription_usage_logs')
       .select('id')
       .eq('subscription_id', useParsed.data.subscription_id)
       .eq('booking_id', useParsed.data.booking_id)
       .limit(1)
       .maybeSingle();
+    if (existingLogErr) return serverError('admin-user-subscriptions-usage-read', existingLogErr, '/api/admin/user-subscriptions');
     if (existingLog) {
       return NextResponse.json({ error: 'この予約は既に当月の利用として記録済みです' }, { status: 409 });
     }
@@ -331,6 +333,18 @@ async function patchImpl(request: NextRequest) {
     }
   }
   const updated = result.subscription;
+
+  const { ip: uip, ua: uua } = getRequestContext(request);
+  void writeAuditLog({
+    userId: user.id,
+    facilityId: facilityId ?? null,
+    action: 'update',
+    tableName: 'user_subscriptions',
+    recordId: useParsed.data.subscription_id,
+    newValues: { consumed: 1, booking_id: useParsed.data.booking_id ?? null, notes: useParsed.data.notes ?? null, by: isAdminUser ? 'facility_admin' : 'holder' },
+    ipAddress: uip,
+    userAgent: uua,
+  });
 
   return NextResponse.json({ subscription: updated });
 }

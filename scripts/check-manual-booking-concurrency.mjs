@@ -7,7 +7,11 @@ const localDockerShadow = process.argv[2] === '--local-docker-shadow';
 const root = localDockerShadow ? undefined : process.argv[2];
 const database = root ? (process.argv[3] || 'carelink_shadow') : 'carelink_shadow';
 assert.ok(['carelink_shadow', 'carelink_manual_20261001', 'carelink_shadow_m09_20261001', 'carelink_shadow_m09_final_20261001'].includes(database));
-const psql = localDockerShadow ? '/Users/kam/Projects/carelink-resume-evidence-20261008/runtime/pg-cli-bridge/psql' : 'psql';
+// ローカルの docker shadow 用 psql は環境ごとに置き場所が違うため、絶対パスを環境変数で明示させる
+// （個人環境のパスを既定値にしない）。下の main() で realpath 一致も確かめる。
+const localPsql = process.env.CARELINK_LOCAL_PSQL || '';
+if (localDockerShadow && !localPsql.startsWith('/')) throw new Error('--local-docker-shadow requires CARELINK_LOCAL_PSQL=<absolute path to psql>');
+const psql = localDockerShadow ? localPsql : 'psql';
 const args = ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose', '-d', database];
 const runPrefix = `mb-${process.pid}-${Date.now().toString(36).slice(-5)}`;
 const children = new Set();
@@ -122,7 +126,7 @@ async function main() {
     const info = statSync(root); assert.ok(info.isDirectory());
     assert.equal(info.uid, process.getuid()); assert.equal(info.mode & 0o777, 0o700);
     dbEnv = { PATH:process.env.PATH, PGHOST:`${root}/socket`, PGPORT:'56419',
-      PGUSER:process.env.USER || 'kanbararyousuke', PGSSLMODE:'disable' };
+      PGUSER:requiredLocalUser(), PGSSLMODE:'disable' };
     assert.equal(query('SHOW listen_addresses'), '');
     assert.equal(realpathSync(query('SHOW data_directory')), realpathSync(`${root}/data`));
   } else {

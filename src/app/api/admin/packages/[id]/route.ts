@@ -133,6 +133,16 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
       .select();
     if (deactivateErr) return serverError('admin-packages-delete-deactivate', deactivateErr, '/api/admin/packages/[id]');
     if (!deactivated || deactivated.length === 0) return NextResponse.json({ error: 'パッケージが見つかりません' }, { status: 404 });
+    void writeAuditLog({
+      userId: auth.userId,
+      facilityId: auth.facilityId,
+      action: 'update',
+      tableName: 'service_packages',
+      recordId: params.id,
+      oldValues: { is_active: true },
+      newValues: { is_active: false, reason: 'delete_requested_with_purchasers' },
+      ipAddress: ip,
+    });
     return NextResponse.json({ message: '購入済みユーザーがいるため非公開にしました' });
   }
 

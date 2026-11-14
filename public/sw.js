@@ -1,6 +1,8 @@
-const CACHE_NAME = 'carelink-v3';
+// HTML（特に '/'）はキャッシュしない。ページは per-request nonce の CSP 付きで配信されるため、
+// 古い HTML を返すと nonce が合わずスクリプトが動かない／古いトップが出る。
+// v3 は '/' を事前キャッシュしていたので版を上げ、activate で古いキャッシュごと消す。
+const CACHE_NAME = 'carelink-v4';
 const STATIC_ASSETS = [
-  '/',
   '/manifest.json',
   '/favicon.svg',
   '/offline.html',
@@ -35,11 +37,9 @@ self.addEventListener('fetch', (event) => {
     || /\.(svg|png|jpg|jpeg|webp|woff2?|css|js)$/.test(url.pathname);
 
   if (!isStatic) {
-    // HTML pages: network only, fallback to offline page
+    // HTML pages: network only, fallback to the static offline page (never a cached HTML page)
     event.respondWith(
-      fetch(event.request).catch(() =>
-        caches.match(event.request).then((cached) => cached || caches.match('/offline.html'))
-      )
+      fetch(event.request).catch(() => caches.match('/offline.html'))
     );
     return;
   }

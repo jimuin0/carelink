@@ -5,10 +5,14 @@ BEGIN;
 
 ALTER TABLE public.sent_reminders
   ADD COLUMN IF NOT EXISTS delivery_state text NOT NULL DEFAULT 'legacy';
+-- 再実行しても 42710/42P07 で全体がロールバックしないよう、制約は張り直し・索引は IF NOT EXISTS
+-- （初回適用と同じ結果になる）。
+ALTER TABLE public.sent_reminders
+  DROP CONSTRAINT IF EXISTS sent_reminders_delivery_state_check;
 ALTER TABLE public.sent_reminders
   ADD CONSTRAINT sent_reminders_delivery_state_check
   CHECK (delivery_state IN ('legacy', 'claimed', 'delivering', 'delivered', 'closed', 'uncertain'));
-CREATE INDEX sent_reminders_unresolved_idx ON public.sent_reminders (delivery_state, sent_at)
+CREATE INDEX IF NOT EXISTS sent_reminders_unresolved_idx ON public.sent_reminders (delivery_state, sent_at)
   WHERE delivery_state IN ('claimed', 'delivering', 'uncertain');
 -- Existing restrictive RLS remains unchanged: only the service role can read/write delivery claims.
 

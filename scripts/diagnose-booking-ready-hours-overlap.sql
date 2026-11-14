@@ -21,9 +21,12 @@
 -- 【読み方】(1) の「適用後に予約を受けられなくなる店舗」が 0 なら、そのまま適用してよい。
 --   1 以上なら (2) の明細の店舗に、スタッフの勤務時間か営業時間の見直しを案内してから適用する
 --   （その店舗は今も予約画面が毎日「満枠」のはず＝適用で事実と表示が揃うだけ、という確認にもなる）。
---   判定式は migration の public.working_time_meets_business_hours（5 引数）と
---   public.facility_shortest_booking_minutes と同じ（この SQL は関数を作らずに CASE で同じことをする。
---   適用前の本番にはその関数が無いため）。
+--   判定は本番の public.working_time_meets_business_hours（5 引数）を直接呼ぶ。最短のメニューは
+--   public.facility_shortest_booking_minutes と同じ式。
+--   （2026年11月14日訂正：以前は open/close 1 組だけを読む CASE で代用しており、periods 形式の曜日を
+--   「営業時間の制限なし」と扱い、日またぎ営業は負の区間で false にしていた＝受けられなくなる店舗を
+--   誤って数えていた。20261026040703 で関数が periods・日またぎに対応したので、それを使う。
+--   関数が無い DB では下の自己検査で止まる）
 --
 -- 【安全性】本ファイルは SELECT のみ。1行も書き換えない。
 --
@@ -60,6 +63,9 @@ BEGIN
     RAISE EXCEPTION
       '接続先が CareLink 本番ではありません。project ref = xzafxiupbflvgbarrihe のタブで実行してください（現在の接続先には facility_profiles / facility_menus / audit_logs のいずれかがありません）';
   END IF;
+  IF to_regprocedure('public.working_time_meets_business_hours(jsonb,integer,time,time,integer)') IS NULL THEN
+    RAISE EXCEPTION 'public.working_time_meets_business_hours(5 引数) がありません。migration 20261026040703 までを適用した DB で実行してください';
+  END IF;
 END
 $connguard$;
 
@@ -79,18 +85,8 @@ with windows as (
 ),
 judged as (
   select w.facility_id, w.staff_id,
-    case
-      when f.business_hours is null or jsonb_typeof(f.business_hours) <> 'object' then w.e - w.s >= make_interval(mins => need.minutes)
-      when f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1] is null then w.e - w.s >= make_interval(mins => need.minutes)
-      when jsonb_typeof(f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) = 'null' then false
-      when (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open' is null
-        or (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close' is null then w.e - w.s >= make_interval(mins => need.minutes)
-      when (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open' !~ '^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$'
-        or (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close' !~ '^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$' then false
-      else least(w.e, ((f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close')::time)
-         - greatest(w.s, ((f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open')::time)
-         >= make_interval(mins => need.minutes)
-    end as meets_hours
+    -- 本番の判定関数をそのまま使う（periods 形式・日またぎ・中休みは business_day_windows が展開する）
+    public.working_time_meets_business_hours(f.business_hours, w.dow, w.s, w.e, need.minutes) as meets_hours
   from windows w
   join public.facility_profiles f on f.id = w.facility_id
   cross join lateral (
@@ -131,18 +127,8 @@ with windows as (
 ),
 judged as (
   select w.facility_id, w.staff_id,
-    case
-      when f.business_hours is null or jsonb_typeof(f.business_hours) <> 'object' then w.e - w.s >= make_interval(mins => need.minutes)
-      when f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1] is null then w.e - w.s >= make_interval(mins => need.minutes)
-      when jsonb_typeof(f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) = 'null' then false
-      when (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open' is null
-        or (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close' is null then w.e - w.s >= make_interval(mins => need.minutes)
-      when (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open' !~ '^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$'
-        or (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close' !~ '^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$' then false
-      else least(w.e, ((f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close')::time)
-         - greatest(w.s, ((f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open')::time)
-         >= make_interval(mins => need.minutes)
-    end as meets_hours
+    -- 本番の判定関数をそのまま使う（periods 形式・日またぎ・中休みは business_day_windows が展開する）
+    public.working_time_meets_business_hours(f.business_hours, w.dow, w.s, w.e, need.minutes) as meets_hours
   from windows w
   join public.facility_profiles f on f.id = w.facility_id
   cross join lateral (

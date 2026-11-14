@@ -105,28 +105,33 @@ function PackagesManager({ facilityId, choices }: AdminFacilityScopeValue) {
   const handleCreate = async () => {
     if (saving) return;
     setSaving(true);
-    const res = await fetch(`/api/admin/packages?facility_id=${facilityId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...form,
-        menu_id: form.menu_id || null,
-        session_count: Number(form.session_count),
-        bonus_count: Number(form.bonus_count),
-        price: Number(form.price),
-        valid_days: Number(form.valid_days),
-      }),
-    });
-    if (res.ok) {
-      setToast({ type: 'success', message: 'パッケージを作成しました' });
-      setShowForm(false);
-      setForm({ name: '', description: '', menu_id: '', session_count: 5, bonus_count: 1, price: 0, valid_days: 365, notes: '' });
-      setPackagesReloadKey((k) => k + 1);
-    } else {
-      const e = await res.json().catch(() => ({}));
-      setToast({ type: 'error', message: e.error || '作成に失敗しました' });
+    try {
+      const res = await fetch(`/api/admin/packages?facility_id=${facilityId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...form,
+          menu_id: form.menu_id || null,
+          session_count: Number(form.session_count),
+          bonus_count: Number(form.bonus_count),
+          price: Number(form.price),
+          valid_days: Number(form.valid_days),
+        }),
+      });
+      if (res.ok) {
+        setToast({ type: 'success', message: 'パッケージを作成しました' });
+        setShowForm(false);
+        setForm({ name: '', description: '', menu_id: '', session_count: 5, bonus_count: 1, price: 0, valid_days: 365, notes: '' });
+        setPackagesReloadKey((k) => k + 1);
+      } else {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '作成に失敗しました' });
+      }
+    } catch {
+      setToast({ type: 'error', message: '通信に失敗しました。もう一度お試しください' });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const handleToggleActive = async (pkg: ServicePackage) => {

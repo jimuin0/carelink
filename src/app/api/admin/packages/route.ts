@@ -21,15 +21,21 @@ const packageSchema = z.object({
   is_active: z.boolean().optional(),
 });
 
-async function getAdminContext(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
+type AdminContext =
+  | { userId: string; facilityId: string; response?: undefined }
+  | { response: NextResponse };
+
+// 未認証・非メンバーは 401、DB 障害は 500（障害を 401 に化けさせない）
+async function getAdminContext(request: NextRequest): Promise<AdminContext> {
+  const unauthorized = { response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  if (!user) return unauthorized;
 
   const facilityId = request.nextUrl.searchParams.get('facility_id');
-  if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
+  if (!facilityId || !UUID_REGEX.test(facilityId)) return unauthorized;
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
@@ -37,7 +43,9 @@ async function getAdminContext(request: NextRequest): Promise<{ userId: string; 
     .in('role', ['owner', 'admin'])
     .single();
 
-  return data ? { userId: user.id, facilityId: data.facility_id } : null;
+  // PGRST116＝該当 0 行（非メンバー）。それ以外のエラーは DB 障害として 500
+  if (error && error.code !== 'PGRST116') return { response: serverError('admin-packages-auth', error, '/api/admin/packages') };
+  return data ? { userId: user.id, facilityId: data.facility_id } : unauthorized;
 }
 
 export async function GET(request: NextRequest) {
@@ -46,7 +54,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const auth = await getAdminContext(request);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (auth.response) return auth.response;
   const { facilityId } = auth;
 
   const admin = createServiceRoleClient();
@@ -70,7 +78,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const auth = await getAdminContext(request);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (auth.response) return auth.response;
   const { userId, facilityId } = auth;
 
   const body = await request.json().catch(() => null);
@@ -82,12 +90,13 @@ export async function POST(request: NextRequest) {
   // menu_id を指定する場合は、自施設の facility_menus に属することを検証する
   // （他施設の menu_id を関連付ける越境参照を防止）
   if (parsed.data.menu_id) {
-    const { data: menu } = await admin
+    const { data: menu, error: menuError } = await admin
       .from('facility_menus')
       .select('id')
       .eq('id', parsed.data.menu_id)
       .eq('facility_id', facilityId)
       .single();
+    if (menuError && menuError.code !== 'PGRST116') return serverError('admin-packages-menu', menuError, '/api/admin/packages');
     if (!menu) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
   }
 

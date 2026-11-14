@@ -77,7 +77,9 @@ describe(`${FILE} の形`, () => {
     expect(diagnose).toContain('適用後に予約を受けられなくなる店舗');
     // 診断も同じ最短の長さで判定する（未設定・0 は 60 分、15〜480 分、メニューなしは 15 分）
     expect(diagnose).toContain('least(greatest(coalesce(nullif(m.duration_minutes, 0), 60), 15), 480)');
-    expect(diagnose).toContain('make_interval(mins => need.minutes)');
+    // 判定は本番の関数を直接呼ぶ（periods 形式・日またぎを CASE で取りこぼさないため・点検 A257/A369）
+    expect(diagnose).toContain('public.working_time_meets_business_hours(f.business_hours, w.dow, w.s, w.e, need.minutes)');
+    expect(diagnose).not.toContain("->> 'open'");
   });
 
   test('この migration が staff_has_working_time・working_time_meets_business_hours・facility_shortest_booking_minutes の最新定義', () => {
