@@ -494,3 +494,22 @@ test('POST: facility_ids が 50件 (上限ぴったり) → 200', async () => {
   const res = await POST(makeRequest({ facility_ids: ids, is_published: true }));
   expect(res.status).toBe(200);
 });
+
+const HEX_A = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+const HEX_B = 'ffffffff-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+
+test('B2-5: 大文字の UUID でも、DB が小文字で返した結果を反映済みとして 200 にする', async () => {
+  setupReadiness({ memberships: [{ facility_id: HEX_A }, { facility_id: HEX_B }] });
+  // 実 DB の uuid 型は小文字で返す
+  mockAdminRpc.mockImplementation(async (_name, args) => ({
+    data: (args.p_facility_ids as string[]).map((id) => ({ id: id.toLowerCase() })), error: null,
+  }));
+  const res = await POST(makeRequest(validBody({ facility_ids: [HEX_A.toUpperCase(), HEX_B.toUpperCase()] })));
+  expect(res.status).toBe(200);
+  expect((await res.json()).updated).toBe(2);
+});
+
+test('B2-5: 大文字・小文字違いの同じ UUID は重複として 400', async () => {
+  const res = await POST(makeRequest(validBody({ facility_ids: [HEX_A, HEX_A.toUpperCase()] })));
+  expect(res.status).toBe(400);
+});

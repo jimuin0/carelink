@@ -68,6 +68,14 @@ test('verified membership retains the selected facility without a service-role l
   expect(mockAuthFrom).toHaveBeenCalledWith('facility_members');
   expect(mockServiceClient).not.toHaveBeenCalled();
 });
+test('B2-18: 大文字の facility_id・staff_id でも 503 にせず、小文字に揃えて照合する', async () => {
+  const hexFacility = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const hexStaff = 'ffffffff-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  mockMembership.mockResolvedValue({ data: { facility_id: hexFacility }, error: null });
+  mockStaff.mockResolvedValue({ data: { id: hexStaff }, error: null });
+  expect(await getAdminApiContext(request('POST', hexFacility.toUpperCase()), hexStaff.toUpperCase()))
+    .toEqual({ userId: 'verified-user', facilityId: hexFacility });
+});
 test('schedule context verifies the requested staff only after membership', async () => {
   expect(await getAdminApiContext(request(), staffId)).toEqual({ userId: 'verified-user', facilityId });
   expect(mockServiceFrom).toHaveBeenCalledWith('staff_profiles');

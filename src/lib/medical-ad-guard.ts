@@ -60,6 +60,10 @@ const BANNED_TERMS: { terms: string[]; reason: string }[] = [
   },
 ];
 
+function normalizeForMatch(value: string): string {
+  return value.normalize('NFKC').replace(/[\s\u3000・･]/g, '').toLowerCase();
+}
+
 /**
  * 文字列に医療広告ガイドライン上の禁止表現が含まれるか検査する。
  * 空文字・null・undefined は検査対象なし（違反0件）として扱う。
@@ -67,10 +71,13 @@ const BANNED_TERMS: { terms: string[]; reason: string }[] = [
 export function findMedicalAdViolations(text: string | null | undefined): MedicalAdViolation[] {
   if (!text) return [];
 
+  // 全角英数・半角カナ（NFKC）と、語の間に挟んだ空白・中黒で検査をすり抜けないよう、
+  // 本文と禁止語を同じ規則で正規化してから照合する（B5-16）。
+  const normalized = normalizeForMatch(text);
   const violations: MedicalAdViolation[] = [];
   for (const group of BANNED_TERMS) {
     for (const term of group.terms) {
-      if (text.includes(term)) {
+      if (normalized.includes(normalizeForMatch(term))) {
         violations.push({ term, reason: group.reason });
       }
     }

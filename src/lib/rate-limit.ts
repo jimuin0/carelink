@@ -114,7 +114,10 @@ export async function checkRateLimit(
       p_window_ms: fallbackWindowMs,
     }));
     if (error) throw new Error(error.message);
-    return data === true;
+    // 真偽値以外（null 等）は「判定できなかった」であって「制限なし」ではない。
+    // 素通しにせず in-memory 判定へ倒す（B5-12）。
+    if (typeof data !== 'boolean') throw new Error('check_rate_limit returned a non-boolean result');
+    return data;
   } catch {
     // Supabase RPC が落ちている / 未マイグレ / 接続失敗等の場合、
     // 例外を伝播させると API ルート全体が 500 になるため

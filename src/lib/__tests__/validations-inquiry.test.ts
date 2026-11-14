@@ -34,6 +34,12 @@ describe('inquirySchema', () => {
     expect(inquirySchema.safeParse({ ...validData, phone: '09012345678' }).success).toBe(true);
   });
 
+  test('B5-14: 全角数字・全角ハイフンの電話番号は半角へ正規化して通過する', () => {
+    const r = inquirySchema.safeParse({ ...validData, phone: '０９０ー１２３４ー５６７８' });
+    expect(r.success).toBe(true);
+    expect(r.success && r.data.phone).toBe('090-1234-5678');
+  });
+
   test('固定電話番号が通過する', () => {
     expect(inquirySchema.safeParse({ ...validData, phone: '03-1234-5678' }).success).toBe(true);
   });

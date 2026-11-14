@@ -84,3 +84,12 @@ describe('validateFacilityPrText', () => {
     }
   });
 });
+
+describe('B5-16: 表記ゆれ', () => {
+  test.each(['１００％治る', '必ず 治る', '必ず　治る', 'ｎｏ．１の技術', 'NO.1', '絶対・安全'])('%s を検出する', (text) => {
+    expect(findMedicalAdViolations(text).length).toBeGreaterThan(0);
+  });
+  test('無関係な文は検出しない', () => {
+    expect(findMedicalAdViolations('丁寧な施術を心がけています')).toEqual([]);
+  });
+});
