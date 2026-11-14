@@ -226,9 +226,9 @@ test('POST: CSRF エラー → 403', async () => {
   expect(res.status).toBe(403);
 });
 
-test('POST: レートリミット params (20/60s)', () => {
+test('POST: レートリミット params (20/60s)', async () => {
   (checkRateLimit as jest.Mock).mockClear();
-  POST(makeRequest({ message: '質問' }));
+  await POST(makeRequest({ message: '質問' }));
   const call = (checkRateLimit as jest.Mock).mock.calls[0];
   expect(call[2]).toBe(20);
   expect(call[3]).toBe(60_000);

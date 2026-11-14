@@ -43,9 +43,10 @@ export function parsePayjpEvent(value: unknown): PayjpWebhookEvent | null {
   return { id: v.id, type: v.type, created: v.created, data: v.data as Record<string, unknown> };
 }
 
-type NextState = { status: 'active' | 'trial' | 'paused' | 'canceled' | 'deleted'; isActive: boolean; graceMs: number };
+export type NextState = { status: 'active' | 'trial' | 'paused' | 'canceled' | 'deleted'; isActive: boolean; graceMs: number };
 
-function nextStateFor(type: string, dataStatus: unknown): NextState | null {
+/** subscription.* イベントから、次の状態を決める（広告枠・有料オプションで共用）。対象外のイベントは null。 */
+export function nextStateFor(type: string, dataStatus: unknown): NextState | null {
   if (type === 'subscription.paused') return { status: 'paused', isActive: false, graceMs: 0 };
   if (type === 'subscription.deleted') return { status: 'deleted', isActive: false, graceMs: 0 };
   if (type === 'subscription.canceled') return { status: 'canceled', isActive: true, graceMs: 0 };

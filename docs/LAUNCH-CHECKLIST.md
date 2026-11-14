@@ -65,11 +65,11 @@
 - [ ] `NEXT_PUBLIC_BASE_URL=https://carelink-jp.com`（末尾改行・スペース・wwwなし）
 - [ ] `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` 設定済み
 - [ ] `RESEND_API_KEY` 設定済み（メール送信）
-- [ ] `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` / `NEXT_PUBLIC_LINE_CHANNEL_ID` 設定済み
-- [ ] `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` 設定済み（rate limit用）
+- [ ] `LINE_CHANNEL_ACCESS_TOKEN_CARELINK` / `LINE_CHANNEL_SECRET` / `NEXT_PUBLIC_LINE_CHANNEL_ID` 設定済み（LINE を使う場合。名前の正は CLAUDE.md の環境変数表）
+- [ ] rate limit 用の環境変数は不要（Upstash は廃止済み。Supabase RPC `check_rate_limit` を使う＝`src/lib/rate-limit.ts`）
 - [ ] `SLACK_BOT_TOKEN` / `SLACK_DEFAULT_CHANNEL` 設定済み（エラー通知・Phase 7a で Webhook から移行）
 - [ ] `ALERT_CHECK_TOKEN` 設定済み（A5 のアラート疎通テスト用）
-- [ ] `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` ← **Phase B で本番化**
+- [ ] 決済の鍵 ← **Stripe は使わず PAY.JP を使う方針（2026年11月14日 本人決定）**。必要な変数名は PAY.JP への置き換え完了後のコードと CLAUDE.md の環境変数表で確認する（下の Phase B の Stripe 手順は旧方針の記録）
 - [ ] `CRON_SECRET` 設定済み（末尾空白なし）
 
 ---

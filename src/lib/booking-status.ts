@@ -161,7 +161,7 @@ export function statusBannerClass(status: string): { text: string; bg: string } 
  * 管理画面の予約詳細のステータス変更ボタン表示の両方が参照する。以前は API 側だけが
  * この遷移表を持ち、UI は全ステータスをボタン化して「押させてから API で 400 を返す」
  * 設計だった。その結果：
- *   - cancel_fee_paid（Stripe webhook 専用の金銭由来状態）は validStatuses に無く常に 400
+ *   - cancel_fee_paid（旧 Stripe webhook が付けていた金銭由来状態。2026年11月14日に撤去し、今は付ける経路が無い）は validStatuses に無く常に 400
  *   - pending（どの状態からも遷移先に無い）も常に 400
  * という「どの予約でも 100% 失敗する死にボタン」が UI に出ていた。さらに completed 予約で
  * 「キャンセル」を押す等、状態依存で無効な操作も押せてしまっていた。本表を共有し、現在状態から

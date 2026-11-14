@@ -77,23 +77,80 @@ function configTestTimeoutMs(): number {
   return topLevelTimeoutMs(src) ?? PLAYWRIGHT_DEFAULT_TEST_TIMEOUT_MS;
 }
 
-/** そのファイルに効くテスト制限時間。`test.setTimeout(N)` があればそれが勝つ。 */
+/**
+ * 各位置を囲む最も内側の `{...}` の範囲（開き位置・閉じ位置）を返すための区間一覧。
+ * 文字列・テンプレート・コメントの中の括弧は数えない。
+ */
+function braceBlocks(src: string): { open: number; close: number }[] {
+  const blocks: { open: number; close: number }[] = [];
+  const stack: number[] = [];
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i++; continue; }
+    if (ch === '/' && src[i + 1] === '*') { i = src.indexOf('*/', i + 2); if (i < 0) break; i++; continue; }
+    if (ch === '\'' || ch === '"' || ch === '`') {
+      for (i++; i < src.length && src[i] !== ch; i++) if (src[i] === '\\') i++;
+      continue;
+    }
+    if (ch === '{') stack.push(i);
+    else if (ch === '}' && stack.length > 0) blocks.push({ open: stack.pop()!, close: i });
+  }
+  return blocks;
+}
+
+/** pos を囲む最も内側のブロック（無ければ null＝ファイルの最上位）。 */
+function innermostBlock(blocks: { open: number; close: number }[], pos: number): { open: number; close: number } | null {
+  let best: { open: number; close: number } | null = null;
+  for (const b of blocks) if (b.open < pos && pos < b.close && (!best || b.open > best.open)) best = b;
+  return best;
+}
+
+/**
+ * そのファイルの最上位に効くテスト制限時間。ファイルの最上位に `test.setTimeout(N)` があればそれが勝つ。
+ * テストや describe の中の `test.setTimeout` はそのブロックの中だけに効くので、ここでは数えない。
+ */
 export function effectiveTestTimeoutMs(src: string, configMs: number): number {
-  const m = src.match(/test\.setTimeout\(\s*([\d_]+)\s*\)/);
-  return m ? toMs(m[1]) : configMs;
+  return waitLimitAt(src, configMs, -1);
+}
+
+/**
+ * 位置 pos（-1 はファイルの最上位）に効くテスト制限時間。
+ * `test.setTimeout(N)` は書かれたブロック（テスト本体・describe 本体）とその内側だけに効く
+ * （Playwright の仕様どおり）。あるテストだけが 90s を宣言していても、同じファイルの別のテストの
+ * 45s の toPass を「違反なし」とは判定しない。
+ */
+export function waitLimitAt(src: string, configMs: number, pos: number): number {
+  const blocks = braceBlocks(src);
+  let limit = configMs;
+  let bestDepthOpen = -2; // 最上位の宣言は -1、ブロック内の宣言はその開き位置
+  for (const m of src.matchAll(/test\.setTimeout\(\s*([\d_]+)\s*\)/g)) {
+    const scope = innermostBlock(blocks, m.index!);
+    const applies = scope === null || (pos >= 0 && scope.open < pos && pos < scope.close);
+    const depthOpen = scope === null ? -1 : scope.open;
+    if (applies && depthOpen > bestDepthOpen) { limit = toMs(m[1]); bestDepthOpen = depthOpen; }
+  }
+  return limit;
 }
 
 /** ファイル中の明示 timeout をすべて拾う（`toPass` の予算と、単発の `{ timeout: N }`）。 */
-export function explicitWaitsMs(src: string): { kind: string; ms: number }[] {
-  const out: { kind: string; ms: number }[] = [];
+export function explicitWaitsMs(src: string): { kind: string; ms: number; pos: number }[] {
+  const out: { kind: string; ms: number; pos: number }[] = [];
   for (const m of src.matchAll(/\.toPass\(\s*\{[^}]*?timeout:\s*([\d_]+)/g)) {
-    out.push({ kind: 'toPass', ms: toMs(m[1]) });
+    out.push({ kind: 'toPass', ms: toMs(m[1]), pos: m.index! });
   }
   // `test.setTimeout(...)` 自身は待ちではないので除く。
   for (const m of src.matchAll(/\{\s*timeout:\s*([\d_]+)\s*\}/g)) {
-    out.push({ kind: 'wait', ms: toMs(m[1]) });
+    out.push({ kind: 'wait', ms: toMs(m[1]), pos: m.index! });
   }
   return out;
+}
+
+/** 待ちごとに、その位置に効く制限時間と比べて超えているものを返す。 */
+export function waitsOverLimit(src: string, configMs: number): string[] {
+  return explicitWaitsMs(src)
+    .map((w) => ({ ...w, limit: waitLimitAt(src, configMs, w.pos) }))
+    .filter((w) => w.ms >= w.limit)
+    .map((w) => `${w.kind} ${w.ms}ms >= テスト制限 ${w.limit}ms`);
 }
 
 function specFiles(): string[] {
@@ -121,12 +178,7 @@ describe('E2E の待ち予算がテストの制限時間を超えていないこ
     const offenders: string[] = [];
     for (const f of specFiles()) {
       const src = readFileSync(join(E2E_DIR, f), 'utf8');
-      const limit = effectiveTestTimeoutMs(src, configMs);
-      for (const w of explicitWaitsMs(src)) {
-        if (w.ms >= limit) {
-          offenders.push(`${f}: ${w.kind} ${w.ms}ms >= テスト制限 ${limit}ms`);
-        }
-      }
+      for (const o of waitsOverLimit(src, configMs)) offenders.push(`${f}: ${o}`);
     }
     expect(offenders).toEqual([]);
   });
@@ -157,6 +209,28 @@ describe('負の対照: 検出ロジックが本当に違反を捕まえるこ�
     const limit = effectiveTestTimeoutMs(good, 30_000);
     expect(limit).toBe(90_000);
     expect(explicitWaitsMs(good).every((w) => w.ms < limit)).toBe(true);
+  });
+
+  it('1 つのテストの中だけの test.setTimeout は、同じファイルの別のテストの待ちには効かない', () => {
+    const src = [
+      `test('long', async () => { test.setTimeout(90_000); await expect(async () => {}).toPass({ timeout: 45000 }); });`,
+      `test('short', async () => { await expect(async () => {}).toPass({ timeout: 45000 }); });`,
+    ].join('\n');
+    // 'long' の待ちは 90s の中なので違反にせず、'short' の待ちだけを既定 30s 超えとして捕まえる
+    // （toPass の予算は toPass と単発 `{ timeout }` の両方の形で拾われる）
+    expect(waitsOverLimit(src, 30_000)).toEqual(['toPass 45000ms >= テスト制限 30000ms', 'wait 45000ms >= テスト制限 30000ms']);
+    // ファイル最上位の制限時間としては数えない
+    expect(effectiveTestTimeoutMs(src, 30_000)).toBe(30_000);
+  });
+
+  it('describe の中の test.setTimeout はその describe の中のテストに効く', () => {
+    const src = `test.describe('d', () => {\n  test.setTimeout(90_000);\n  test('x', async () => { await expect(async () => {}).toPass({ timeout: 45000 }); });\n});\ntest('y', async () => { await page.waitForURL('/x', { timeout: 20000 }); });`;
+    expect(waitsOverLimit(src, 30_000)).toEqual([]);
+  });
+
+  it('文字列・コメント中の括弧で範囲を取り違えない', () => {
+    const src = `test('a', async () => { test.setTimeout(90_000); const s = '}'; /* } */ // }\n await expect(async () => {}).toPass({ timeout: 45000 }); });`;
+    expect(waitsOverLimit(src, 30_000)).toEqual([]);
   });
 
   it('制限時間より長い単発の待ちも検出する', () => {

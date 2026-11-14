@@ -32,6 +32,8 @@ export function useLiff() {
 
         const liff = (await import('@line/liff')).default;
         await liff.init({ liffId });
+        // await の後はアンマウント済みかを毎回確かめてから状態を更新する（低 A275）。
+        if (cancelled) return;
 
         if (!liff.isLoggedIn()) {
           liff.login({ redirectUri: window.location.href });
@@ -49,6 +51,7 @@ export function useLiff() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ access_token: accessToken }),
         });
+        if (cancelled) return;
 
         if (!res.ok) {
           setState({ status: 'error', message: 'LINE認証に失敗しました' });

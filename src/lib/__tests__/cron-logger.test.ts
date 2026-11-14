@@ -111,7 +111,7 @@ describe('logCronRun', () => {
 
   test('does not throw when DB insert fails (fire-and-forget)', async () => {
     mockInsert.mockRejectedValue(new Error('DB error'));
-    await expect(logCronRun('test-job', 'success', new Date())).resolves.toBeUndefined();
+    await expect(logCronRun('test-job', 'success', new Date())).resolves.toBe(false);
   });
 
   // C-5 根治: insert() は例外を投げず戻り値の { error } にDBレベル失敗を格納する
@@ -210,7 +210,7 @@ describe('logCronRun', () => {
 
   test.each(['success', 'skipped', 'error'] as const)('DB insertの戻り値失敗も可視化する（%s）', async (status) => {
     mockInsert.mockResolvedValue({ error: { message: 'private database diagnostic' } });
-    await expect(logCronRun('test-job', status, new Date())).resolves.toBeUndefined();
+    await expect(logCronRun('test-job', status, new Date())).resolves.toBe(false);
     expect(pushAdminHeartbeat).toHaveBeenCalledWith('test-job', status === 'error' ? 'fail' : 'degraded');
     expect(alertWarning).toHaveBeenCalledTimes(1);
     expect(JSON.stringify((alertWarning as jest.Mock).mock.calls)).not.toContain('private database diagnostic');
@@ -293,7 +293,7 @@ describe('withCronLog', () => {
   test('業務成功後の記録障害では業務を再実行せず、成功結果をそのまま返す', async () => {
     mockInsert.mockRejectedValue(new Error('network unavailable'));
     const fn = jest.fn().mockResolvedValue({ processed: 1 });
-    await expect(withCronLog('my-job', fn)).resolves.toEqual({ processed: 1, _logged: true });
+    await expect(withCronLog('my-job', fn)).resolves.toEqual({ processed: 1, _logged: false });
     expect(fn).toHaveBeenCalledTimes(1);
     expect(mockInsert).toHaveBeenCalledTimes(1);
     expect(pushAdminHeartbeat).toHaveBeenCalledWith('my-job', 'degraded');

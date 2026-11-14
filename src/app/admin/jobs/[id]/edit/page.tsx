@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import JobForm from '@/components/admin/JobForm';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import type { JobFormInput, JobFormValues } from '@/lib/jobs';
 import { SbPageHeader } from '@/components/admin/SbUi';
+import LoadError from '@/components/admin/LoadError';
 
 export default function EditJobPage() {
   const params = useParams();
@@ -18,6 +19,12 @@ export default function EditJobPage() {
   const [defaults, setDefaults] = useState<Partial<JobFormInput> | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // 監査 A336: 取得の例外を「読み込み中」のまま放置せず、エラーと再試行を出す。
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  // 監査 A338: 削除の多重送信を防ぐ（state は次の描画まで反映されないため ref で判定する）。
+  const deletingRef = useRef(false);
+  const [deleting, setDeleting] = useState(false);
 
   // load はイベントハンドラから呼ばれないため useCallback で分離せず、effect 内へ直接 inline する
   // （React Compiler の set-state-in-effect：effect から外部関数を直接呼ぶと同期 setState と
@@ -26,6 +33,7 @@ export default function EditJobPage() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLoadFailed(false);
       try {
         const res = await fetch(`/api/admin/jobs/${jobId}`, { cache: 'no-store' });
         if (cancelled) return;
@@ -46,12 +54,14 @@ export default function EditJobPage() {
           requirements: job.requirements ?? '',
           benefits: job.benefits ?? '',
         });
+      } catch {
+        if (!cancelled) setLoadFailed(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [jobId, router]);
+  }, [jobId, router, reloadKey]);
 
   const handleSave = async (values: JobFormValues) => {
     if (submitting) return;
@@ -81,6 +91,10 @@ export default function EditJobPage() {
 
   const doDelete = async () => {
     setConfirmDelete(false);
+    if (deletingRef.current) return;
+    deletingRef.current = true;
+    setDeleting(true);
+    let navigated = false;
     try {
       const res = await fetch(`/api/admin/jobs/${jobId}`, { method: 'DELETE' });
       if (!res.ok) {
@@ -88,17 +102,26 @@ export default function EditJobPage() {
         setToast({ type: 'error', message: json.error || '削除に失敗しました' });
         return;
       }
+      navigated = true;
       router.push('/admin/jobs');
       router.refresh();
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally {
+      // 成功時は遷移するまで再送させない。
+      if (!navigated) {
+        deletingRef.current = false;
+        setDeleting(false);
+      }
     }
   };
 
   return (
     <div>
       <SbPageHeader title="求人編集" />
-      {loading || !defaults ? (
+      {!loading && loadFailed ? (
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="求人の取得に失敗しました" />
+      ) : loading || !defaults ? (
         <div className="bg-white rounded-xl p-8 text-center text-gray-500">読み込み中...</div>
       ) : (
         <JobForm
@@ -107,7 +130,7 @@ export default function EditJobPage() {
           submitting={submitting}
           onSubmit={handleSave}
           onCancel={() => router.push('/admin/jobs')}
-          onDelete={handleDelete}
+          onDelete={deleting ? undefined : handleDelete}
         />
       )}
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}

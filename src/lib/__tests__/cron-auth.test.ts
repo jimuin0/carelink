@@ -173,8 +173,10 @@ describe('checkCronAuth', () => {
     process.env.CRON_SECRET = '';
     const req = makeRequest('Bearer ');
     const res = checkCronAuth(req) as any;
-    // 空 CRON_SECRET は設定不備として 500
-    expect([401, 500]).toContain(res.status);
+    // 空 CRON_SECRET は未設定と同じ設定不備＝500 で、運営へ通知する（401＝無通知に化けさせない）
+    expect(res.status).toBe(500);
+    expect(alerted).toHaveLength(1);
+    expect(alerted[0][0]).toBe('cron-auth-missing-secret');
   });
 
   test('checkCronAuth が null を返す場合のみ通過フラグ', () => {

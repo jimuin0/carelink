@@ -17,9 +17,9 @@ export const revalidate = 0;
  *   - Supabase RPC check_rate_limit（必須、rate-limit が依存）
  *
  * Degraded 依存（NG でも 200 を維持、deps に状態のみ報告）:
- *   - Stripe / Resend / Slack（決済・通知系、即時致命ではないがダッシュボード可視化）
+ *   - PAY.JP / Resend / Slack（決済・通知系、即時致命ではないがダッシュボード可視化）
  *
- * UptimeRobot等の外形監視はこのエンドポイントを 60s 間隔で監視し、
+ * 外形監視（Render の carelink-health-check＝scripts/health-check.mjs・5分毎）はこのエンドポイントを見て、
  * ステータス + JSON body の deps を見て障害種別を切り分ける。
  */
 
@@ -106,15 +106,15 @@ async function probeRateLimit(): Promise<DepResult> {
   });
 }
 
-async function probeStripe(): Promise<DepResult> {
-  // 決済プロバイダ(Stripe)は任意連携。未設定＝意図的な無効化（決済オフ運用）であり障害ではない。
+async function probePayjp(): Promise<DepResult> {
+  // 決済プロバイダ(PAY.JP・2026年11月14日に Stripe から移行)は任意連携。未設定＝意図的な無効化（決済オフ運用）であり障害ではない。
   // 鍵が無ければプローブせず skipped で返し degraded に算入しない（health-monitor の誤通報防止）。
-  // 鍵が有るのに疎通失敗した場合のみ従来どおり NG（設定済みだが壊れている＝実障害として degraded）。
-  const key = process.env.STRIPE_SECRET_KEY;
+  // 鍵が有るのに疎通失敗した場合のみ NG（設定済みだが壊れている＝実障害として degraded）。
+  const key = process.env.PAYJP_SECRET_KEY;
   if (!key) return { ok: true, elapsed_ms: 0, skipped: true, note: 'not_configured' };
-  return probe('stripe', async () => {
-    const res = await fetch('https://api.stripe.com/v1/balance', {
-      headers: { Authorization: `Bearer ${key}` },
+  return probe('payjp', async () => {
+    const res = await fetch('https://api.pay.jp/v1/accounts', {
+      headers: { Authorization: `Basic ${btoa(`${key}:`)}` },
       signal: AbortSignal.timeout(DEP_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -227,7 +227,7 @@ export async function GET(request: Request) {
       },
     }, { status: supabase.ok ? 200 : 503, headers: { 'Cache-Control': 'no-store' } });
   }
-  // 無認証エンドポイントだが、1 リクエストで Stripe/Resend/Supabase(DB+RPC) を代理起動するため、
+  // 無認証エンドポイントだが、1 リクエストで PAY.JP/Resend/Supabase(DB+RPC) を代理起動するため、
   // 連打されると外部 API への増幅 DoS・コスト増を招く。IP 単位でレート制限する。
   // 複数の正規監視（Render・外部監視・運用ダッシュボード）が同一の出口 IP を共有しても
   // 誤って「監視対象が停止」と判定しないよう、60 秒あたり 60 回まで許可する。
@@ -241,21 +241,21 @@ export async function GET(request: Request) {
   const checksStarted = performance.now();
   const start = Date.now();
 
-  const [supabase, rate_limit, stripe, resend, cron] = await Promise.all([
+  const [supabase, rate_limit, payjp, resend, cron] = await Promise.all([
     probeSupabase(),
     probeRateLimit(),
-    probeStripe(),
+    probePayjp(),
     probeResend(),
     probeCronFreshness(),
   ]);
 
-  const deps = { supabase, rate_limit, stripe, resend, cron };
+  const deps = { supabase, rate_limit, payjp, resend, cron };
 
   // Critical: Supabase DB と rate_limit RPC が落ちたら 503
   const criticalOk = supabase.ok && rate_limit.ok;
-  // Degraded: Stripe/Resend/cron鮮度。サイト停止ではないので 503 にはしないが、health-monitor.yml は
+  // Degraded: PAY.JP/Resend/cron鮮度。サイト停止ではないので 503 にはしないが、health-monitor.yml は
   // degraded も「production unhealthy」として Issue+Slack 通報するため、cron（監視系）ダウンは page される。
-  const degraded = !stripe.ok || !resend.ok || !cron.ok;
+  const degraded = !payjp.ok || !resend.ok || !cron.ok;
 
   const status = criticalOk ? (degraded ? 'degraded' : 'healthy') : 'unhealthy';
   const httpStatus = criticalOk ? 200 : 503;

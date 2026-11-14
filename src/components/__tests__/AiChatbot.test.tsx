@@ -162,3 +162,18 @@ describe('スマホの下部ナビ・予約バーと重ならない', () => {
     expect(screen.getByLabelText('AIアシスタントに質問する')).toBeInTheDocument();
   });
 });
+// 監査 A269: 送信時点の open(true) を閉じ込めていたため、送信後に閉じても返答で未読バッジが付かなかった。
+test('送信後に閉じてから返答が届いたら未読バッジを出し、開くと消える', async () => {
+  let finish!: (value: unknown) => void;
+  global.fetch = jest.fn().mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  render(<AiChatbot />); openAndSendQuickQuestion();
+  await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByLabelText('チャットを閉じる'));
+  const toggle = screen.getByLabelText('AIアシスタントに質問する');
+  expect(toggle).not.toHaveTextContent('1');
+  await act(async () => { finish({ ok: true, status: 200, json: async () => ({ reply: 'Late reply' }) }); });
+  await waitFor(() => expect(toggle).toHaveTextContent('1'));
+  fireEvent.click(toggle);
+  expect(await screen.findByText('Late reply')).toBeVisible();
+  expect(screen.getByLabelText('チャットを閉じる')).not.toHaveTextContent('1');
+});

@@ -2,7 +2,7 @@
  * 施設エンタイトルメント（有料オプション購入状態）ヘルパー
  *
  * option_catalog のオプションを施設が購入すると facility_entitlements に
- * status='active' の行が作られる（Stripe webhook が自動管理）。
+ * status='active' の行が作られる（PAY.JP の定期課金の状態を webhook が自動反映・src/lib/options-payjp.ts）。
  * cron / API は本ヘルパーで「その施設がオプションを使えるか」を判定する。
  *
  * クライアントは呼び出し側から注入する（cron は service role / API は server client）。

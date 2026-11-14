@@ -35,11 +35,18 @@ async function facilityHasActiveIntake(slug: string): Promise<boolean> {
 // 予約の status を取得して complete 画面の文言を「確定」「確認待ち」で出し分ける。
 // 即時確定(booking_auto_confirm=true)施設は status='confirmed' で確定済みなのに、
 // 従来は一律「施設からの確認をお待ちください」と案内していた（メール A-3 と同型の齟齬）。
-async function getBookingStatus(bookingId?: string): Promise<string | null> {
+// 監査 A187: 予約 ID だけで引くと、任意の施設 slug の complete ページから他施設の予約の状態まで読めた。
+// URL の施設（slug）に属する予約に限って読む（RLS をバイパスする読み取りなので条件はここで絞る）。
+async function getBookingStatus(bookingId: string | undefined, slug: string): Promise<string | null> {
   if (!bookingId) return null;
   try {
     const admin = createServiceRoleClient();
-    const { data } = await admin.from('bookings').select('status').eq('id', bookingId).maybeSingle();
+    const { data } = await admin
+      .from('bookings')
+      .select('status, facility_profiles!inner(slug)')
+      .eq('id', bookingId)
+      .eq('facility_profiles.slug', slug)
+      .maybeSingle();
     return (data as { status: string } | null)?.status ?? null;
   } catch {
     return null;
@@ -120,7 +127,7 @@ export default async function BookingCompletePage(props: Props) {
   const searchParams = firstSearchParams(await props.searchParams);
   const params = await props.params;
   const bookingId = searchParams.id;
-  const bookingStatus = await getBookingStatus(bookingId);
+  const bookingStatus = await getBookingStatus(bookingId, params.slug);
   const currentMessages: Record<string,{ title:string; message:string }> = {
     pending:{title:'予約を受け付けました',message:'施設からの確認をお待ちください。'},
     confirmed:{title:'予約を受け付けました',message:'ご予約が確定しました。ご来店をお待ちしております。'},

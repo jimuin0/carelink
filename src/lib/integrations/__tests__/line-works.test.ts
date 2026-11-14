@@ -138,18 +138,27 @@ describe('notifyNewBookingLineWorks', () => {
     expect(result).toBe(false);
   });
 
+  // 送信まで通る設定を用意し、実際に送った本文の「担当」行の有無を確かめる。
+  async function sentText(input: typeof booking & { staffName?: string }): Promise<string> {
+    setEnv({ LINE_WORKS_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nYWJj\n-----END PRIVATE KEY-----' });
+    jest.spyOn(crypto.subtle, 'importKey').mockResolvedValue({} as CryptoKey);
+    jest.spyOn(crypto.subtle, 'sign').mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'synthetic', expires_in: 3600 }) })
+      .mockResolvedValueOnce({ ok: true, status: 201 });
+    expect(await notifyNewBookingLineWorks('ch-1', input)).toBe(true);
+    return JSON.parse((global.fetch as jest.Mock).mock.calls[1][1].body).content.text;
+  }
+
   test('includes staffName in message when provided', async () => {
-    // Only BOT_ID set; token will be null, so sendLineWorksMessage returns false early
-    // We just verify the function runs without throwing
-    process.env.LINE_WORKS_BOT_ID = 'bot-123';
-    const result = await notifyNewBookingLineWorks('ch-1', { ...booking, staffName: '田中' });
-    expect(result).toBe(false); // can't send without full config
+    const text = await sentText({ ...booking, staffName: '田中' });
+    expect(text.split('\n')).toContain('担当: 田中');
   });
 
   test('omits staff line when staffName not provided', async () => {
-    process.env.LINE_WORKS_BOT_ID = 'bot-123';
-    const result = await notifyNewBookingLineWorks('ch-1', booking);
-    expect(result).toBe(false);
+    const text = await sentText(booking);
+    expect(text).toContain('お客様: テスト太郎');
+    expect(text).not.toContain('担当:');
   });
 });
 

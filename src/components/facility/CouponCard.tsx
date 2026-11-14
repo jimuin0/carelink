@@ -30,7 +30,7 @@ export default function CouponCard({ coupon, price = null, targetMenuNames = [] 
             <CouponBadge type={coupon.coupon_type} />
             {coupon.valid_until && (
               <span className="text-xs text-gray-500">
-                ~{new Date(coupon.valid_until).toLocaleDateString('ja-JP')}
+                ~{new Date(coupon.valid_until).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}
               </span>
             )}
           </div>

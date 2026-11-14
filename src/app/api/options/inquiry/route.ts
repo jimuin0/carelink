@@ -47,23 +47,26 @@ export async function POST(request: NextRequest) {
     }
 
     // 施設の owner/admin のみ申込み可能
-    const { data: membership } = await supabase
+    const { data: membership, error: membershipError } = await supabase
       .from('facility_members')
       .select('role')
       .eq('facility_id', facilityId)
       .eq('user_id', user.id)
       .in('role', ['owner', 'admin'])
       .maybeSingle();
+    // 読み取り失敗を「権限なし」「対象外」と案内しない（障害として通知する・低 A158）。
+    if (membershipError) return serverError('options-inquiry-membership', membershipError, '/api/options/inquiry');
     if (!membership) {
       return NextResponse.json({ error: 'この施設の管理権限がありません' }, { status: 403 });
     }
 
     // contact_only のオプションのみ受け付ける
-    const { data: option } = await supabase
+    const { data: option, error: optionError } = await supabase
       .from('option_catalog')
       .select('key, name, contact_only, is_active')
       .eq('key', optionKey)
       .maybeSingle();
+    if (optionError) return serverError('options-inquiry-option', optionError, '/api/options/inquiry');
     if (!option || !option.is_active || !option.contact_only) {
       return NextResponse.json({ error: 'このオプションは申込み対象ではありません' }, { status: 400 });
     }

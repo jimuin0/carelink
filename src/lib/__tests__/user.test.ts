@@ -33,6 +33,8 @@ function buildMock(overrides: Partial<{
   favoriteExisting: object | null;
   deleteError: object | null;
   insertError: object | null;
+  favoriteCheckError: object | null;
+  authThrows: boolean;
 }> = {}) {
   const o = {
     user: { id: USER_ID },
@@ -43,6 +45,8 @@ function buildMock(overrides: Partial<{
     favoriteExisting: null,
     deleteError: null,
     insertError: null,
+    favoriteCheckError: null,
+    authThrows: false,
     ...overrides,
   };
 
@@ -56,7 +60,7 @@ function buildMock(overrides: Partial<{
   const mockOrderFav = jest.fn().mockResolvedValue({ data: o.favoritesData });
   const mockEqFav = jest.fn().mockReturnValue({ order: mockOrderFav });
 
-  const mockMaybeSingleCheck = jest.fn().mockResolvedValue({ data: o.favoriteExisting });
+  const mockMaybeSingleCheck = jest.fn().mockResolvedValue({ data: o.favoriteExisting, error: o.favoriteCheckError });
   const mockEqCheck2 = jest.fn().mockReturnValue({ maybeSingle: mockMaybeSingleCheck });
   const mockEqCheck1 = jest.fn().mockReturnValue({ eq: mockEqCheck2 });
 
@@ -68,7 +72,7 @@ function buildMock(overrides: Partial<{
   mockFavoriteRpc.mockResolvedValue({data:!o.favoriteExisting,error:o.deleteError ?? o.insertError});
   createServiceRoleClient.mockReturnValue({rpc:mockFavoriteRpc});
   createServerSupabaseAuthClient.mockResolvedValue({
-    auth: { getUser: jest.fn().mockResolvedValue({ data: { user: o.user } }) },
+    auth: { getUser: o.authThrows ? jest.fn().mockRejectedValue(new Error('auth down')) : jest.fn().mockResolvedValue({ data: { user: o.user } }) },
     from: jest.fn((table: string) => {
       if (table === 'profiles') {
         return {
@@ -106,6 +110,14 @@ describe('getUserProfile', () => {
     buildMock({ user: null });
     const result = await getUserProfile();
     expect(result).toBeNull();
+  });
+
+  // 低 A223: 障害を「未ログイン」「プロフィール無し」にしない。
+  test('throws when auth is unavailable or the profile read fails', async () => {
+    buildMock({ authThrows: true });
+    await expect(getUserProfile()).rejects.toThrow('PROFILE_UNAVAILABLE');
+    buildMock({ profileError: { message: 'db down' } });
+    await expect(getUserProfile()).rejects.toThrow('PROFILE_UNAVAILABLE');
   });
 });
 
@@ -159,6 +171,14 @@ describe('checkFavorite', () => {
   test('returns true when favorited', async () => {
     buildMock({ favoriteExisting: { id: 'fav-1' } });
     expect(await checkFavorite(FAC_ID)).toBe(true);
+  });
+
+  // 低 A223: 障害を「お気に入りでない」にしない。
+  test('throws when auth is unavailable or the read fails', async () => {
+    buildMock({ authThrows: true });
+    await expect(checkFavorite(FAC_ID)).rejects.toThrow('FAVORITES_UNAVAILABLE');
+    buildMock({ favoriteCheckError: { message: 'db down' } });
+    await expect(checkFavorite(FAC_ID)).rejects.toThrow('FAVORITES_UNAVAILABLE');
   });
 });
 

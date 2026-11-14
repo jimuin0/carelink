@@ -30,8 +30,9 @@ export default function AccessInfo({ facility, specialHours = null, specialHours
             {facility.nearest_station && <InfoRow label="最寄り駅" value={facility.nearest_station} />}
             {facility.access_info && <InfoRow label="アクセス" value={facility.access_info} />}
             {facility.regular_holiday && <InfoRow label="定休日" value={facility.regular_holiday} />}
-            {facility.seat_count && <InfoRow label="席数" value={`${facility.seat_count}席`} />}
-            {facility.staff_count && <InfoRow label="スタッフ数" value={`${facility.staff_count}名`} />}
+            {/* 監査 A395: 数値 0 を && に渡すと tbody に「0」が出るため真偽値にする。 */}
+            {!!facility.seat_count && <InfoRow label="席数" value={`${facility.seat_count}席`} />}
+            {!!facility.staff_count && <InfoRow label="スタッフ数" value={`${facility.staff_count}名`} />}
             {facility.parking && <InfoRow label="駐車場" value="あり" />}
             {facility.credit_card && <InfoRow label="クレジットカード" value="利用可" />}
             {facility.website_url && /^https?:\/\//.test(facility.website_url) && (

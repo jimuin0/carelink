@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-jest.mock('@/lib/line-availability', () => ({ isLineEnabled: () => false }));
+let mockLineEnabled = false;
+jest.mock('@/lib/line-availability', () => ({ isLineEnabled: () => mockLineEnabled }));
 import AdjustRequestButtons from '../AdjustRequestButtons';
 let request: jest.Mock;
 beforeEach(() => {
-  sessionStorage.clear(); request = jest.fn(); global.fetch = request as typeof fetch;
+  mockLineEnabled = false; sessionStorage.clear(); request = jest.fn(); global.fetch = request as typeof fetch;
   Object.defineProperty(crypto,'randomUUID',{ configurable:true,value:jest.fn(() => 'e5000000-0000-4000-8000-000000000001') });
 });
 function show(status = 'confirmed') { render(<AdjustRequestButtons bookingId="synthetic" status={status} />); }
@@ -60,4 +61,15 @@ test('synchronous duplicate click starts one request', async () => {
   fireEvent.click(button); fireEvent.click(button); expect(request).toHaveBeenCalledTimes(1);
   resolve?.({ ok:true,json:async () => ({ ok:true,notification:'queued' }) });
   await waitFor(() => expect(screen.getByRole('button')).toBeEnabled());
+});
+
+// 監査 A271: LINE の送信で応答が読めないと、メール用の「保存した操作を照合します」が出ていた。
+test('LINE の結果不明にはメール用の照合の案内を出さない', async () => {
+  mockLineEnabled = true;
+  request.mockResolvedValue({ ok:true,json:async () => { throw new SyntaxError('bad json'); } }); show();
+  fireEvent.click(screen.getByRole('button',{ name:'LINEで送る（有料）' }));
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('LINEの送信結果を確認できません');
+  expect(alert).not.toHaveTextContent('保存した操作');
+  expect(sessionStorage.length).toBe(0);
 });

@@ -33,12 +33,12 @@
 
 ### 共通規則
 
-- user-level入口：`/Users/kanbararyousuke/.codex/AGENTS.md`
-- 入口が参照する共通本文：`/Users/kanbararyousuke/.ai-rules/current/release/CLAUDE.md`
-- manifest：`/Users/kanbararyousuke/.ai-rules/current/release/AI_RULESET_MANIFEST.md`
+- user-level入口：`~/.codex/AGENTS.md`
+- 入口が参照する共通本文：`~/.ai-rules/current/release/CLAUDE.md`
+- manifest：`~/.ai-rules/current/release/AI_RULESET_MANIFEST.md`
 - version：2026年9月16日-r39
 - manifest SHA-256：`6f6f1dc76d9ed552e1f61c2ce93afcc4435229754ca37086396ae0397df7871b`
-- immutable release：`/Users/kanbararyousuke/.ai-rules/releases/2026年9月16日-r39-6f6f1dc76d9ed552e1f61c2ce93afcc4435229754ca37086396ae0397df7871b`
+- immutable release：`~/.ai-rules/releases/2026年9月16日-r39-6f6f1dc76d9ed552e1f61c2ce93afcc4435229754ca37086396ae0397df7871b`
 - 共通本文、準備、品質、実機、副作用、Git local、Git remoteの7ファイルすべてmanifest記載のhashと一致。
 - 準備・品質・Git local・Git remoteは今回全文確認。実機・副作用契約は対象効果の計画・実行前に全文適用する。hash照合だけを読了や高リスク承認の代わりにしない。
 - CareLink専用スキルと地雷資料を適用。古いスキル記載のcron三重化と現在のプロジェクト記録は相違するため、本番schedulerは実体で再判定する。スキルや規則そのものは改訂しない。
@@ -47,9 +47,9 @@
 
 | 項目 | 今回確認した値 |
 |---|---|
-| 元checkout | `/Users/kanbararyousuke/Projects/carelink` |
+| 元checkout | `~/Projects/carelink` |
 | 元checkout HEAD | `d27c6f5fd311c4fa4ad46164b267b8cba6a9fa0b` |
-| 実装再開用checkout | `/Users/kanbararyousuke/Projects/carelink-ops-remediation-20260921` |
+| 実装再開用checkout | `~/Projects/carelink-ops-remediation-20260921` |
 | 作業branch | `codex/ops-remediation-20260921` |
 | PR | https://github.com/jimuin0/carelink/pull/642 |
 | PR HEAD | `74feca59cf5b46e7db59faf1250f17bc2af59e0d` |
@@ -102,7 +102,7 @@ ACCESS-01、PROD-01/02は本番の完了判定を妨げるが、ローカル修�
 
 ## 5．登録障害で先に実装する単位
 
-既存設計：`/tmp/carelink-audit-20260924.8xy8L8/carelink-registration-resolution-design-20260926.md`。この設計の現状欄は元checkout基準なので、PR HEADへ再判定してから採用する。旧証拠は上書きしない。
+既存設計：`/tmp/carelink-audit-20260924.8xy8L8/carelink-registration-resolution-design-20260926.md`。（⚠️ 2026年11月14日追記：この一時ディレクトリの資料は旧Macにあり回収できていない。resumption-ledger では151原票中149件が未回収で、この根拠には到達できない。採用する場合は現行コードから再検証すること。）この設計の現状欄は元checkout基準なので、PR HEADへ再判定してから採用する。旧証拠は上書きしない。
 
 | 単位 | 現在の証拠 | 必要な修正・確認 | 合格証拠 |
 |---|---|---|---|
@@ -624,7 +624,7 @@ GitHub PR #642は引き続きOPEN、remote HEADは`819b7c4`のままでこの差
 
 ### 10.37．問い合わせ返信の重複送信防止と再開時のrelease gate
 
-作業checkoutは`/Users/kanbararyousuke/Projects/carelink-ops-remediation-20260921`、branch `codex/ops-remediation-20260921`、基点HEAD `b8a912a0b45b95b8240811f67254535258c08e6f`。この節の記録時点で、返信API、問い合わせ画面、メール送信wrapper、webhook retry worker、関連test、新migrationは未commitで保持。主checkoutのuntracked fileには触れていない。
+作業checkoutは`~/Projects/carelink-ops-remediation-20260921`、branch `codex/ops-remediation-20260921`、基点HEAD `b8a912a0b45b95b8240811f67254535258c08e6f`。この節の記録時点で、返信API、問い合わせ画面、メール送信wrapper、webhook retry worker、関連test、新migrationは未commitで保持。主checkoutのuntracked fileには触れていない。
 
 問い合わせ返信は、client UUIDを`contact_replies.id`として送信前に予約し、同じUUIDをResendのidempotency keyに使用する。既存IDのcontact／種別／本文不一致、別IDでのpending競合、予約後の再読込不能は送信前に拒否する。Resend受理後のDB更新が結果不明なら、同じIDで照合・再試行し、23時間経過後は自動再送を止める。送信済みoperationの再POSTはメールを再送せずticket状態だけ再照合する。返信を汎用retry queueへ新規投入せず、過去queueの固定返信subjectは重複の可能性を優先して送信せず隔離する。API例外は固定カテゴリへ置換して応答・監視へ流し、問い合わせ先PII／dependency error本文を含めない。画面は再読込後のpending状態を表示し、操作IDと本文を維持する。
 

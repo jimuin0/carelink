@@ -3,7 +3,7 @@
 > この文書には過去の環境・運用記録を含む。現行の作業対象と許可は会話・AGENTS.md・RESUME.mdを照合し、依存は package-lock.json、cron は src/lib/cron-jobs.data.json と docs/render-cron-consolidation.md を正とする。
 
 ## プロジェクト概要
-医療・福祉・美容 施設向けの【予約管理・集客・採用】を統合したマルチテナント SaaS（旧 LP から予約管理プラットフォームへ移行済み）。施設オーナーが予約枠・メニュー・スタッフ・クーポンを管理し、来院者は施設検索・予約・問診・レビューを行う。決済は Stripe、メッセージングは LINE / LIFF、メールは Resend を使う。
+医療・福祉・美容 施設向けの【予約管理・集客・採用】を統合したマルチテナント SaaS（旧 LP から予約管理プラットフォームへ移行済み）。施設オーナーが予約枠・メニュー・スタッフ・クーポンを管理し、来院者は施設検索・予約・問診・レビューを行う。決済は PAY.JP（2026年11月14日 本人決定で Stripe から移行）、メッセージングは LINE / LIFF、メールは Resend を使う。
 
 - フロント／API＝Next.js（App Router・Route Handler・バージョンは package-lock.json）/ デプロイ＝Cloudflare Workers（2026年11月11日に Vercel から切り替え。本番 `https://carelink-jp.com`・`www.` はアペックスへ 301）。`.github/workflows/deploy-cloudflare.yml` が「main 上で CI（push）が成功した最新のコミット」を自動配信する（判定＝`tools/cloudflare/deploy-target.mjs`。手動実行も同じ判定で、CI 未通過は配信できない。本番より古い版には戻さない）。配信前に Worker の秘密値の名前を `tools/cloudflare/required-worker-secrets.json` と照合し、配信後は本番の version と `/`・`/search`・`/register` の中身を確かめ、だめなら `wrangler rollback` で直前の版へ戻して Slack に通知する。main の CI が赤のときも Slack に通知する。確認に失敗して戻したコミットは artifact `bad-deploy-<sha>` で記録され以後は選ばれない（直して配信し直すときだけ手動実行の `retry_sha` で明示）。手動配信は `npm run deploy:cloudflare` だけを使い、公開設定は GitHub のリポジトリ変数が唯一の置き場（`gh variable list` で読む）。サーバーに秘密値を足したら `required-worker-secrets.json` にも名前を足す。切り替え・戻し方は `docs/handoff/CLOUDFLARE_PRODUCTION_MIGRATION_20261104.md`。Vercel は戻し先として 2026年11月25日ごろまで残す（Preview と Vercel Build Dry-Run の検査は残っている）
 - DB／認証＝Supabase（Postgres・Auth・Storage・RLS・RPC）
@@ -15,7 +15,7 @@
 - Tailwind CSS 4.3.3（既存v3 palette・可変theme・source範囲を維持。移行証拠＝docs/braces-dependency-remediation-20261003.md）
 - react-hook-form 7 + `@hookform/resolvers` 5 + zod 4（バリデーション）
 - Supabase＝`@supabase/supabase-js` 2 + `@supabase/ssr`（SSR Cookie 認証）
-- 決済＝Stripe（`stripe` / `@stripe/stripe-js`）
+- 決済＝PAY.JP（REST API を fetch で直接呼ぶ `src/lib/payjp.ts`・ブラウザは payjp.js v2 を `src/lib/payjp-client.ts` で読み込む。SDK は入れない。Stripe は 2026年11月14日に撤去）
 - メッセージング＝`@line/liff`（LIFF）・LINE Messaging API・LINE WORKS
 - メール＝Resend / Web Push＝`web-push`（VAPID）
 - 地図＝Leaflet + `@react-map/japan` / グラフ＝Recharts / QR＝`qrcode`
@@ -342,7 +342,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 ## API ルート一覧（`src/app/api/`）
 - 公開・来院者系：`public`（祝日情報）`facilities` `facility` `salons` `availability` `slots` `booking` `waitlist` `options` `symptoms` `stations` `recommendations` `ab-test` `referral` `review` `nps` `report` `favorites` `preferred-staff`（指名スタッフの登録・解除）`profile` `account` `chat` `intake` `contact` `inquiry` `unsubscribe` `health` `og` `v1` `push` `[...notfound]`（未定義 API パスの catch-all）
 - 認証・LINE：`auth` `liff` `line`
-- 決済：`payment` `stripe` `payjp`（`api/payjp/webhook`＝広告枠の月額サブスクの webhook・2026年11月13日）
+- 決済：`payment`（`charge`＝予約の前払い・`receipt`＝領収書）`payjp`（`api/payjp/webhook`＝広告枠・有料オプションの月額と予約の前払いの webhook。振り分けは `src/lib/payjp-webhook.ts`）
 - 管理（`api/admin/`・施設オーナー／プラットフォーム）：`bookings` `booking-status` `booking-checkout` `booking-adjust-request` `customers` `staff` `menus` `catalog` `coupons` `packages` `user-packages` `subscription-plans` `user-subscriptions` `payments-settings` `accounting-export` `settings` `facility-verify` `registrations` `jobs` `job-applications` `featured-ads` `features` `feature-flags` `blog` `platform-blog` `qa` `review-summary` `review-replies` `moderation` `newsletter` `inquiries` `report` `gbp` `hpb-menus` `ai-support` `api-keys` `backup` `chain` `white-label` `photos` `notification-reconciliation` `mail` `reviews` `listing-verification` `special-hours`（本数は書かない。実ディレクトリとの一致は `src/__tests__/claude-md-matches-code.test.ts` が `api/admin/` 配下まで検査する）
 - cron（`api/cron/`・Render Cron Jobs から Bearer 認証で起動。一覧は下記スケジュール表＝実ディレクトリと同テストが突合）：下記スケジュール参照
 - 運用・監視：`alert-check`（`ALERT_CHECK_TOKEN` で保護）・`admin`（管理画面用API群は下記）
@@ -359,7 +359,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | onboarding-followup | `0 16 * * *` | 毎日 01:00 |
 | birthday-coupon | `0 14 * * *` | 毎日 23:00 |
 | flag-reviews | `0 * * * *` | 毎時 |
-| favorites-digest | `0 15 * * 1` | 月曜 00:00 |
+| favorites-digest | `0 15 * * 1` | 火曜 00:00 |
 | weekly-report | `10 22 * * 0` | 月曜 07:10 |
 | waitlist-notify | `30 * * * *` | 毎時30分 |
 | webhook-retry | `*/15 * * * *` | 15分毎 |
@@ -375,11 +375,11 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 
 当時の有効状態やサービス数を現在の実態と決めつけない。構成・集約の正は `src/lib/cron-jobs.data.json` と `docs/render-cron-consolidation.md`。必要な作業では実際の有効状態とログを確認し、完了済みの切替・旧サービスの停止・初回確認を重複実行しない。
 
-【経緯】public repo の GitHub Actions scheduled workflow は GitHub が有料/private を優先し大幅に間引く（実測で cron.yml 最大176分・health-monitor 最大283分の空白）。恒久解として `render.yaml`（Render Cron Jobs・機能ごとに独立サービス16本・SSOTは `src/lib/cron-jobs.data.json`、`src/__tests__/render-yaml-drift.test.ts` がドリフト検知）へ移行した（PR#382）。移行期間中は GitHub Actions + pg_cron + Render の三重化だったが、2026年7月29日に神原が `select cron.unschedule(jobname) from cron.job where jobname like 'carelink-%';` を実行し【pg_cron を撤去済み（15ジョブ全て解除・戻り値 true を確認）】。
+【経緯】public repo の GitHub Actions scheduled workflow は GitHub が有料/private を優先し大幅に間引く（実測で cron.yml 最大176分・health-monitor 最大283分の空白）。恒久解として `render.yaml`（Render Cron Jobs・当初は機能ごとに独立サービス16本。現在は統合 dispatcher（`scripts/cron-dispatch.mjs` の quarter-hour／hourly／calendar）3サービス＋`carelink-health-check` の計4サービス＝構成の正は `render.yaml` と `docs/render-cron-consolidation.md`・SSOTは `src/lib/cron-jobs.data.json`、`src/__tests__/render-yaml-drift.test.ts` がドリフト検知）へ移行した（PR#382）。移行期間中は GitHub Actions + pg_cron + Render の三重化だったが、2026年7月29日に神原が `select cron.unschedule(jobname) from cron.job where jobname like 'carelink-%';` を実行し【pg_cron を撤去済み（15ジョブ全て解除・戻り値 true を確認）】。
 
 【2026年8月12日時点の実態（GitHub API `GET /repos/jimuin0/carelink/actions/workflows` で確認）】
 - 実働しているのは【Render のみ】。根拠＝(a) pg_cron 撤去後も cron_logs が SSOT どおりの間隔で記録され続けている（webhook-retry 15分毎・cron-heartbeat 30分毎＝毎時07分/37分・flag-reviews 毎時）、(b) 下記のとおり GitHub Actions 側は無効化されていて発火し得ない。
-- 🔴 **`cron.yml` / `health-monitor.yml` / `deploy-watch.yml` は GitHub 上で `state: disabled_manually`＝発火しない**（無効化日時は workflow の `updated_at`：health-monitor と deploy-watch が 2026年7月25日、cron.yml が 2026年7月29日）。**ファイルが `.github/workflows/` に在ることを「保険が効いている」と読まないこと。** 3本とも Render 側に等価物があるため運用の穴は無い（cron 15本＋`carelink-health-check`）。再び保険として使いたい場合は、ファイルを足すのではなく GitHub の Actions 画面で **Enable workflow** する必要がある。
+- 🔴 **`cron.yml` / `health-monitor.yml` / `deploy-watch.yml` は GitHub 上で `state: disabled_manually`＝発火しない**（無効化日時は workflow の `updated_at`：health-monitor と deploy-watch が 2026年7月25日、cron.yml が 2026年7月29日）。**ファイルが `.github/workflows/` に在ることを「保険が効いている」と読まないこと。** 3本とも Render 側に等価物があるため運用の穴は無い（2026年8月12日時点。現在は統合 dispatcher 3サービスが cron 全件を起動し、`carelink-health-check` が外形監視を担う）。再び保険として使いたい場合は、ファイルを足すのではなく GitHub の Actions 画面で **Enable workflow** する必要がある。
 - health-monitor.yml の Render 代替は `carelink-health-check`（`scripts/health-check.mjs`・5分毎）。
 
 【将来 GitHub Actions を撤去する場合の注意】`.github/workflows/cron.yml` を削除すると `src/__tests__/cron-jobs-drift.test.ts`（SSOT ↔ cron.yml の三重管理ドリフト検知）が丸ごと成立しなくなる。同テストの削除または render.yaml 基準への作り替えをセットで行うこと。ドリフト検知自体は `render-yaml-drift.test.ts` が引き継げる。
@@ -398,11 +398,11 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 - 施設：`facility_profiles` `facility_members` `facility_menus` `facility_photos` `facility_certifications` `facility_symptoms` `facility_qa` `facility_reviews` `facility_cancel_policies` `facility_line_settings` `facility_notification_settings` `facility_reminder_settings` `facility_entitlements` `facility_inquiries`
 - 顧客：`customers` `customer_visits` `customer_segments` `salon_customer_notes` `profiles` `favorites`
 - メニュー／クーポン／パッケージ：`coupons` `coupon_menus` `menu_staff` `option_catalog` `hpb_menu_durations` `package_usage_logs`
-- 決済・購読：`featured_slots` `subscription_plans` `user_subscriptions` `subscription_usage_logs` `facility_entitlements`
+- 決済・購読：`featured_slots` `subscription_plans` `user_subscriptions` `subscription_usage_logs` `facility_entitlements` `facility_payjp_customers` `featured_slot_payjp_subscriptions` `facility_option_payjp_subscriptions` `booking_payjp_charges` `payjp_webhook_events`（PAY.JP 側の ID は service_role 専用の別表に置く）。旧 Stripe の表・列（`stripe_sessions` `stripe_events` `stripe_webhook_logs`・`bookings.stripe_payment_intent_id`・`facility_entitlements.stripe_subscription_id`・`facility_profiles` の Stripe 2 列）はアプリから読まなくなったが DB には残置（撤去は本番の行を確かめてから別 migration）
 - 採用・集客：`job_postings` `job_applications` `job_seekers` `facility_jobs` `blog_posts` `blog_authors` `platform_blog_posts` `feature_articles` `area_seo_contents` `areas`
 - レビュー・モデレーション：`public_reviews` `review_replies` `review_helpful` `moderation_queue` `nps_surveys`
 - 通知・連携：`line_user_links` `line_notification_logs` `push_subscriptions` `google_calendar_tokens` `newsletter_subscriptions` `newsletter_campaigns` `newsletter_send_log` `email_unsubscribe_tokens` `birthday_notifications`
-- 基盤：`audit_logs` `cron_logs` `rate_limit_buckets` `stripe_webhook_logs` `webhook_retry_queue` `api_keys` `feature_flags` `features` `ab_test_events` `referral_codes` `referral_uses` `contacts` `contact_replies` `intake_form_templates` `intake_form_responses` `daily_revenue_summary` `gbp_posts` `gbp_audit_cache`
+- 基盤：`audit_logs` `cron_logs` `rate_limit_buckets` `payjp_webhook_events` `webhook_retry_queue` `api_keys` `feature_flags` `features` `ab_test_events` `referral_codes` `referral_uses` `contacts` `contact_replies` `intake_form_templates` `intake_form_responses` `daily_revenue_summary` `gbp_posts` `gbp_audit_cache`
 
 `schema-drift-check` cron が本番スキーマと `schema-snapshot.json` の差分を毎日 JST 02:40 に検知（マイグレーション未適用による無音バグの発症前予防）。CI の Contract Tests（`jest.config.contract.js`）も staging のドリフトをゲートする。
 
@@ -417,14 +417,14 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | CARELINK_EDGE | 配信先が Cloudflare Workers のとき `cloudflare`（`wrangler.jsonc` の vars で設定）。`src/lib/client-ip.ts` が `cf-connecting-ip` を最優先にし、Cloudflare が上書きしない `x-real-ip` を信じなくなる。Vercel では設定しない（設定すると利用者が送った `cf-connecting-ip` を信じてしまう） |
 | SALON_REGISTRATION_V2_ENABLED | 受付v2の段階導入フラグ。未設定は無効。写真・原子的claim・migrationとE2Eのrelease gateが揃うまでtrueにしない。無効時は新規準備APIを404で停止するが、既発行intentの状態照会は本人確認・有効期限の検証を維持して利用可能。受付結果不明時の安全な照合を閉じない |
 | CRON_SECRET | Render Cron Jobs → `/api/cron/*` の Bearer 認証（未設定で全 cron 500・不一致で 401・`src/lib/cron-auth.ts`） |
+| CARELINK_CRON_DISPATCH_FROM | 統合 cron dispatcher の切替時刻（UTC・`YYYY-MM-DDTHH:MM:00Z`・`src/lib/cron-dispatch.mjs` の `cutoverTime`）。未設定なら旧ジョブを全て維持、形式不正は throw。`carelink-cron-env` で供給。手順は `docs/render-cron-consolidation.md` |
 | CARELINK_BASE_URL | Render cron dispatcher が叩く本番ベース URL（`src/lib/render-cron.mjs` の `resolveCronEndpoint`・未設定は throw。`render.yaml` の envVarGroup `carelink-cron-env` で全 cron サービスへ供給） |
 | RESEND_API_KEY | メール送信（未設定でメール系 cron は送信スキップ） |
 | EMAIL_FROM | 送信元。本番では検証済みドメイン以外だと既定値へ強制フォールバックする（`src/lib/email-from.ts`） |
 | NEWSLETTER_EMAIL_FROM | ニュースレター専用の送信元。未設定なら `CareLink <newsletter@carelink-jp.com>`。EMAIL_FROM と同じ検証を通る |
 | OPERATOR_NOTIFY_EMAIL | 運営向けメール通知の宛先（カンマ区切りで複数可・`sendOperatorNotification`）。未設定なら送信せず false |
 | NEWSLETTER_UNSUBSCRIBE_SECRET | ニュースレター配信停止リンクの HMAC 署名鍵（手動配信 `api/admin/newsletter/[id]`／`unsubscribe` 共通・一度設定したら変更しない） |
-| STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET | 決済・Stripe webhook 署名検証 |
-| PAYJP_SECRET_KEY / PAYJP_WEBHOOK_TOKEN / NEXT_PUBLIC_PAYJP_PUBLIC_KEY / PAYJP_FEATURED_PLAN_ID | 広告枠（`/admin/featured-ads`）の PAY.JP 月額サブスク（2026年11月13日・点検 B2-1）。秘密鍵（`sk_`）・webhook の照合トークン（`whook_`・`X-Payjp-Webhook-Token`）・payjp.js の公開鍵（`pk_`・ビルド時に埋め込む公開値＝GitHub のリポジトリ変数）・税込 10,780 円/月のプラン ID。**4 つ揃ったときだけ**販売 UI・API・webhook が動く（`isPayjpEnabled()`・`src/lib/integration-availability.ts`）。未設定でも配信は止めたくないので `tools/cloudflare/required-worker-secrets.json` には載せない。申込時に PAY.JP のプラン金額が税込表示と一致するかを確かめ、食い違えば売らない |
+| PAYJP_SECRET_KEY / PAYJP_WEBHOOK_TOKEN / NEXT_PUBLIC_PAYJP_PUBLIC_KEY / PAYJP_FEATURED_PLAN_ID | PAY.JP の決済（2026年11月14日に Stripe から移行）。前 3 つが揃うと予約の前払い（`/api/payment/charge`）・有料オプションの月額（`/api/options/checkout`・プランはオプションと税込月額ごとに自動作成）・webhook が動く（`isPaymentsEnabled()`）。広告枠（`/admin/featured-ads`）の月額サブスク（2026年11月13日・点検 B2-1）はさらにプラン ID が要る（`isPayjpEnabled()`）。秘密鍵（`sk_`）・webhook の照合トークン（`whook_`・`X-Payjp-Webhook-Token`）・payjp.js の公開鍵（`pk_`・ビルド時に埋め込む公開値＝GitHub のリポジトリ変数）・税込 10,780 円/月のプラン ID。揃わない間は購入 UI・API を出さない（`src/lib/integration-availability.ts`）。未設定でも配信は止めたくないので `tools/cloudflare/required-worker-secrets.json` には載せない。申込時に PAY.JP のプラン金額が税込表示と一致するかを確かめ、食い違えば売らない |
 | LINE_CHANNEL_ACCESS_TOKEN_CARELINK / LINE_CHANNEL_SECRET / LINE_CHANNEL_SECRET_CARELINK / LINE_LOGIN_CHANNEL_ID / NEXT_PUBLIC_LIFF_ID / NEXT_PUBLIC_LINE_CHANNEL_ID | LINE Messaging／LINE Login／LIFF |
 | LINE_WORKS_BOT_ID / LINE_WORKS_CLIENT_ID / LINE_WORKS_CLIENT_SECRET / LINE_WORKS_PRIVATE_KEY / LINE_WORKS_SERVICE_ACCOUNT | LINE WORKS 連携 |
 | SLACK_BOT_TOKEN / SLACK_SIGNING_SECRET / SLACK_DEFAULT_CHANNEL / SLACK_ADMIN_CHANNEL_ID | Slack 通知・スラッシュコマンド署名検証。Render の `carelink-health-check` は共有グループ `slack-gyomu-bot`（`SLACK_BOT_TOKEN`・`SLACK_ADMIN_CHANNEL_ID`）から受け取り、`SLACK_DEFAULT_CHANNEL` が無ければ `SLACK_ADMIN_CHANNEL_ID` へ通報する |
@@ -692,6 +692,10 @@ DROP・台帳登録・migration 取り込みのいずれのアクションも不
 以後 cron の `driftExtra` にこの 11 本が現れることは無い想定。もし今後これらの名前で
 `driftExtra` が再び鳴ったら、それは「本番へ何者かが再作成した」新規事象であり、
 本節の解決済み扱いを再度見直すこと。
+
+⚠️ **追記（2026年11月）**: このうち `get_user_points_balance` は、その後 migration
+`20261011051400_user_points_balance_read.sql` で**新たに定義し直され**、`src/lib/points-balance.ts` が RPC として呼んでいる。
+上の「本番に不在」は 2026年8月11日時点の記録であり、現在この関数は migration 管理下で存在するのが正しい状態。
 
 <!-- BEGIN:nextjs-agent-rules -->
 

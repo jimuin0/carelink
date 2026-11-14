@@ -183,6 +183,8 @@ export function diffFingerprint(expected: string[], actual: string[]): Fingerpri
   //   差分を数える前に両側から落とす（2026年8月3日）。台帳は
   //   src/lib/known-prod-only.json が唯一の真実源で、契約テストと CLI も同じものを読む。
   //   これを入れる前は、既知 7 テーブル由来の約 140 項目を毎日ドリフトとして報告していた。
+  //   ⚠️ 「7 テーブル」は導入当時の数。現在の台帳は known-prod-only.json の中身が正
+  //   （本数はこのコメントに書かない＝取り込み・撤去のたびに腐るため・低 A225）。
   const norm = (arr: string[]) =>
     new Set(
       (arr ?? [])

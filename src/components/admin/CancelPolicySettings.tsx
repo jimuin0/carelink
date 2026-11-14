@@ -101,11 +101,17 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
   const handleSave = async () => {
     setSaving(true);
     setSaveError(false);
-    const supabase = createBrowserSupabaseClient();
-    // 画面に表示している選択（旧い行の解釈を含む）を cancel_rule として明示的に保存する。
-    const { error } = await supabase
-      .from('facility_cancel_policies')
-      .upsert({ facility_id: facilityId, ...policy, cancel_rule: resolveCancelPolicy(policy).rule }, { onConflict: 'facility_id' });
+    let error: unknown = null;
+    try {
+      const supabase = createBrowserSupabaseClient();
+      // 画面に表示している選択（旧い行の解釈を含む）を cancel_rule として明示的に保存する。
+      ({ error } = await supabase
+        .from('facility_cancel_policies')
+        .upsert({ facility_id: facilityId, ...policy, cancel_rule: resolveCancelPolicy(policy).rule }, { onConflict: 'facility_id' }));
+    } catch (e) {
+      // 通信断（例外）でも saving を戻し、失敗を表示する（監査 A268）
+      error = e;
+    }
     setSaving(false);
     // 返金率に直結する設定。保存失敗を成功と偽装せず、失敗は明示する。
     if (error) { setSaveError(true); return; }

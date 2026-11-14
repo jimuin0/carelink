@@ -1,4 +1,6 @@
 -- Synthetic, transaction-scoped fixtures. No existing application row is touched.
+-- 接続先ガード（CLAUDE.md 鉄則5）：使い捨て DB 以外では何も書かずに落とす。
+DO $$ BEGIN IF current_database() NOT LIKE 'carelink_shadow%' THEN RAISE EXCEPTION 'DISPOSABLE_DB_REQUIRED'; END IF; END $$;
 BEGIN;
 INSERT INTO public.salons(id,facility_name,business_type,representative_name,contact_name,email,phone,status)
 VALUES ('89000000-0000-4000-8000-000000000001','Synthetic revision fixture','ヘアサロン',

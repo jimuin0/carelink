@@ -149,6 +149,10 @@ test('PATCH: ticket_status=resolved → 200（resolved_at 付与経路）', asyn
   mockAdminFrom.mockReturnValue(updateChain(null));
   const res = await PATCH(makeRequest({ ticket_status: 'resolved' }), makeProps());
   expect(res.status).toBe(200);
+  // resolved_at はクライアントから受け取らず、解決時刻の付与は RPC（DB 側）に任せる
+  expect(mockRpc).toHaveBeenCalledWith('manage_platform_control_atomic', {
+    p_actor_id: USER_ID, p_record_id: INQUIRY_UUID, p_kind: 'ticket:update', p_values: { ticket_status: 'resolved' },
+  });
 });
 
 test('PATCH: priority=high → 200', async () => {
@@ -177,5 +181,5 @@ test('PATCH: レートリミット params (20/60s)', async () => {
 
 test.each([{}, {unexpected:true}])('reject empty recognized ticket patch %p', async body => {
  mockAnonFrom.mockReturnValue(profileChain({is_platform_admin:true}));mockAdminFrom.mockReturnValue(updateChain());
- const res=await PATCH(makeRequest(body),makeProps());expect(res.status).toBe(400);expect(mockAdminFrom).not.toHaveBeenCalled();
+ const res=await PATCH(makeRequest(body),makeProps());expect(res.status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
 });

@@ -8,7 +8,8 @@ export const applicationCreateSchema = z.object({
   facility_id: id,
   job_posting_id: id.or(z.literal('')).nullish(),
   applicant_name: name,
-  applicant_email: z.string().regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/).max(254),
+  // 点検 A412: 大文字小文字違いの重複応募を防ぐ（一意制約は applicant_email の完全一致）。
+  applicant_email: z.string().trim().regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/).max(254).transform(value => value.toLowerCase()),
   applicant_phone: z.string().transform(value => Array.from(value).slice(0, 20).join('')).nullish(),
   cover_letter: z.string().transform(value => Array.from(value).slice(0, 2000).join('')).nullish(),
 });

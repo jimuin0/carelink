@@ -10,5 +10,18 @@
 export function isAllowedStorageUrl(url: string, bucket: string): boolean {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!base) return false;
-  return url.startsWith(`${base}/storage/v1/object/public/${bucket}/`);
+  const prefix = `/storage/v1/object/public/${bucket}/`;
+  if (!url.startsWith(`${base}${prefix}`)) return false;
+  // 文字列の前方一致だけだと `…/public/salons/../review-photos/x.jpg` も通り、ブラウザ・next/image が
+  // ドットセグメントを解決した結果、別バケットを指せた（低 A222）。URL として正規化した後の
+  // オリジンとパスでも確かめる（WHATWG URL は %2e も含めてドットセグメントを解決する）。
+  let parsed: URL;
+  let baseUrl: URL;
+  try {
+    parsed = new URL(url);
+    baseUrl = new URL(base);
+  } catch {
+    return false;
+  }
+  return parsed.origin === baseUrl.origin && parsed.pathname.startsWith(`${baseUrl.pathname.replace(/\/$/, '')}${prefix}`);
 }

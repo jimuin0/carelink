@@ -171,6 +171,8 @@ test('GET: Content-Disposition ヘッダーが filename 付き', async () => {
   const cd = res.headers.get('Content-Disposition');
   expect(cd).toContain('attachment');
   expect(cd).toContain('report_2026-01-01_2026-01-31.csv');
+  // 売上データはキャッシュさせない（低 A138）。
+  expect(res.headers.get('Cache-Control')).toBe('no-store');
 });
 
 test('GET: to === from（1日範囲）→ 200', async () => {
@@ -233,4 +235,9 @@ test('GET: rows が null → 404', async () => {
   mockAdminFrom.mockReturnValue(revenueChain(null as unknown as unknown[]));
   const res = await GET(makeRequest());
   expect(res.status).toBe(404);
+});
+
+test.each([['2026-02-30', '2026-03-31'], ['2026-01-01', '2026-13-01']])('B2-14: 実在しない日付 %s〜%s → 400（DB で 500 にしない）', async (from, to) => {
+  const res = await GET(makeRequest({ from, to }));
+  expect(res.status).toBe(400);
 });

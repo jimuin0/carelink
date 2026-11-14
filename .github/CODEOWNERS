@@ -5,6 +5,7 @@
 /supabase/migrations/      @jimuin0
 /.github/                  @jimuin0
 /middleware.ts             @jimuin0
+/src/middleware.ts         @jimuin0
 /vercel.json               @jimuin0
 /package.json              @jimuin0
 /package-lock.json         @jimuin0

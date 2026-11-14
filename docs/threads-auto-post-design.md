@@ -1,7 +1,12 @@
 # Threads 自動投稿 設計メモ（2026年7月30日 調査）
 
 CareLink の更新を Threads へ自動投稿する仕組みの設計。実装前の調査結果と設計判断をまとめる。
-コードはまだ書いていない。神原さんの判断を仰ぐ項目を最後にまとめている。
+（当時）コードはまだ書いていない。神原さんの判断を仰ぐ項目を最後にまとめている。
+
+> ⚠️ **2026年11月14日追記：この文書は実装前の設計メモで、現在は実装済み。実装は次の点でこの設計と異なる。**
+> - アクセストークンは env（`THREADS_ACCESS_TOKEN`）に置かず、`threads_credentials` テーブル（RLS 有効・service role のみ）に保存し、`threads-token-refresh` cron が更新する。env は `THREADS_USER_ID` だけ。
+> - 投稿済み記録は `threads_posts` テーブルではなく `platform_blog_posts` の `threads_*` 列で持つ（正は `src/lib/schema-snapshot.json`）。
+> - 取りこぼしの自己修復は `threads-backfill` cron。
 
 ---
 
@@ -118,7 +123,7 @@ https://carelink-jp.com/blog/{slug}
 ### 方針3：表示・実行を設定に従属させる
 
 LINE を `NEXT_PUBLIC_LIFF_ID` の有無で出し分けたのと同じにする。
-`THREADS_ACCESS_TOKEN` と `THREADS_USER_ID` が両方入っていなければ、cron は何もせず正常終了する。
+（設計時案。実装は `THREADS_USER_ID` が未設定なら `skipped`）`THREADS_ACCESS_TOKEN` と `THREADS_USER_ID` が両方入っていなければ、cron は何もせず正常終了する。
 手動フラグは作らない（戻し忘れ・入れ忘れの両方を構造的に防ぐ）。
 
 ### 方針4：送信結果を握り潰さない
@@ -152,13 +157,13 @@ cron は Render と GitHub Actions で二重化されており、同時発火し
 | 変数名 | 用途 |
 |---|---|
 | `THREADS_USER_ID` | 投稿先の Threads ユーザーID |
-| `THREADS_ACCESS_TOKEN` | 長期アクセストークン（60日・要リフレッシュ） |
+| ~~`THREADS_ACCESS_TOKEN`~~ | （実装では env に置かない。`threads_credentials` テーブルに保存） |
 
 値の投入は神原さんが行う（Claude はシークレットを扱わない）。
 
 ### DB（Supabase・DDL が必要）
 
-投稿済み記録のテーブルが要る。これは【神原さんが SQL Editor で実行】する項目。
+（設計時案。実装は `platform_blog_posts.threads_*` 列を使い、このテーブルは作っていない）投稿済み記録のテーブルが要る。これは【神原さんが SQL Editor で実行】する項目。
 実装時に全文を提示する。想定する形：
 
 ```

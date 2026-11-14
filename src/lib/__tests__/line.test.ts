@@ -110,6 +110,19 @@ describe('sendLinePush', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2); // 429 は即 abort せずリトライ
   });
 
+  test('B4-7: 再試行には同じ X-Line-Retry-Key を付け、409（受理済み）は届いた扱いにする', async () => {
+    global.fetch = jest.fn()
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce({ ok: false, status: 409, text: async () => 'already accepted' } as unknown as Response);
+    const promise = sendLinePush('user-1', [{ type: 'text', text: 'hi' }], 3);
+    await jest.runAllTimersAsync();
+    expect(await promise).toBe(true);
+    const keys = (global.fetch as jest.Mock).mock.calls.map(([, opts]) => opts.headers['X-Line-Retry-Key']);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[1]).toBe(keys[0]);
+  });
+
   test('throws if token not set', async () => {
     delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
     await expect(sendLinePush('user-1', [])).rejects.toThrow('LINE_CHANNEL_ACCESS_TOKEN_CARELINK');
@@ -164,10 +177,11 @@ describe('sendLineText', () => {
     expect(mockEnqueueWebhook).not.toHaveBeenCalled();
   });
 
-  test('opts.enqueueOnFailure=true かつ送信失敗 → enqueueWebhook(type=line_push) を呼ぶ', async () => {
-    mockFetchFail(400); // 4xx即abort=fetch1回で確実にfalse確定
-    const result = await sendLineText('user-2', 'Hi there', { enqueueOnFailure: true });
-    expect(result).toBe(false);
+  test('opts.enqueueOnFailure=true かつ一時的な送信失敗（5xx）→ enqueueWebhook(type=line_push) を呼ぶ', async () => {
+    mockFetchFail(500);
+    const promise = sendLineText('user-2', 'Hi there', { enqueueOnFailure: true });
+    await jest.runAllTimersAsync();
+    expect(await promise).toBe(false);
     expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
     expect(mockEnqueueWebhook).toHaveBeenCalledWith({
       type: 'line_push',
@@ -177,9 +191,18 @@ describe('sendLineText', () => {
     });
   });
 
+  test('opts.enqueueOnFailure=true でも恒久エラー（4xx＝宛先無効・ブロック）は再送キューに積まない', async () => {
+    mockFetchFail(400); // 4xx即abort=fetch1回で確実にfalse確定
+    const result = await sendLineText('user-2', 'Hi there', { enqueueOnFailure: true });
+    expect(result).toBe(false);
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
   test('opts.enqueueOnFailure=true かつ facilityId 指定 → payload に反映される', async () => {
-    mockFetchFail(400);
-    await sendLineText('user-3', 'Hi', { enqueueOnFailure: true, facilityId: 'fac-1' });
+    mockFetchFail(500);
+    const promise = sendLineText('user-3', 'Hi', { enqueueOnFailure: true, facilityId: 'fac-1' });
+    await jest.runAllTimersAsync();
+    await promise;
     expect(mockEnqueueWebhook).toHaveBeenCalledWith(expect.objectContaining({ facilityId: 'fac-1' }));
   });
 
@@ -231,15 +254,16 @@ describe('sendBookingConfirmation', () => {
     expect(JSON.parse(opts.body).messages[0].text).not.toContain('担当:');
   });
 
-  test('送信失敗 → enqueueWebhook(type=line_push) が呼ばれる（単発送信で他に再送手段が無いため）', async () => {
-    mockFetchFail(400);
-    const result = await sendBookingConfirmation('user-9', {
+  test('一時的な送信失敗 → enqueueWebhook(type=line_push) が呼ばれる（単発送信で他に再送手段が無いため）', async () => {
+    mockFetchFail(500);
+    const promise = sendBookingConfirmation('user-9', {
       facilityName: 'Salon',
       menuName: 'Cut',
       date: '2024-01-15',
       time: '10:00',
     });
-    expect(result).toBe(false);
+    await jest.runAllTimersAsync();
+    expect(await promise).toBe(false);
     expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
     expect(mockEnqueueWebhook).toHaveBeenCalledWith(expect.objectContaining({
       type: 'line_push',
@@ -270,12 +294,13 @@ describe('sendBookingCancellation', () => {
     expect(JSON.parse(opts.body).messages[0].text).toContain('キャンセル');
   });
 
-  test('送信失敗 → enqueueWebhook(type=line_push) が呼ばれる（単発送信で他に再送手段が無いため）', async () => {
-    mockFetchFail(400);
-    const result = await sendBookingCancellation('user-9', {
+  test('一時的な送信失敗 → enqueueWebhook(type=line_push) が呼ばれる（単発送信で他に再送手段が無いため）', async () => {
+    mockFetchFail(500);
+    const promise = sendBookingCancellation('user-9', {
       facilityName: 'Test Salon', menuName: 'Cut', date: '2024-01-15', time: '10:00',
     });
-    expect(result).toBe(false);
+    await jest.runAllTimersAsync();
+    expect(await promise).toBe(false);
     expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
     expect(mockEnqueueWebhook).toHaveBeenCalledWith(expect.objectContaining({
       type: 'line_push',

@@ -113,13 +113,38 @@ describe('verifySlackRequest', () => {
     })).toEqual({ valid: false, reason: 'stale_timestamp' });
   });
 
-  test('signingSecret 引数で env を上書き', () => {
-    process.env.SLACK_SIGNING_SECRET = 'env-secret';
-    const ts = String(NOW_SEC);
-    const body = 'x';
-    const sig = signRequest(ts, body, 'override-secret');
-    expect(verifySlackRequest({
-      signature: sig, timestamp: ts, rawBody: body, signingSecret: 'override-secret',
-    })).toEqual({ valid: true });
+  describe('署名鍵の解決（引数 → env の順）', () => {
+    const original = process.env.SLACK_SIGNING_SECRET;
+    // env を後続テストへ漏らさない
+    afterEach(() => {
+      if (original === undefined) delete process.env.SLACK_SIGNING_SECRET;
+      else process.env.SLACK_SIGNING_SECRET = original;
+    });
+
+    test('signingSecret 引数で env を上書き（env の鍵で署名したものは通らない）', () => {
+      process.env.SLACK_SIGNING_SECRET = 'env-secret';
+      const ts = String(NOW_SEC);
+      const body = 'x';
+      expect(verifySlackRequest({
+        signature: signRequest(ts, body, 'override-secret'), timestamp: ts, rawBody: body, signingSecret: 'override-secret',
+      })).toEqual({ valid: true });
+      expect(verifySlackRequest({
+        signature: signRequest(ts, body, 'env-secret'), timestamp: ts, rawBody: body, signingSecret: 'override-secret',
+      })).toEqual({ valid: false, reason: 'signature_mismatch' });
+    });
+
+    test('signingSecret 省略時は env SLACK_SIGNING_SECRET を使う', () => {
+      process.env.SLACK_SIGNING_SECRET = 'env-secret';
+      const ts = String(NOW_SEC);
+      const body = 'x';
+      expect(verifySlackRequest({ signature: signRequest(ts, body, 'env-secret'), timestamp: ts, rawBody: body })).toEqual({ valid: true });
+      expect(verifySlackRequest({ signature: signRequest(ts, body, 'other'), timestamp: ts, rawBody: body })).toEqual({ valid: false, reason: 'signature_mismatch' });
+    });
+
+    test('signingSecret 省略かつ env 未設定 → no_signing_secret（fail-closed）', () => {
+      delete process.env.SLACK_SIGNING_SECRET;
+      const ts = String(NOW_SEC);
+      expect(verifySlackRequest({ signature: signRequest(ts, 'x', 'any'), timestamp: ts, rawBody: 'x' })).toEqual({ valid: false, reason: 'no_signing_secret' });
+    });
   });
 });

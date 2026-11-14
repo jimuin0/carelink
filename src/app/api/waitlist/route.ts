@@ -13,6 +13,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { serverError } from '@/lib/with-route';
+import { todayJst } from '@/lib/admin-date';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +49,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '入力内容を確認してください' }, { status: 400 });
     }
 
+    // 過去日（JST）のキャンセル待ちは空きが出る見込みが無く、通知の約束だけが残る。
+    if (parsed.data.date < todayJst()) {
+      return NextResponse.json({ error: '過去の日付は登録できません' }, { status: 400 });
+    }
+
     const cookieStore = await cookies();
     // 認証判定のみ anon SSR クライアント（cookie からセッション解決）。
     const authClient = createServerClient(
@@ -64,7 +70,7 @@ export async function POST(request: Request) {
 
     // 同じ施設・日時・ユーザーの重複登録を防止
     if (user) {
-      const { data: existing } = await supabase
+      const { data: existing, error: existingError } = await supabase
         .from('booking_waitlist')
         .select('id')
         .eq('facility_id', data.facility_id)
@@ -73,6 +79,8 @@ export async function POST(request: Request) {
         .eq('user_id', user.id)
         .eq('status', 'waiting')
         .maybeSingle();
+      // 確認できないまま登録へ進めない（二重登録・障害の無音化を避ける・低 A167）。
+      if (existingError) return serverError('waitlist-post-duplicate-check', existingError, '/api/waitlist', '登録に失敗しました');
 
       if (existing) {
         return NextResponse.json({ error: 'この日時はすでにキャンセル待ちに登録済みです' }, { status: 409 });
@@ -80,15 +88,30 @@ export async function POST(request: Request) {
     }
 
     // 施設の存在確認
-    const { data: facility } = await supabase
+    const { data: facility, error: facilityError } = await supabase
       .from('facility_profiles')
       .select('id, name')
       .eq('id', data.facility_id)
       .eq('status', 'published')
       .maybeSingle();
+    // 読み取り失敗を「施設が見つかりません」（404）に偽装しない（低 A167）。
+    if (facilityError) return serverError('waitlist-post-facility', facilityError, '/api/waitlist', '登録に失敗しました');
 
     if (!facility) {
       return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
+    }
+
+    // メニュー・スタッフは指定された施設のものだけを受け付ける（他施設の ID を混ぜさせない）。
+    for (const [table, id] of [['facility_menus', data.menu_id], ['staff_profiles', data.staff_id]] as const) {
+      if (!id) continue;
+      const { data: owned, error: ownedError } = await supabase
+        .from(table)
+        .select('id')
+        .eq('id', id)
+        .eq('facility_id', data.facility_id)
+        .maybeSingle();
+      if (ownedError) return serverError('waitlist-post-owner', ownedError, '/api/waitlist', '登録に失敗しました');
+      if (!owned) return NextResponse.json({ error: '入力内容を確認してください' }, { status: 400 });
     }
 
     const { data: entry, error } = await supabase

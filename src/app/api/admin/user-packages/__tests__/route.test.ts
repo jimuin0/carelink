@@ -635,3 +635,44 @@ test('PATCH: 未認証 → 401', async () => {
   const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
   expect(res.status).toBe(401);
 });
+
+// ─── 点検 A134/A135：消費の監査・事前チェックの障害 ─────────────────────────────
+test('PATCH: 消費に成功したら監査ログを残す', async () => {
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  (writeAuditLog as jest.Mock).mockClear();
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildUserPackage());
+    if (callNum === 2) return bookingChain({ id: BOOKING_UUID });
+    return usageLogChain(null);
+  });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
+  expect(res.status).toBe(200);
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+    action: 'update',
+    tableName: 'user_packages',
+    recordId: UP_UUID,
+    newValues: expect.objectContaining({ consumed: 1, booking_id: BOOKING_UUID, by: 'facility_admin' }),
+  }));
+});
+
+test('PATCH: 消費済みログの事前照会が DB 障害 → 500（素通りさせない）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildUserPackage());
+    if (callNum === 2) return bookingChain({ id: BOOKING_UUID });
+    return {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { code: '08006', message: 'down' } })),
+    };
+  });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
+  expect(res.status).toBe(500);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
+});

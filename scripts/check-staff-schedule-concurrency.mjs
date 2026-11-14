@@ -2,14 +2,18 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-const shadowDocker = process.argv[2] === '--local-docker-shadow';
-const local = shadowDocker || process.argv[2] === '--local-docker';
-const database = local && !shadowDocker ? 'postgres' : 'carelink_shadow';
+// ローカルは使い捨ての shadow DB だけを使う（以前の --local-docker はローカル Supabase の実 DB
+// `postgres` に合成行を書き込んでいたため廃止）。Docker のソケットは本人の HOME 配下に固定し、
+// 子プロセスへは接続に要る最小限の環境変数だけを渡す（秘密値を引き継がない）。
+if (process.argv[2] === '--local-docker') throw new Error('--local-docker was removed; use --local-docker-shadow');
+const local = process.argv[2] === '--local-docker-shadow';
+const database = 'carelink_shadow';
 let executable; let argumentsFor; let environment;
 if (local) {
-  assert.match(process.env.DOCKER_HOST || '', /^unix:\/\/.+\/\.docker\/run\/docker\.sock$/);
+  assert.ok(process.env.HOME && process.env.HOME.startsWith('/'));
+  assert.equal(process.env.DOCKER_HOST, `unix://${process.env.HOME}/.docker/run/docker.sock`);
   assert.equal(process.argv.length, 3);
-  executable = 'docker'; environment = process.env;
+  executable = 'docker'; environment = { PATH:process.env.PATH, HOME:process.env.HOME, DOCKER_HOST:process.env.DOCKER_HOST };
   argumentsFor = () => ['exec','-i','supabase_db_carelink','psql','-U','postgres','-X','-qAt','-v','ON_ERROR_STOP=1','-d',database];
 } else {
   assert.equal(process.env.GITHUB_ACTIONS,'true'); assert.equal(process.env.CI,'true');

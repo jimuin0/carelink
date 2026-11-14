@@ -52,3 +52,27 @@ test('unsafe legacy photo prevents approval instead of displaying untrusted medi
  render(<ModerationPage/>);fireEvent.click(await screen.findByRole('button',{name:'審査する'}));
  await screen.findByText('写真を安全に確認できません。この口コミは審査できません');expect(actions().getByRole('button',{name:'承認',exact:true})).toBeDisabled();
 });
+
+// 監査 A180: 審査後の再取得（load）に世代管理が無く、絞り込みを切り替えた後に古いフィルタの応答が届くと
+// 表示中のフィルタと中身が合わない一覧に上書きされた。
+test('審査後の再取得が遅れて届いても、切り替え後のフィルタの一覧を上書きしない', async () => {
+ const row=(reason:string,status:string)=>({ id, content_type: 'review', content_id: id, facility_id: null, report_reason: reason, auto_flags: [], status, review_note: null, reviewed_at: null, created_at: '2026-10-08T00:00:00Z' });
+ let call=0; let releaseStale:()=>void=()=>{};
+ mockDb.mockImplementation(() => {
+  call+=1; const n=call;
+  const result = { data: [n===1?row('Synthetic report','pending'):n===2?row('Stale pending row','pending'):row('Approved filter row','approved')], error: null };
+  const gate = n===2 ? new Promise<void>(r=>{releaseStale=r;}) : Promise.resolve();
+  const chain = { select: () => chain, order: () => chain, limit: () => chain, eq: () => chain,
+   then: (resolve: (value: typeof result) => void) => gate.then(()=>resolve(result)) }; return { from: () => chain };
+ });
+ render(<ModerationPage />); fireEvent.click(await screen.findByRole('button', { name: '審査する' }));
+ await screen.findByText('Original content for moderation');
+ fireEvent.click(actions().getByRole('button', { name: '承認', exact: true }));
+ await waitFor(() => expect(call).toBe(2));
+ fireEvent.click(screen.getByRole('button', { name: '承認済み' }));
+ expect(await screen.findByText(/Approved filter row/)).toBeInTheDocument();
+ releaseStale();
+ await screen.findByText('承認しました');
+ expect(screen.queryByText(/Stale pending row/)).not.toBeInTheDocument();
+ expect(screen.getByText(/Approved filter row/)).toBeInTheDocument();
+});

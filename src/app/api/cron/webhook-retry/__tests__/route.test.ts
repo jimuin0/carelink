@@ -116,6 +116,9 @@ function claimChain(result: jest.Mock) {
  *      .eq('status','processing').or('claimed_at.lt....,and(claimed_at.is.null,scheduled_at.lt....)')
  *      へ変更＝claim 時刻基準・null フォールバック付き）
  */
+const jobsQueryArgs: { eq: unknown[][]; lte: unknown[][]; order: unknown[][]; limit: unknown[][] } = { eq: [], lte: [], order: [], limit: [] };
+beforeEach(() => { for (const k of Object.keys(jobsQueryArgs) as Array<keyof typeof jobsQueryArgs>) jobsQueryArgs[k] = []; });
+
 function makeWebhookRetryQueueTable(overrides: {
   jobsSelect: jest.Mock;
   claimUpdate: jest.Mock;
@@ -161,13 +164,26 @@ function makeWebhookRetryQueueTable(overrides: {
           }),
         };
       }
+      // ジョブ取得クエリの各段の引数を記録し、上限・並び順・期限条件を検証できるようにする。
       return {
-        eq: jest.fn().mockReturnValue({
-          lte: jest.fn().mockReturnValue({
-            order: jest.fn().mockReturnValue({
-              limit: overrides.jobsSelect,
+        eq: jest.fn((...eqArgs: unknown[]) => {
+          jobsQueryArgs.eq.push(eqArgs);
+          return {
+            lte: jest.fn((...lteArgs: unknown[]) => {
+              jobsQueryArgs.lte.push(lteArgs);
+              return {
+                order: jest.fn((...orderArgs: unknown[]) => {
+                  jobsQueryArgs.order.push(orderArgs);
+                  return {
+                    limit: jest.fn((...limitArgs: unknown[]) => {
+                      jobsQueryArgs.limit.push(limitArgs);
+                      return overrides.jobsSelect(...limitArgs);
+                    }),
+                  };
+                }),
+              };
             }),
-          }),
+          };
         }),
       };
     }),
@@ -882,6 +898,24 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(mockSendLineText).toHaveBeenCalled();
   });
 
+  // 低 A150: 実行上限の手前で新しい送信を始めずに打ち切り、残りは stale reclaim に任せる。
+  test('送信の時間予算を超えたら残りのジョブは送らず deferred として記録する', async () => {
+    setupDefaultMocks(1);
+    let clock = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => clock);
+    mockSendLineText.mockImplementation(async () => { clock += 60_000; return true; });
+    const { Resend } = require('resend');
+    const sendEmail = jest.fn();
+    (Resend as jest.Mock).mockImplementation(() => ({ emails: { send: sendEmail } }));
+    const res = await GET(makeRequest() as any);
+    nowSpy.mockRestore();
+    expect(mockSendLineText).toHaveBeenCalledTimes(1);
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect((await res.json()).deferred).toBe(1);
+    expect(logCronRun).toHaveBeenCalledWith('webhook-retry', expect.any(String), expect.any(Date),
+      expect.objectContaining({ meta: expect.objectContaining({ deferred: 1 }) }));
+  });
+
   test('email webhook → sends via Resend', async () => {
     setupDefaultMocks(1);
 
@@ -1152,14 +1186,23 @@ describe('GET /api/cron/webhook-retry', () => {
     await GET(makeRequest() as any);
 
     expect(mockJobsSelect).toHaveBeenCalled();
+    expect(jobsQueryArgs.eq).toEqual([['status', 'pending']]);
+    expect(jobsQueryArgs.limit).toEqual([[50]]);
   });
 
-  test('orders by scheduled_at ascending', async () => {
+  test('orders by scheduled_at ascending（期限到来分＝scheduled_at <= 現在 のみ）', async () => {
     setupDefaultMocks(1);
+    const before = Date.now();
 
     await GET(makeRequest() as any);
 
-    expect(mockJobsSelect).toHaveBeenCalled();
+    expect(jobsQueryArgs.order).toEqual([['scheduled_at', { ascending: true }]]);
+    expect(jobsQueryArgs.lte).toHaveLength(1);
+    const [column, at] = jobsQueryArgs.lte[0] as [string, string];
+    expect(column).toBe('scheduled_at');
+    const t = Date.parse(at);
+    expect(t).toBeGreaterThanOrEqual(before - 1000);
+    expect(t).toBeLessThanOrEqual(Date.now() + 1000);
   });
 
   test('exception during processing → 500', async () => {

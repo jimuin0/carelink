@@ -70,7 +70,10 @@ export default function AdjustRequestButtons({ bookingId, status }: { bookingId:
         setResult({ type: 'error', message: json?.error || '通知の受付を確認できません' });
       }
     } catch {
-      setResult({ type: 'error', message: '通知の受付結果を確認できません。この画面で同じメール依頼を再確認してください。新しい依頼は作成せず、保存した操作を照合します。' });
+      // LINE には保存した操作（照合の仕組み）が無いので、メール用の「保存した操作を照合します」は出さない（監査 A271）。
+      setResult({ type: 'error', message: channel === 'email'
+        ? '通知の受付結果を確認できません。この画面で同じメール依頼を再確認してください。新しい依頼は作成せず、保存した操作を照合します。'
+        : 'LINEの送信結果を確認できません。お客様のLINEに届いているか確認してから、必要な場合だけ送り直してください。' });
     } finally {
       setSending(null);
       flight.current = false;

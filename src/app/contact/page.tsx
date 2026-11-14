@@ -119,17 +119,18 @@ function ContactPageContent() {
 
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        throw new Error(body?.error || '送信に失敗しました');
+        // サーバーが受け付けなかった（＝送信されていない）ことが分かる失敗。サーバーの日本語メッセージを出す。
+        setToast({ message: body?.error || '送信に失敗しました。時間をおいて再度お試しください。', type: 'error' });
+        return;
       }
 
       reset();
       setSubmitted(true);
-    } catch (e) {
+    } catch {
+      // 通信断など。ブラウザの英語の内部メッセージ（Failed to fetch 等）は出さず、
+      // 送信できたか確認できなかったことを伝える（監査 A192）。
       setToast({
-        message:
-          e instanceof Error
-            ? e.message
-            : '送信に失敗しました。時間をおいて再度お試しください。',
+        message: '通信に失敗したため、送信できたか確認できませんでした。通信状況をご確認のうえ、時間をおいて再度お試しください。',
         type: 'error',
       });
     } finally {

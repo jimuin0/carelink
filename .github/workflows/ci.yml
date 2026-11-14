@@ -30,6 +30,10 @@ jobs:
         run: node --test scripts/warm-runtime-compile-cache.test.mjs scripts/prune-vcr-images.test.mjs scripts/runtime-cpu-sampler.test.cjs scripts/static-asset-cdn-cache.test.cjs scripts/deepmerge-security.test.cjs
       - name: Cloudflare Worker build contract
         run: node --test tools/cloudflare/*.test.mjs
+      # 公開設定ベースイメージのヘルパー（秘密値の除外・権限の強い鍵の拒否・送信先制限）。
+      # CLAUDE.md「Vercelの固定Node.jsランタイム」が確認手段として挙げているが、CI で走っていなかった。
+      - name: Runtime public-config base helper contract
+        run: node --test scripts/build-runtime-config-base.test.mjs
       - name: Verify admin schedule export against cron registry
         run: |
           node --test scripts/export-admin-schedules.test.mjs

@@ -1,4 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
+
+// /api/salons は IP あたり 20 回/分の制限がある。テストごとに別の IP を名乗り、
+// 他のテストの呼び出しで既に 429 になっていた、という偶然に結果を左右させない。
+const freshIp = () => '2001:db8:' + randomUUID().replace(/-/g, '').match(/.{1,4}/g)!.slice(0, 6).join(':');
 
 /**
  * API コントラクト テスト
@@ -26,41 +31,41 @@ test.describe('API レスポンス形式', () => {
   });
 
   test('/api/salons のレスポンスが配列', async ({ request }) => {
-    const response = await request.get('/api/salons');
-    if (response.status() === 200) {
-      const json = await response.json();
-      expect(Array.isArray(json)).toBe(true);
-    }
+    const response = await request.get('/api/salons', { headers: { 'x-real-ip': freshIp() } });
+    expect(response.status()).toBe(200);
+    const json = await response.json();
+    expect(Array.isArray(json)).toBe(true);
   });
 
   test('エラーレスポンスは { error: string } 形式', async ({ request }) => {
-    const response = await request.get('/api/salons?id=not-a-uuid-at-all-invalid-xxxxx');
-    // UUID 不一致でリスト検索（エラーなし）またはエラー
-    if (response.status() >= 400) {
-      const json = await response.json();
-      expect(json).toHaveProperty('error');
-      expect(typeof json.error).toBe('string');
-    }
+    const response = await request.get('/api/salons?id=not-a-uuid-at-all-invalid-xxxxx', { headers: { 'x-real-ip': freshIp() } });
+    // UUID でない id は DB を引く前に 400 で弾く
+    expect(response.status()).toBe(400);
+    const json = await response.json();
+    expect(json).toHaveProperty('error');
+    expect(typeof json.error).toBe('string');
   });
 
   test('429 レスポンスに error フィールドがある', async ({ request }) => {
-    // レート制限をトリガー（大量リクエスト）
+    // レート制限をトリガー（制限 20 回/分を超える回数を同じ IP から送る）
+    const ip = freshIp();
     let rateLimitResponse = null;
     for (let i = 0; i < 30; i++) {
-      const r = await request.get('/api/salons');
+      const r = await request.get('/api/salons', { headers: { 'x-real-ip': ip } });
       if (r.status() === 429) {
         rateLimitResponse = r;
         break;
       }
     }
-    if (rateLimitResponse) {
-      const json = await rateLimitResponse.json();
-      expect(json).toHaveProperty('error');
-    }
+    // 一度も 429 にならなければ、それ自体が失敗（制限が効いていない）
+    expect(rateLimitResponse).not.toBeNull();
+    const json = await rateLimitResponse!.json();
+    expect(json).toHaveProperty('error');
+    expect(typeof json.error).toBe('string');
   });
 
   test('401 レスポンスに error フィールドがある', async ({ request }) => {
-    const response = await request.get('/api/stripe/receipt?session_id=test');
+    const response = await request.get('/api/payment/receipt?payment_id=00000000-0000-4000-8000-000000000000');
     expect(response.status()).toBe(401);
     const json = await response.json();
     expect(json).toHaveProperty('error');

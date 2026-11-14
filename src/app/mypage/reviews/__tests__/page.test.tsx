@@ -9,7 +9,7 @@
  *   非公開になった口コミ（C9）や審査待ちの口コミにも何も出なかった。
  */
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import MyReviewsPage from '../page';
 import EditReviewPage from '../[id]/edit/page';
 
@@ -82,5 +82,28 @@ describe('口コミの編集', () => {
     mockFetch.mockImplementation(reply);
     render(<EditReviewPage />);
     expect(await screen.findByText('データの読み込みに失敗しました')).toBeInTheDocument();
+  });
+});
+
+// 監査 A193 / A194: 通信断で未処理の rejection になり、ボタンが固まる・何も起きなかったように見えた。
+describe('通信断の扱い', () => {
+  test('口コミの削除が通信断ならエラーを出す', async () => {
+    mockFetch.mockReturnValueOnce(json(200, { reviews: [mine({})] }));
+    render(<MyReviewsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: '削除' }));
+    mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError('Failed to fetch')));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '削除する' })); });
+    expect(await screen.findByText(/通信に失敗しました/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '削除' })).toBeEnabled();
+  });
+
+  test('口コミの更新が通信断ならボタンを戻してエラーを出す', async () => {
+    mockFetch.mockReturnValueOnce(json(200, { reviews: [mine({})] }));
+    render(<EditReviewPage />);
+    await screen.findByDisplayValue('日本一です');
+    mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError('Failed to fetch')));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '更新する' })); });
+    expect(await screen.findByText(/通信に失敗しました/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '更新する' })).toBeEnabled();
   });
 });

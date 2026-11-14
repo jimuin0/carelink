@@ -28,7 +28,7 @@ export async function logCronRun(
   status: 'success' | 'error' | 'skipped',
   startedAt: Date,
   result: CronResult = {}
-): Promise<void> {
+): Promise<boolean> {
   // Cloudflare のHTMLエラー本文などを cron_logs や Slack へ流さない。通常の短いDB/RPC
   // エラーは従来どおり保持するため、復旧判断に必要な情報は失わない。
   const safeErrorMessage = result.error_msg === undefined ? null : summarizeDependencyError(result.error_msg);
@@ -93,6 +93,8 @@ export async function logCronRun(
   // await しない（cron 本体のレスポンスタイムを heartbeat 送信の待ち時間で汚染しない）。
   const heartbeatStatus: HeartbeatStatus = status === 'error' ? 'fail' : logPersisted ? 'ok' : 'degraded';
   runAfterResponse(() => pushAdminHeartbeat(jobName, heartbeatStatus));
+  // cron_logs へ実際に保存できたか（呼び出し側は無視してよい。withCronLog が _logged に写す）。
+  return logPersisted;
 }
 
 export interface CronErrorOptions {
@@ -153,12 +155,14 @@ export async function cronError(
 export async function withCronLog<T extends CronResult>(
   jobName: string,
   fn: () => Promise<T>
-): Promise<T & { _logged: true }> {
+): Promise<T & { _logged: boolean }> {
   const startedAt = new Date();
   try {
     const result = await fn();
-    await logCronRun(jobName, 'success', startedAt, result);
-    return { ...result, _logged: true as const };
+    // _logged は「cron_logs に保存できたか」の実態。保存に失敗した回を「記録できた」と読ませない
+    // （失敗時は logCronRun が警告と degraded heartbeat を別に出す）。
+    const logged = await logCronRun(jobName, 'success', startedAt, result);
+    return { ...result, _logged: logged };
   } catch (err) {
     const error_msg = err instanceof Error ? err.message : String(err);
     await logCronRun(jobName, 'error', startedAt, { error_msg });

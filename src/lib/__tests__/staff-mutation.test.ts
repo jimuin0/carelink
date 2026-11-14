@@ -3,7 +3,7 @@ jest.mock('@/lib/with-route', () => ({ serverError: jest.fn(() => new Response('
 import { staffMutationError } from '../staff-mutation';
 import { serverError } from '../with-route';
 test.each([
-  [{ code: '42501', message: 'forbidden' }, 401],
+  [{ code: '42501', message: 'forbidden' }, 403], // 権限なしは再ログインで解決しない（低 A247）
   [{ message: 'STAFF_NOT_FOUND' }, 404],
   [{ message: 'STAFF_OPERATION_CONFLICT' }, 409],
   [{ message: 'STAFF_OPERATION_RETIRED' }, 409],

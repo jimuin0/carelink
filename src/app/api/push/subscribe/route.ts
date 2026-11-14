@@ -64,10 +64,11 @@ export async function POST(request: NextRequest) {
     }
     const { endpoint, keys } = body;
 
-    if (!endpoint || typeof endpoint !== 'string' || !keys?.p256dh || !keys?.auth) {
+    // keys は文字列だけを受ける（オブジェクトや数値を text 列へ String() 化して保存しない）。
+    if (!endpoint || typeof endpoint !== 'string' || typeof keys?.p256dh !== 'string' || typeof keys?.auth !== 'string' || !keys.p256dh || !keys.auth) {
       return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 });
     }
-    if (!endpoint.startsWith('https://') || endpoint.length > 2048 || String(keys.p256dh).length > 200 || String(keys.auth).length > 100) {
+    if (!endpoint.startsWith('https://') || endpoint.length > 2048 || keys.p256dh.length > 200 || keys.auth.length > 100) {
       return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 });
     }
     // 既知のプッシュサービス以外の endpoint は拒否（SSRF 防止）。

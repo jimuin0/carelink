@@ -521,6 +521,56 @@ export type Database = {
           },
         ]
       }
+      booking_payjp_charges: {
+        Row: {
+          amount: number
+          booking_id: string | null
+          created_at: string
+          facility_id: string | null
+          id: string
+          payjp_charge_id: string | null
+          payment_type: string
+          refund_amount: number
+          status: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          amount: number
+          booking_id?: string | null
+          created_at?: string
+          facility_id?: string | null
+          id?: string
+          payjp_charge_id?: string | null
+          payment_type: string
+          refund_amount?: number
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          amount?: number
+          booking_id?: string | null
+          created_at?: string
+          facility_id?: string | null
+          id?: string
+          payjp_charge_id?: string | null
+          payment_type?: string
+          refund_amount?: number
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_payjp_charges_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       booking_waitlist: {
         Row: {
           created_at: string
@@ -2194,6 +2244,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      facility_option_payjp_subscriptions: {
+        Row: {
+          created_at: string
+          current_period_end: string | null
+          facility_id: string
+          last_event_at: string | null
+          option_key: string
+          payjp_customer_id: string
+          payjp_subscription_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_period_end?: string | null
+          facility_id: string
+          last_event_at?: string | null
+          option_key: string
+          payjp_customer_id: string
+          payjp_subscription_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_period_end?: string | null
+          facility_id?: string
+          last_event_at?: string | null
+          option_key?: string
+          payjp_customer_id?: string
+          payjp_subscription_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       facility_page_views: {
         Row: {
@@ -7981,12 +8067,14 @@ export type Database = {
         Args: { p_today: string }
         Returns: {
           booking_date: string
+          cancel_fee_context: Json | null
           charges: Json | null
           coupon_id: string | null
           created_at: string | null
           customer_name: string
           email: string | null
           email_canonical: string | null
+          end_date: string | null
           end_time: string
           facility_id: string
           id: string
@@ -8002,6 +8090,7 @@ export type Database = {
           review_request_legacy_claimed_at: string | null
           review_request_provider_accepted_at: string | null
           source: string
+          staff_auto_assigned: boolean
           staff_id: string | null
           start_time: string
           status: string

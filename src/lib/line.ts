@@ -138,6 +138,9 @@ export async function sendLinePushWithOutcome(
   maxRetries = 3
 ): Promise<LineDeliveryOutcome> {
   const token = getToken();
+  // 同じ送信の再試行には同じ再送キーを付ける。タイムアウト等で「実は届いていた」送信を
+  // 再試行しても LINE 側で重複配信されない（B4-7）。受理済みのキーには 409 が返る。
+  const retryKey = globalThis.crypto.randomUUID();
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
@@ -146,12 +149,15 @@ export async function sendLinePushWithOutcome(
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
+          'X-Line-Retry-Key': retryKey,
         },
         body: JSON.stringify({ to: lineUserId, messages }),
         signal: AbortSignal.timeout(10000),
       });
 
       if (res.ok) return 'delivered';
+      // 409＝同じ再送キーの送信を LINE が既に受理済み（前の試行が届いていた）。
+      if (res.status === 409) return 'delivered';
 
       const errorText = await res.text().catch(() => '');
       console.error(`[LINE] Push failed: ${res.status} ${errorText}`);
@@ -200,7 +206,7 @@ export async function sendLinePush(
  * claim 解放による再送が発火せず配信が無音で永久消失する。新しい cron / 通知経路を足す時は
  * 既存の webhook-retry / birthday-coupon と同じ `const ok = await sendX(); if (ok) …` 流儀に揃える。
  *
- * opts.enqueueOnFailure=true を渡すと、送信失敗（false）時に webhook_retry_queue へ登録し
+ * opts.enqueueOnFailure=true を渡すと、一時的な送信失敗（429・5xx・ネットワーク）時に webhook_retry_queue へ登録し
  * 15分毎の webhook-retry cron に自動再送させる。既定は enqueue しない（省略時は従来と完全に
  * 同一の挙動・戻り値契約）。review-request / birthday-coupon 等の cron から直接呼ぶ経路は
  * 各 cron 自身が独自の翌 run 再送（claim 解放 / 送達記録テーブル）を既に持つため opts を渡さず
@@ -211,8 +217,11 @@ export async function sendLineText(
   text: string,
   opts?: { enqueueOnFailure?: boolean; facilityId?: string | null }
 ): Promise<boolean> {
-  const ok = await sendLinePush(lineUserId, [{ type: 'text', text }]);
-  if (!ok && opts?.enqueueOnFailure) {
+  const outcome = await sendLinePushWithOutcome(lineUserId, [{ type: 'text', text }]);
+  const ok = outcome === 'delivered';
+  // 再送キューに積むのは一時的な失敗（429・5xx・ネットワーク）だけ。恒久エラー（4xx＝宛先無効・ブロック）は
+  // 何度送っても届かないので積まない（Issue #417 と同じ方針。積むと webhook-retry が上限まで無駄打ちする）。
+  if (outcome === 'transient' && opts?.enqueueOnFailure) {
     runAfterResponse(() => enqueueWebhook({
       type: 'line_push',
       targetId: lineUserId,

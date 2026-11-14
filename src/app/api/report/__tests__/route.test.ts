@@ -39,6 +39,7 @@ let mockInsert: jest.Mock;
 // 【監査H2】moderation_queue 連携は rpc('enqueue_moderation') 経由（atomic dedup）。
 let mockRpc: jest.Mock;
 let targetFacilityId: string | null;
+let targetLookupError: { message: string } | null;
 
 function setupDefaultMocks(
   hasUser: boolean = true,
@@ -55,6 +56,7 @@ function setupDefaultMocks(
   // 【監査H2】moderation_queue への連携は rpc('enqueue_moderation') に一本化（atomic dedup）。
   mockRpc = jest.fn().mockResolvedValue({ error: null });
   targetFacilityId = 'fac-1';
+  targetLookupError = null;
 
   // 認証判定のみ anon SSR クライアント（createServerClient・withRoute 内部の
   // createServerSupabaseAuthClient 経由で使われる）
@@ -76,6 +78,7 @@ function setupDefaultMocks(
             eq: jest.fn().mockReturnValue({
               maybeSingle: jest.fn().mockResolvedValue({
                 data: targetFacilityId === null ? null : { facility_id: targetFacilityId },
+                error: targetLookupError,
               }),
             }),
           }),
@@ -456,6 +459,29 @@ describe('POST /api/report', () => {
       const res = await POST(makeRequest(validReport) as any);
       expect(res.status).toBe(200);
       expect(rpcItem().facility_id).toBeNull();
+      // 本当に見つからないだけなら通知しない
+      expect(require('@/lib/alert').alertCaughtError).not.toHaveBeenCalled();
+    });
+
+    test('target の facility_id 照会が失敗 → null で投入しつつ監視通知に載せる（「見つからない」と同一視しない）', async () => {
+      const { alertCaughtError } = require('@/lib/alert');
+      targetFacilityId = null;
+      targetLookupError = { message: 'lookup failed' };
+      const res = await POST(makeRequest(validReport) as any);
+      expect(res.status).toBe(200);
+      expect(rpcItem().facility_id).toBeNull();
+      expect(alertCaughtError).toHaveBeenCalledWith('report-moderation-target', { message: 'lookup failed' }, '/api/report');
+    });
+
+    // 低 A162: 対象の読み取り失敗は通知する（facility_id=null の登録に黙って倒さない）。
+    test('target の読み取り失敗 → 通知しつつ通報は審査キューに残す', async () => {
+      const { alertCaughtError } = require('@/lib/alert');
+      targetFacilityId = null;
+      targetLookupError = { message: 'db down' };
+      const res = await POST(makeRequest(validReport) as any);
+      expect(res.status).toBe(200);
+      expect(alertCaughtError).toHaveBeenCalledWith('report-moderation-target', expect.anything(), '/api/report');
+      expect(rpcItem()).toBeDefined();
     });
 
     test('enqueue_moderation 失敗 → 通報は 200 維持・監視通知に載せる（非ブロッキング）', async () => {

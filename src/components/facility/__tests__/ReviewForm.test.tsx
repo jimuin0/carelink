@@ -18,17 +18,8 @@ beforeEach(() => {
   urlCounter = 0;
   global.URL.createObjectURL = jest.fn(() => `blob:mock-${urlCounter++}`);
   global.URL.revokeObjectURL = jest.fn();
-  // compressImage が使う Image: src 設定で onload を発火させる
-  class MockImage {
-    onload: (() => void) | null = null;
-    onerror: (() => void) | null = null;
-    width = 100;
-    height = 100;
-    set src(_v: string) { Promise.resolve().then(() => this.onload && this.onload()); }
-  }
-  (global as unknown as { Image: unknown }).Image = MockImage;
-  HTMLCanvasElement.prototype.getContext = jest.fn(() => ({ drawImage: jest.fn() })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
-  HTMLCanvasElement.prototype.toBlob = jest.fn((cb: BlobCallback) => cb(new Blob(['x'], { type: 'image/jpeg' }))) as unknown as typeof HTMLCanvasElement.prototype.toBlob;
+  // 圧縮（compressImage）は写真選択時ではなく送信時に src/lib/review-photo-upload.ts で行うので、
+  // このプレビューのテストでは Image / canvas のモックは不要（圧縮の検証は review-photo-upload / image-compress のテスト側）。
 });
 
 function imageFile(name: string) {

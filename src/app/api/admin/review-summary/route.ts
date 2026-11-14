@@ -86,17 +86,20 @@ export async function GET(request: Request) {
     .select('rating, comment, rating_skill, rating_service, rating_atmosphere')
     .eq('facility_id', facilityId)
     .eq('status', 'published')
+    // 不正検知でフラグが立った口コミ（自作自演・大量投稿の疑い）は要約に混ぜない（B2-12）。
+    .eq('is_flagged', false)
     .not('comment', 'is', null)
     .order('created_at', { ascending: false })
     .limit(20);
 
   if (reviewsErr) return serverError('admin-review-summary-fetch', reviewsErr, '/api/admin/review-summary');
-  if (!reviews || reviews.length < 3) {
+  // 本文が空の口コミを除いた後で件数を数える（除外前に数えると実質3件未満で要約し得た・低 A139）。
+  const withComment = (reviews ?? []).filter((r) => r.comment);
+  if (withComment.length < 3) {
     return NextResponse.json({ summary: null, reason: '口コミが少なすぎます（3件以上必要）' });
   }
 
-  const reviewText = reviews
-    .filter((r) => r.comment)
+  const reviewText = withComment
     .map((r, i) => `[${i + 1}] 総合${r.rating}点: ${sanitizeForPrompt(r.comment as string)}`)
     .join('\n');
 
@@ -111,7 +114,10 @@ export async function GET(request: Request) {
       }],
     });
 
-    const summary = (message.content[0] as { text: string }).text.trim();
+    // 先頭ブロックが text とは限らない（型の偽装で undefined.trim() にしない・B2-12）。
+    const first = message.content[0];
+    const summary = first?.type === 'text' ? first.text.trim() : '';
+    if (!summary) throw new Error('review summary returned no text');
     return NextResponse.json({ summary });
   } catch (e) {
     return serverError('admin-review-summary-generate', e, '/api/admin/review-summary', '要約の生成に失敗しました');

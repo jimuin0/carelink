@@ -108,12 +108,17 @@ jobs:
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_DEFAULT_CHANNEL: ${{ secrets.SLACK_DEFAULT_CHANNEL }}
+          SLACK_ADMIN_CHANNEL_ID: ${{ secrets.SLACK_ADMIN_CHANNEL_ID }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python3 <<PY
           import json, os, urllib.request
-          token = os.environ['SLACK_BOT_TOKEN']
-          channel = os.environ['SLACK_DEFAULT_CHANNEL']
+          token = os.environ.get('SLACK_BOT_TOKEN')
+          # SLACK_DEFAULT_CHANNEL が無ければ SLACK_ADMIN_CHANNEL_ID へ（Render の health-check と同じ規則）
+          channel = os.environ.get('SLACK_DEFAULT_CHANNEL') or os.environ.get('SLACK_ADMIN_CHANNEL_ID')
+          if not token or not channel:
+              print("::error::Slack の送信設定（SLACK_BOT_TOKEN / チャンネル）が無いため失敗を通知できない")
+              raise SystemExit(1)
           run_url = os.environ['RUN_URL']
           text = f"🔴 *L4 ミューテーションテスト失敗*\n> どこかのモジュールで Survived>0 または Timeout>0（取りこぼし/時間切れマスク）。\n> Run: {run_url}"
           req = urllib.request.Request(
@@ -124,9 +129,15 @@ jobs:
                   'Content-Type': 'application/json; charset=utf-8',
               },
           )
+          # chat.postMessage は失敗しても HTTP 200 + {"ok": false} を返すため、本文の ok を見る
           try:
-              urllib.request.urlopen(req, timeout=10)
-              print("✅ Slack notified")
+              with urllib.request.urlopen(req, timeout=10) as res:
+                  body = json.loads(res.read().decode('utf-8'))
           except Exception as e:
-              print(f"⚠️ Slack post failed: {e}")
+              print(f"::error::Slack post failed: {e}")
+              raise SystemExit(1)
+          if not body.get('ok'):
+              print(f"::error::Slack post failed: {body.get('error')}")
+              raise SystemExit(1)
+          print("✅ Slack notified")
           PY

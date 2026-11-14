@@ -85,7 +85,9 @@ export async function POST(request: Request) {
     // 3. アクションごとに handler を起動（fire-and-forget で 3 秒制限内に ack）
     if (payload.actions && payload.actions.length > 0) {
       const action = payload.actions[0];
-      const handler = ACTION_HANDLERS[action.action_id];
+      // 自前のキーだけを引く（'constructor' 等で Object.prototype のメソッドを呼ばないため）。
+      /* istanbul ignore next -- ACTION_HANDLERS は現在空のため true 側は到達不能 */
+      const handler = Object.hasOwn(ACTION_HANDLERS, action.action_id) ? ACTION_HANDLERS[action.action_id] : undefined;
       /* istanbul ignore next -- ACTION_HANDLERS は現在空のため true 分岐は到達不能 */
       if (handler) {
         // 結果は気にせず即 ack 返却

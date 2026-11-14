@@ -202,7 +202,14 @@ test('GET: user_id ありの行は profiles を別取得してマージ（embed�
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
   expect(res.status).toBe(200);
   const csv = await res.text();
-  expect(csv).toContain('山田太郎');
+  // 4 行すべてが出力され、profile の有無に応じて顧客名・メールが埋まる／空になる（行ごと落とさない）
+  expect(csv.replace(/^\uFEFF/, '').trim().split('\n')).toEqual([
+    '予約ID,日付,顧客名,メール,メニュー,金額,ステータス',
+    'b1,2026-01-01,山田太郎,y@example.com,,5000,completed',
+    'b2,2026-01-02,,,,3000,completed',
+    'b3,2026-01-03,,,,2000,completed',
+    'b4,2026-01-04,,,,1000,completed',
+  ]);
 });
 
 test('GET: profiles 取得失敗 → 500', async () => {
@@ -657,4 +664,25 @@ test('GET: 上限で打ち切られたら欠けた CSV を返さず 500（中 A8
   const res = await freshGET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
   expect(res.status).toBe(500);
   jest.dontMock('@/lib/paginate');
+});
+
+// 名前解決クエリの失敗を「名前なし」として成功 CSV にしない（低 A118）。
+test('GET: 複数メニューの名前解決クエリが失敗 → 500（不完全な CSV を返さない）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(dispatchAdminFrom(
+    [{
+      id: 'b-multi-err', booking_date: '2026-05-04', menu: { name: 'カット' },
+      menu_ids: [MENU1, MENU2], total_amount: 5000, status: 'completed',
+    }],
+    null,
+    { message: 'db down' },
+  ));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(500);
+  expect(await res.text()).not.toContain('カット');
+});
+
+test.each([['2026-02-30', '2026-03-31'], ['2026-01-01', '2026-13-01']])('B2-14: 実在しない日付 %s〜%s → 400（DB で 500 にしない）', async (from, to) => {
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, from, to }));
+  expect(res.status).toBe(400);
 });

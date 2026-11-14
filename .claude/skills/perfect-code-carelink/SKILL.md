@@ -1,3 +1,8 @@
+---
+name: perfect-code-carelink
+description: CareLink の全コードを観点別に並列レビューし、見つけた不具合を報告・修正する（API ルート・cron・lib・認証・UI）。現行の正は CLAUDE.md。CareLink の全面レビューを頼まれたときに使う。
+---
+
 > ⚠️ **移設ノート（2026-08-09）**: このスキルは元々 `soel` リポジトリに集約されていたが、
 > セッションがそのプロジェクト自身を開いた時にだけ自動で読み込まれるよう、このリポジトリへ移設した。
 > パス参照はリポジトリ相対に機械置換したが、venv パス・ローカル worktree の状態など
@@ -53,7 +58,7 @@
 
 ### 通常 API ルートの実装順序
 1. `checkCsrf(req)` → 失敗で 403
-2. `inMemoryRateLimit()` または `checkRateLimit()` → 超過で 429
+2. `checkRateLimit()`（Supabase RPC check_rate_limit 優先・失敗時 in-memory） → 超過で 429
 3. Supabase `getUser()` / `getAdminInfo()` → 未認証で 401
 4. `schema.safeParse()` → 不正で 400
 5. `createServiceRoleClient()` で DB 操作
@@ -90,7 +95,7 @@ user-packages, user-subscriptions, white-label, white-label/verify
 【セキュリティ実装順序（最優先）】
 各ルートが以下の順序を守っているか確認:
 1. checkCsrf(req) → 403
-2. inMemoryRateLimit() または checkRateLimit() → 429
+2. checkRateLimit()（Supabase RPC check_rate_limit 優先・失敗時 in-memory） → 429
 3. getAdminInfo() → 401（管理者認証）
 4. schema.safeParse() → 400（Zodバリデーション）
 5. createServiceRoleClient() で DB 操作
@@ -145,7 +150,7 @@ cd . && npx tsc --noEmit 2>&1 | head -20
 【セキュリティ実装順序（最優先）】
 各ルートが以下の順序を守っているか確認:
 1. checkCsrf(req) → 403（GET以外）
-2. inMemoryRateLimit() または checkRateLimit() → 429
+2. checkRateLimit()（Supabase RPC check_rate_limit 優先・失敗時 in-memory） → 429
 3. Supabase getUser() → 401（認証必要なルート）
 4. schema.safeParse() → 400
 5. createServiceRoleClient() で DB 操作
@@ -204,14 +209,13 @@ cd . && npx tsc --noEmit 2>&1 | head -20
 - src/app/api/symptoms/suggest/route.ts
 - src/app/api/stations/route.ts
 - src/app/api/health/route.ts
-- src/app/api/sentry-check/route.ts
 - src/app/api/v1/bookings/route.ts
 - src/app/api/v1/customers/route.ts
 
 【セキュリティ実装順序（最優先）】
 各ルートが以下の順序を守っているか確認:
 1. checkCsrf(req) → 403（GET以外）
-2. inMemoryRateLimit() または checkRateLimit() → 429
+2. checkRateLimit()（Supabase RPC check_rate_limit 優先・失敗時 in-memory） → 429
 3. Supabase getUser() → 401（認証必要なルート）
 4. schema.safeParse() → 400
 5. createServiceRoleClient() で DB 操作
@@ -238,10 +242,12 @@ cd . && npx tsc --noEmit 2>&1 | head -20
 ```
 src/app/api/cron/ 配下の全 route.ts を Read ツールで確認し、以下を検証・修正してください。
 
-対象 Cron（12本）:
+対象 Cron（一覧の正は src/lib/cron-jobs.data.json。本数は書かない）:
 booking-reminder, daily-summary, customer-segment, review-request,
 sync-google-ratings, onboarding-followup, birthday-coupon, flag-reviews,
-favorites-digest, waitlist-notify, webhook-retry, newsletter-digest
+favorites-digest, weekly-report, waitlist-notify, webhook-retry, hpb-menu-scrape,
+cron-heartbeat, threads-backfill, threads-token-refresh, schema-drift-check
+（newsletter-digest は廃止済み）
 
 【Cron セキュリティ実装順序（最優先）】
 各 Cron ルートが以下の順序を守っているか:
@@ -297,8 +303,8 @@ cd . && npx tsc --noEmit 2>&1 | head -20
 - タイミング攻撃に対して安全か
 
 【rate-limit.ts】
-- Upstash Redis 優先、未設定時 In-memory フォールバックが正しく動作するか
-- In-memory が 500 エントリ超過で自動クリーンアップされているか
+- Supabase RPC `check_rate_limit` 優先、失敗時 in-memory フォールバック（fail-safe・本体を 500 にしない）が正しく動作するか
+- in-memory 側のエントリが無制限に増えないか
 - レート制限超過時に 429 を返しているか
 
 【audit-logger.ts】
@@ -401,7 +407,7 @@ git diff
 
 ### Step 3: コミット後テスト
 ```bash
-python -m pytest tests/ -q 2>&1 | tail -3
+npx tsc --noEmit && npm run lint && npm run test:coverage:ci 2>&1 | tail -20
 ```
 
 ### Step 4: 私による自動セキュリティスキャン（エージェントの ? 項目と機械的補完）

@@ -143,7 +143,11 @@ describe('POST /api/line/webhook', () => {
       }) as any
     );
 
-    // Verify LINE profile API was called (would happen inside handleFollow)
+    // 検証済みの userId でプロフィール API を叩き、チャネルのアクセストークンを Bearer で渡す
+    expect(global.fetch).toHaveBeenCalledWith(
+      `https://api.line.me/v2/bot/profile/${VALID_LINE_USER_ID}`,
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer test-token' }) }),
+    );
     expect(mockUpsert).toHaveBeenCalled();
   });
 
@@ -191,7 +195,9 @@ describe('POST /api/line/webhook', () => {
     expect(mockEq).toHaveBeenCalledWith('line_user_id', VALID_LINE_USER_ID);
   });
 
-  test('unfollow event: 更新エラーでもログのみで 200 継続', async () => {
+  // 低 A157: unfollow の失敗も follow と同じく 5xx で LINE に再送させる（握り潰して 200 にしない）。
+  test('unfollow event: 更新エラー → 500（LINE が再送する）・ユーザーIDをログに出さない', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const mockEq = jest.fn().mockResolvedValue({ error: { message: 'update failed' } });
     mockFromDelegate.mockReturnValue({ update: jest.fn().mockReturnValue({ eq: mockEq }) });
 
@@ -201,11 +207,13 @@ describe('POST /api/line/webhook', () => {
       }) as any
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     expect(mockEq).toHaveBeenCalled();
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(VALID_LINE_USER_ID);
+    errorSpy.mockRestore();
   });
 
-  test('unfollow event: 例外でもログのみで 200 継続', async () => {
+  test('unfollow event: 例外 → 500（LINE が再送する）', async () => {
     mockFromDelegate.mockImplementation(() => { throw new Error('boom'); });
 
     const res = await POST(
@@ -214,7 +222,7 @@ describe('POST /api/line/webhook', () => {
       }) as any
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
   });
 
   test('message event → sends auto-reply', async () => {
@@ -527,15 +535,20 @@ describe('POST /api/line/webhook', () => {
   test('unknown event type → ignored (switch default)', async () => {
     (sendLineReply as jest.Mock).mockClear();
     mockUpsert.mockClear();
-    await POST(
+    // unfollow は専用の削除（unfollowed_at 記録）分岐を持つので、未知の種別（postback）で default を通す
+    const res = await POST(
       makeRequest({
         events: [
-          { type: 'unfollow', source: { userId: VALID_LINE_USER_ID } },
+          { type: 'postback', source: { userId: VALID_LINE_USER_ID }, replyToken: 'token-pb' },
         ],
       }) as any
     );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'ok', reply_delivery: 'not_attempted' });
+    expect(mockFromDelegate).not.toHaveBeenCalled();
     expect(mockUpsert).not.toHaveBeenCalled();
     expect(sendLineReply).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
 

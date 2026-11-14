@@ -11,5 +11,12 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
  */
 export async function rollbackUploadedSalonPhotos(uploadedPaths: string[]): Promise<void> {
   if (uploadedPaths.length === 0) return;
-  await createBrowserSupabaseClient().storage.from('carelink-uploads').remove(uploadedPaths).catch(() => {});
+  // Supabase SDK の通常の失敗は reject ではなく { error } で返る。どちらの形でも投げ直さないが、
+  // 孤児ファイルが残ったことを無音にしないよう記録する（パスはランダム UUID で個人情報を含まない）。
+  try {
+    const { error } = await createBrowserSupabaseClient().storage.from('carelink-uploads').remove(uploadedPaths);
+    if (error) console.error('[salon-photo-rollback] remove failed', { count: uploadedPaths.length, message: error.message });
+  } catch (e) {
+    console.error('[salon-photo-rollback] remove threw', { count: uploadedPaths.length, message: e instanceof Error ? e.message : String(e) });
+  }
 }

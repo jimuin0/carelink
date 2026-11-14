@@ -352,19 +352,24 @@ describe('変更する予約を外した空き・当日からの日付', () => {
     expect(new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost').searchParams.get('excludeBookingId')).toBe('b1');
   });
 
+  // 時刻を固定する。実時刻のままだと、描画と期待値の計算の間に JST の日付が変わる瞬間（深夜0時）に
+  // 1 日ずれて落ちる。JST 2099-05-01 00:00:30（UTC では前日 4/30）に固定し、JST で日付を決めていることも同時に確かめる。
   test('日付の候補は JST の今日から 30 日分', async () => {
-    mockSupabase();
-    mockFetch(slotsFor([]));
-    render(<BookingChangePage />);
-    await screen.findByText('新しい日付を選択');
-    const today = new Date(Date.now() + 9 * 3_600_000);
-    const buttons = screen.getAllByRole('button');
-    expect(buttons[0]).toHaveTextContent(`${today.getUTCMonth() + 1}/${today.getUTCDate()}`);
-    fireEvent.click(buttons[0]);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const todayYmd = today.toISOString().slice(0, 10);
-    expect(new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost').searchParams.get('dates')).toBe(todayYmd);
-    expect(buttons.filter((b) => /^\d+\/\d+/.test(b.textContent ?? ''))).toHaveLength(30);
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2099, 3, 30, 15, 0, 30));
+    try {
+      mockSupabase();
+      mockFetch(slotsFor([]));
+      render(<BookingChangePage />);
+      await screen.findByText('新しい日付を選択');
+      const buttons = screen.getAllByRole('button');
+      expect(buttons[0]).toHaveTextContent('5/1');
+      fireEvent.click(buttons[0]);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost').searchParams.get('dates')).toBe('2099-05-01');
+      expect(buttons.filter((b) => /^\d+\/\d+/.test(b.textContent ?? ''))).toHaveLength(30);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 });
 

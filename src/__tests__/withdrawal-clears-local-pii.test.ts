@@ -14,7 +14,11 @@ import { join } from 'path';
 
 const SRC = join(process.cwd(), 'src');
 
-/** 退会成功後に全リロードする画面。ここは増える可能性があるので実ファイルから探す。 */
+/**
+ * 退会成功後に全リロードする画面の台帳。下の「台帳と実ファイルの一致」検査が、
+ * src 全体から退会 API（/api/account/delete）を呼ぶ画面を走査して突き合わせるので、
+ * 新しい退会画面を足したのに台帳へ載せ忘れると CI が落ちる（＝配線漏れを新画面にも効かせる）。
+ */
 const WITHDRAWAL_FILES = [
   'src/app/mypage/profile/page.tsx',
   'src/components/admin/WithdrawalSettings.tsx',
@@ -34,6 +38,16 @@ describe('退会時の端末側 PII 消去', () => {
     for (const file of WITHDRAWAL_FILES) {
       expect(() => readFileSync(join(process.cwd(), file), 'utf8')).not.toThrow();
     }
+  });
+
+  it('退会 API を呼ぶ画面はすべて台帳に載っている（新しい退会画面の配線漏れを検出する）', () => {
+    const callers = walk(SRC)
+      .filter((file) => !file.includes('__tests__') && !/\.test\.tsx?$/.test(file))
+      .filter((file) => !file.includes(join('app', 'api') + '/'))
+      .filter((file) => /['"`]\/api\/account\/delete['"`?]/.test(readFileSync(file, 'utf8')))
+      .map((file) => file.slice(process.cwd().length + 1).split('\\').join('/'))
+      .sort();
+    expect(callers).toEqual([...WITHDRAWAL_FILES].sort());
   });
 
   it.each(WITHDRAWAL_FILES)('%s は不可逆な削除HTTPより前に非同期の端末消去を検証する', (file) => {

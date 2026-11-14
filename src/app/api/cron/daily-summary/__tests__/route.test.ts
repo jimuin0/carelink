@@ -423,3 +423,20 @@ describe('日次売上サマリーメール（email_daily_summary）', () => {
     expect(sendDailySummaryEmail).toHaveBeenCalledWith(expect.objectContaining({ facilityName: '施設' }));
   });
 });
+
+// 低 A149: daily_revenue_summary を 1 回の .in(全ID) で読まない（db-max-rows・URL 長で後半が落ちる）。
+test('ON の施設が多くても daily_revenue_summary は小分けにして全施設分を読む', async () => {
+  const optedIn = Array.from({ length: 450 }, (_, i) => ({ facility_id: `f-${i}` }));
+  const inCalls: string[][] = [];
+  setupEmailFrom({ optedIn });
+  const base = mockFrom.getMockImplementation()!;
+  mockFrom.mockImplementation((table: string) => {
+    if (table !== 'daily_revenue_summary') return base(table);
+    const c = chain({ data: [], error: null });
+    c.in = (_col: string, ids: string[]) => { inCalls.push(ids); return c; };
+    return c;
+  });
+  await GET(makeRequest());
+  expect(inCalls.flat()).toEqual(optedIn.map((r) => r.facility_id));
+  expect(Math.max(...inCalls.map((ids) => ids.length))).toBeLessThanOrEqual(200);
+});

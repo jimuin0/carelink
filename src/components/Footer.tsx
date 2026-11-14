@@ -176,8 +176,10 @@ export default function Footer() {
               施設掲載をご希望のオーナー様はこちら →
             </Link>
           </div>
-          <div className="text-center text-sm text-gray-400">
-            &copy; {new Date().getFullYear()} CareLink All rights reserved.
+          {/* 年はサーバー（UTC）と閲覧者の端末で食い違わないよう JST で出す。ISR で年をまたいだ
+              キャッシュを配った場合の差だけは表示上の差なので警告を抑える（B6-17）。 */}
+          <div className="text-center text-sm text-gray-400" suppressHydrationWarning>
+            &copy; {new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tokyo', year: 'numeric' }).format(new Date())} CareLink All rights reserved.
           </div>
         </div>
       </div>

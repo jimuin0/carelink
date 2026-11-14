@@ -179,6 +179,12 @@ test('POST: price が負数 → 400', async () => {
   expect(res.status).toBe(400);
 });
 
+test('POST: price が上限 9999999 を超える → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makePostRequest(validPostBody({ price: 10_000_000 })));
+  expect(res.status).toBe(400);
+});
+
 test('POST: DB挿入失敗 → 500', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(insertSingle(null, { message: 'DB error' }));
@@ -321,6 +327,41 @@ test('POST: レートリミット params', async () => {
   (checkRateLimit as jest.Mock).mockClear();
   await POST(makePostRequest(validPostBody()));
   const call = (checkRateLimit as jest.Mock).mock.calls[0];
-  expect(call[2]).toBeGreaterThan(0);
+  expect(call[2]).toBe(20);
   expect(call[3]).toBe(60_000);
+  expect(call[4]).toBe('packages');
+});
+
+// ─── 障害を 401/400 に化けさせない（点検 A127） ─────────────────────────────────
+function failingSingle(error: { code?: string; message: string }) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    in: jest.fn().mockReturnThis(),
+    single: jest.fn(() => Promise.resolve({ data: null, error })),
+  };
+}
+
+it('GET: メンバー確認が DB 障害 → 500（401 にしない）', async () => {
+  mockAnonFrom.mockReturnValue(failingSingle({ code: '08006', message: 'connection failure' }));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+
+it('GET: メンバー確認が 0 行（PGRST116）→ 401', async () => {
+  mockAnonFrom.mockReturnValue(failingSingle({ code: 'PGRST116', message: 'no rows' }));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(401);
+});
+
+it('POST: メニュー照会が DB 障害 → 500（「リクエストが不正です」400 にしない）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const insert = insertSingle({ id: 'aaa' });
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'facility_menus' ? failingSingle({ code: '08006', message: 'connection failure' }) : insert,
+  );
+  const res = await POST(makePostRequest(validPostBody({ menu_id: MENU_UUID })));
+  expect(res.status).toBe(500);
+  expect(insert.insert).not.toHaveBeenCalled();
 });

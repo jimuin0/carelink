@@ -13,12 +13,15 @@ jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: 
 import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
+// クエリビルダ。ilike の呼び出し有無と引数（エスケープ・切り詰め）を結果として検証する
+let chainable: any;
+
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
 
   const { createServerSupabaseClient } = require('@/lib/supabase-server');
-  const chainable: any = {};
+  chainable = {};
   Object.assign(chainable, {
     eq: jest.fn().mockReturnValue(chainable),
     not: jest.fn().mockReturnValue(chainable),
@@ -49,18 +52,18 @@ describe('GET /api/stations', () => {
     expect(res.status).toBe(200);
   });
 
-  test('rate limit params', () => {
+  test('rate limit params', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    GET(new Request('http://localhost/api/stations', {
+    await GET(new Request('http://localhost/api/stations', {
       headers: { 'x-forwarded-for': '192.168.1.1' },
     }) as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[2]).toBe(30);
   });
 
-  test('IP extraction', () => {
+  test('IP extraction', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    GET(new Request('http://localhost/api/stations', {
+    await GET(new Request('http://localhost/api/stations', {
       headers: { 'x-forwarded-for': '10.0.0.1, 192.168.1.1' },
     }) as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
@@ -169,6 +172,8 @@ describe('GET /api/stations', () => {
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
     const res = await GET(req as any);
     expect(res.status).toBe(200);
+    expect(chainable.ilike).not.toHaveBeenCalled();
+    expect(chainable.limit).toHaveBeenCalledWith(200);
   });
 
   test('q が 50 文字超でも安全に処理（スライス）', async () => {
@@ -179,6 +184,7 @@ describe('GET /api/stations', () => {
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
     const res = await GET(req as any);
     expect(res.status).toBe(200);
+    expect(chainable.ilike).toHaveBeenCalledWith('nearest_station', `%${'あ'.repeat(50)}%`);
   });
 
   test('q に SQL injection 文字が含まれても安全', async () => {
@@ -188,13 +194,15 @@ describe('GET /api/stations', () => {
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
     const res = await GET(req as any);
     expect(res.status).toBe(200);
+    // % _ \ はそれぞれバックスラッシュでエスケープされ、ワイルドカードとして効かない
+    expect(chainable.ilike).toHaveBeenCalledWith('nearest_station', '%\\%\\_\\\\%');
   });
 
-  test('unknown IP（x-forwarded-for なし）でもレートリミット動作', () => {
+  test('unknown IP（x-forwarded-for なし）でもレートリミット動作', async () => {
     (checkRateLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/stations');
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    GET(req as any);
+    await GET(req as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('unknown');
   });

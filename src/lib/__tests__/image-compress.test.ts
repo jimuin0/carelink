@@ -7,6 +7,7 @@ import { compressImage, MAX_OUTPUT_SIZE, MAX_DIMENSION } from '../image-compress
 
 let mockDims = { width: 100, height: 100 };
 let triggerError = false;
+let drawImage: jest.Mock;
 
 class MockImage {
   onload: (() => void) | null = null;
@@ -31,7 +32,8 @@ beforeEach(() => {
   mockDims = { width: 100, height: 100 };
   triggerError = false;
   // 既定: ctx あり・小さい blob を返す（成功パス）
-  HTMLCanvasElement.prototype.getContext = jest.fn(() => ({ drawImage: jest.fn() })) as never;
+  drawImage = jest.fn();
+  HTMLCanvasElement.prototype.getContext = jest.fn(() => ({ drawImage })) as never;
   HTMLCanvasElement.prototype.toBlob = jest.fn((cb: BlobCallback) =>
     cb(new Blob(['x'], { type: 'image/jpeg' }))) as never;
 });
@@ -46,22 +48,29 @@ test('リサイズなし（MAX_DIMENSION以下）でも圧縮して File を返�
   expect(out).toBeInstanceOf(File);
   expect(out.type).toBe('image/jpeg');
   expect(out.name).toMatch(/\.jpg$/);
+  // 元の寸法のまま描く
+  expect(drawImage.mock.calls[0].slice(1)).toEqual([0, 0, 100, 100]);
 });
 
 test('横長（width>height かつ MAX 超）は width 基準でリサイズ', async () => {
   mockDims = { width: MAX_DIMENSION * 2, height: MAX_DIMENSION };
-  const setW = jest.fn();
-  const setH = jest.fn();
-  // canvas.width/height への代入を観測してリサイズ計算分岐を確認
   const out = await compressImage(makeFile());
   expect(out).toBeInstanceOf(File);
-  void setW; void setH;
+  // 長辺（幅）を MAX に合わせ、縦横比を保つ
+  expect(drawImage.mock.calls[0].slice(1)).toEqual([0, 0, MAX_DIMENSION, MAX_DIMENSION / 2]);
 });
 
 test('縦長（height>=width かつ MAX 超）は height 基準でリサイズ', async () => {
   mockDims = { width: MAX_DIMENSION, height: MAX_DIMENSION * 2 };
   const out = await compressImage(makeFile());
   expect(out).toBeInstanceOf(File);
+  expect(drawImage.mock.calls[0].slice(1)).toEqual([0, 0, MAX_DIMENSION / 2, MAX_DIMENSION]);
+});
+
+test('片辺だけ MAX を超える場合も長辺基準で縮め、端数は四捨五入する', async () => {
+  mockDims = { width: 3000, height: 1001 };
+  await compressImage(makeFile());
+  expect(drawImage.mock.calls[0].slice(1)).toEqual([0, 0, MAX_DIMENSION, Math.round((1001 * MAX_DIMENSION) / 3000)]);
 });
 
 test('getContext が null なら元 File をそのまま返す', async () => {
@@ -89,6 +98,21 @@ test('blob が大きくても quality<=0.4 まで下げて最終的に返す', a
   const out = await compressImage(makeFile());
   expect(out).toBeInstanceOf(File);
   expect(out.type).toBe('image/jpeg');
+  // 0.85 から 0.1 ずつ下げ、0.4 以下になった回で打ち切る（0.85, 0.75, 0.65, 0.55, 0.45, 0.35 の 6 回）
+  const qualities = (HTMLCanvasElement.prototype.toBlob as jest.Mock).mock.calls.map((c) => c[2]);
+  expect(qualities).toHaveLength(6);
+  [0.85, 0.75, 0.65, 0.55, 0.45, 0.35].forEach((q, i) => expect(qualities[i]).toBeCloseTo(q));
+});
+
+test('目標サイズ以下になった時点で品質を下げるのをやめる', async () => {
+  let n = 0;
+  HTMLCanvasElement.prototype.toBlob = jest.fn((cb: BlobCallback) => {
+    const blob = new Blob(['x'], { type: 'image/jpeg' });
+    Object.defineProperty(blob, 'size', { value: n++ === 0 ? MAX_OUTPUT_SIZE + 1 : MAX_OUTPUT_SIZE });
+    cb(blob);
+  }) as never;
+  await compressImage(makeFile());
+  expect(HTMLCanvasElement.prototype.toBlob).toHaveBeenCalledTimes(2);
 });
 
 test('画像読み込みエラー（onerror）は reject する', async () => {

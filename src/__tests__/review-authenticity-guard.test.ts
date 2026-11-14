@@ -23,6 +23,20 @@ import { join } from 'path';
 const root = process.cwd();
 const read = (p: string) => readFileSync(join(root, p), 'utf8');
 
+/**
+ * `.from('facility_reviews')` から文の終わり（;）までの間に `.insert(` / `.upsert(` があるか。
+ * 距離で打ち切らないので、select や eq を長く挟んだ書き込みも拾う。引用符は ' " ` のいずれでもよい。
+ */
+function writesFacilityReviews(src: string): boolean {
+  for (const m of src.matchAll(/\.from\(\s*(['"`])facility_reviews\1\s*\)/g)) {
+    const rest = src.slice(m.index! + m[0].length);
+    const end = rest.indexOf(';');
+    const statement = end === -1 ? rest : rest.slice(0, end);
+    if (/\.(?:insert|upsert)\s*\(/.test(statement)) return true;
+  }
+  return false;
+}
+
 describe('口コミ真正性ガード', () => {
   describe('DB の CHECK 制約（入口の物理封鎖）', () => {
     const migrationName = '20260729000002_facility_reviews_authenticity_constraints.sql';
@@ -49,6 +63,14 @@ describe('口コミ真正性ガード', () => {
   describe('制約が正規の投稿を弾かない前提（これが崩れると口コミが投稿不能になる）', () => {
     const route = read('src/app/api/review/route.ts');
 
+    test('検出器は upsert・離れた位置の insert・引用符の違いも拾う（負の対照つき）', () => {
+      expect(writesFacilityReviews("await db.from('facility_reviews').insert({ a: 1 });")).toBe(true);
+      expect(writesFacilityReviews('await db.from("facility_reviews").upsert(row, { onConflict: "id" });')).toBe(true);
+      expect(writesFacilityReviews('await db.from(`facility_reviews`)\n' + '  .select("id")\n'.repeat(30) + '  .insert(row);')).toBe(true);
+      expect(writesFacilityReviews("await db.from('facility_reviews').update({ status: 'hidden' }).eq('id', id);")).toBe(false);
+      expect(writesFacilityReviews("await db.from('facility_reviews').select('id'); await db.from('other').insert({});")).toBe(false);
+    });
+
     test('facility_reviews への INSERT は /api/review の1経路のみ', () => {
       const offenders: string[] = [];
       const walk = (dir: string) => {
@@ -60,11 +82,7 @@ describe('口コミ真正性ガード', () => {
             continue;
           }
           if (!/\.tsx?$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name)) continue;
-          const src = read(rel);
-          // `.from('facility_reviews')` に続けて `.insert(` を呼んでいる箇所を拾う。
-          if (/from\(\s*'facility_reviews'\s*\)[\s\S]{0,200}?\.insert\(/.test(src)) {
-            offenders.push(rel);
-          }
+          if (writesFacilityReviews(read(rel))) offenders.push(rel);
         }
       };
       walk('src');

@@ -45,8 +45,34 @@ describe('rollbackUploadedSalonPhotos', () => {
     expect(mockRemove).toHaveBeenCalledTimes(1);
   });
 
-  test('remove 自体が失敗しても例外を投げない（呼び出し元のトースト表示を妨げない）', async () => {
+  test('remove 自体が失敗しても例外を投げない（呼び出し元のトースト表示を妨げない）・失敗は記録する', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockRemove.mockRejectedValueOnce(new Error('storage error'));
     await expect(rollbackUploadedSalonPhotos(['salons/uuid/exterior.jpg'])).resolves.toBeUndefined();
+    expect(errSpy).toHaveBeenCalledWith('[salon-photo-rollback] remove threw', { count: 1, message: 'storage error' });
+    errSpy.mockRestore();
+  });
+
+  test('remove が resolve で { error } を返す（SDK の通常の失敗形）→ 例外は投げず、孤児が残ったことを記録する', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockRemove.mockResolvedValueOnce({ data: null, error: { message: 'Object not found' } });
+    await expect(rollbackUploadedSalonPhotos(['salons/uuid/a.jpg', 'salons/uuid/b.jpg'])).resolves.toBeUndefined();
+    expect(errSpy).toHaveBeenCalledWith('[salon-photo-rollback] remove failed', { count: 2, message: 'Object not found' });
+    errSpy.mockRestore();
+  });
+
+  test('remove が非 Error で reject しても文字列化して記録する', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockRemove.mockRejectedValueOnce('network down');
+    await expect(rollbackUploadedSalonPhotos(['salons/uuid/a.jpg'])).resolves.toBeUndefined();
+    expect(errSpy).toHaveBeenCalledWith('[salon-photo-rollback] remove threw', { count: 1, message: 'network down' });
+    errSpy.mockRestore();
+  });
+
+  test('成功時は何も記録しない', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    await rollbackUploadedSalonPhotos(['salons/uuid/a.jpg']);
+    expect(errSpy).not.toHaveBeenCalled();
+    errSpy.mockRestore();
   });
 });

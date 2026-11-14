@@ -96,8 +96,9 @@ export default function CustomersManager({
     });
 
   const handleSave = async () => {
-    if (!form) return;
-    if (saving || !form.name.trim()) {
+    // 保存中の再押下は黙って無視する（以前は「お名前は必須です」という誤ったエラーが出ていた・監査 A270）
+    if (!form || saving) return;
+    if (!form.name.trim()) {
       setToast({ type: 'error', message: 'お名前は必須です' });
       return;
     }

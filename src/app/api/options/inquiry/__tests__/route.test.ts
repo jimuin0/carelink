@@ -26,11 +26,11 @@ const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 
 const mockGetUser = jest.fn();
-let membershipResult: { data: unknown };
-let optionResult: { data: unknown };
+let membershipResult: { data: unknown; error?: unknown };
+let optionResult: { data: unknown; error?: unknown };
 let facilityResult: { data: unknown };
 
-const makeMaybeSingleChain = (resultRef: () => { data: unknown }) => ({
+const makeMaybeSingleChain = (resultRef: () => { data: unknown; error?: unknown }) => ({
   select: jest.fn().mockReturnThis(),
   eq: jest.fn().mockReturnThis(),
   in: jest.fn().mockReturnThis(),
@@ -168,4 +168,14 @@ test('予期しない例外 → 500＋Slack通知（無音catch根治）', async
 
 test.each([null,[],1])('non-object JSON %p is rejected as input, not a server failure',async body=>{
  expect((await POST(makeRequest(body as any))).status).toBe(400);
+});
+
+// 低 A158: 読み取り失敗を「権限なし」「対象外」と誤案内せず、500 で通知する。
+test.each(['membership', 'option'])('%s の読み取り失敗 → 500（Slack 申込み通知はしない）', async (which) => {
+  if (which === 'membership') membershipResult = { data: null, error: { message: 'db down' } };
+  else optionResult = { data: null, error: { message: 'db down' } };
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(500);
+  expect(postToSlack).not.toHaveBeenCalled();
+  expect(mockAlertCaughtError).toHaveBeenCalled();
 });

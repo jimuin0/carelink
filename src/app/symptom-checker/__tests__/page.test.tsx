@@ -59,3 +59,19 @@ test('件数の取得に失敗したら「0件」と出さず、検索失敗と�
   expect(screen.getByRole('alert')).toHaveTextContent('検索に失敗しました');
   expect(screen.queryByText('0件')).not.toBeInTheDocument();
 });
+
+// 監査 A345: 症状マスタに無い名前は黙って落とさず明示し、data:null は検索失敗にする。
+test('症状マスタに見つからない症状は名前を示し、data が null なら検索失敗にする', async () => {
+  setup({ count: 1, error: null });
+  render(<SymptomCheckerPage />);
+  fireEvent.click(screen.getByRole('button', { name: '腰痛' }));
+  fireEvent.click(screen.getByRole('button', { name: '頭痛' }));
+  fireEvent.click(screen.getByRole('button', { name: '2件の症状で店舗を探す' }));
+  expect(await screen.findByRole('status')).toHaveTextContent('頭痛');
+  expect(screen.getByText('1件')).toBeInTheDocument();
+
+  mockFrom.mockImplementation(() => ({ select: () => ({ in: async () => ({ data: null, error: null }) }) }));
+  fireEvent.click(screen.getByRole('button', { name: '2件の症状で店舗を探す' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('検索に失敗しました');
+  expect(screen.queryByText('1件')).not.toBeInTheDocument();
+});

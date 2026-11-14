@@ -195,8 +195,8 @@
   :root {
     /* Version-pinned, self-hosted unicode-range subsets; no runtime font CDN. */
     --font-noto-sans-jp: 'Noto Sans JP Variable';
-    /* WCAG AA(4.5:1) 準拠: 白文字/白背景で #0284C7(sky-600)は約4.08:1で不足。
-     #0369A1(sky-700)は約5.79:1で合格。hover はさらに濃い #075985(sky-800)。 */
+    /* WCAG AA(4.5:1) 準拠: 白文字/白背景で #0284C7(sky-600)は約4.10:1で不足。
+     #0369A1(sky-700)は約5.93:1で合格（2026年11月14日 再計算）。hover はさらに濃い #075985(sky-800)。 */
     --primary: #0369a1;
     --primary-dark: #075985;
     /* ロゴの色（ブランド色）。どのテーマでも塗り替えない（くすみテーマでも上書きしない）。

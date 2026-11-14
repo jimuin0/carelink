@@ -99,7 +99,7 @@ describe('PATCH atomic fields and restrictions',()=>{
  test.each([PATCH,DELETE])('coupon read error with data cannot authorize mutation',async route=>{mockAdminFrom.mockReturnValue(singleChain({facility_id:FACILITY_UUID},{code:'08006'}));expect((await route(makeRequest(route===PATCH?'PATCH':'DELETE',{name:'x'}),makeProps())).status).toBe(500);expect(mockRpc).not.toHaveBeenCalled();});
  test.each([PATCH,DELETE])('membership read error with data cannot authorize mutation',async route=>{mockAnonFrom.mockReturnValue(singleChain({facility_id:FACILITY_UUID},{code:'08006'}));expect((await route(makeRequest(route===PATCH?'PATCH':'DELETE',{name:'x'}),makeProps())).status).toBe(500);expect(mockRpc).not.toHaveBeenCalled();});
  test('nonmember cannot save public coupon',async()=>{mockAnonFrom.mockReturnValue(singleChain(null));expect((await PATCH(makeRequest('PATCH',{name:'x'}),makeProps())).status).toBe(401);expect(mockRpc).not.toHaveBeenCalled();});
- test('missing coupon before lookup has no mutation',async()=>{mockAdminFrom.mockReturnValue(singleChain(null));expect((await PATCH(makeRequest('PATCH',{name:'x'}),makeProps())).status).toBe(401);expect(mockRpc).not.toHaveBeenCalled();});
+ test('missing coupon before lookup has no mutation (404, not 401: 低 A122)',async()=>{mockAdminFrom.mockReturnValue(singleChain(null));expect((await PATCH(makeRequest('PATCH',{name:'x'}),makeProps())).status).toBe(404);expect(mockRpc).not.toHaveBeenCalled();});
 });
 
 describe('DELETE atomic usage and retirement',()=>{
@@ -132,4 +132,5 @@ describe('modern coupon operations remain bound to verified actor/store',()=>{
  test('retirement operation conflict is 409',async()=>{mockRpc.mockResolvedValue({data:null,error:{code:'23505'}});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(409);});
  test.each([null,[],{}, {was_replay:false,outcome:'saved',coupon:{id:'fa830003-0000-4000-8000-000000000099',facility_id:FACILITY_UUID}}])('update malformed receipt is not success: %j',async data=>{mockRpc.mockResolvedValue({data,error:null});expect((await PATCH(makeRequest('PATCH',{name:'x'}),makeProps())).status).toBe(data===null?404:500);});
  test('retirement malformed receipt is not success',async()=>{mockRpc.mockResolvedValue({data:{},error:null});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(500);});
+ test('DELETE of a missing coupon is 404, not 401 (低 A122)',async()=>{mockAdminFrom.mockReturnValue(singleChain(null));expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(404);expect(mockRpc).not.toHaveBeenCalled();});
 });

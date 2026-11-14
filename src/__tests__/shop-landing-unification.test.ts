@@ -99,9 +99,14 @@ describe('店舗向けの入口は /register の 1 本', () => {
   // 店舗向けの申込フォームは /register の 1 つだけ。/recruit のフォームが使っていた
   // 「recruit」用のタブ内キー・source の切り替えもブラウザ側から消えている（到達しないコードを残さない）。
   it('ブラウザ側に /recruit 用の申込経路が残っていない', () => {
-    // コメント（経緯の説明）は対象外。コード上の 'recruit' 値・RECRUIT 定数を見る。
+    // コメント（経緯の説明）は対象外。コメントを取り除いてから、コード上の 'recruit' 値・RECRUIT 定数を見る。
+    const withoutComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    const RECRUIT_CODE = /'recruit'|RECRUIT|recruit-submission/;
+    // 負の対照：説明コメントだけなら通り、コードに残っていれば落ちる
+    expect(withoutComments("// 旧 'recruit' 経路は撤去した（RECRUIT_KEY）\n/* recruit-submission */\nconst a = 1;")).not.toMatch(RECRUIT_CODE);
+    expect(withoutComments("const source = 'recruit'; // 説明")).toMatch(RECRUIT_CODE);
     for (const file of ['src/lib/salon-registration-browser.ts', 'src/lib/salon-browser-context.ts']) {
-      expect(read(file)).not.toMatch(/'recruit'|RECRUIT|recruit-submission/);
+      expect(withoutComments(read(file))).not.toMatch(RECRUIT_CODE);
     }
     const forms = walk('src').filter((file) => /new SalonRegistrationBrowser\(/.test(read(file)));
     expect(forms).toEqual(['src/components/register/RegisterForm.tsx']);

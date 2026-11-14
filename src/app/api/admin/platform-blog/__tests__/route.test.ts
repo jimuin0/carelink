@@ -205,9 +205,11 @@ test('POST: content が配列 → 201', async () => {
 
 test('POST: レスポンスが { post: ... } 形式', async () => {
   mockAnonFrom.mockReturnValue(profileSingle(true));
-  mockAdminFrom.mockReturnValue(insertSingle({ id: 'p1', slug: 'test-post' }));
+  // DB（RPC）が返した行の id をそのまま応答に使うこと（fixture の既定 id '1111…' と区別できる値にする）
+  const savedId = '22222222-2222-4222-8222-222222222222';
+  mockAdminFrom.mockReturnValue(insertSingle({ id: savedId, slug: 'test-post' }));
   const res = await POST(makeRequest(validBody()));
   const json = await res.json();
   expect(json.post).toBeDefined();
-  expect(json.post.id).toBe('11111111-1111-1111-1111-111111111111');
+  expect(json.post.id).toBe(savedId);
 });

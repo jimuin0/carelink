@@ -27,17 +27,29 @@ import { readPointsBalance } from '@/lib/points-balance';
 // History is bounded to 50 rows; the separate balance RPC is mocked from a
 // complete synthetic ledger. The real aggregate and owner permissions are
 // verified in points-balance-read-fixtures.sql, including 2002 ledger rows.
+const pointsQuery: { eq: unknown[][]; order: unknown[][]; limit: unknown[][] } = { eq: [], order: [], limit: [] };
+beforeEach(() => { pointsQuery.eq = []; pointsQuery.order = []; pointsQuery.limit = []; });
+
 function userPointsMock(logsData: unknown[], allData?: unknown[], logsError: unknown = null, allError: unknown = null) {
   if (allError) (readPointsBalance as jest.Mock).mockRejectedValue(new Error('fixture balance unavailable'));
   else (readPointsBalance as jest.Mock).mockResolvedValue(((allData ?? logsData ?? []) as { points: number | null }[]).reduce((sum, row) => sum + (row.points ?? 0), 0));
   return {
     select: jest.fn(() => {
-      // 履歴用（直近50件）
+      // 履歴用（直近50件）。eq / order / limit の引数を記録して絞り込み・並び・上限を検証する
       return {
-        eq: jest.fn().mockReturnValue({
-          order: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue({ data: logsError ? null : logsData, error: logsError }),
-          }),
+        eq: jest.fn((...eqArgs: unknown[]) => {
+          pointsQuery.eq.push(eqArgs);
+          return {
+            order: jest.fn((...orderArgs: unknown[]) => {
+              pointsQuery.order.push(orderArgs);
+              return {
+                limit: jest.fn((...limitArgs: unknown[]) => {
+                  pointsQuery.limit.push(limitArgs);
+                  return Promise.resolve({ data: logsError ? null : logsData, error: logsError });
+                }),
+              };
+            }),
+          };
         }),
       };
     }),
@@ -296,19 +308,14 @@ describe('GET /api/liff/points', () => {
     const res = await GET(makeRequest('valid-token') as any);
 
     const json = await res.json();
-    if (json.logs.length > 0) {
-      const log = json.logs[0];
-      expect(log.id).toBeDefined();
-      expect(log.points).toBeDefined();
-      expect(log.reason).toBeDefined();
-      expect(log.created_at).toBeDefined();
-    }
+    expect(json.logs).toHaveLength(3);
+    expect(json.logs[0]).toEqual(expect.objectContaining({ id: 'log-1', points: 500, reason: '紹介ボーナス', created_at: '2026-05-01' }));
   });
 
-  test('rate limit params (30 req/min per IP)', () => {
+  test('rate limit params (30 req/min per IP)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
-    GET(makeRequest('token', '192.168.1.1') as any);
+    await GET(makeRequest('token', '192.168.1.1') as any);
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
@@ -317,16 +324,16 @@ describe('GET /api/liff/points', () => {
     expect(call[4]).toBe('liff-points');
   });
 
-  test('extracts last (trusted) IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
-    GET(makeRequest('token', '10.0.0.1, 192.168.1.1') as any);
+    await GET(makeRequest('token', '10.0.0.1, 192.168.1.1') as any);
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
   });
 
-  test('uses unknown IP when x-forwarded-for missing', () => {
+  test('uses unknown IP when x-forwarded-for missing', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
     const req = new Request('http://localhost/api/liff/points', {
@@ -334,7 +341,7 @@ describe('GET /api/liff/points', () => {
       headers: { Authorization: 'Bearer token' },
     });
 
-    GET(req as any);
+    await GET(req as any);
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('unknown');
@@ -344,17 +351,16 @@ describe('GET /api/liff/points', () => {
     const res = await GET(makeRequest('valid-token') as any);
 
     expect(res.status).toBe(200);
-    // Verify that .limit(50) is applied in the query
+    expect(pointsQuery.eq).toEqual([['user_id', 'user-789']]);
+    expect(pointsQuery.limit).toEqual([[50]]);
   });
 
   test('orders logs by created_at descending', async () => {
     const res = await GET(makeRequest('valid-token') as any);
 
-    const json = await res.json();
-    // First log should be most recent (2026-05-01)
-    if (json.logs.length > 1) {
-      expect(new Date(json.logs[0].created_at).getTime()).toBeGreaterThanOrEqual(new Date(json.logs[1].created_at).getTime());
-    }
+    expect(res.status).toBe(200);
+    // 並びは DB に委ねる（created_at 降順）。モックの返却順ではなく、要求した並びを確かめる
+    expect(pointsQuery.order).toEqual([['created_at', { ascending: false }]]);
   });
 
   test('exception from LINE profile service → 503', async () => {

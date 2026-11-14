@@ -55,11 +55,16 @@ describe('isFeatureEnabled', () => {
     expect(await isFeatureEnabled('my_flag', 'user-allowed')).toBe(true);
   });
 
-  test('uses hash-based rollout for user ID', async () => {
-    buildMock([{ key: 'my_flag', enabled: true, rollout_pct: 50, description: null, metadata: {} }]);
-    // Result depends on hash of userId, just verify it returns boolean
-    const result = await isFeatureEnabled('my_flag', 'user-abc');
-    expect(typeof result).toBe('boolean');
+  // 'user-abc' の文字コード和 % 100 = 86。割合 86% では外れ、87% では当たる（境界の両側）。
+  test('uses hash-based rollout for user ID: 境界の下（86%）は外れる・同じ人は毎回同じ結果', async () => {
+    buildMock([{ key: 'my_flag', enabled: true, rollout_pct: 86, description: null, metadata: {} }]);
+    expect(await isFeatureEnabled('my_flag', 'user-abc')).toBe(false);
+    expect(await isFeatureEnabled('my_flag', 'user-abc')).toBe(false);
+  });
+
+  test('uses hash-based rollout for user ID: 境界の上（87%）は当たる', async () => {
+    buildMock([{ key: 'my_flag', enabled: true, rollout_pct: 87, description: null, metadata: {} }]);
+    expect(await isFeatureEnabled('my_flag', 'user-abc')).toBe(true);
   });
 
   test('uses cache on second call (supabase called once)', async () => {

@@ -8,6 +8,7 @@ import { SbBadge, SbPageHeader } from '@/components/admin/SbUi';
 import FacilitySelector from '@/components/admin/FacilitySelector';
 import AdminFacilityScope, { type AdminFacilityScopeValue } from '@/components/admin/AdminFacilityScope';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import { loadPayjp, type PayjpCardElement, type PayjpClient } from '@/lib/payjp-client';
 
 type FeaturedSlot = {
   id: string;
@@ -28,18 +29,6 @@ type Sales =
   | { enabled: false }
   | { enabled: true; publicKey: string; priceTaxExcluded: number; priceTaxIncluded: number };
 
-/** payjp.js v2（https://js.pay.jp/v2/pay.js）のうち、ここで使う部分だけの型。 */
-type PayjpCardElement = { mount: (selector: string) => void; unmount: () => void };
-type PayjpClient = {
-  elements: () => { create: (type: 'card') => PayjpCardElement };
-  createToken: (element: PayjpCardElement) => Promise<{ id?: string; error?: { message?: string } }>;
-};
-declare global {
-  interface Window { Payjp?: (publicKey: string) => PayjpClient }
-}
-
-const PAYJP_JS = 'https://js.pay.jp/v2/pay.js';
-
 const BILLING_LABELS: Record<string, string> = {
   pending: '決済の確認中',
   active: '掲載中（毎月自動更新）',
@@ -48,22 +37,6 @@ const BILLING_LABELS: Record<string, string> = {
   canceled: '解約予約済み（期間末まで掲載）',
   deleted: '契約終了',
 };
-
-/** payjp.js はカード入力欄を PAY.JP の iframe で描く（カード番号は CareLink を通らない）。読み込みは 1 回だけ。 */
-function loadPayjp(): Promise<NonNullable<Window['Payjp']>> {
-  if (window.Payjp) return Promise.resolve(window.Payjp);
-  return new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(`script[src="${PAYJP_JS}"]`);
-    const script = existing ?? document.createElement('script');
-    script.addEventListener('load', () => (window.Payjp ? resolve(window.Payjp) : reject(new Error('payjp.js unavailable'))));
-    script.addEventListener('error', () => reject(new Error('payjp.js failed to load')));
-    if (!existing) {
-      script.src = PAYJP_JS;
-      script.async = true;
-      document.head.appendChild(script);
-    }
-  });
-}
 
 export default function FeaturedAdsPage() {
   return <AdminFacilityScope title="広告・上位表示" path="/admin/featured-ads">{(scope) => <FeaturedAds {...scope} />}</AdminFacilityScope>;

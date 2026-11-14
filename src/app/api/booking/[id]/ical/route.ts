@@ -27,6 +27,12 @@ function toIcalDate(isoString: string): string {
   return isoString.replace(/[-:]/g, '').replace(/\.\d{3}/, '').replace('Z', 'Z');
 }
 
+function icalStatus(status: string | null): 'CANCELLED' | 'TENTATIVE' | 'CONFIRMED' {
+  if (status === 'cancelled') return 'CANCELLED';
+  if (status === 'pending') return 'TENTATIVE';
+  return 'CONFIRMED';
+}
+
 export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   try {
@@ -45,7 +51,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
   const admin = createServiceRoleClient();
   const { data: booking, error: bookingError } = await admin
     .from('bookings')
-    .select('id, user_id, facility_id, booking_date, end_date, start_time, end_time, menu:facility_menus(name), staff:staff_profiles(name), facility_profiles(name, address, phone)')
+    .select('id, user_id, facility_id, status, booking_date, end_date, start_time, end_time, menu:facility_menus(name), staff:staff_profiles(name), facility_profiles(name, address, phone)')
     .eq('id', params.id)
     .maybeSingle();
 
@@ -91,6 +97,16 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     'PRODID:-//CareLink//CareLink Booking//JA',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
+    // TZID を参照するには VTIMEZONE の定義が要る（RFC 5545 3.6.5・低 A141）。日本は夏時間なし。
+    'BEGIN:VTIMEZONE',
+    'TZID:Asia/Tokyo',
+    'BEGIN:STANDARD',
+    'DTSTART:19700101T000000',
+    'TZOFFSETFROM:+0900',
+    'TZOFFSETTO:+0900',
+    'TZNAME:JST',
+    'END:STANDARD',
+    'END:VTIMEZONE',
     'BEGIN:VEVENT',
     `UID:${uid}`,
     `DTSTAMP:${now}`,
@@ -99,7 +115,8 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     `SUMMARY:${escapeIcal(summary)}`,
     description && `DESCRIPTION:${escapeIcal(description)}`,
     facility?.address && `LOCATION:${escapeIcal(facility.address)}`,
-    'STATUS:CONFIRMED',
+    // 予約の状態をそのまま反映する（キャンセル済みを確定予定として取り込ませない・低 A140）。
+    `STATUS:${icalStatus(booking.status)}`,
     'TRANSP:OPAQUE',
     'END:VEVENT',
     'END:VCALENDAR',

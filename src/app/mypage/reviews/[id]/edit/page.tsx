@@ -65,18 +65,24 @@ export default function EditReviewPage() {
     }
     setSaving(true);
 
-    const res = await fetch(`/api/review/${params.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...ratings, comment: comment || null }),
-    });
+    try {
+      const res = await fetch(`/api/review/${params.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...ratings, comment: comment || null }),
+      });
 
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      setToast({ type: 'error', message: e.error || '更新に失敗しました' });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '更新に失敗しました' });
+        setSaving(false);
+      } else {
+        router.push('/mypage/reviews');
+      }
+    } catch {
+      // 通信断でも「保存中...」のまま固めず、失敗を伝える（監査 A193）
+      setToast({ type: 'error', message: '通信に失敗しました。更新されていない可能性があります' });
       setSaving(false);
-    } else {
-      router.push('/mypage/reviews');
     }
   };
 

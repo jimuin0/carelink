@@ -25,13 +25,23 @@ function getServerSettingsSnapshot(): boolean {
  * - 2026年10月23日: フッターの「Cookie設定」から同意バナーを開き直している間も出さない
  *   （下部ナビ・CTA・バナーの 3 段が重なってボタンを覆うため）。
  */
+// 監査 A403: sessionStorage は Safari のプライベートモード等で例外を投げる。読めなければ「未閉」、
+// 書けなければ今回の表示だけ閉じる（閉じるボタンが効かなくならないように）。
+const DISMISS_KEY = 'sticky-cta-dismissed';
+function wasDismissed(): boolean {
+  try { return !!sessionStorage.getItem(DISMISS_KEY); } catch { return false; }
+}
+function rememberDismissed(): void {
+  try { sessionStorage.setItem(DISMISS_KEY, '1'); } catch { /* この表示だけ閉じる */ }
+}
+
 export default function StickySignupCta() {
   const [show, setShow] = useState(false);
   const consentStored = useSyncExternalStore(subscribeToCookieConsent, hasAnsweredCookieBanner, getServerConsentSnapshot);
   const cookieSettingsOpen = useSyncExternalStore(subscribeToCookieSettings, isCookieSettingsOpen, getServerSettingsSnapshot);
 
   useEffect(() => {
-    if (sessionStorage.getItem('sticky-cta-dismissed')) return;
+    if (wasDismissed()) return;
     Promise.resolve().then(() => createBrowserSupabaseClient().auth.getUser()).then(({ data: { user } }) => {
       if (!user) setShow(true);
     }).catch(() => {});
@@ -55,7 +65,7 @@ export default function StickySignupCta() {
         <button
           type="button"
           onClick={() => {
-            sessionStorage.setItem('sticky-cta-dismissed', '1');
+            rememberDismissed();
             setShow(false);
           }}
           className="shrink-0 w-11 h-11 flex items-center justify-center text-gray-500 hover:text-gray-600 text-lg"

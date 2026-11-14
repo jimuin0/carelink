@@ -184,8 +184,12 @@ COMMIT;`);
   assert.equal(query(`SELECT count(*) FROM public.facility_members WHERE user_id='${uid(68)}' AND role='owner'`), '3');
   console.log('Facility setup concurrency passed: 8 x 20 observed lock-waiting clients plus setup/unclaim race; exact single claims, no cross-branch merge, expiry after both locks, 5 atomic welcomes. Synthetic disposable DB only.');
 }
-main().catch(() => {
-  console.error('Facility setup concurrency contract failed. No production access was authorized.');
+main().catch(error => {
+  // 何が落ちたかを残す（握り潰すと CI で原因を追えない・B10-20）。psql の生のクエリ・引数は
+  // 出さず、assert の文言（このスクリプトが書いた比較）だけを出す（manual-booking と同じ方針）。
+  console.error('Facility setup concurrency contract failed. No production access was authorized.', {
+    failure: error instanceof assert.AssertionError ? error.message : 'fixture preflight/query failed',
+  });
   process.exitCode = 1;
 }).finally(() => {
   for (const child of children) terminate(child);

@@ -87,8 +87,10 @@ export function verifySalonClaim(
 
   // 署名が正当でも、発行時刻から TTL を超過していれば期限切れ。maxAge はブラウザの自己申告で
   // 検証不能なため、ここで発行時刻から独立に判定する（未来方向のクロックスキューも不正扱い）。
+  // 発行から TTL 秒ちょうどで失効（issuedAt + TTL <= now）。verifySalonClaimDetails と境界を揃え、
+  // 同じ Cookie が「所有権あり」かつ「原子的 RPC には渡せない」状態になる 1 秒を作らない。
   const ageSec = nowEpochSec - issuedAtEpochSec;
-  if (ageSec < 0 || ageSec > SALON_CLAIM_TTL_SECONDS) return null;
+  if (ageSec < 0 || ageSec >= SALON_CLAIM_TTL_SECONDS) return null;
 
   return salonId;
 }
@@ -100,7 +102,7 @@ export function verifySalonClaimDetails(
 ): { receiptId: string; issuedAt: string } | null {
   const receiptId = verifySalonClaim(cookieVal, nowEpochSec);
   if (!receiptId) return null;
+  // 失効判定は verifySalonClaim が同じ境界（issuedAt + TTL <= now）で済ませている。
   const issuedAt = Number(cookieVal.split('.')[1]);
-  if (issuedAt + SALON_CLAIM_TTL_SECONDS <= nowEpochSec) return null;
   return { receiptId, issuedAt: new Date(issuedAt * 1000).toISOString() };
 }

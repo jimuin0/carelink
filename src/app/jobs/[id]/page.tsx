@@ -259,7 +259,7 @@ export default async function JobDetailPage(props: Props) {
               <div className="flex"><span className="text-gray-500 w-24 shrink-0">雇用形態</span><span>{job.employment_type}</span></div>
               <div className="flex"><span className="text-gray-500 w-24 shrink-0">勤務地</span><span>{formatFacilityAddress(f)}</span></div>
               <div className="flex"><span className="text-gray-500 w-24 shrink-0">給与</span><span>{formatSalary(job.salary_min, job.salary_max, job.salary_note)}</span></div>
-              <div className="flex"><span className="text-gray-500 w-24 shrink-0">掲載日</span><span>{new Date(job.created_at).toLocaleDateString('ja-JP')}</span></div>
+              <div className="flex"><span className="text-gray-500 w-24 shrink-0">掲載日</span><span>{new Date(job.created_at).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}</span></div>
             </div>
           </section>
         </div>

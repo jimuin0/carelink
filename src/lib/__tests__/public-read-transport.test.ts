@@ -94,3 +94,16 @@ it.each([
   await createServiceReadFetch('https://public.example.test')(url, init);
   expect(mockFetch).toHaveBeenCalledWith(url, init);
 });
+
+it('does not cache a failed pool construction: the next read retries and succeeds', async () => {
+  await jest.isolateModulesAsync(async () => {
+    const { createPublicReadFetch: isolated } = await import('../public-read-transport');
+    const failure = new Error('synthetic pool failure');
+    mockAgent.mockImplementationOnce(() => { throw failure; });
+    const read = isolated('https://public.example.test');
+    await expect(read('https://public.example.test/rest/v1/facilities')).rejects.toBe(failure);
+    await read('https://public.example.test/rest/v1/facilities');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenLastCalledWith('https://public.example.test/rest/v1/facilities', { dispatcher: pool });
+  });
+});

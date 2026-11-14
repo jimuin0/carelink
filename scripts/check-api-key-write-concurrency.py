@@ -101,7 +101,9 @@ try:
             RESULTS.append({'case':role+' direct '+operation.split()[0]+' denied, metadata visibility preserved','result':'42501'})
     receipt=json.loads(sql('SET ROLE service_role; '+save()))
     assert receipt['is_active'] and 'key_hash' not in receipt and 'created_by' not in receipt
-    assert snapshot()[-1] or receipt
+    # reset() が入れる既存キーは 1 本。作成で 2 本に増え、増えた行が有効であることを確かめる
+    created=[row for row in snapshot() if row['id']!=KEY]
+    assert len(created)==1 and created[0]['is_active'] is True and created[0]['facility_id']==FACILITY,created
     RESULTS.append({'case':'owner create, bounded non-secret receipt','result':'OK'})
     reset();expect('owner revoke',save('revoke'),'OK');expect('repeat revoke idempotent',save('revoke'),'OK');assert snapshot()[0]['is_active'] is False
     reset();sql(f"UPDATE public.facility_members SET role='admin' WHERE user_id='{ACTOR}'")

@@ -353,6 +353,8 @@ async function loginSyntheticOwner(context: BrowserContext) {
 }
 
 test('profile empty date is stored as NULL and a missing own profile cannot report saved', async ({ context, browser }) => {
+  // 下の waitForURL は 30s 待つ。既定のテスト制限 30s のままでは待ちを使い切れない（e2e-timeout-budget）。
+  test.setTimeout(90_000);
   const { userId, email, password } = await loginSyntheticOwner(context);
   const headers = { origin: 'https://localhost:3000',
     'x-real-ip': `198.18.${Math.floor(Math.random() * 254)}.${Math.floor(Math.random() * 254)}` };

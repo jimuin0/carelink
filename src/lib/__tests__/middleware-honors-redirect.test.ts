@@ -10,7 +10,8 @@
  * 既にログイン済みのユーザーに対しては機能しなかった。
  *
  * safeRedirect（src/lib/safe-redirect.ts）を通すことで:
- *  - 同一オリジンの相対パスは尊重する
+ *  - 同一オリジンの相対パスは尊重する（ただし店舗管理への戻り先つきの /auth/login＝店舗ログインは
+ *    リダイレクトせずログイン画面を出し、アカウント選択を残す＝middleware.ts の storeLogin）
  *  - 絶対 URL・プロトコル相対 URL は既定の /mypage へ倒す
  *  - `/\evil.com` のような「旧ガードは通すが実は外部オリジンへ解決される」値も
  *    既定の /mypage へ倒す（このテストの本体・負の対照は下記コメント参照）
@@ -103,7 +104,9 @@ beforeEach(() => {
   getUserImpl = async () => ({ data: { user: { id: 'u1' } } });
 });
 
-test('(i) 認証済み + /auth/login?redirect=/admin → /admin へ', async () => {
+test('(i) 認証済み + /auth/login?redirect=/admin → 店舗ログインはリダイレクトせずログイン画面を出す（アカウント選択を残す）', async () => {
+  // middleware.ts の storeLogin: 店舗管理への戻り先つきの /auth/login は、ログイン済みでも素通りさせ、
+  // 別の店舗アカウントで入り直せるようにする（/admin への到達可否は /admin 側で改めて確かめる）。
   const res: Record<string, unknown> = await middleware(makeRequest('/auth/login?redirect=/admin'));
   expect(res._isRedirect).toBeUndefined();
   expect((res.headers as Headers).get('content-security-policy')).toContain('nonce-');
@@ -210,4 +213,18 @@ test.each(['signup', 'login'] as const)('(viii) 認証済み + salonRecoveryAuth
   const dest = res._redirectedTo as URL;
   expect(dest.pathname).toBe('/register/recover');
   expect(dest.search).toBe('');
+});
+
+// 低 A277: 保護対象は /mypage・/admin とその配下だけ。同じ接頭辞の別ページは保護しない。
+test.each(['/mypage-guide', '/administration'])('未ログイン + %s（同じ接頭辞の別ページ）→ ログインへ飛ばさない', async (path) => {
+  getUserImpl = async () => ({ data: { user: null } });
+  const res: Record<string, unknown> = await middleware(makeRequest(path));
+  expect(res._isRedirect).toBeUndefined();
+});
+
+test.each(['/mypage', '/mypage/bookings', '/admin/menus'])('未ログイン + %s → ログインへ', async (path) => {
+  getUserImpl = async () => ({ data: { user: null } });
+  const res: Record<string, unknown> = await middleware(makeRequest(path));
+  expect(res._isRedirect).toBe(true);
+  expect((res._redirectedTo as URL).pathname).toBe('/auth/login');
 });

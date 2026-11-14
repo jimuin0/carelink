@@ -118,7 +118,11 @@ jobs:
                       continue
 
                   # permissive 判定: USING / WITH CHECK が auth.* を参照しない ≒ true 相当
-                  if re.search(r'auth\.', stmt, re.IGNORECASE):
+                  # 部分一致（コメント・文字列・`auth.` を含む別名）で素通りさせない（点検 B10-6）。
+                  # コメントを除いた USING / WITH CHECK 以降に auth.uid()/auth.jwt()/auth.role() の呼び出しがあるときだけ除外する。
+                  body = re.sub(r'--[^\n]*', '', stmt)
+                  mcond = re.search(r'\b(USING|WITH\s+CHECK)\b', body, re.IGNORECASE)
+                  if mcond and re.search(r'\bauth\.(uid|jwt|role)\s*\(', body[mcond.start():], re.IGNORECASE):
                       continue
 
                   errors.append(

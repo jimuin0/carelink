@@ -150,12 +150,32 @@ test('POST: domain が欠落 → 400', async () => {
   expect(res.status).toBe(400);
 });
 
-test('POST: domain が 254文字 → 400', async () => {
+// 4ラベル(63+1+63+1+63+1+n)で全長を作る。各ラベルは 63 文字以内なので形式検査は通る＝長さ上限だけを見る
+const domainOfLength = (len: number) => {
+  const head = 'a'.repeat(63) + '.' + 'b'.repeat(63) + '.' + 'c'.repeat(63) + '.';
+  return head + 'd'.repeat(len - head.length);
+};
+
+test('POST: domain が 254文字 → 400（上限 253 の直上）', async () => {
   mockAdminFrom.mockReturnValue(facilityIdChain(FACILITY_UUID));
-  // 63+1 repeated 4 times = 256 chars, plus 'com' = 259 chars total (> 253)
-  const longDomain = 'a'.repeat(63) + '.' + 'b'.repeat(63) + '.' + 'c'.repeat(63) + '.' + 'd'.repeat(63) + '.com';
-  const res = await POST(makePostRequest({ domain: longDomain }));
+  const d = domainOfLength(254);
+  expect(d).toHaveLength(254);
+  const res = await POST(makePostRequest({ domain: d }));
   expect(res.status).toBe(400);
+  expect((await res.json()).error).toBe('domain too long');
+});
+
+test('POST: domain が 253文字 → 201（上限ちょうどは受理）', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain(FACILITY_UUID);
+    return upsertSingle({ id: '44444444-4444-4444-8444-444444444444' });
+  });
+  const d = domainOfLength(253);
+  expect(d).toHaveLength(253);
+  const res = await POST(makePostRequest({ domain: d }));
+  expect(res.status).toBe(201);
 });
 
 test('POST: 不正なdomain形式 → 400', async () => {

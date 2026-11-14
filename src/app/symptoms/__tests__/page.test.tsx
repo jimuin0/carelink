@@ -40,9 +40,30 @@ function mockSuggestResponse() {
   });
 }
 
+// AI の有効判定は ANTHROPIC_API_KEY の有無（isAiEnabled）。jest.setup.js の値に暗黙に依存せず、
+// 各テストで明示的に設定・削除し、終わったら元へ戻す。
+const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+afterAll(() => {
+  if (ORIGINAL_ANTHROPIC_API_KEY === undefined) delete process.env.ANTHROPIC_API_KEY;
+  else process.env.ANTHROPIC_API_KEY = ORIGINAL_ANTHROPIC_API_KEY;
+});
+
+describe('SymptomsPage - 鍵未設定時（準備中）', () => {
+  test('ANTHROPIC_API_KEY 未設定 → 入力欄を出さず、症状別ページ・検索へ案内する', () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    render(<SymptomsPage />);
+    expect(screen.getByRole('heading', { name: 'AI症状チェッカーは準備中です' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('症状・お悩みを入力')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '症状を分析する' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '症状から探す' })).toHaveAttribute('href', '/symptom-checker');
+    expect(screen.getByRole('link', { name: 'サロン・クリニックを検索' })).toHaveAttribute('href', '/search');
+  });
+});
+
 describe('SymptomsPage - 検索リンクのパラメータ整合性', () => {
   beforeEach(() => {
     (global.fetch as jest.Mock).mockReset();
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test-dummy';
   });
 
   test('都道府県未入力 → keyword のみで area は付与されない', async () => {
@@ -72,5 +93,20 @@ describe('SymptomsPage - 検索リンクのパラメータ整合性', () => {
     expect(href).toContain('area=');
     expect(href).not.toContain('q=');
     expect(href).not.toContain('pref=');
+  });
+});
+
+// 監査 A347/A348: AI 未設定時の「症状から探す」は症状チェッカーへ送り、metadata は layout だけが持つ。
+describe('SymptomsPage - AI 未設定時の案内', () => {
+  const original = process.env.ANTHROPIC_API_KEY;
+  afterEach(() => { process.env.ANTHROPIC_API_KEY = original; });
+  test('「症状から探す」は /symptom-checker を指す', () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    render(<SymptomsPage />);
+    expect(screen.getByRole('link', { name: '症状から探す' })).toHaveAttribute('href', '/symptom-checker');
+  });
+  test('page は metadata を export しない（layout が単一の定義元）', () => {
+    expect(require('../page').metadata).toBeUndefined();
+    expect(require('../layout').metadata.alternates.canonical).toBe('/symptoms');
   });
 });

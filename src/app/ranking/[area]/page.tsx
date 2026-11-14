@@ -1,6 +1,6 @@
 import { getRankedFacilities } from '@/lib/rankings';
 import FacilityCard from '@/components/search/FacilityCard';
-import Link from 'next/link';
+import Link from '@/components/BrowseLink';
 import Button from '@/components/ui/Button';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';

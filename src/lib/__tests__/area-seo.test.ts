@@ -45,6 +45,18 @@ beforeEach(() => {
 });
 
 describe('getAreaSeoContent', () => {
+  // 低 A213: 各段の読み取り失敗を「テキスト無し」として次段へ落とさず throw する。
+  test.each([
+    ['level 1', ['osaka', 'kita', 'nail']],
+    ['level 2', ['osaka', 'kita']],
+    ['level 3', ['osaka', null, 'nail']],
+    ['level 4', ['osaka']],
+  ] as const)('%s の読み取り失敗 → throw', async (_label, args) => {
+    const { mockMaybeSingle } = buildSupabaseMock(null);
+    mockMaybeSingle.mockResolvedValue({ data: null, error: { message: 'db down' } });
+    await expect(getAreaSeoContent(...(args as [string, string?, string?]))).rejects.toThrow('getAreaSeoContent failed');
+  });
+
   test('returns null when no data at any fallback level', async () => {
     buildSupabaseMock(null);
     const result = await getAreaSeoContent('tokyo');
@@ -127,9 +139,22 @@ describe('isIndexableAreaQuality', () => {
     ['short intro', { ...content, intro: '短い説明' }],
     ['one highlight', { ...content, highlights: ['1つ'] }],
     ['one faq', { ...content, faqs: [content.faqs[0]] }],
-    ['short total text', { ...content, intro: '短い説明' }],
   ])('rejects %s', (_label, candidate) => {
     expect(isIndexableAreaQuality(1, candidate)).toBe(false);
+  });
+
+  test('個々の下限は満たしても本文全体が 300 字未満なら索引させない（合計の下限だけで落ちる）', () => {
+    const minimal = {
+      h2: 'あ'.repeat(10),
+      intro: 'い'.repeat(120),
+      highlights: ['う', 'え'],
+      faqs: [{ question: 'Q1', answer: 'A1' }, { question: 'Q2', answer: 'A2' }],
+    };
+    // 合計 10 + 120 + 2 + 8 = 140 字
+    expect(isIndexableAreaQuality(1, minimal)).toBe(false);
+    // 同じ形で合計だけを 300 字に届かせると通る（＝落ちた原因は合計の下限だけ）
+    const enough = { ...minimal, faqs: [minimal.faqs[0], { question: 'Q2', answer: 'お'.repeat(170) }] };
+    expect(isIndexableAreaQuality(1, enough)).toBe(true);
   });
 });
 
@@ -230,5 +255,16 @@ describe('enrichSeoContent', () => {
   test('読み取り失敗は「0件」と書かずに例外にする', async () => {
     buildEnrichMock(null as unknown as { rating_avg: number | null }[], null as unknown as number, { message: 'db down' });
     await expect(enrichSeoContent(baseContent, '東京都')).rejects.toThrow('enrichSeoContent failed');
+  });
+});
+
+describe('B4-5: 読込エラーを「文言なし」に化けさせない', () => {
+  test.each([1, 2, 3, 4])('%i 段目の読込エラーで例外にする（より汎用な段へ黙って落ちない）', async (failAt) => {
+    const { mockMaybeSingle } = buildSupabaseMock(null);
+    for (let i = 1; i <= 4; i++) {
+      mockMaybeSingle.mockResolvedValueOnce(i === failAt ? { data: null, error: { message: 'db down' } } : { data: null, error: null });
+    }
+    await expect(getAreaSeoContent('tokyo', 'shibuya', 'acupuncture')).rejects.toThrow('getAreaSeoContent failed');
+    expect(mockMaybeSingle).toHaveBeenCalledTimes(failAt);
   });
 });

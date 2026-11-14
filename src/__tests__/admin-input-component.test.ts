@@ -27,6 +27,32 @@ function collectTsx(dir: string): string[] {
   return out;
 }
 
+
+/**
+ * `<input ...>` 要素を1つずつ取り出す。`{...}` の式の中と文字列の中の `>` では閉じない
+ * （`onChange={(e) => ...}` のアロー関数の `>` で止まると、後ろの className を見落とすため）。
+ */
+export function inputTags(src: string): { index: number; text: string }[] {
+  const out: { index: number; text: string }[] = [];
+  const re = /<input\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) {
+    let depth = 0;
+    let quote: string | null = null;
+    let i = m.index + m[0].length;
+    for (; i < src.length; i++) {
+      const ch = src[i];
+      if (quote) { if (ch === '\\') i++; else if (ch === quote) quote = null; continue; }
+      if (ch === '"' || ch === "'" || ch === '`') quote = ch;
+      else if (ch === '{') depth++;
+      else if (ch === '}') depth--;
+      else if (ch === '>' && depth === 0) break;
+    }
+    out.push({ index: m.index, text: src.slice(m.index, i + 1) });
+  }
+  return out;
+}
+
 const files = collectTsx(ADMIN_DIR);
 
 describe('管理ページのテキスト入力の共通部品化（T32 回帰防止）', () => {
@@ -38,17 +64,23 @@ describe('管理ページのテキスト入力の共通部品化（T32 回帰防
     const offenders: string[] = [];
     for (const f of files) {
       const src = readFileSync(f, 'utf8');
-      // <input ... form-input ...> を1要素として検出（属性が複数行に渡る場合も考慮し
-      // <input から最初の > までを走査する）。
-      const re = /<input\b[^>]*>/gs;
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(src)) !== null) {
-        if (m[0].includes('form-input')) {
-          const line = src.slice(0, m.index).split('\n').length;
+      for (const tag of inputTags(src)) {
+        if (tag.text.includes('form-input')) {
+          const line = src.slice(0, tag.index).split('\n').length;
           offenders.push(`${f.replace(`${ROOT}/`, '')}:${line}`);
         }
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('負の対照: アロー関数の > の後ろにある form-input も見つける', () => {
+    const src = `<input value={v} onChange={(e) => setV(e.target.value)} className="form-input" />\n<input type="checkbox" />`;
+    const tags = inputTags(src);
+    expect(tags).toHaveLength(2);
+    expect(tags[0].text).toContain('form-input');
+    expect(tags[1].text).not.toContain('form-input');
+    // 文字列中の > でも閉じない
+    expect(inputTags(`<input placeholder="a > b" className="form-input" />`)[0].text).toContain('form-input');
   });
 });

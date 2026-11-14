@@ -10,6 +10,8 @@ import { randomUUID } from 'node:crypto';
 const require=createRequire(import.meta.url);
 const local=process.argv[2]==='--local-shadow';
 const database=local?'carelink_shadow_calendar_20261016':'carelink_shadow';
+// ローカルでも接続先がこの端末であることを確かめる（DB 名だけでは別ホストの同名 DB を止められない）
+if(local) {assert.ok(['localhost','127.0.0.1'].includes(process.env.PGHOST||'localhost'));assert.ok(!process.env.PGSERVICE&&!process.env.PGSERVICEFILE&&!process.env.PGHOSTADDR);}
 if(!local) {assert.equal(process.env.GITHUB_ACTIONS,'true');assert.equal(process.env.CI,'true');assert.ok(['localhost','127.0.0.1'].includes(process.env.PGHOST));assert.equal(process.env.PGPORT,'5432');assert.equal(process.env.PGUSER,'postgres');assert.ok(!process.env.PGSERVICE&&!process.env.PGSERVICEFILE&&!process.env.PGHOSTADDR);}
 const command='psql';const args=['-X','-qAt','-v','ON_ERROR_STOP=1','-d',database];
 const querySync=sql=>execFileSync(command,args,{input:sql,encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:30000}).trim();

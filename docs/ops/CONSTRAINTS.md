@@ -18,11 +18,11 @@ CareLink 運用において **構造的に踏みやすい地雷** を集約す�
 - **遵守事項**: Edge Runtime / Client Component / `NEXT_PUBLIC_*` への露出禁止。Node runtime の Server Component / API Route / `src/lib/supabase-server.ts` でのみ使用。
 - **変更時は ADR 必須**（キーローテーションは ADR 不要だが、利用箇所追加は ADR 必須）。
 
-## 3. Upstash 未設定時は in-memory rate-limit フォールバック
+## 3. rate-limit は Supabase RPC 優先・失敗時は in-memory フォールバック
 
-- **事実**: Phase 0 で `src/lib/rate-limit.ts` に in-memory フォールバック実装済（commit `5ebfe30`）。`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` が空または Upstash 障害時に in-memory モードで動作。
-- **影響**: in-memory はプロセス再起動でリセット・複数インスタンス間で共有されない。本番では Upstash 必須。
-- **遵守事項**: 本番環境変数で Upstash 未設定検知時は Sentry/Slack に警告する運用とする。
+- **事実**: `src/lib/rate-limit.ts` は Supabase RPC `check_rate_limit` を優先し、RPC 失敗時だけ in-memory へ倒す（本体を 500 化させない）。Upstash は廃止済みで、関連する環境変数は不要。Sentry も廃止済み。
+- **影響**: in-memory はプロセス再起動でリセット・複数インスタンス間で共有されないため、フォールバック中は制限が緩くなる。
+- **遵守事項**: ログに `[rate-limit] Supabase RPC failure, falling back to in-memory` が続く場合は Supabase 側を調べる（[500-surge.md](../runbooks/500-surge.md) 条件 D）。
 - **変更時は ADR 必須**。
 
 ## 4. LINE Messaging API レート制限
@@ -34,7 +34,7 @@ CareLink 運用において **構造的に踏みやすい地雷** を集約す�
 ## 5. Resend 送信制限
 
 - **事実**: Resend Free プランは 1日100通 / 月3000通。
-- **遵守事項**: 送信総数を Sentry/Slack で日次監視する。プラン変更時はキー再発行不要だがダッシュボード確認必須。
+- **遵守事項**: 送信総数を Slack で日次監視する（Sentry は廃止済み）。プラン変更時はキー再発行不要だがダッシュボード確認必須。
 - **変更時は ADR 必須**。
 
 ## 6. Stripe Webhook 署名検証必須
@@ -51,7 +51,7 @@ CareLink 運用において **構造的に踏みやすい地雷** を集約す�
 
 ## 8. `.env.example` への実値混入禁止
 
-- **事実**: Phase 1 で pre-commit hook（gitleaks lint-staged 設定済 / `package.json` 参照）を設置。
+- **事実**: Phase 1 で pre-commit hook を設置（実体は `.husky/pre-commit` が直接 gitleaks を呼ぶ。未配線だった lint-staged 設定は 2026年11月14日に撤去）。
 - **遵守事項**: `.env.example` には placeholder（`your_xxx_here` / `xxxxx`）のみ。実 URL・実トークンの混入禁止。検知時は即 `git reset` で除去し、漏洩した値はローテーション。
 - **変更時は ADR 必須**（hook 無効化は禁止、例外運用は ADR で合意）。
 

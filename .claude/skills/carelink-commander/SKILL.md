@@ -1,6 +1,6 @@
 ---
 name: carelink-commander
-description: CareLink(医療・福祉・美容 施設向けの予約管理・集客・採用 統合マルチテナントSaaS・このリポジトリ自身)の作業を司令塔=ファブルが指揮しSonnet実行エージェントに割り当てて進める編成。起動時にモデルがファブルかを確認し、違えば変更を促して停止する。調査・立案・集約は司令塔、実働(調査/実装)はSonnet、本番変更は神原さんの明示GO後のみ。CareLink固有の「触れてはいけない共有物」(withRoute標準形・cron三重化(GitHub Actions/pg_cron/Render)・middleware CSP+admin membership署名キャッシュ・存在しないテーブル/列参照事故・route.ts export制約・branchesカバレッジ100%ゲート・schema-snapshot.json単一ソース・予約RPC create_booking_atomic・Stripe/LINE/LIFF/Resend・L1〜L7品質スタック)を内蔵。CareLinkで複数エージェント編成・司令塔運用・地雷回避が要るときに使う。
+description: CareLink(医療・福祉・美容 施設向けの予約管理・集客・採用 統合マルチテナントSaaS・このリポジトリ自身)の作業を司令塔=ファブルが指揮しSonnet実行エージェントに割り当てて進める編成。起動時にモデルがファブルかを確認し、違えば変更を促して停止する。調査・立案・集約は司令塔、実働(調査/実装)はSonnet、本番変更は神原さんの明示GO後のみ。CareLink固有の「触れてはいけない共有物」(withRoute標準形・cron(Render のみ実働・GitHub Actions 無効・pg_cron 撤去済み)・middleware CSP+admin membership署名キャッシュ・存在しないテーブル/列参照事故・route.ts export制約・branchesカバレッジ100%ゲート・schema-snapshot.json単一ソース・予約RPC create_booking_atomic・Stripe/LINE/LIFF/Resend・L1〜L7品質スタック)を内蔵。CareLinkで複数エージェント編成・司令塔運用・地雷回避が要るときに使う。
 ---
 
 > ⚠️ **移設ノート（2026-08-09）**: このスキルは元々 `soel` リポジトリに集約されていたが、
@@ -71,7 +71,7 @@ description: CareLink(医療・福祉・美容 施設向けの予約管理・集
   ・strict up-to-date 保護がかかる場合、1本マージするたび残りPRが BEHIND になる→都度 `gh pr update-branch <N>`＋CI再実行。`--admin` は auto-mode classifier に拒否されるので使わず正攻法で。
   ・マージ後 `gh pr view <N> --json state,mergedAt`(state=MERGED かつ mergedAt 非null)を確認してから片付け(別ターン)。CI赤でマージ拒否されたら片付けせず原因調査に回す。
 - 【DDL(CREATE/ALTER/トリガ/制約/RLS)は神原さんが Supabase SQL Editor で実行】。Claudeは直接ALTER/CREATEしない。SELECT/INSERT/UPDATE/DELETEとRenderログ確認は service_role 鍵等でClaude可(2026年7月4日決定)。提示は必ず【どのツール(Supabase SQL Editor)・SQL全文(冪等 `if not exists`/`drop ... if exists`)・確認用SELECT】をセットで。migration は `supabase/migrations/NNNN_*.sql` に必ず追加し、`src/lib/schema-snapshot.json`(全テーブルの正)も更新。適用後は PostgREST/psql で実在を裏取り。schema-drift-check cron(JST 02:40)は事後検知＝事前予防にはならない。
-- デプロイ：Web/API = Vercel(GitHub 連携・main push で自動デプロイ・本番 https://carelink-jp.com・www は301)。DB/認証 = Supabase(本番 project ref `xzafxiupbflvgbarrihe`)。cron は【三重化 移行中】(下記 H)。認証/middleware/cron/webhook/通知/決済/ポイント計算 変更後は Vercel・実データ(DB/ログ/health)で動作確認(コードレビューだけで完了としない)。
+- デプロイ：Web/API = Vercel(GitHub 連携・main push で自動デプロイ・本番 https://carelink-jp.com・www は301)。DB/認証 = Supabase(本番 project ref `xzafxiupbflvgbarrihe`)。cron は【Render のみ実働】(下記 H)。認証/middleware/cron/webhook/通知/決済/ポイント計算 変更後は Vercel・実データ(DB/ログ/health)で動作確認(コードレビューだけで完了としない)。
 - worktree/ブランチ：ブランチは【main】。並行作業は `git worktree add ../<task> origin/main` で隔離(単一 working tree で複数セッションは index race)。編集前に必ず `git show origin/main:<path>` or worktree で Read してからEdit。地雷に関わる定数/列/env/テーブル名は grep と schema-snapshot.json で現状再確認。
   ・worktree で node_modules を symlink している場合、`node_modules/eslint-plugin-carelink-safety` も本家へのリンクになる。worktree 内でこのプラグインを編集するなら `unlink`→worktree実体へ張り替えてから lint(PR#397 事故)。
 - 表記規約：半角アスタリスク禁止(太字は【】)・表示文の半角コロンは全角「：」(コード/URL/構文の:は半角)・日付は2026年7月13日形式(スラッシュ/ハイフン日付禁止)。日本語で会話。人称=Claude/神原さん。
@@ -82,11 +82,11 @@ description: CareLink(医療・福祉・美容 施設向けの予約管理・集
 - A【存在しないテーブル/列参照の無音停止(最頻の事故)】`menus`(正=`facility_menus`)・`reviews`(正=`facility_reviews`)・`facility_menus.is_active`(元々不在)等。tsc は Supabase クライアントに `<Database>` 型が未配線で列タイポを検知できない。新テーブル/列を参照する前に必ず `src/lib/schema-snapshot.json`(全テーブルの正)で実在確認。
 - B【API標準形 withRoute(src/lib/with-route.ts)】Route Handler は原則 withRoute で包む。順序＝CSRF検証(checkCsrf・GET は csrf:false)→レート制限(checkRateLimit・RPC優先→in-memory fallback)→認証(requireAuth で auth.getUser・未認証401)→本体→例外は必ずcatchして500化＋safeCaptureException＋alertCaughtError(catch経路でSlack通知が漏れるため明示通知)。この骨格を崩さない。
 - C【middleware(src/middleware.ts)】per-request nonce の CSP(strict-dynamic+nonce)を全応答に付与・`x-nonce`/`x-pathname` 伝搬。PROTECTED_PATHS=['/mypage','/admin'](middleware.ts)。/admin は facility_members の owner/admin のみ(/admin/onboarding は除外)。admin membership は Cookie キャッシュ(`_cm_mbr_{userId16}`・ADMIN_COOKIE_SECRET で HMAC-SHA256 署名・TTL300)。CSP connect-src に本番ref `xzafxiupbflvgbarrihe`(middleware.ts)がハードコード＝Supabase project 変更時はここも。
-- D【cron認証(src/lib/cron-auth.ts)】checkCronAuth＝`Authorization: Bearer ${CRON_SECRET}` を timingSafeEqual で検証。CRON_SECRET 未設定は500(全cron停止)。cron ハンドラは冪等前提(三重化で多重発火しても無害であること)。
+- D【cron認証(src/lib/cron-auth.ts)】checkCronAuth＝`Authorization: Bearer ${CRON_SECRET}` を timingSafeEqual で検証。CRON_SECRET 未設定は500(全cron停止)。cron ハンドラは冪等前提(手動の再実行や重複起動と重なっても無害であること)。
 - E【予約の中核ロジック(動作確認済み・過剰修正禁止)】create_booking_atomic(SECURITY DEFINER RPC・予約競合の原子性)・予約完了の副作用は apply/reverse の2経路で対称(customer_visits・来店ポイント・PR#229 無音バグ根治)。booking-status.ts の status 遷移/値集合が SSOT。ここは grep で現状確認し、変える時は両経路対称・回帰テスト必須。
 - F【schema-snapshot.json 単一ソース + drift ゲート】`src/lib/schema-snapshot.json` が全テーブルの正。schema-drift-check cron(JST02:40)＋CI Contract Tests が本番/staging ドリフトをゲート。新カラムは migration 先→snapshot更新→code後。列ドリフトは types でなく migration を本番に合わせる。
 - G【外部送信ヘルパーの false 契約】sendLineText 等は失敗時 throw せず false を返す。戻り値を無視して送達フラグを立てると無音の恒久ミス(PR#232)。Resend メール送信も同様に結果確認。webhook-retry は未配信ジョブを success に倒さない(サイレントデータロス・PR#468)。
-- H【cron三重化(GitHub Actions + pg_cron + Render Cron Jobs)＝移行中】render.yaml(SSOT=`src/lib/cron-jobs.data.json`・`render-yaml-drift.test.ts` がドリフト検知)。GitHub Actions cron.yml と pg_cron(Supabase cron.job の `carelink-*` prefix)は【あえて残置】(endpoint冪等で三重発火は無害)。Render 稼働を実データ(Render UI)で確認できたら (1)cron.yml/health-monitor.yml 廃止 (2)pg_cron unschedule の順で一本化。cronを調べる時はまずどのスケジューラが実際に動いているか(Render Dashboard/GitHub run history/`select * from cron.job`)を確認してから議論する。
+- H【cron は Render Cron Jobs のみが実働】render.yaml(SSOT=`src/lib/cron-jobs.data.json`・`render-yaml-drift.test.ts` がドリフト検知)。pg_cron は撤去済み、`cron.yml`/`health-monitor.yml`/`deploy-watch.yml` は GitHub 上で disabled_manually(発火しない)。cronを調べる時はまず workflow の有効／無効(`gh workflow list --all`)、次に Render Dashboard／`cron_logs` の実記録を確認してから議論する(詳細は CLAUDE.md「cron の現状」)。
 - I【金銭/認可=fresh Sonnet で敵対検証必須】Stripe決済・価格計算・ポイント/クーポン/パッケージ・GET系IDOR(facility_id/user_idスコープ)・admin変異ハンドラ(0行時404/409・500やphantom successにしない・PR#465/470)。fix を外して該当テストが赤→復元で有効性確認。テスト有効性検証は直列1セット(破壊→赤→復元→grep 破壊値0)を完了してから commit。
 
 ## 品質スタック(L1〜L7・現在地はプロジェクトCLAUDE.mdの「テスト品質スタック 現在地」が唯一の正)
@@ -95,7 +95,7 @@ L1 ESLint/tsc → L2 Jestユニット → L3 branchesカバレッジ100% → L4 
 ## 地雷リストの鮮度維持(真の予防・時間でなく変化で駆動)
 地雷リストが古くなる真因はカレンダーでなく【コード変更】。以下の二段で保つ：
 - 一次防御(イベント駆動・ズレ0)：作業のたびに landmines.md の【行番号を信じず】安定アンカー(定数名 PROTECTED_PATHS・関数名 withRoute/checkCronAuth/create_booking_atomic・テーブル/列名・envキー名・本番ref・cron名 carelink-*・migration番号)で grep/schema-snapshot 再特定してから断定・編集する。
-- 新種地雷の再スイープ(=landmines.md 更新)。発動条件：(a)大きめ/リスクのあるCareLink作業(認証/middleware/CSP/cron/webhook/決済/ポイント/RLS/schema)に入る前 (b)高リスク箇所(src/lib/{with-route,cron-auth,audit-logger}.ts・src/middleware.ts・src/app/api/**・supabase/migrations/・render.yaml・src/lib/cron-jobs.data.json・.github/workflows/)にまとまった変更が入った後(`git log origin/main` で確認) (c)バックストップとして四半期に1回。再スイープ手順：読取専用Sonnet3体(①認証/middleware/CSP/env/秘密②決済/ポイント/予約RPC/外部送信ヘルパー③schema/RLS/cron三重化/CIガード)を並列起動→方式Cで突合→landmines.md 更新(冒頭日付更新)。神原さんGO不要(読取のみ)。
+- 新種地雷の再スイープ(=landmines.md 更新)。発動条件：(a)大きめ/リスクのあるCareLink作業(認証/middleware/CSP/cron/webhook/決済/ポイント/RLS/schema)に入る前 (b)高リスク箇所(src/lib/{with-route,cron-auth,audit-logger}.ts・src/middleware.ts・src/app/api/**・supabase/migrations/・render.yaml・src/lib/cron-jobs.data.json・.github/workflows/)にまとまった変更が入った後(`git log origin/main` で確認) (c)バックストップとして四半期に1回。再スイープ手順：読取専用Sonnet3体(①認証/middleware/CSP/env/秘密②決済/ポイント/予約RPC/外部送信ヘルパー③schema/RLS/cron(Render)/CIガード)を並列起動→方式Cで突合→landmines.md 更新(冒頭日付更新)。神原さんGO不要(読取のみ)。
 
 ## 今回のタスク(起動のたびに司令塔がここを埋める。神原さんの依頼から抽出)
 - 目的：<達成したいこと1文>

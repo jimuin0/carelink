@@ -53,9 +53,9 @@ export async function prepareCustomerBookingTransitionEnvelope(db: SupabaseClien
   const envelope = eventEmailEnvelopeSchema.parse(job.payload.kind === 'rescheduled'
     ? job.payload.role === 'customer' ? buildBookingRescheduledEnvelope(data)
       // The schema guarantees `previous` for the shop's change email.
-      : buildBookingRescheduleToFacilityEnvelope({ ...data, facilityEmail: job.target_id, previous: s.previous! })
+      : buildBookingRescheduleToFacilityEnvelope({ ...data, facilityId: job.facility_id, facilityEmail: job.target_id, previous: s.previous! })
     : job.payload.role === 'customer' ? buildBookingCancelledEnvelope(data)
-      : buildBookingCancellationToFacilityEnvelope({ ...data, facilityEmail: job.target_id }));
+      : buildBookingCancellationToFacilityEnvelope({ ...data, facilityId: job.facility_id, facilityEmail: job.target_id }));
   const frozen = await db.from('webhook_retry_queue').update({ email_envelope: envelope })
     .eq('id', job.id).eq('status', 'processing').eq('claimed_at', job.claimed_at)
     .is('delivery_started_at', null).is('email_envelope', null).select('id').maybeSingle();

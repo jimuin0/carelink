@@ -2,8 +2,7 @@ import { test, expect } from '@playwright/test';
 
 /**
  * 支払いフロー E2E テスト
- * - Stripe Checkout セッション遷移
- * - 決済完了後のリダイレクト
+ * - 決済は PAY.JP（2026年11月14日に Stripe から移行。前払いは近日公開で導線なし）
  * - 領収書ページ
  * - エラーハンドリング
  * NOTE: 実際の決済処理は行わない（テストモード確認のみ）
@@ -36,25 +35,25 @@ test.describe('領収書 API', () => {
   // 設計: 受領書 API は「認証 → 入力検証」の順（route.ts:24-30）。未認証に入力検証の
   // 挙動を晒さないため、未認証なら入力の妥当性に関わらず 401 を先に返すのが正しい。
   // 入力検証(400: missing / too-long / unpaid)は単体テスト
-  // src/app/api/stripe/receipt/__tests__/route.test.ts が認証モック下で担保している。
-  test('未認証は session_id なしでも 401（認証が入力検証より先）', async ({ request }) => {
-    const response = await request.get('/api/stripe/receipt');
+  // src/app/api/payment/receipt/__tests__/route.test.ts が認証モック下で担保している。
+  test('未認証は payment_id なしでも 401（認証が入力検証より先）', async ({ request }) => {
+    const response = await request.get('/api/payment/receipt');
     expect(response.status()).toBe(401);
   });
 
   test('未認証で 401 が返る', async ({ request }) => {
-    const response = await request.get('/api/stripe/receipt?session_id=cs_test_dummy');
+    const response = await request.get('/api/payment/receipt?payment_id=00000000-0000-4000-8000-000000000000');
     expect(response.status()).toBe(401);
   });
 
-  test('未認証は長すぎる session_id でも 401（認証が入力検証より先）', async ({ request }) => {
+  test('未認証は長すぎる payment_id でも 401（認証が入力検証より先）', async ({ request }) => {
     const longId = 'x'.repeat(201);
-    const response = await request.get(`/api/stripe/receipt?session_id=${longId}`);
+    const response = await request.get(`/api/payment/receipt?payment_id=${longId}`);
     expect(response.status()).toBe(401);
   });
 
   test('Cache-Control が private, no-store である', async ({ request }) => {
-    const response = await request.get('/api/stripe/receipt?session_id=cs_test_dummy');
+    const response = await request.get('/api/payment/receipt?payment_id=00000000-0000-4000-8000-000000000000');
     // 認証エラーでも Cache-Control はチェック可能
     if (response.status() === 401) {
       // 401 の場合は通常ヘッダーなし
@@ -67,22 +66,21 @@ test.describe('領収書 API', () => {
   });
 });
 
-test.describe('Stripe Webhook セキュリティ', () => {
-  test('署名なしの webhook が 400 を返す', async ({ request }) => {
-    const response = await request.post('/api/stripe/webhook', {
-      data: JSON.stringify({ type: 'checkout.session.completed' }),
+test.describe('PAY.JP Webhook セキュリティ', () => {
+  test('照合トークンなしの webhook は拒否される（決済未設定の環境では 404）', async ({ request }) => {
+    const response = await request.post('/api/payjp/webhook', {
+      data: JSON.stringify({ id: 'evnt_x', type: 'charge.succeeded', created: 1, data: {} }),
       headers: { 'Content-Type': 'application/json' },
     });
-    // 署名検証失敗で 400 または 401
-    expect([400, 401, 403]).toContain(response.status());
+    expect([401, 404]).toContain(response.status());
   });
 
-  test('payment/webhook も署名なしで拒否される', async ({ request }) => {
-    const response = await request.post('/api/payment/webhook', {
-      data: JSON.stringify({ type: 'checkout.session.completed' }),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    expect([400, 401, 403]).toContain(response.status());
+  test('廃止した Stripe の webhook は存在しない', async ({ request }) => {
+    for (const path of ['/api/stripe/webhook', '/api/payment/webhook']) {
+      const response = await request.post(path, { data: '{}', headers: { 'Content-Type': 'application/json' } });
+      expect(response.status()).not.toBe(200);
+      expect(response.status()).toBeLessThan(500);
+    }
   });
 });
 

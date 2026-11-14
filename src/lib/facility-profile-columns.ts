@@ -11,7 +11,7 @@
  * `GRANT SELECT (新しい列) ON public.facility_profiles TO anon, authenticated` を書き、
  * (2) この一覧にも足す。`src/__tests__/facility-profile-columns.test.ts` が
  * schema-snapshot.json との突合で (2) の漏れを CI で止める。
- * stripe_account_id は service_role（/api/stripe/checkout）だけが読む。
+ * stripe_account_id はもうアプリから読まない（2026年11月14日に決済を PAY.JP へ移し、/api/stripe/checkout を撤去）。
  */
 export const FACILITY_PROFILE_READABLE_COLUMNS =
   'access_info, address, board_slot_minutes, booking_auto_confirm, booking_buffer_minutes, building, business_hours, business_hours_text, business_type, catch_copy, city, created_at, credit_card, deposit_amount, deposit_type, description, design_color, design_template, directions, equipment, features, gbp_cid, gbp_connected_at, gbp_place_id, gbp_synced_at, genres, google_rating, google_review_count, header_photo_url, hpb_scraped_at, hpb_sln_id, id, is_seed, is_verified, latitude, location, logo_url, longitude, main_photo_url, medical_specialties, menu_remarks, name, nearest_station, onboarding_email_sent_at, owner_message, owner_name, owner_photo_url, owner_title, parking, parking_text, payment_other, phone, postal_code, prefecture, rating_avg, rating_count, regular_holiday, remarks, seat_count, show_business_status, slug, staff_breakdown, staff_count, status, stripe_enabled, updated_at, verified_at, verified_type, view_count, website_url';

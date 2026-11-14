@@ -213,6 +213,14 @@ test('DELETE: 購入済みユーザーがいる → 非公開化 → 200', async
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.message).toContain('非公開');
+  // 点検 A130：削除の代わりに非公開化した事実も監査に残す
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+    action: 'update',
+    tableName: 'service_packages',
+    recordId: PKG_UUID,
+    newValues: expect.objectContaining({ is_active: false }),
+  }));
 });
 
 test('DELETE: 購入済みユーザーあり・非公開化失敗 → 500', async () => {
@@ -418,8 +426,9 @@ test('DELETE: 未認証 → 401', async () => {
   expect(res.status).toBe(401);
 });
 
-test('DELETE: count=null → ハード削除', async () => {
+test('DELETE: count=null（購入者数を確定できない）→ 500・物理削除しない', async () => {
   let adminCallNum = 0;
+  const hardDelete = jest.fn();
   mockAdminFrom.mockImplementation(() => {
     adminCallNum++;
     if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
@@ -430,11 +439,12 @@ test('DELETE: count=null → ハード削除', async () => {
         }),
       };
     }
-    return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: PKG_UUID }], error: null })) }) }) }) };
+    return { delete: hardDelete, update: jest.fn() };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
   const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(500);
+  expect(hardDelete).not.toHaveBeenCalled();
 });
 
 // Branch coverage: line 40 — package 存在・membership null → null 返却（false 分岐 → 401）

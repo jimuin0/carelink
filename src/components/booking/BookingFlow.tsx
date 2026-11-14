@@ -231,6 +231,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [availablePoints, setAvailablePoints] = useState(0);
   const [pointsLoadFailed, setPointsLoadFailed] = useState(false);
+  // 監査 A391: 残高を取得し終える前に「残高0」でクランプすると、復元したポイント利用額が消える。
+  const [pointsBalanceKnown, setPointsBalanceKnown] = useState(false);
   const [pointsRetryTick, setPointsRetryTick] = useState(0);
   const [usePoints, setUsePoints] = useState(false);
   const [pointsToUse, setPointsToUse] = useState(0);
@@ -514,8 +516,10 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             for (const [date, perStaff] of Object.entries(body.days as Record<string, Record<string, AvailableSlot[]>>)) {
               days[date] = { ...days[date], ...perStaff };
             }
-          } catch (err) {
-            if ((err as { name?: string })?.name !== 'AbortError') hadFailure = true;
+          } catch {
+            // 監査 A393: 自分が中断したとき以外の AbortError（ブラウザ側の中断など）は取得失敗として扱う。
+            // そうしないと空のマトリクスが「予約可能な時間帯がありません」（満席）に見えてしまう。
+            if (!controller.signal.aborted) hadFailure = true;
           }
         }));
 
@@ -565,10 +569,11 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!active) return;
       setIsAuthenticated(!!user);
+      if (!user) setPointsBalanceKnown(true);
       if (user) {
         try {
           const total = await readPointsBalance(supabase, user.id);
-          if (active) { setAvailablePoints(Math.max(0, total)); setPointsLoadFailed(false); }
+          if (active) { setAvailablePoints(Math.max(0, total)); setPointsLoadFailed(false); setPointsBalanceKnown(true); }
         } catch {
           if (active) setPointsLoadFailed(true);
         }
@@ -733,6 +738,30 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     }
   }
 
+  // 監査 A431: スタッフ・クーポンも読み直したら新しい内容に置き換える。選んだ時点の写しのままだと、
+  // 指名料・割引が古いまま確認画面の合計に出て、サーバーの請求額（正）とずれる。
+  const [syncedStaff, setSyncedStaff] = useState(staff);
+  if (syncedStaff !== staff) {
+    setSyncedStaff(staff);
+    if (selectedStaff) {
+      const latestStaff = staff.find((s) => s.id === selectedStaff.id) ?? null;
+      if (latestStaff) setSelectedStaff(latestStaff);
+      else {
+        changeStaffFilter(null);
+        setToast({ type: 'error', message: '指名中のスタッフがご予約いただけなくなったため、指名を解除しました' });
+      }
+    }
+  }
+  const [syncedCoupons, setSyncedCoupons] = useState(coupons);
+  if (syncedCoupons !== coupons) {
+    setSyncedCoupons(coupons);
+    if (selectedCoupon) {
+      const latestCoupon = coupons.find((c) => c.id === selectedCoupon.id) ?? null;
+      setSelectedCoupon(latestCoupon);
+      if (!latestCoupon) setToast({ type: 'error', message: '選択中のクーポンがご利用いただけなくなったため、選択を解除しました' });
+    }
+  }
+
   // 【2026年10月23日】選択中の枠の長さが、今のメニューの所要時間と合わなくなったら枠を外す。
   // 枠を選んでから「戻る」でメニューを足す（クーポンの対象メニューが自動で足される場合も）と、
   // 旧い終了時刻の枠が残ったまま確認・予約まで進めてしまい、120分の内容が 60分の枠で保存されていた
@@ -757,7 +786,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   // レンダーでも評価されるが、cap は常に最新値から再計算するため超過時のみ動作し安全側。
   {
     const price = calculatePrice();
-    const cap = Math.max(0, Math.min(availablePoints, price ?? 0));
+    // 残高が未取得の間は価格だけで抑える（残高0とみなして復元値を消さない）。
+    const cap = Math.max(0, pointsBalanceKnown ? Math.min(availablePoints, price ?? 0) : (price ?? 0));
     if (pointsToUse > cap) {
       setPointsToUse(cap);
     }

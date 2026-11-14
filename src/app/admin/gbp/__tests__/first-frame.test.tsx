@@ -185,4 +185,30 @@ describe('GBP 管理画面のタブ切替', () => {
     expect(fetchMock.mock.calls.filter((c) => String(c[0]).startsWith('/api/admin/gbp/posts'))).toHaveLength(2);
     handle.unmount();
   });
+
+  // 監査 A332: GBP を開いただけで投稿済みにしない。通信断ではエラーを出す。
+  it('「GBP投稿」タブ: GBPを開くリンクでは PATCH せず、「投稿済みにする」の通信断はエラー表示', async () => {
+    const post = { id: 'p1', status: 'draft', post_type: 'STANDARD', title: 'T', body: 'B', created_at: '2026-11-01T00:00:00Z' };
+    const fetchMock = jest.fn((url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') return Promise.reject(new Error('offline'));
+      if (String(url).startsWith('/api/admin/gbp/posts')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ posts: [post] }) });
+      return new Promise(() => {});
+    });
+    global.fetch = fetchMock as unknown as typeof global.fetch;
+    const handle = mountFirstFrame(<AdminGbpPage />);
+    await handle.settle();
+    clickFirstFrame(tabButton(handle, 'GBP投稿'));
+    await handle.settle();
+    const link = Array.from(handle.container.querySelectorAll('a')).find((a) => a.textContent?.includes('GBPに投稿'));
+    expect(link).toBeDefined();
+    link!.addEventListener('click', (e) => e.preventDefault());
+    clickFirstFrame(link!);
+    await handle.settle();
+    expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')).toBe(false);
+    clickFirstFrame(tabButton(handle, '投稿済みにする'));
+    await handle.settle();
+    expect(handle.text()).toContain('通信エラーが発生しました');
+    expect(handle.text()).not.toContain('投稿済み　');
+    handle.unmount();
+  });
 });

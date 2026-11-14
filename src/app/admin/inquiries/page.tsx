@@ -182,7 +182,15 @@ export default function AdminInquiriesPage() {
       }
       if (!pageMounted.current) return;
       setToast({ type: 'success', message: '更新しました' });
-      await load();
+      // 監査 A339: 1ページ目から読み直すと追加読み込みした行・展開中の行が消えるため、該当行だけ更新する。
+      setContacts((current) => current.map((c) => (c.id === id ? { ...c, ...updates } : c)));
+      if ('ticket_notes' in updates) {
+        setEditingNotes((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
     } catch {
       if (pageMounted.current) {
         setToast({ type: 'error', message: '更新に失敗しました。通信状況を確認して再試行してください' });

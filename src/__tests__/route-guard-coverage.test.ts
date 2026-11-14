@@ -54,10 +54,6 @@ const ALLOW: Record<string, Exemption> = {
       + 'x-line-signature の HMAC 検証（verifyLineSignature）が本人性の根拠',
     rateLimit: '送信元は LINE のみで、署名不一致は本体処理の前に落ちる',
   },
-  'payment/webhook/route.ts': {
-    csrf: 'Stripe からのサーバ間 POST。stripe.webhooks.constructEvent の署名検証が本人性の根拠',
-    rateLimit: '同上。署名不一致は本体処理の前に 400 で落ちる',
-  },
   'slack/interactions/route.ts': {
     csrf: 'Slack からのサーバ間 POST。verifySlackRequest（署名＋タイムスタンプ）が本人性の根拠',
     rateLimit: '同上。署名不一致は本体処理の前に落ちる',
@@ -66,10 +62,6 @@ const ALLOW: Record<string, Exemption> = {
     csrf: 'PAY.JP からのサーバ間 POST。X-Payjp-Webhook-Token をダッシュボードの値と定数時間で照合するのが本人性の根拠',
     rateLimit: '同上。トークン不一致は本体処理の前に 401 で落ちる',
     auth: '同上。ログイン利用者ではなく PAY.JP が送るので、トークンの照合で代える',
-  },
-  'stripe/webhook/route.ts': {
-    csrf: 'Stripe からのサーバ間 POST。constructEvent の署名検証が本人性の根拠',
-    rateLimit: '同上。署名不一致は本体処理の前に 400 で落ちる',
   },
   'contact/route.ts': {
     auth: '未ログインで送れることが要件の問い合わせフォーム。CSRF＋レート制限＋reCAPTCHA で守る',
@@ -190,7 +182,7 @@ const IDENTITY_PATTERNS: RegExp[] = [
   /\bverifyLineAccessToken\s*\(/,     // LINE アクセストークン（自社チャネル一致を検証）
   /\bfetchVerifiedLiffProfile\s*\(/,  // 同じchannel検証後、LINE自身のprofile応答からidentityを得る
   /\bverifySlackRequest\s*\(/,        // Slack 署名
-  /\bconstructEvent\s*\(/,            // Stripe 署名
+  /\bverifyPayjpWebhookToken\s*\(/,   // PAY.JP webhook の照合トークン
   /\bverifyApiKey\s*\(/,              // 施設 API キー
   /\bverifyUnsubscribeToken\s*\(/,    // 配信停止トークン
   /\breadSalonIntentStatus\s*\(/,     // intent ID＋proof一致＋server期限をDB照合し最小状態のみ返す
@@ -461,7 +453,7 @@ describe('route.ts の CSRF / レート制限 / 本人確認を機械強制す�
       expect(hasIdentityGate('const { data } = await supabase.auth.getUser()')).toBe(true);
       expect(hasIdentityGate('withRoute(h, { requireAuth: true })')).toBe(true);
       expect(hasIdentityGate('const e = checkCronAuth(request)')).toBe(true);
-      expect(hasIdentityGate('event = stripe.webhooks.constructEvent(b, s, k)')).toBe(true);
+      expect(hasIdentityGate('if (!verifyPayjpWebhookToken(h)) return')).toBe(true);
       expect(hasIdentityGate('await readSalonIntentStatus(db, intentId, proof)')).toBe(true);
       expect(hasIdentityGate('await readSalonRegistrationSummary(db, intentId, proof)')).toBe(true);
       expect(hasIdentityGate(maskNonCode('// readSalonRegistrationSummary(db, id, proof)'))).toBe(false);

@@ -78,7 +78,7 @@ CareLink 運用における役割と当番。`.github/CODEOWNERS` の責任範�
 `.github/CODEOWNERS` では以下が `@jimuin0` 単独所有となっている（2026-05-25 時点）:
 
 - 全体デフォルト
-- `/supabase/migrations/`, `/.github/`, `/middleware.ts`, `/vercel.json`, `/package.json`, `/package-lock.json`, `/.env.example`
+- `/supabase/migrations/`, `/.github/`, `/middleware.ts`（⚠️ 実体は `src/middleware.ts` のため、この指定は何にも一致せず全体デフォルトでしか拾われない）, `/vercel.json`（⚠️ リポジトリに存在しない）, `/package.json`, `/package-lock.json`, `/.env.example`
 - `/src/app/api/` の `auth/`, `payment/`, `admin/`, `cron/`, `profile/`, `account/`
 - `/src/lib/` の `csrf.ts`, `cron-auth.ts`, `rate-limit.ts`, `supabase-server.ts`, `supabase-server-auth.ts`, `audit-logger.ts`
 
