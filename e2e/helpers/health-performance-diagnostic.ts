@@ -9,7 +9,7 @@ export function healthPerformanceDiagnostic(elapsed: number, status: number, bod
   return {
     client_elapsed_ms: duration(elapsed), http_status: status,
     route_elapsed_ms: duration(data.elapsed_ms), server_timing_ms: server,
-    dependencies: Object.fromEntries(['supabase','rate_limit','stripe','resend','cron'].map(name => {
+    dependencies: Object.fromEntries(['supabase','rate_limit','payjp','resend','cron'].map(name => {
       const dep = record(dependencies[name]);
       return [name, { ok: boolean(dep.ok), elapsed_ms: duration(dep.elapsed_ms), retried: boolean(dep.retried), skipped: boolean(dep.skipped) }];
     })),

@@ -4,14 +4,14 @@
  * 【背景・2026年7月30日 本番実測】
  * 鍵が入っていないのに UI が機能を見せ、客と施設が踏んで失敗していた。
  *   - ANTHROPIC_API_KEY 未設定 → 全ページの AI チャットボットが 503／症状チェッカーが 500
- *   - STRIPE_SECRET_KEY 未設定 → 有料オプションが値札付きで並ぶが購入で 503
+ *   - 決済の鍵（当時は STRIPE_SECRET_KEY・2026年11月14日から PAY.JP）未設定 → 有料オプションが値札付きで並ぶが購入で 503
  *   - GOOGLE_CLIENT_ID/SECRET 未設定 → 連携ボタンは出るが連携できない
  * 表示を手動フラグで隠すと戻し忘れ（設定したのに出ない）と逆の事故（出るのに動かない）が
  * 起きるため、表示を設定に従属させた。本テストはその従属関係を両方向で固定する。
  */
 
 describe('integration-availability', () => {
-  const KEYS = ['ANTHROPIC_API_KEY', 'STRIPE_SECRET_KEY', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'] as const;
+  const KEYS = ['ANTHROPIC_API_KEY', 'PAYJP_SECRET_KEY', 'PAYJP_WEBHOOK_TOKEN', 'NEXT_PUBLIC_PAYJP_PUBLIC_KEY', 'PAYJP_FEATURED_PLAN_ID', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'] as const;
   const original: Record<string, string | undefined> = {};
 
   beforeEach(() => {
@@ -52,21 +52,33 @@ describe('integration-availability', () => {
   });
 
   describe('isPaymentsEnabled', () => {
-    // 判定は /api/options/checkout が見る変数と同じにする。ここがズレると
-    // 「表示はできるのに購入は 503」が復活する。
-    test('STRIPE_SECRET_KEY 未設定 → false', () => {
-      delete process.env.STRIPE_SECRET_KEY;
-      expect(load().isPaymentsEnabled()).toBe(false);
-    });
-
-    test('空文字 → false', () => {
-      process.env.STRIPE_SECRET_KEY = '';
-      expect(load().isPaymentsEnabled()).toBe(false);
-    });
-
-    test('値あり → true', () => {
-      process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    // 判定は /api/options/checkout・/api/payment/charge・/api/payjp/webhook が見る変数と同じにする。
+    // ここがズレると「表示はできるのに購入は 503」が復活する。
+    const setAll = () => {
+      process.env.PAYJP_SECRET_KEY = 'sk_test_dummy';
+      process.env.PAYJP_WEBHOOK_TOKEN = 'whook_dummy';
+      process.env.NEXT_PUBLIC_PAYJP_PUBLIC_KEY = 'pk_test_dummy';
+    };
+    test('3 つ揃えば true', () => {
+      setAll();
       expect(load().isPaymentsEnabled()).toBe(true);
+    });
+    test.each(['PAYJP_SECRET_KEY', 'PAYJP_WEBHOOK_TOKEN', 'NEXT_PUBLIC_PAYJP_PUBLIC_KEY'])('%s が欠ければ false', (k) => {
+      setAll();
+      delete process.env[k];
+      expect(load().isPaymentsEnabled()).toBe(false);
+    });
+    test('空文字 → false', () => {
+      setAll();
+      process.env.PAYJP_SECRET_KEY = '';
+      expect(load().isPaymentsEnabled()).toBe(false);
+    });
+    test('広告枠（isPayjpEnabled）はプラン ID も要る', () => {
+      setAll();
+      delete process.env.PAYJP_FEATURED_PLAN_ID;
+      expect(load().isPayjpEnabled()).toBe(false);
+      process.env.PAYJP_FEATURED_PLAN_ID = 'pln_1';
+      expect(load().isPayjpEnabled()).toBe(true);
     });
   });
 

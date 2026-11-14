@@ -1,7 +1,7 @@
 /**
  * PAY.JP の REST API を fetch で直接呼ぶ薄いクライアント（2026年11月13日・点検 B2-1）。
  *
- * 公式 SDK（payjp パッケージ）は入れない。使うのは customer / card / plan / subscription の
+ * 公式 SDK（payjp パッケージ）は入れない。使うのは customer / card / plan / subscription / charge の
  * 数本だけで、Cloudflare Workers 上でも確実に動く fetch の方が依存と配信物を増やさずに済むため。
  *
  * 仕様の出典（2026年11月13日に確認）：https://docs.pay.jp/v1/api/ ・ /v1/subscription ・ /v1/webhook
@@ -42,8 +42,17 @@ export type PayjpSubscription = {
   metadata: Record<string, string> | null;
 };
 export type PayjpCustomer = { id: string };
+export type PayjpCharge = {
+  id: string;
+  amount: number;
+  paid: boolean;
+  captured: boolean;
+  refunded: boolean;
+  amount_refunded: number;
+  metadata: Record<string, string> | null;
+};
 
-async function payjpRequest<T>(method: 'GET' | 'POST', path: string, params?: Record<string, string>): Promise<T> {
+export async function payjpRequest<T>(method: 'GET' | 'POST', path: string, params?: Record<string, string>): Promise<T> {
   const key = process.env.PAYJP_SECRET_KEY;
   if (!key) throw new PayjpError('PAYJP_SECRET_KEY is not set', 0, 'configuration_error');
   const body = params ? new URLSearchParams(params).toString() : undefined;
@@ -100,9 +109,32 @@ export function cancelSubscription(subscriptionId: string): Promise<PayjpSubscri
   return payjpRequest<PayjpSubscription>('POST', `/subscriptions/${seg(subscriptionId)}/cancel`);
 }
 
+/** 月額プランを作る（id を指定。同じ id は PAY.JP 側で重複不可）。 */
+export function createPlan(planId: string, amount: number, name: string): Promise<PayjpPlan> {
+  return payjpRequest<PayjpPlan>('POST', '/plans', {
+    id: planId, amount: String(amount), currency: 'jpy', interval: 'month', name,
+  });
+}
+
+/**
+ * 1 回払いの支払いを作って即時に確定する（capture は既定の true）。
+ * card には payjp.js が 3D セキュア付きで作ったトークン（createToken の three_d_secure: true）を渡す。
+ * トークン側で認証が済むので、支払いの 3DS（tds_finish）は使わない（https://docs.pay.jp/v1/token-tds）。
+ */
+export function createCharge(token: string, amount: number, description: string, metadata: Record<string, string>): Promise<PayjpCharge> {
+  const params: Record<string, string> = { card: token, amount: String(amount), currency: 'jpy', description };
+  for (const [k, v] of Object.entries(metadata)) params[`metadata[${k}]`] = v;
+  return payjpRequest<PayjpCharge>('POST', '/charges', params);
+}
+
 /** カードが使えなかった（利用者に直してもらう）失敗か。それ以外はこちら側・PAY.JP 側の障害として扱う。 */
 export function isCardError(err: unknown): err is PayjpError {
   return err instanceof PayjpError && (err.type === 'card_error' || err.status === 402);
+}
+
+/** 指定した id のプランが無いか（PAY.JP は 404 を返す）。 */
+export function isNotFound(err: unknown): boolean {
+  return err instanceof PayjpError && err.status === 404;
 }
 
 /** プランが画面の表示（税込月額）と一致しているか。食い違えば販売しない。 */

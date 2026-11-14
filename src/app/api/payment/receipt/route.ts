@@ -1,6 +1,6 @@
 /**
- * 領収書生成
- * GET /api/stripe/receipt?session_id=xxx
+ * 領収書生成（2026年11月14日に Stripe から PAY.JP へ移行）
+ * GET /api/payment/receipt?payment_id=<booking_payjp_charges.id>
  * — HTML → ブラウザで印刷可能な領収書
  */
 
@@ -11,6 +11,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { serverError } from '@/lib/with-route';
 import { formatFacilityAddress } from '@/lib/facility-location';
+import { UUID_REGEX } from '@/lib/constants';
 
 function esc(s: string | null | undefined): string {
   return (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -19,25 +20,24 @@ function esc(s: string | null | undefined): string {
 export async function GET(request: NextRequest) {
   try {
   const ip = getClientIp(request);
-  if (await checkRateLimit(null, ip, 20, 60_000, 'stripe-receipt')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'payment-receipt')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const sessionId = request.nextUrl.searchParams.get('session_id');
-  // Stripe Checkout Session IDs start with "cs_" and are at most ~200 chars
-  if (!sessionId || sessionId.length > 200 || !/^cs_[a-zA-Z0-9_]+$/.test(sessionId)) {
-    return NextResponse.json({ error: 'session_id required' }, { status: 400 });
+  const paymentId = request.nextUrl.searchParams.get('payment_id');
+  if (!paymentId || !UUID_REGEX.test(paymentId)) {
+    return NextResponse.json({ error: 'payment_id required' }, { status: 400 });
   }
 
   const admin = createServiceRoleClient();
 
   const { data: session } = await admin
-    .from('stripe_sessions')
-    .select('*, facility_profiles(name, address, phone, postal_code, prefecture, city)')
-    .eq('stripe_session_id', sessionId)
+    .from('booking_payjp_charges')
+    .select('id, amount, payment_type, status, payjp_charge_id, created_at, facility_profiles(name, address, phone, postal_code, prefecture, city)')
+    .eq('id', paymentId)
     .eq('user_id', user.id)
     .single();
 
@@ -132,7 +132,7 @@ export async function GET(request: NextRequest) {
   <div class="footer">
     <p>CareLink（ケアリンク）https://carelink-jp.com</p>
     <p>この領収書は電子的に発行されました</p>
-    <p style="margin-top:4px;font-size:10px;">決済ID: ${esc(session.stripe_session_id)}</p>
+    <p style="margin-top:4px;font-size:10px;">決済ID: ${esc(session.payjp_charge_id)}</p>
   </div>
 </body>
 </html>`;
@@ -144,6 +144,6 @@ export async function GET(request: NextRequest) {
     },
   });
   } catch (e) {
-    return serverError('stripe-receipt', e, '/api/stripe/receipt', 'Internal Server Error');
+    return serverError('payment-receipt', e, '/api/payment/receipt', 'Internal Server Error');
   }
 }

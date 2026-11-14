@@ -48,7 +48,7 @@ const PREMIUM_FEATURES = [
   'チェーン店一括管理（複数施設）',
   'A/Bテスト機能',
   'NPS調査ツール',
-  'Stripe決済統合（デポジット・事前決済）',
+  'オンライン決済（デポジット・事前決済）',
   '専任サポート（ビデオ通話対応）',
   'APIアクセス（POS・会計ソフト連携）',
   // 独自ドメインで予約ページを出す処理はまだ無い。提供済みの機能として載せない（white-label-status.ts）。
@@ -92,7 +92,7 @@ const PLANS = [
       'チェーン店一括管理（5施設まで）',
       'A/Bテスト機能',
       'NPS調査ツール',
-      'Stripe決済統合',
+      'オンライン決済',
       'メールサポート（24h以内返信）',
     ],
   },
@@ -120,7 +120,7 @@ const COMPARISON_ITEMS = [
   { label: 'メニュー登録数', free: '10件', standard: '無制限', enterprise: '無制限' },
   { label: '顧客管理', free: '50名', standard: '無制限', enterprise: '無制限' },
   { label: '検索優先表示', free: false, standard: true, enterprise: true },
-  { label: 'Stripe決済統合', free: false, standard: true, enterprise: true },
+  { label: 'オンライン決済', free: false, standard: true, enterprise: true },
   { label: '高度分析', free: false, standard: true, enterprise: true },
   { label: 'AIレビュー要約', free: false, standard: true, enterprise: true },
   { label: 'チェーン一括管理', free: false, standard: '5施設', enterprise: '無制限' },
@@ -154,7 +154,7 @@ export default function PremiumPage() {
             <span className="text-amber-300">プレミアム機能</span>
           </h1>
           <p className="text-sky-100 text-lg mb-8 max-w-2xl mx-auto">
-            検索上位固定・無制限顧客管理・Stripe決済統合・AI分析など、
+            検索上位固定・無制限顧客管理・オンライン決済・AI分析など、
             成長を加速するすべての機能がワンパッケージ。
           </p>
           <Link href="/contact?plan=standard"

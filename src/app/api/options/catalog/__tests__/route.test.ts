@@ -5,7 +5,7 @@
  *
  * 【2026年7月30日 新設の理由・本番実測】
  * 従来は管理画面のクライアントが option_catalog を直接読み、is_active=true の4件を
- * 値札と購入ボタン付きで並べていた。しかし本番に STRIPE_SECRET_KEY は無く、購入すると
+ * 値札と購入ボタン付きで並べていた。しかし本番に決済の鍵（当時は STRIPE_SECRET_KEY）は無く、購入すると
  * /api/options/checkout が 503「決済機能が設定されていません」を返していた。
  * 買えない商品に値段を出して押させる状態だったため、購入可否を決める同じ変数を
  * サーバで見て、購入必須のオプションはそもそも返さないようにした。
@@ -41,7 +41,12 @@ function req() {
   return new Request('http://localhost/api/options/catalog', { headers: { 'x-forwarded-for': '203.0.113.1' } });
 }
 
-const originalStripe = process.env.STRIPE_SECRET_KEY;
+const ORIGINAL_ENV = { ...process.env };
+const enablePayments = () => {
+  process.env.PAYJP_SECRET_KEY = 'sk_test_dummy';
+  process.env.PAYJP_WEBHOOK_TOKEN = 'whook_dummy';
+  process.env.NEXT_PUBLIC_PAYJP_PUBLIC_KEY = 'pk_test_dummy';
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -50,35 +55,36 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (originalStripe === undefined) delete process.env.STRIPE_SECRET_KEY;
-  else process.env.STRIPE_SECRET_KEY = originalStripe;
+  process.env = { ...ORIGINAL_ENV };
 });
 
 test('決済未設定 → 購入必須オプションを返さない（買えない商品を見せない）', async () => {
-  delete process.env.STRIPE_SECRET_KEY;
+  delete process.env.PAYJP_SECRET_KEY;
   const json = await (await GET(req())).json();
   expect(json.paymentsEnabled).toBe(false);
   expect(json.options.map((o: { key: string }) => o.key)).toEqual(['hpb_integration']);
 });
 
 test('決済未設定でも contact_only は返す（Slack 申込みで成立するため）', async () => {
-  delete process.env.STRIPE_SECRET_KEY;
+  delete process.env.PAYJP_SECRET_KEY;
   const json = await (await GET(req())).json();
+  expect(json.publicKey).toBeUndefined();
   expect(json.options).toHaveLength(1);
   expect(json.options[0].contact_only).toBe(true);
 });
 
 test('決済設定済み → 全オプションを返す（鍵を入れた瞬間に自動で復活する）', async () => {
-  process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+  enablePayments();
   const json = await (await GET(req())).json();
   expect(json.paymentsEnabled).toBe(true);
+  expect(json.publicKey).toBe('pk_test_dummy');
   expect(json.options.map((o: { key: string }) => o.key)).toEqual([
     'reminder_email_3d', 'reminder_line', 'hpb_integration',
   ]);
 });
 
 test('data が null でも空配列として扱う（0件と障害を混同しない）', async () => {
-  delete process.env.STRIPE_SECRET_KEY;
+  delete process.env.PAYJP_SECRET_KEY;
   setupSupabase({ data: null });
   const res = await GET(req());
   expect(res.status).toBe(200);

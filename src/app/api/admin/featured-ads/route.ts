@@ -19,13 +19,14 @@ import { UUID_REGEX } from '@/lib/constants';
 import { isPayjpEnabled } from '@/lib/integration-availability';
 import {
   FEATURED_AD_PRICE_TAX_EXCLUDED, FEATURED_AD_PRICE_TAX_INCLUDED,
-  addDefaultCard, cancelSubscription, createCustomer, createSubscription, isCardError,
+  cancelSubscription, createSubscription, isCardError,
   planMatchesFeaturedPrice, retrievePlan,
 } from '@/lib/payjp';
+import { CARD_REJECTED_MESSAGE, PAYJP_UNAVAILABLE_MESSAGE, ensureFacilityCustomer } from '@/lib/payjp-customer';
 
 const ROUTE = '/api/admin/featured-ads';
 const NOT_ON_SALE = { error: '有料掲載枠のお申し込みは現在受け付けておりません' };
-const CARD_REJECTED = 'カードを利用できませんでした。カード情報を確かめるか、別のカードでお試しください。';
+const CARD_REJECTED = CARD_REJECTED_MESSAGE;
 /** 申込の途中で止まった「有効化待ち」を、この時間を過ぎたら新しい申込の妨げにしない。 */
 const PENDING_BLOCK_MS = 30 * 60 * 1000;
 
@@ -134,25 +135,13 @@ export async function POST(request: Request) {
       return serverError('admin-featured-ads-plan', err, ROUTE, '決済サービスに接続できませんでした。時間をおいて再度お試しください。');
     }
 
-    // 施設ごとの customer。既にあればカードを差し替え、無ければ作る。
-    const { data: customerRow, error: customerErr } = await admin
-      .from('facility_payjp_customers').select('payjp_customer_id').eq('facility_id', facilityId).maybeSingle();
-    if (customerErr) return serverError('admin-featured-ads-customer-read', customerErr, ROUTE);
-    let customerId = customerRow?.payjp_customer_id ?? null;
-    try {
-      if (customerId) {
-        await addDefaultCard(customerId, token);
-      } else {
-        customerId = (await createCustomer(token, facilityId)).id;
-        const { error: saveErr } = await admin.from('facility_payjp_customers').insert({ facility_id: facilityId, payjp_customer_id: customerId });
-        if (saveErr) {
-          return serverError('admin-featured-ads-customer-save', new Error(`${saveErr.message} (orphan PAY.JP customer ${customerId})`), ROUTE);
-        }
-      }
-    } catch (err) {
-      if (isCardError(err)) return NextResponse.json({ error: CARD_REJECTED }, { status: 400 });
-      return serverError('admin-featured-ads-customer', err, ROUTE, '決済サービスに接続できませんでした。時間をおいて再度お試しください。');
+    // 施設ごとの customer（有料オプションと共用）。既にあればカードを差し替え、無ければ作る。
+    const customer = await ensureFacilityCustomer(admin, facilityId, token);
+    if (!customer.ok) {
+      if (customer.reason === 'card') return NextResponse.json({ error: CARD_REJECTED }, { status: 400 });
+      return serverError(`admin-featured-ads-${customer.tag}`, customer.error, ROUTE, PAYJP_UNAVAILABLE_MESSAGE);
     }
+    const customerId = customer.customerId;
 
     const now = new Date().toISOString();
     const { data: slot, error: slotErr } = await admin.from('featured_slots').insert({

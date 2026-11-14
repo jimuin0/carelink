@@ -1,5 +1,5 @@
 /**
- * PAY.JP Webhook（POST /api/payjp/webhook・2026年11月13日・点検 B2-1）。
+ * PAY.JP Webhook（POST /api/payjp/webhook・2026年11月13日・点検 B2-1。11月14日に予約の前払い・有料オプションも受ける）。
  *
  * 本人性は X-Payjp-Webhook-Token をダッシュボードの値（PAYJP_WEBHOOK_TOKEN）と定数時間で照合して確かめる
  * （PAY.JP の webhook に HMAC 署名は無い。https://docs.pay.jp/v1/webhook）。
@@ -9,16 +9,17 @@
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { serverError } from '@/lib/with-route';
-import { isPayjpEnabled } from '@/lib/integration-availability';
+import { isPaymentsEnabled } from '@/lib/integration-availability';
 import { verifyPayjpWebhookToken } from '@/lib/payjp';
-import { applyPayjpEvent, parsePayjpEvent } from '@/lib/featured-ads-payjp';
+import { parsePayjpEvent } from '@/lib/featured-ads-payjp';
+import { applyPayjpWebhookEvent } from '@/lib/payjp-webhook';
 
 export const dynamic = 'force-dynamic';
 
 const ROUTE = '/api/payjp/webhook';
 
 export async function POST(request: Request) {
-  if (!isPayjpEnabled()) return NextResponse.json({ error: 'Not Found' }, { status: 404 });
+  if (!isPaymentsEnabled()) return NextResponse.json({ error: 'Not Found' }, { status: 404 });
   if (!verifyPayjpWebhookToken(request.headers.get('x-payjp-webhook-token'))) {
     return NextResponse.json({ error: 'Invalid webhook token' }, { status: 401 });
   }
@@ -37,9 +38,9 @@ export async function POST(request: Request) {
     if (logErr) return serverError('payjp-webhook-log-insert', logErr, ROUTE, 'Log insert failed');
   }
 
-  let outcome: Awaited<ReturnType<typeof applyPayjpEvent>>;
+  let outcome: Awaited<ReturnType<typeof applyPayjpWebhookEvent>>;
   try {
-    outcome = await applyPayjpEvent(admin, event);
+    outcome = await applyPayjpWebhookEvent(admin, event);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error';
     await admin.from('payjp_webhook_events').update({ error: message.slice(0, 1000) }).eq('event_id', event.id);

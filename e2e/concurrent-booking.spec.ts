@@ -113,7 +113,7 @@ test.describe('レート制限の並行処理', () => {
 
   test('webhook エンドポイントへの並行リクエストが安全に処理される', async ({ request }) => {
     const requests = Array.from({ length: 5 }, () =>
-      request.post('/api/stripe/webhook', {
+      request.post('/api/payjp/webhook', {
         data: '{}',
         headers: { 'Content-Type': 'application/json' },
       })
@@ -122,7 +122,7 @@ test.describe('レート制限の並行処理', () => {
     const responses = await Promise.all(requests);
     const statuses = responses.map(r => r.status());
 
-    // 署名検証失敗で 400 が返る、500 は返らない
+    // 照合トークンなしは 401（決済未設定なら 404）、500 は返らない
     expect(statuses.every(s => s !== 500)).toBe(true);
   });
 });

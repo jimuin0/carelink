@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toggle from '@/components/admin/Toggle';
 import LoadError from '@/components/admin/LoadError';
 import { isLineEnabled } from '@/lib/line-availability';
+import { loadPayjp, type PayjpCardElement, type PayjpClient } from '@/lib/payjp-client';
 
 /**
  * リマインダー設定＋有料オプション（アップセル）セクション
@@ -15,7 +16,7 @@ import { isLineEnabled } from '@/lib/line-availability';
  * - 未購入の有料項目は 🔒＋月額（option_catalog の仮価格・DB変更可）＋購入ボタンを表示
  * - HPB 連携など contact_only オプションは「申込み（要相談）」ボタン
  *
- * 価格・購入状態はサーバ（RLS）から取得。購入は /api/options/checkout（Stripe）、
+ * 価格・購入状態はサーバ（RLS）から取得。購入はカード入力欄（payjp.js）でトークンを作り /api/options/checkout（PAY.JP の月額）、
  * 申込みは /api/options/inquiry（Slack 通知）へ POST する。
  */
 
@@ -71,34 +72,41 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
   const [buying, setBuying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [inquired, setInquired] = useState<Set<string>>(new Set());
-  const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
+  // 購入するオプション（カード入力欄を開いている）と、payjp.js の公開鍵（カタログ API が返す）。
+  const [cardFor, setCardFor] = useState<string | null>(null);
+  const [cardReady, setCardReady] = useState(false);
+  const [publicKey, setPublicKey] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const payjpRef = useRef<{ client: PayjpClient; card: PayjpCardElement } | null>(null);
 
-  // handleBuy は JSX の onClick から参照されるため、その内部で window.location.href を
-  // 直接書き換えると React Compiler の immutability ルール（コンポーネント外で定義された
-  // 値の変更）に抵触する。実際の遷移は effect 側に切り出し、handleBuy は遷移先 URL を
-  // state にセットするだけにする。
-  //
-  // ⚠️ 遷移タイミングは【従来と完全に同一ではない】。旧実装は handleBuy の中で
-  // window.location.href に代入していたので、遷移はクリックハンドラと同じタスクで開始した。
-  // 新実装は setRedirectUrl → React のコミット → この effect、と1コミット分あとになる。
-  // 利用者から観測できる差ではない（ミリ秒オーダー）が、「同一」と書くと後から読む人が
-  // 同期遷移を前提に別の変更を入れかねないので、ずれることを明記しておく。
-  //
-  // なお window.location.href への代入はどちらの実装でも【同期的には遷移しない】。
-  // 代入は遷移を開始するだけで現在のタスクは最後まで走るため、旧実装でも finally の
-  // setBuying(null) は遷移前に実行されていた。その点は新旧で変わらない。
+  // カード入力欄を開いたときだけ payjp.js を読み込み、PAY.JP の iframe を差し込む（カード番号は CareLink を通らない）。
   useEffect(() => {
-    if (redirectUrl) {
-      window.location.href = redirectUrl;
-    }
-  }, [redirectUrl]);
+    if (!cardFor || !publicKey) return;
+    let disposed = false;
+    loadPayjp().then((Payjp) => {
+      if (disposed) return;
+      const client = Payjp(publicKey);
+      const card = client.elements().create('card');
+      card.mount('#option-card');
+      payjpRef.current = { client, card };
+      setCardReady(true);
+    }).catch(() => {
+      if (!disposed) setError('カード入力欄を読み込めませんでした。再読み込みしてください。');
+    });
+    return () => {
+      disposed = true;
+      payjpRef.current?.card.unmount();
+      payjpRef.current = null;
+      setCardReady(false);
+    };
+  }, [cardFor, publicKey]);
 
   useEffect(() => {
     const load = async () => {
       const supabase = createBrowserSupabaseClient();
 
       // カタログは option_catalog を直接読まず /api/options/catalog を通す。
-      // 購入可否を決めるのはサーバの STRIPE_SECRET_KEY で、クライアントからは見えないため。
+      // 購入可否を決めるのはサーバの決済設定（PAY.JP の鍵）で、クライアントからは見えないため。
       // 決済未設定の間、サーバが購入必須オプションを返さないので「買えない商品に値札と
       // 購入ボタンを出して 503 を踏ませる」状態が構造的に起きない（2026年7月30日 是正）。
       const [{ data: settingsRow, error: settingsErr }, catalogRes, { data: entRows, error: entErr }] = await Promise.all([
@@ -107,6 +115,7 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
         supabase.from('facility_entitlements').select('option_key, status').eq('facility_id', facilityId).eq('status', 'active'),
       ]);
       const catalogRows = (catalogRes as { options?: CatalogOption[] }).options ?? [];
+      setPublicKey((catalogRes as { publicKey?: string }).publicKey ?? null);
       if (settingsErr || entErr) {
         setLoadFailed(true);
         setLoading(false);
@@ -153,24 +162,58 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
   };
 
   const handleBuy = async (optionKey: string, contactOnly: boolean) => {
-    setBuying(optionKey);
     setError(null);
+    setNotice(null);
+    if (!contactOnly) {
+      // 月額の購入はカード入力欄を開く（申込は handleSubscribe）。
+      setCardFor(optionKey);
+      return;
+    }
+    setBuying(optionKey);
     try {
-      const endpoint = contactOnly ? '/api/options/inquiry' : '/api/options/checkout';
-      const res = await fetch(endpoint, {
+      const res = await fetch('/api/options/inquiry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ facilityId, optionKey }),
       });
       const json = await res.json();
+      if (!res.ok) setError(json.error || '処理に失敗しました。');
+      else setInquired((prev) => new Set(prev).add(optionKey));
+    } catch {
+      setError('通信に失敗しました。時間をおいて再度お試しください。');
+    } finally {
+      setBuying(null);
+    }
+  };
+
+  const handleSubscribe = async () => {
+    const payjp = payjpRef.current;
+    const optionKey = cardFor;
+    if (!payjp || !optionKey || buying) return;
+    setBuying(optionKey);
+    setError(null);
+    try {
+      const tokenResult = await payjp.client.createToken(payjp.card).catch(() => ({ id: undefined, error: { message: undefined } }));
+      if (!tokenResult.id) {
+        setError(tokenResult.error?.message || 'カード情報を確認できませんでした。');
+        return;
+      }
+      const res = await fetch('/api/options/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ facilityId, optionKey, token: tokenResult.id }),
+      });
+      const json = await res.json();
       if (!res.ok) {
         setError(json.error || '処理に失敗しました。');
-      } else if (contactOnly) {
-        setInquired((prev) => new Set(prev).add(optionKey));
-      } else if (json.url) {
-        setRedirectUrl(json.url); // Stripe Checkout へ（実際の遷移は上の effect）
+        return;
+      }
+      setCardFor(null);
+      if (json.active) {
+        setEntitled((prev) => new Set(prev).add(optionKey));
+        setNotice('お申し込みが完了しました。');
       } else {
-        setError('決済URLを取得できませんでした。');
+        setNotice('お申し込みを受け付けました。決済の確認後に利用できるようになります（数分かかることがあります）。');
       }
     } catch {
       setError('通信に失敗しました。時間をおいて再度お試しください。');
@@ -216,7 +259,7 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
       </div>
 
       <h3 className="text-sm font-bold text-gray-800 mb-1">有料オプション</h3>
-      <p className="text-xs text-gray-500 mb-4">必要な機能だけ月額で追加できます（いつでも解約可能）。</p>
+      <p className="text-xs text-gray-500 mb-4">必要な機能だけ月額で追加できます。カードで毎月自動でお支払いいただきます（解約はお問い合わせからご連絡ください）。</p>
 
       <div className="space-y-3">
         {catalog.map((opt) => {
@@ -254,7 +297,26 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
         )}
       </div>
 
+      {cardFor && (
+        <div className="mt-4 border border-gray-200 rounded-lg p-4" data-testid="option-card-panel">
+          <p className="text-sm font-semibold text-gray-800 mb-2">
+            {catalog.find((c) => c.key === cardFor)?.name}（月額 ¥{(priceOf(cardFor) ?? 0).toLocaleString()}）のお支払いカード
+          </p>
+          <div id="option-card" className="border border-gray-200 rounded-sm p-2 min-h-10" />
+          <p className="text-[11px] text-gray-500 mt-1">カード情報は決済代行の PAY.JP に送られ、CareLink には保存されません。</p>
+          <div className="flex gap-2 mt-3">
+            <button type="button" onClick={handleSubscribe} disabled={!cardReady || buying !== null}
+              className="text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-50 rounded-sm px-3 py-1.5">
+              {buying ? '処理中...' : '申し込む'}
+            </button>
+            <button type="button" onClick={() => setCardFor(null)} disabled={buying !== null}
+              className="text-xs text-gray-600 border border-gray-200 rounded-sm px-3 py-1.5">やめる</button>
+          </div>
+        </div>
+      )}
+
       {saving && <p className="text-xs text-gray-500 mt-2">保存中...</p>}
+      {notice && <p className="text-xs text-emerald-700 mt-2" role="status">{notice}</p>}
       {error && <p className="text-xs text-red-600 mt-2" role="alert">{error}</p>}
     </div>
   );

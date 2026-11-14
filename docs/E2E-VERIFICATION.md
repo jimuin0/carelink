@@ -64,6 +64,8 @@ select id, status from bookings where id = '（1-1のid）';
 
 ## 2. Phase B：Stripe 本番決済（1円テスト・神原さん立ち会い必須）
 
+> ⚠️ **2026年11月14日に決済を PAY.JP へ移した（Stripe のコード・env・webhook は撤去済み）。この節の Stripe の手順は使えない。** PAY.JP の設定は `docs/handoff/PAYJP_MIGRATION_20261114.md` を見ること。
+
 > 事前に ADMIN-LAUNCH-TASKS タスク6 で Stripe 本番キー・Webhook を設定済みであること。
 > 【重要】決済 Webhook の構成は要確認事項あり（別紙：本ファイル末尾「決済 Webhook 確認事項」）。
 

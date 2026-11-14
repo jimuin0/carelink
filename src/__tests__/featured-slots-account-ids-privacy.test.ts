@@ -272,7 +272,10 @@ describe('アプリのコード', () => {
     // featured-ads-payjp.ts は webhook が作った service_role のクライアントを受け取って書く。
     const webhook = sources.find((s) => s.file === 'src/app/api/payjp/webhook/route.ts')!.text;
     expect(usesServiceRole(webhook)).toBe(true);
-    expect(webhook).toContain('applyPayjpEvent(admin, event)');
+    expect(webhook).toContain('applyPayjpWebhookEvent(admin, event)');
+    // 振り分け（2026年11月14日）は受け取った service_role のクライアントをそのまま広告枠の反映へ渡す。
+    const dispatch = sources.find((s) => s.file === 'src/lib/payjp-webhook.ts')!.text;
+    expect(dispatch).toContain('return applyPayjpEvent(admin, event);');
     for (const { file, text } of writes) {
       const serviceRole = file === 'src/lib/featured-ads-payjp.ts'
         ? text.includes('type Admin = ReturnType<typeof createServiceRoleClient>;')

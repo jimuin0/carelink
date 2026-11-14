@@ -37,6 +37,7 @@ describe('近日公開の表示（Issue #408 / #409）', () => {
 
   it('Issue #408: 決済導線そのものは出さない（決定どおり）', () => {
     const source = read('src/app/mypage/bookings/[id]/page.tsx');
+    expect(source).not.toContain('payment/charge');
     expect(source).not.toContain('payment/checkout');
   });
 
@@ -63,7 +64,7 @@ describe('近日公開の表示（Issue #408 / #409）', () => {
     }
   });
 
-  // 店舗の管理画面は Stripe アカウントの作成と本番用シークレットキーの取得を求めていた（使えない機能のために）。
+  // 店舗の管理画面は決済サービス（当時は Stripe）アカウントの作成と本番用シークレットキーの取得を求めていた（使えない機能のために）。
   it('Issue #408: 店舗の決済管理は近日公開の案内だけを出し、Stripe の設定を求めない', () => {
     const source = read('src/app/admin/payments/page.tsx');
     expect(source).toContain('OWNER_ONLINE_PREPAYMENT_NOTICE');
