@@ -44,7 +44,8 @@ export async function POST(request: Request) {
     if (!VALID_CHANNELS.includes(channel as (typeof VALID_CHANNELS)[number])) {
       return NextResponse.json({ error: '送信方法が不正です' }, { status: 400 });
     }
-    if (channel === 'email' && (typeof operationId !== 'string' || !uuidRegex.test(operationId))) {
+    // メール・LINE とも操作番号で 1 回に限る（LINE は点検 A119 で追加）。
+    if (typeof operationId !== 'string' || !uuidRegex.test(operationId)) {
       return NextResponse.json({ error: '操作番号が不正です。元の画面で受付結果を確認してください。' }, { status: 400 });
     }
 
@@ -146,6 +147,25 @@ export async function POST(request: Request) {
       const customerLineUserId = await resolveLineUserIdForUser(supabase, booking.user_id);
       if (!customerLineUserId) {
         return NextResponse.json({ error: 'この予約の顧客はLINE連携していません' }, { status: 400 });
+      }
+      // 送る前に操作番号を台帳へ記録する（migration 20261114300200）。同じ操作番号の 2 回目
+      // （二重クリック・応答を失った後の再送）は送らずに受付済みを返す。送信失敗分は
+      // webhook_retry_queue が自動再送するので、記録は消さない（消すと手動再送と二重になる）。
+      const { error: claimError } = await supabase
+        .from('booking_adjust_line_operations')
+        .insert({ operation_id: operationId, actor_id: user.id, booking_id: booking.id });
+      if (claimError) {
+        if (claimError.code !== '23505') return serverError('booking-adjust-line-claim', claimError, '/api/admin/booking-adjust-request', '送信に失敗しました');
+        const { data: prior, error: priorError } = await supabase
+          .from('booking_adjust_line_operations')
+          .select('actor_id, booking_id')
+          .eq('operation_id', operationId)
+          .maybeSingle();
+        if (priorError) return serverError('booking-adjust-line-replay', priorError, '/api/admin/booking-adjust-request', '送信に失敗しました');
+        if (!prior || prior.actor_id !== user.id || prior.booking_id !== booking.id) {
+          return NextResponse.json({ error: 'この操作番号は別の依頼で使われています。画面を読み込み直してください。' }, { status: 409 });
+        }
+        return NextResponse.json({ ok: true, notification: 'already_accepted' });
       }
       const { sendLineText } = await import('@/lib/line');
       const text = [

@@ -85,6 +85,12 @@
     "title",
     "updated_at"
   ],
+  "booking_adjust_line_operations": [
+    "actor_id",
+    "booking_id",
+    "created_at",
+    "operation_id"
+  ],
   "booking_adjust_operations": [
     "actor_id",
     "booking_id",

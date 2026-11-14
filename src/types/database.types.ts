@@ -378,6 +378,27 @@ export type Database = {
           },
         ]
       }
+      booking_adjust_line_operations: {
+        Row: {
+          actor_id: string
+          booking_id: string
+          created_at: string
+          operation_id: string
+        }
+        Insert: {
+          actor_id: string
+          booking_id: string
+          created_at?: string
+          operation_id: string
+        }
+        Update: {
+          actor_id?: string
+          booking_id?: string
+          created_at?: string
+          operation_id?: string
+        }
+        Relationships: []
+      }
       booking_adjust_operations: {
         Row: {
           actor_id: string
