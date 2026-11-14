@@ -202,7 +202,14 @@ test('GET: user_id ありの行は profiles を別取得してマージ（embed�
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
   expect(res.status).toBe(200);
   const csv = await res.text();
-  expect(csv).toContain('山田太郎');
+  // 4 行すべてが出力され、profile の有無に応じて顧客名・メールが埋まる／空になる（行ごと落とさない）
+  expect(csv.replace(/^\uFEFF/, '').trim().split('\n')).toEqual([
+    '予約ID,日付,顧客名,メール,メニュー,金額,ステータス',
+    'b1,2026-01-01,山田太郎,y@example.com,,5000,completed',
+    'b2,2026-01-02,,,,3000,completed',
+    'b3,2026-01-03,,,,2000,completed',
+    'b4,2026-01-04,,,,1000,completed',
+  ]);
 });
 
 test('GET: profiles 取得失敗 → 500', async () => {

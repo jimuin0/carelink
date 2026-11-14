@@ -10,8 +10,9 @@
  * 例外もログも出ないまま主要導線が死んでいた（migration 20260722000002 で view に射影して解消）。
  *
  * この事故は「列名を間違えた」ではなく「テーブルには在るが view には無い列を参照した」形。
- * `database.types.ts` は各 Supabase クライアントに配線されていないので tsc では防げず、
- * schema-snapshot.json と突き合わせるしか事前に検出する方法が無い。
+ * 2026年8月20日以降は `<Database>` 型が各 Supabase クライアントへ配線され、view に無い列の参照は
+ * tsc も検知する。ただし型は本番 introspection の生成物で、型を再生成する前に view を変える作業では
+ * 型が追いつかない。この検査は schema-snapshot.json と直接突き合わせる二重の守りとして残す。
  *
  * 【検査の射程】facilities.ts が view に対して使う
  *   ・select する列（CARD_COLS ＋ GPS 検索時の追加列 ＋ 空き判定の BOOKING_READINESS_COLS）

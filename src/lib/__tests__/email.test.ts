@@ -904,11 +904,15 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
     const origKey = process.env.RESEND_API_KEY;
     delete process.env.RESEND_API_KEY;
     jest.resetModules();
-    jest.mock('resend', () => ({ Resend: jest.fn() }));
+    // 送信関数を Resend の send に実際に配線しておく。キー未設定なのにどこかで送信すれば
+    // mockNoSend が呼ばれて落ちる（配線の無い jest.fn() を not.toHaveBeenCalled() しても何も確かめない）。
+    const mockNoSend = jest.fn().mockResolvedValue({ data: { id: 'should-not-send' }, error: null });
+    const mockResendCtor = jest.fn().mockImplementation(() => ({ emails: { send: mockNoSend } }));
+    jest.doMock('resend', () => ({ Resend: mockResendCtor }));
     jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
     const mod = require('../email');
-    const noSendMock = jest.fn();
+    const noSendMock = mockNoSend;
 
     const minData = {
       customerName: 'テスト',

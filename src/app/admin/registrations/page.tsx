@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
-import { SbPageHeader } from '@/components/admin/SbUi';
+import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import RegistrationDuplicateLink from '@/components/admin/RegistrationDuplicateLink';
 import ListingVerificationReview from '@/components/admin/ListingVerificationReview';
 import ListingVerificationSearch from '@/components/admin/ListingVerificationSearch';
@@ -331,7 +331,7 @@ export default function AdminRegistrationsPage() {
           <label>検索項目<select aria-label="検索項目" value={field} onChange={event => setField(event.target.value as RegistrationListInput['field'])} className="form-input">
             <option value="facility">施設名</option><option value="receipt">受付番号</option><option value="email">メールアドレス</option>
           </select></label>
-          <label>検索値<input aria-label="検索値" value={query} onChange={event => setQuery(event.target.value)} maxLength={254} className="form-input" /></label>
+          <label>検索値<SbInput aria-label="検索値" value={query} onChange={event => setQuery(event.target.value)} maxLength={254} /></label>
           <label>審査状態<select aria-label="審査状態" value={filterStatus} onChange={event => setFilterStatus(event.target.value as RegistrationListInput['status'])} className="form-input">
             <option value="all">すべて</option><option value="pending">審査中</option><option value="approved">承認済</option><option value="rejected">却下</option><option value="unknown">状態未設定</option>
           </select></label>

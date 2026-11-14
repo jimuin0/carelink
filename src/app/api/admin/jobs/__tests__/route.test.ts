@@ -27,7 +27,7 @@ for(const method of ['GET','POST']){
  });
 }
 test('GET scopes all owned facilities and returns list',async()=>{mockMembers.mockResolvedValue({data:[{facility_id:facility},{facility_id:other}],error:null});expect(await (await GET(req('GET'))).json()).toEqual({jobs:[{id,facility_id:facility}]});expect(mockIn).toHaveBeenCalledWith('facility_id',[facility,other]);});
-test('GET data null becomes empty list',async()=>{mockList.mockResolvedValue({data:null,error:null});expect(await (await GET(req('GET'))).json()).toEqual({jobs:[]});});
+test('GET data null is not an empty list (500)',async()=>{mockList.mockResolvedValue({data:null,error:null});const r=await GET(req('GET'));expect(r.status).toBe(500);expect(await r.json()).not.toHaveProperty('jobs');});
 test('GET query error becomes 500',async()=>{mockList.mockResolvedValue({data:null,error:{message:'PRIVATE'}});expect((await GET(req('GET'))).status).toBe(500);});
 test('POST CSRF denial prevents identity',async()=>{jest.mocked(checkCsrf).mockReturnValueOnce(NextResponse.json({error:'csrf'},{status:403}));expect((await POST(req('POST'))).status).toBe(403);expect(mockIdentity).not.toHaveBeenCalled();});
 test.each([{...body,title:''},{...body,employment_type:'invalid'},null])('POST invalid input %p cannot mutate',async value=>{expect((await POST(req('POST',value))).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});

@@ -70,6 +70,8 @@ import { prepareCustomerBookingTransitionEnvelope } from '@/lib/customer-booking
 import { prepareCustomerBookingChannel } from '@/lib/customer-booking-channel';
 
 let mockJobsSelect: jest.Mock;
+// ジョブ取得クエリ（select('*') の後ろ）に渡った条件を順に記録する。
+const jobsQueryCalls: unknown[][] = [];
 let mockClaimUpdate: jest.Mock;
 let mockSuccessUpdate: jest.Mock;
 let mockReclaimUpdate: jest.Mock;
@@ -162,12 +164,19 @@ function makeWebhookRetryQueueTable(overrides: {
         };
       }
       return {
-        eq: jest.fn().mockReturnValue({
-          lte: jest.fn().mockReturnValue({
-            order: jest.fn().mockReturnValue({
-              limit: overrides.jobsSelect,
+        eq: jest.fn((...a: unknown[]) => {
+          jobsQueryCalls.push(['eq', ...a]);
+          return {
+            lte: jest.fn((...b: unknown[]) => {
+              jobsQueryCalls.push(['lte', ...b]);
+              return {
+                order: jest.fn((...c: unknown[]) => {
+                  jobsQueryCalls.push(['order', ...c]);
+                  return { limit: overrides.jobsSelect };
+                }),
+              };
             }),
-          }),
+          };
         }),
       };
     }),
@@ -1151,15 +1160,19 @@ describe('GET /api/cron/webhook-retry', () => {
 
     await GET(makeRequest() as any);
 
-    expect(mockJobsSelect).toHaveBeenCalled();
+    expect(mockJobsSelect).toHaveBeenCalledWith(50);
   });
 
   test('orders by scheduled_at ascending', async () => {
     setupDefaultMocks(1);
+    jobsQueryCalls.length = 0;
 
     await GET(makeRequest() as any);
 
-    expect(mockJobsSelect).toHaveBeenCalled();
+    // pending かつ予定時刻を過ぎたものを、古い順に取る
+    expect(jobsQueryCalls[0]).toEqual(['eq', 'status', 'pending']);
+    expect(jobsQueryCalls[1]).toEqual(['lte', 'scheduled_at', expect.any(String)]);
+    expect(jobsQueryCalls[2]).toEqual(['order', 'scheduled_at', { ascending: true }]);
   });
 
   test('exception during processing → 500', async () => {
@@ -1209,14 +1222,6 @@ describe('GET /api/cron/webhook-retry', () => {
     const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(200);
-  });
-
-  test('retry queue specific fields included', async () => {
-    setupDefaultMocks(1);
-
-    await GET(makeRequest() as any);
-
-    // Should process jobs with id, webhook_type, target_id/payload, attempt_count
   });
 
   test('updates processed_at on success', async () => {
@@ -1541,9 +1546,18 @@ describe('GET /api/cron/webhook-retry', () => {
   test('uses scheduled_at for job timing (not created_at)', async () => {
     setupDefaultMocks(1);
 
+    jobsQueryCalls.length = 0;
+    const before = Date.now();
+
     await GET(makeRequest() as any);
 
-    // Should filter by scheduled_at <= now
+    // 予定時刻（scheduled_at）が実行時点以前のものだけを取る（created_at で絞らない）
+    const lte = jobsQueryCalls.find((c) => c[0] === 'lte');
+    expect(lte?.[1]).toBe('scheduled_at');
+    const at = Date.parse(String(lte?.[2]));
+    expect(at).toBeGreaterThanOrEqual(before);
+    expect(at).toBeLessThanOrEqual(Date.now());
+    expect(jobsQueryCalls.some((c) => c.includes('created_at'))).toBe(false);
   });
 
   test('email webhook: p.from も EMAIL_FROM も未設定 → デフォルト差出人を使う（行90フォールバック）', async () => {

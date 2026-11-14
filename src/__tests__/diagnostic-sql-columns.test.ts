@@ -6,8 +6,8 @@
  *
  * 【なぜ必要か】CLAUDE.md「既知の罠」の筆頭が【存在しないテーブル名・列名を参照して
  * 無音停止する事故】で、実際に `menus`→`facility_menus`、`reviews`→`facility_reviews` 等で
- * 繰り返し起きている。`tsc` は Supabase クライアントに型が配線されていないため検知できず、
- * SQL に至っては型検査そのものが無い。本番の SQL Editor に貼って初めて
+ * 繰り返し起きている。アプリの TypeScript は `<Database>` 型の配線（2026年8月20日）で tsc が検知するが、
+ * SQL ファイルには型検査そのものが無い。本番の SQL Editor に貼って初めて
  * `column "xxx" does not exist` で気づく＝調査の現場で詰まる。
  *
  * schema-snapshot.json（実在テーブル／列の正）と突合して、貼る前に落とす。

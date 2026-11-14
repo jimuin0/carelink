@@ -230,7 +230,7 @@ test('DELETE: レートリミット → 429', async () => {
   expect(res.status).toBe(429);
 });
 
-test('PATCH: is_published=true → published_at が設定される', async () => {
+test('PATCH: is_published=true → payload に published_at を含めない（公開日時は DB 側の RPC が付ける）', async () => {
   mockAnonFrom.mockReturnValue(profileSingle(true));
   let captured: Record<string, unknown> | undefined;
   mockAdminFrom.mockReturnValue({
@@ -247,7 +247,7 @@ test('PATCH: is_published=true → published_at が設定される', async () =>
   expect(captured).not.toHaveProperty('published_at');
 });
 
-test('PATCH: is_published=false → published_at が null', async () => {
+test('PATCH: is_published=false → payload に published_at を含めない（クライアント値で公開日時を書き換えない）', async () => {
   mockAnonFrom.mockReturnValue(profileSingle(true));
   let captured: Record<string, unknown> | undefined;
   mockAdminFrom.mockReturnValue({

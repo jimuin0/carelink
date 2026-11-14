@@ -111,7 +111,7 @@ describe('readBookingCsvRows', () => {
     expect(await readBookingCsvRows(db, FACILITY)).toEqual({ rows: [], truncated: false, error: null });
   });
 
-  test('確認の応答が data=null でも「続きなし」と扱う', async () => {
+  test('確認の応答が data=null なら「続きなし」と決めつけず失敗にする（部分的な CSV を完全として渡さない）', async () => {
     const { db } = client(5000);
     const original = (db as unknown as { from: (t: string) => Record<string, unknown> }).from;
     (db as unknown as { from: (t: string) => Record<string, unknown> }).from = (table: string) => {
@@ -120,9 +120,10 @@ describe('readBookingCsvRows', () => {
       chain.range = (from: number, to: number) => (from === 5000 ? Promise.resolve({ data: null, error: null }) : range(from, to));
       return chain;
     };
-    const { rows, truncated } = await readBookingCsvRows(db, FACILITY);
-    expect(rows).toHaveLength(5000);
+    const { rows, truncated, error } = await readBookingCsvRows(db, FACILITY);
+    expect(rows).toEqual([]);
     expect(truncated).toBe(false);
+    expect(error).toBeInstanceOf(Error);
   });
 });
 
