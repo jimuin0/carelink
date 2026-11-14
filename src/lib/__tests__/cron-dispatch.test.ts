@@ -1,4 +1,4 @@
-import { DISPATCH_GROUPS, matchesSchedule, cutoverTime, retiredLegacyJob, dispatchPlan } from '../cron-dispatch.mjs';
+import { DISPATCH_GROUPS, MONITOR_RUNNER, matchesSchedule, cutoverTime, retiredLegacyJob, dispatchPlan, monitorPlan } from '../cron-dispatch.mjs';
 import jobs from '../cron-jobs.data.json';
 
 test('UTC minute offsets, weekdays, midnight and leap days remain exact', () => {
@@ -78,4 +78,33 @@ test('delayed runs on both sides of cutover have exactly one nominal-slot owner'
   expect(dispatchPlan('quarter-hour', jobs, next, cutover).jobs).toContain('webhook-retry');
   expect(() => retiredLegacyJob('weekly-report', [], cutover, delayed)).toThrow();
   expect(() => retiredLegacyJob('weekly-report', jobs, cutover, new Date('2026-10-18T22:16:00Z'))).toThrow();
+});
+
+test('monitor runner runs cron-heartbeat only at its canonical 7,37 slots', () => {
+  expect(monitorPlan(jobs, new Date('2026-10-19T06:07:25Z'))).toEqual({slot: '2026-10-19T06:07:00.000Z', jobs: ['cron-heartbeat']});
+  expect(monitorPlan(jobs, new Date('2026-10-19T06:37:40Z')).jobs).toEqual(['cron-heartbeat']);
+  expect(monitorPlan(jobs, new Date('2026-10-19T06:02:10Z'))).toEqual({slot: '2026-10-19T06:02:00.000Z', jobs: []});
+  // Startup delay resolves to the latest tick, including across the hour.
+  expect(monitorPlan(jobs, new Date('2026-10-19T06:11:59Z')).jobs).toEqual(['cron-heartbeat']);
+  expect(monitorPlan(jobs, new Date('2026-10-19T07:01:30Z')).slot).toBe('2026-10-19T06:57:00.000Z');
+  expect(() => monitorPlan([], new Date('2026-10-19T06:07:00Z'))).toThrow('Missing cron registry job');
+});
+test('monitor ticks contain every heartbeat slot and keep a five-minute health cadence', () => {
+  const heartbeat = jobs.find(j => j.name === 'cron-heartbeat')!;
+  const start = Date.parse('2026-10-18T00:00:00Z');
+  let ticks = 0;
+  for (let n = 0; n < 24 * 60; n++) {
+    const date = new Date(start + n * 60_000);
+    if (matchesSchedule(heartbeat.schedule, date)) expect(matchesSchedule(MONITOR_RUNNER.schedule, date)).toBe(true);
+    if (matchesSchedule(MONITOR_RUNNER.schedule, date)) {
+      ticks++;
+      expect(monitorPlan(jobs, date).jobs).toEqual(matchesSchedule(heartbeat.schedule, date) ? ['cron-heartbeat'] : []);
+    }
+  }
+  expect(ticks).toBe(24 * 12);
+  // The monitors stay apart from the business runners they watch.
+  for (const group of DISPATCH_GROUPS as {jobs: string[]; service: string}[]) {
+    expect(group.jobs).not.toContain('cron-heartbeat');
+    expect(group.service).not.toBe(MONITOR_RUNNER.service);
+  }
 });

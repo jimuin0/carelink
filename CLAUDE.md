@@ -1,15 +1,17 @@
 # CareLink
 
+> この文書には過去の環境・運用記録を含む。現行の作業対象と許可は会話・AGENTS.md・RESUME.mdを照合し、依存は package-lock.json、cron は src/lib/cron-jobs.data.json と docs/render-cron-consolidation.md を正とする。
+
 ## プロジェクト概要
 医療・福祉・美容 施設向けの【予約管理・集客・採用】を統合したマルチテナント SaaS（旧 LP から予約管理プラットフォームへ移行済み）。施設オーナーが予約枠・メニュー・スタッフ・クーポンを管理し、来院者は施設検索・予約・問診・レビューを行う。決済は Stripe、メッセージングは LINE / LIFF、メールは Resend を使う。
 
-- フロント／API＝Next.js 15（App Router・Route Handler）/ デプロイ＝Cloudflare Workers（2026年11月11日に Vercel から切り替え。本番 `https://carelink-jp.com`・`www.` はアペックスへ 301）。`.github/workflows/deploy-cloudflare.yml` が「main 上で CI（push）が成功した最新のコミット」を自動配信する（判定＝`tools/cloudflare/deploy-target.mjs`。手動実行も同じ判定で、CI 未通過は配信できない。本番より古い版には戻さない）。配信前に Worker の秘密値の名前を `tools/cloudflare/required-worker-secrets.json` と照合し、配信後は本番の version と `/`・`/search`・`/register` の中身を確かめ、だめなら `wrangler rollback` で直前の版へ戻して Slack に通知する。main の CI が赤のときも Slack に通知する。確認に失敗して戻したコミットは artifact `bad-deploy-<sha>` で記録され以後は選ばれない（直して配信し直すときだけ手動実行の `retry_sha` で明示）。手動配信は `npm run deploy:cloudflare` だけを使い、公開設定は GitHub のリポジトリ変数が唯一の置き場（`gh variable list` で読む）。サーバーに秘密値を足したら `required-worker-secrets.json` にも名前を足す。切り替え・戻し方は `docs/handoff/CLOUDFLARE_PRODUCTION_MIGRATION_20261104.md`。Vercel は戻し先として 2026年11月25日ごろまで残す（Preview と Vercel Build Dry-Run の検査は残っている）
+- フロント／API＝Next.js（App Router・Route Handler・バージョンは package-lock.json）/ デプロイ＝Cloudflare Workers（2026年11月11日に Vercel から切り替え。本番 `https://carelink-jp.com`・`www.` はアペックスへ 301）。`.github/workflows/deploy-cloudflare.yml` が「main 上で CI（push）が成功した最新のコミット」を自動配信する（判定＝`tools/cloudflare/deploy-target.mjs`。手動実行も同じ判定で、CI 未通過は配信できない。本番より古い版には戻さない）。配信前に Worker の秘密値の名前を `tools/cloudflare/required-worker-secrets.json` と照合し、配信後は本番の version と `/`・`/search`・`/register` の中身を確かめ、だめなら `wrangler rollback` で直前の版へ戻して Slack に通知する。main の CI が赤のときも Slack に通知する。確認に失敗して戻したコミットは artifact `bad-deploy-<sha>` で記録され以後は選ばれない（直して配信し直すときだけ手動実行の `retry_sha` で明示）。手動配信は `npm run deploy:cloudflare` だけを使い、公開設定は GitHub のリポジトリ変数が唯一の置き場（`gh variable list` で読む）。サーバーに秘密値を足したら `required-worker-secrets.json` にも名前を足す。切り替え・戻し方は `docs/handoff/CLOUDFLARE_PRODUCTION_MIGRATION_20261104.md`。Vercel は戻し先として 2026年11月25日ごろまで残す（Preview と Vercel Build Dry-Run の検査は残っている）
 - DB／認証＝Supabase（Postgres・Auth・Storage・RLS・RPC）
-- 定期実行＝【Render Cron Jobs が唯一の本番スケジューラ】（`render.yaml`＝`services:` に cron 16 本＋`envVarGroups:` に `carelink-cron-env` 1 本）。GitHub Actions cron（`.github/workflows/cron.yml`）はファイルとしては残っているが【GitHub 上で無効化（`disabled_manually`）されており発火しない】（下記「cron の現状」参照）。`/api/cron/*` を Bearer 認証で叩く。オーナーニュースレターの自動月次配信は廃止（神原さん確定 2026年7月2日「お知らせがある時のみ」）＝digest エンドポイント・専用ワークフロー・発火監視をすべて削除。配信は管理画面 `/admin/newsletters` からの手動送信のみ
+- 定期実行の構成は `src/lib/cron-jobs.data.json` と `docs/render-cron-consolidation.md` を参照する。外部サービスの有効状態は記録時点と区別して確認する。オーナーニュースレターの自動月次配信は廃止（2026年7月2日決定）。
 - 本番 Supabase project ref＝`xzafxiupbflvgbarrihe`。middleware の CSP `connect-src` は `NEXT_PUBLIC_SUPABASE_URL` から導出し、**env 欠落時のみ**この ref にハードコードでフォールバックする（`getSupabaseConnectSrc()`）
 
 ## 技術スタック
-- Next.js 15.5（App Router）/ React 18 / TypeScript 5
+- Next.js（App Router）/ React / TypeScript（バージョンは package-lock.json）
 - Tailwind CSS 4.3.3（既存v3 palette・可変theme・source範囲を維持。移行証拠＝docs/braces-dependency-remediation-20261003.md）
 - react-hook-form 7 + `@hookform/resolvers` 5 + zod 4（バリデーション）
 - Supabase＝`@supabase/supabase-js` 2 + `@supabase/ssr`（SSR Cookie 認証）
@@ -21,7 +23,7 @@
 - 解析＝Cloudflare Web Analytics（表示速度・Cookie なし・配信先が Cloudflare のときだけ `src/app/layout.tsx` が出す）/ GA4（`@next/third-parties` の `GoogleAnalytics`）/ Microsoft Clarity。GA4・Clarity は Cookie 同意（分析）後にだけ `src/components/AnalyticsGate.tsx` が読み込む（判定の単一ソース `src/lib/cookie-consent.ts`、Clarity の録画は公開ページだけ＝`src/lib/session-recording-scope.ts`）
 - テスト＝Jest 30（jsdom）・Playwright（E2E）＋`@axe-core/playwright`（a11y・`e2e/a11y-audit.spec.ts`）・Stryker 9（ミューテーション）・fast-check（プロパティ）・k6（負荷）
 - Lint＝ESLint 9 + `eslint-config-next` + 自作 `eslint-plugin-carelink-safety`。ESLint 系が要求する minimatch 3 は、修正済み minimatch 11 を同じ呼び方で使う `tools/minimatch-v3-compat` が受ける（経緯＝docs/minimatch-dependency-remediation-20261031.md）
-- pre-commit＝husky + lint-staged（`gitleaks protect` でシークレット流出防止）
+- pre-commit は `.husky/pre-commit` を参照。環境例を検査し、gitleaks が利用可能ならステージ済み差分も検査する。不在時は警告して通過するため、コミット前の秘密検査は別途確実に実施する。
 
 ## ディレクトリ構成
 ```
@@ -362,18 +364,20 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | waitlist-notify | `30 * * * *` | 毎時30分 |
 | webhook-retry | `*/15 * * * *` | 15分毎 |
 | hpb-menu-scrape | `20 17 * * *` | 毎日 02:20 |
-| cron-heartbeat | `7,37 * * * *` | 毎時07分・37分（監視系の生存確認・`/api/health` の cron 鮮度判定に使う） |
+| cron-heartbeat | `7,37 * * * *` | 毎時07分・37分（監視系の生存確認・`/api/health` の cron 鮮度判定に使う）。2026年11月13日から専用サービスは無く、`carelink-health-check`（5分おき・2,7,12…57分）の中で 7・37分の回だけ実行する（`MONITOR_RUNNER`・`src/lib/cron-dispatch.mjs`） |
 | threads-backfill | `50 * * * *` | 毎時50分（記事公開時のインライン Threads 投稿が transient 失敗した場合の自己修復） |
 | threads-token-refresh | `25 5 * * 3` | 水曜 14:25（Threads 長期トークン更新・60日失効に対し週次で更新） |
 | schema-drift-check | `40 17 * * *` | 毎日 02:40 |
 
 オーナーニュースレターの自動月次配信は廃止した（神原さん確定 2026年7月2日「お知らせがある時のみ」）。旧 `/api/cron/newsletter-digest` エンドポイント・専用ワークフロー `newsletter-digest.yml`・発火監視 `monthly-batch-watcher.yml` はすべて削除済み。全店に同一の全プラットフォーム集計（「新規予約 N」等）を一斉配信していた作りを根本から廃止した。ニュースレター配信は管理画面 `/admin/newsletters` で任意の件名・本文を作成し「今すぐ配信」する手動運用のみ（`api/admin/newsletter`・`api/admin/newsletter/[id]` action=send）。台帳テーブル `newsletter_send_log` は孤児化するが、`schema-drift-check` との整合のため DB・マイグレーション・スナップショットは残置（無害）。
 
-### 🔴 cron の現状＝【Render のみが実働。GitHub Actions cron は無効化済みで保険にならない】（2026年8月12日 GitHub API で確定）
+### 🔴 cron の現状を確認する際の注意（以下は2026年8月12日の観測記録）
+
+当時の有効状態やサービス数を現在の実態と決めつけない。構成・集約の正は `src/lib/cron-jobs.data.json` と `docs/render-cron-consolidation.md`。必要な作業では実際の有効状態とログを確認し、完了済みの切替・旧サービスの停止・初回確認を重複実行しない。
 
 【経緯】public repo の GitHub Actions scheduled workflow は GitHub が有料/private を優先し大幅に間引く（実測で cron.yml 最大176分・health-monitor 最大283分の空白）。恒久解として `render.yaml`（Render Cron Jobs・機能ごとに独立サービス16本・SSOTは `src/lib/cron-jobs.data.json`、`src/__tests__/render-yaml-drift.test.ts` がドリフト検知）へ移行した（PR#382）。移行期間中は GitHub Actions + pg_cron + Render の三重化だったが、2026年7月29日に神原が `select cron.unschedule(jobname) from cron.job where jobname like 'carelink-%';` を実行し【pg_cron を撤去済み（15ジョブ全て解除・戻り値 true を確認）】。
 
-【現在の実態（2026年8月12日 GitHub API `GET /repos/jimuin0/carelink/actions/workflows` で確定）】
+【2026年8月12日時点の実態（GitHub API `GET /repos/jimuin0/carelink/actions/workflows` で確認）】
 - 実働しているのは【Render のみ】。根拠＝(a) pg_cron 撤去後も cron_logs が SSOT どおりの間隔で記録され続けている（webhook-retry 15分毎・cron-heartbeat 30分毎＝毎時07分/37分・flag-reviews 毎時）、(b) 下記のとおり GitHub Actions 側は無効化されていて発火し得ない。
 - 🔴 **`cron.yml` / `health-monitor.yml` / `deploy-watch.yml` は GitHub 上で `state: disabled_manually`＝発火しない**（無効化日時は workflow の `updated_at`：health-monitor と deploy-watch が 2026年7月25日、cron.yml が 2026年7月29日）。**ファイルが `.github/workflows/` に在ることを「保険が効いている」と読まないこと。** 3本とも Render 側に等価物があるため運用の穴は無い（cron 15本＋`carelink-health-check`）。再び保険として使いたい場合は、ファイルを足すのではなく GitHub の Actions 画面で **Enable workflow** する必要がある。
 - health-monitor.yml の Render 代替は `carelink-health-check`（`scripts/health-check.mjs`・5分毎）。
@@ -439,12 +443,12 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 テスト専用の隔離fixtureは `CI`・`GITHUB_ACTIONS`・`PLAYWRIGHT_BASE_URL` でGitHubのローカル実行対象を確認し、`PATH` を使って固定Dockerコンテナの保守用データを準備する。本番のアプリ設定には追加しない。fixtureは `example.invalid` の合成申込だけを受け付け、過去申込の同意NULLを保持する。
 
 ## テスト・CI（`.github/workflows/ci.yml`）
-- Lint & Type Check：`npm run lint` ＋ `npx tsc --noEmit`
+- Lint & Type Check：`npm run lint`・`npm run lint:debt`・`npx tsc --noEmit`。他の検査も含め現行のjob定義を確認する。
 - Unit Tests + Coverage：`npm run test:coverage:ci`。`jest.config.js` の `coverageThreshold`＝branches【100】/ lines 80 / functions 75 / statements 80。測定対象＝`src/lib/**/*.ts` ＋ `src/app/api/**/*.{ts,tsx}`（JSX を返す Route Handler の測定漏れ防止）＋ `src/lib/**/*.mjs`（Render cron dispatcher の純粋ロジック `render-cron.mjs` もゲート対象）、`src/**/*.d.ts` は除外。下回ると Coverage Gate で fail。
-- E2E（Playwright）：`supabase start` → `npm run build` → `npm run test:e2e`（chromium / webkit）
-- Security Audit：`npm audit --audit-level=high`
+- E2E（Playwright）：`.github/workflows/ci.yml` の使い捨てローカルSupabase・契約検査と `node scripts/run-ci-e2e.mjs` を参照。CIはHTTPSの隔離環境でビルドし、chromium・Mobile Safari（WebKit）と認証用等の各プロジェクトを実行する。単独の `npm run test:e2e` 成功をCI全体の合格と扱わない。
+- Security Audit：`npm audit --audit-level=moderate`。秘密検査の範囲は `.github/workflows/ci.yml` と `.husky/pre-commit` を確認する。
 - Contract Tests（staging drift gate）：`npm run test:contract`（`jest.config.contract.js`）
-- 他ワークフロー（`.github/workflows/` は全 14 ファイル＋Dependabot の動的ワークフロー 1 本）。**有効／無効は GitHub 側の状態なのでファイルの有無で判断しないこと**：
+- 他ワークフロー（`.github/workflows/` は全 14 ファイル＋Dependabot の動的ワークフロー 1 本）。**有効／無効は GitHub 側の状態なのでファイルの有無や過去の観測で判断しないこと**：
   - **有効**：`schema-fingerprint.yml`（push/PR で migration からスキーマ期待値を再生成し陳腐化を検査）・`migration-apply-reminder.yml`（PR に新規 migration があれば本番適用を促す）・`mutation-l4.yml`（Stryker・週次 日曜 JST 03:00）・`dependency-update.yml`（依存更新・週次 月曜 JST 09:00）・`vercel-preview-build.yml`（PR で `vercel build` ドライ実行・repo variable `ENABLE_VERCEL_PR_BUILD == 'true'` のときだけ動く）・`deploy-cloudflare.yml`（main の CI 成功後に本番 Worker へ配信し、本番の version が配信したコミットになるまで確認する。公開設定はリポジトリ変数 `NEXT_PUBLIC_*`・`CLOUDFLARE_ACCOUNT_ID`、トークンは secret `CLOUDFLARE_API_TOKEN`）・`cron-constraints.yml` / `anon-write-policy-lint.yml` / `secdef-search-path-lint.yml` / `actionlint.yml`（いずれも `paths:` 絞り込み付きの静的ガード）
   - **無効（`disabled_manually`）**：`cron.yml` / `health-monitor.yml` / `deploy-watch.yml`（上記「cron の現状」参照）
   - **手動実行だけ**：`vcr-image-retention.yml`（2026年11月2日に自動実行を止めた。下記「既知の罠」参照）
@@ -458,7 +462,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
   - **機械強制**：`src/__tests__/next-version-floor.test.ts` が package.json の要求と **実際にインストールされた版**の両方を検査（宣言と実体の乖離を防ぐ）。挙動側は `e2e/admin-large-list-nav.spec.ts`（2026年10月23日に求人非表示に伴い `/admin/blog` へ付け替え）が、閾値を大きく超えるデータを seed したうえで**ペイロードが本当に閾値を超えていることを測ってから**遷移を検証する（seed が効かなくなった時に緑のまま素通りしない）。両方とも負の対照つきで、Next 15 へ戻すと実際に落ちることを実測済み。
   - ⚠️ **`admin-jobs.spec.ts` だけでは検出できない**。求人を1件しか作らずペイロードが閾値の下に収まるため、不具合があっても通る回がある（実際 CI で3回中1回だけ通り原因究明を遅らせた）。
   - ⚠️ **Next 16 で `next lint` は削除された**。`npm run lint` は `eslint src e2e` を使う（2026年11月3日に `e2e` を追加。以前は `src` だけで、E2E の型の抜け・不要な無効化コメントが CI で見逃されていた。`next lint` に戻すと `next <dir>` と解釈され "Invalid project directory" で CI が落ちる）。移行時に両者の出力が **75 warning・0 error でファイル/行/列/規則まで完全一致**することを機械比較で確認済み。
-  - ⚠️ Next 16 のビルドは `tsconfig.json` を自動更新する（`jsx: preserve → react-jsx`、`.next/dev/types` の include 追加）。差分が出ても異常ではない。React の更新は不要（16.3 は React ^18.2 を許容）。
+  - ⚠️ Next 16 のビルドは `tsconfig.json` を自動更新する場合がある。移行時の `jsx: preserve → react-jsx` と `.next/dev/types` include 追加は当時の記録であり、現在の依存関係は `package-lock.json` を確認する。
 - 【🔴 Next 16 は viewport に入った `<Link>` の【動的ルートのデータまで】先読みする。一覧を持つ画面はそのまま上げると「表示しただけで」SSR が十数回走る】2026年8月14日に実測。同一コード・同一データで Next の版だけを入れ替え、トップ `/` の load イベント以降に開始した通信を計測：**15.5.23 = 0 本 / 16.3.0 = 85 本（うち RSC ページ先読み 20 本）**。CareLink のトップは業種・地方・47都道府県・主要都市・こだわり条件と「数で広がる」導線を持つため、`/search`（ビルド出力 `ƒ`＝オンデマンド SSR・実 DB クエリ）のレンダリングが**閲覧 1 回につき十数回**走っていた。モバイルでは `/mypage/*`（middleware の保護対象＝先読みのたびに `auth.getUser()`）まで先読みされていた。
   - **E2E がこれを正しく検出して落ちた**（`accessibility.spec.ts` の `waitForLoadState('networkidle')` が 30 秒で settle しない）。テストの過敏ではないので `networkidle` を弱める方向で消さないこと。
   - 対処＝`src/components/BrowseLink.tsx`（`prefetch={false}` を既定にした `next/link` の薄いラッパ）を作り、一覧・回遊リンクを描くコンポーネントで `import Link from '@/components/BrowseLink'` に差し替えた（JSX は無変更）。**実測 20 → 4 本**。高意図の導線（登録 CTA 等）は `next/link` のまま先読みさせている。
@@ -478,7 +482,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 - 【🔴 RLS がかかった表の「0 件」をデータ消失と読まない】anon キーや非メンバーのログイン文脈で数えた件数は、RLS が行を隠していれば必ず 0 になる。**同じ 0 でも表ごとに意味が違う**のが厄介で、実例が `treatment_*` 3表：`treatment_catalogs` は `treatment_catalogs_public_read`（`FOR SELECT USING (true)`）があるので anon の 0 は本当に 0 だが、`treatment_plans` / `treatment_records` は `..._facility_all`（`FOR ALL USING (EXISTS(facility_members … role IN ('owner','admin')))`）の 1 本だけで **SELECT 用の公開ポリシーが無い**ため、行があっても anon からは必ず 0 に見える。件数を根拠に議論する前に、**Supabase Dashboard の SQL Editor（postgres 権限＝RLS 素通し）で数え直す**こと。手順は `scripts/diagnose-treatment-tables.sql` にある。なお `facility_profiles` を 1 行削除すると `ON DELETE CASCADE` で 56 表が連鎖削除される（`treatment_*` 3表を含む）ので、件数が本当に減っていた場合はまず施設が消えていないかを見る。
 - 【🔴 `audit_logs.record_id` は TEXT・各表の `id` は UUID。素で `=` すると本番で 42883 になる】`record_id` はどの表の id でも入る汎用列なので TEXT。`a.record_id = m.id` と書くと `ERROR: 42883 operator does not exist: text = uuid` で落ちる（2026年8月11日に本番の SQL Editor で実際に踏んだ）。`database.types.ts` はどちらも `string` として出すため型検査では防げない。必ず `a.record_id = m.id::text` と揃える。`src/__tests__/diagnostic-sql-columns.test.ts` が診断 SQL のキャスト漏れを CI で止める。
 - 【🔴 調査 SQL の検証スタブは必ず実型で作る。全列 text のスタブは型不一致を原理的に見逃す】上の 42883 を流出させた直接原因がこれ。検証用の使い捨て DB を「全列 text」で作っていたため、`text = uuid` が発生しようがなく「実行検証済み」と誤って報告した。型の正は `src/lib/schema-fingerprint.expected.json`（migration 群から機械生成）だけなので、スタブは `node scripts/gen-stub-schema.mjs <table>…` で生成する（postgis 型だけは拡張なしでも通るよう text に落とし、その旨を注記する）。`src/__tests__/stub-schema-types.test.ts` が、事故そのものの列ペア（`record_id`=text / `id`=uuid）で生成器を固定している。
-- 【本番を調べる SQL は `scripts/diagnose-*.sql` に置き、列の実在を CI で検査する】この環境から本番 DB へは接続できないため、調査は「Dashboard に貼る SELECT 専用ランブック」で渡す。`-- @check <table>.<column>` 行を書いておくと `src/__tests__/diagnostic-sql-columns.test.ts` が `schema-snapshot.json` と突合し、存在しない列・宣言漏れ（本文に足したのに `@check` を書き忘れた枝）・`STOCK_IMAGE_DOMAINS` との列挙ズレを CI で落とす。上記の「存在しない列で無音停止」を SQL 側でも塞ぐための仕組み。
+- 【本番を調べる SQL は `scripts/diagnose-*.sql` に置き、列の実在を CI で検査する】接続可否は環境に依存する。現在の権限と安全条件を確認し、許可された読み取り手段を使う。`-- @check <table>.<column>` 行を書いておくと `src/__tests__/diagnostic-sql-columns.test.ts` が `schema-snapshot.json` と突合し、存在しない列・宣言漏れ（本文に足したのに `@check` を書き忘れた枝）・`STOCK_IMAGE_DOMAINS` との列挙ズレを CI で落とす。
 - 【🔴 `facility_card_view` には「テーブルには在るが view には無い列」がある。参照すると PostgREST 400 → error 握り潰しで無音全滅する】かつて `nearest_station` が view 非射影のままキーワード検索の `.or()` から参照され、**例外もログも出ないままキーワード検索が常に0件**になっていた（migration `20260722000002` で射影して解消）。✅ **2026年8月20日訂正**: `<Database>` 型は各 Supabase クライアントへ**配線済み**（`supabase-server.ts` / `supabase-server-auth.ts` / `supabase-browser.ts` が `src/types/database-overrides.ts` の `Database` を渡している）。`facility_card_view` も型に載っているため、**view に無い列の参照は `tsc` が検知する**。以前ここに書かれていた「配線されていないので tsc では防げない」は現状と合っていない。ただし型は本番 introspection の生成物なので、**型を再生成する前に**view へ列を足す作業をすると型が追いつかない。view に列を足す前に `src/lib/schema-snapshot.json` の `facility_card_view` を見ること。`src/__tests__/card-view-columns.test.ts` が select 列・`ilike` 対象列・並び替え列を実在列と突合して CI で止める。
 - 【存在しないテーブル名・列名を参照して無音停止する事故が繰り返し発生している】（例：`menus`→正しくは`facility_menus`、`reviews`→正しくは`facility_reviews`、`facility_menus.is_active`のように元々存在しない列）。✅ **2026年8月20日訂正**: `<Database>` 型は配線済みで、**存在しない列の参照は `tsc` が検知する**（`.update({不明な列})` は TS2353、`.select('不明な列')` の結果参照は TS2339）。以前ここに書かれていた「型付けされていないため検知できない」は現状と合っていない。🔴 **ただし型の更新順序を間違えると詰まる**: 新しい列を使うコードを先に書くと `tsc` が落ちるので、**migration →`src/types/database.types.ts` →`node scripts/gen-schema-snapshot.mjs` →`scripts/gen-schema-fingerprint.sh` →コード** の順で進めること。`database.types.ts` の完全な再生成には `supabase login` が要るが、**列の追記だけなら手で書ける**（`gen-schema-snapshot.mjs` は types を読むだけで DB へ接続しない）。新しいテーブル／列を参照する前に必ず `src/lib/schema-snapshot.json`（実在テーブル／列の正）で実在を確認する。`schema-drift-check` cron は事後検知であり事前予防にはならない。
 
@@ -489,26 +493,13 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 - 店舗化フロー：`/register`（掲載申込）→ `/auth/signup?redirect=/admin/onboarding&...`（店舗アカウント作成・申込と同じメールアドレス）→ `/admin/onboarding` が `/api/facility/setup` を呼び `facility_profiles`(draft)＋`facility_members`(owner) を作成。申込を開いたタブの情報が無いとき（確認メールを別タブで開いた等）は `/register/recover` へ自動で案内し、確認済みメールで申込を選び直す。
 - 公開（無料掲載）の条件：店舗名・所在地・曜日別の営業時間の保存（`confirmed_booking_hours`）。ネット予約はさらに公開メニュー・写真1枚以上・営業時間内に勤務のある在籍スタッフ（`facility_booking_ready`）。単一ソースは `src/lib/facility-publish-gate.ts` と同名の SQL 関数。
 
-## worktree 運用の罠（重要・PR#397 事故の再発防止）
+## worktree 運用の罠（PR#397・2026年7月の事故）
 
-`git worktree add` で作った作業ディレクトリで `ln -s ~/Projects/carelink/node_modules ./node_modules` している場合、`node_modules/eslint-plugin-carelink-safety` 自体も本家 carelink リポジトリへのシンボリックリンクになっている。worktree 内で `eslint-plugin-carelink-safety/index.js` を編集しても、ローカルの `npm run lint` は本家の未修正版を読み込むため、変更が一切検証されないまま「全緑」に見える（PR#397 で発生・CI で初めて317件の error が噴出）。
+checkout間で `node_modules` を共有しない。過去に共有した場合、worktree内のplugin変更が親checkoutへ作用し、別版でのlintやリンク切れを招いた。各checkoutの依存とplugin実体を確認して検証する。
 
-eslint-plugin-carelink-safety（または他の node_modules 内自作パッケージ）を worktree 内で編集する場合は、必ず `unlink node_modules/<pkg名>` → `ln -s ../../<worktree名>/<pkg名> ./node_modules/<pkg名>` で worktree 自身の実体を指すよう張り替えてから lint を実行する。
+`scripts/ensure-eslint-plugin-link.mjs` は `prelint`・`pretest`・`postinstall` から起動する。解決可能なpluginリンクには手を加えず、宙吊りの場合は修復を試みる。リンクがなくリポジトリ内にplugin実体がある場合は作成を試みる。エラーを捕捉して終了するため、実行成功だけでリンクの正しさを証明しない。
 
-### 🔴 張り替えは物理的に本家の node_modules を書き換えている（2026年7月16日・17日 宙吊り事故の再発防止）
-
-`git worktree add` した worktree の `node_modules` は（上記の通り）本家 `node_modules` へのディレクトリ symlink である。そのため「worktree 内で plugin リンクを張り替える」操作は、パス上は worktree 内の変更に見えても【実体は本家の `node_modules/eslint-plugin-carelink-safety` そのものを書き換えている】。「本家は無変更」という認識は誤りで、作業者がこれに気づかないまま worktree を削除すると、本家のリンクが【削除済み worktree の絶対パスを指したまま宙吊り】になり、本家の `require.resolve` が `Cannot find module` で失敗し lint が全滅する。この事故は 2026年7月16日と17日に2回実際に発生した（直近の真因は本家 checkout が古く plugin 実体が旧版化し、origin/main の新ルールと不一致で張り替えを誘発したこと）。
-
-【恒久ガード】`scripts/ensure-eslint-plugin-link.mjs` を新設し、`package.json` の `prelint` / `pretest` / `postinstall` から自動実行する（npm の `pre<name>` 自動起動規約により `npm run lint` / `npm test` / `npm install` の直前に必ず走る）。このスクリプトは【宙吊り（実体解決不能）のときのみ】 `../eslint-plugin-carelink-safety` への正規相対 symlink に自動修復する。解決可能なリンク（worktree 実体への意図的な張り替え作業中を含む）には一切手を出さない。どの経路でも throw せず必ず exit 0（fail-safe・CI/Vercel のビルドを本スクリプトの不具合で落とさない）。
-
-【運用ルール】
-- (a) 本家の checkout を古いまま放置しない。plugin 実体が旧版のままだと origin/main の lint 設定（新ルール等）と不一致になり、張り替え作業を誘発する。定期的に `git fetch origin main` → 追従する。
-- (b) worktree を削除する前に、本家の `node_modules/eslint-plugin-carelink-safety` がその worktree を指していないか `readlink /Users/kanbararyousuke/Projects/carelink/node_modules/eslint-plugin-carelink-safety` で確認する。
-- (c) worktree 内で張り替えて作業したら、作業終了後に必ず `../eslint-plugin-carelink-safety`（正規の相対リンク）へ戻し、`readlink` で確認する。
-
-マージ・クールダウン（全プロジェクト共通の `soel_last_merge_ts`）は並行 worktree 稼働時に窓の取り合いが激しい。一発待機だと他セッションのマージでタイムスタンプが更新され失敗するため、Python で `while True: ...時間到達までsleep...` のポーリング方式で即 fire させるのが確実。
-
-`gh pr merge --delete-branch` のローカル cleanup は main worktree（`carelink-salon-board`）占有で毎回失敗するが、サーバー側のマージ自体は成功する。`git worktree remove --force` を別途実行する。
+旧共有リンクやworktreeを扱う前に対象・所有者・参照先を確認し、別作業の依存を無断で変更しない。worktreeを一律に強制削除しない。マージ条件は現行の共通指示・保護設定・CIを確認する。
 
 ## 開発コマンド（`package.json` scripts）
 ```bash
@@ -516,7 +507,7 @@ npm run dev                 # 開発サーバー
 npm run build               # ビルド
 npm run lint                # ESLint
 npm test                    # Jest
-npm run test:coverage:ci    # カバレッジ（CI 同等）
+npm run test:coverage:ci    # CIのcoverageコマンド（CI全体ではない）
 npm run test:e2e            # Playwright E2E
 npm run test:contract       # Contract（drift gate・jest.config.contract.js）
 npm run test:e2e:security   # E2E のうち security.spec.ts のみ
@@ -528,10 +519,12 @@ npm run test:load:booking   # k6 同時予約
 npm run test:all            # test:ci → test:e2e
 ```
 
-`prelint` / `pretest` / `postinstall` に `node scripts/ensure-eslint-plugin-link.mjs` が配線されており、
-`npm run lint` / `npm test` / `npm install` の直前に必ず走る（下記「worktree 運用の罠」の恒久ガード）。
+`prelint` / `pretest` / `postinstall` に `node scripts/ensure-eslint-plugin-link.mjs` が配線されている。
+`npm run lint` と `npm test` の前、およびインストールの後に実行される。`test:ci` など別名のスクリプトには `pretest` は自動適用されない。リンクの修復可否・実体確認は上記「worktree 運用の罠」を参照する。
 
-## テスト品質スタック 現在地
+## テスト品質スタック（記録と検査基準）
+
+以下の成功表示・件数は記録時点の証拠であり、現在のcheckoutやCIの合格を意味しない。現行の検査条件は各設定・workflowを確認する。
 
 | レベル | 内容 | 状態 | 備考 |
 |--------|------|------|------|
@@ -670,7 +663,7 @@ npm run test:all            # test:ci → test:e2e
    `md5(regexp_replace(regexp_replace(prosrc,'--[^\n]*','','g'),'\s+',' ','g'))`
    で比較すれば装飾差とロジック差を機械的に分けられる
 
-### 現在の未解決差分（2026年8月4日時点・実測）
+### スキーマ差分の記録（2026年8月4日時点・実測）
 
 初回突合で検出した差分の処理状況。**警報が鳴ったらまずここを見る**。
 
@@ -727,3 +720,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Fromは `CareLink <support@carelink-jp.com>`、Reply-Toは `support@carelink-jp.com` に固定。既存の `RESEND_API_KEY` をサーバーのみで使用。新たな環境変数・cron・依存なし。日本時間の予約は1分後〜30日以内、Resend標準の単発送信予約を使う。
 - 不明な送信結果はpendingのまま内容を固定する。同じ操作UUIDを冪等キーにして23時間以内だけ再確認できる。以後は再送信せず配信記録を照合する。予約取り消しは実際のResend受付結果を確認し、送信済みのメールは取り消さない。
 - `20261025143701_platform_mail_console.sql` を使い捨てDBで検証後、本番へ適用してからアプリを配信する。元データを削除しない。外部API受付は受信者への配信完了とは区別する。実顧客への送信・予約は利用者の指示を必要とする。
+
+## 作業フォルダの置き場所（2026年11月13日 神原さん指示）
+
+CareLink の作業用コピー・検証用 clone・引き継ぎメモ・ログ等は、必ずこのリポジトリの中（`work/` または `.claude/worktrees/`）に作る。`~/Projects/` 直下など外に `carelink-*` フォルダやファイルを作らない。worktree を作るときは `git worktree add work/<名前> ...` とする。

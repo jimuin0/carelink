@@ -158,9 +158,9 @@
     "desc": "cron死活監視",
     "job_id": "cron-heartbeat",
     "cron_services": [
-      "carelink-cron-heartbeat"
+      "carelink-health-check"
     ],
-    "runner": "cron:carelink-cron-heartbeat",
+    "runner": "cron:carelink-health-check",
     "source": "render_cron",
     "cron_utc": "7,37 * * * *"
   },
@@ -195,6 +195,6 @@
     ],
     "runner": "cron:carelink-health-check",
     "source": "render_cron",
-    "cron_utc": "*/5 * * * *"
+    "cron_utc": "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
   }
 ]
