@@ -1,0 +1,26 @@
+name: LINE Bot runtime checks
+permissions:
+  contents: read
+on:
+  pull_request:
+    branches: [feat/carelink-linebot]
+    paths: [linebot/**, .github/workflows/linebot-ci.yml]
+  push:
+    branches: [feat/carelink-linebot]
+    paths: [linebot/**, .github/workflows/linebot-ci.yml]
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: linebot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.13.1'
+          cache: npm
+          cache-dependency-path: linebot/package-lock.json
+      - run: npm ci
+      - run: node --check index.js
+      - run: npm test
