@@ -6,7 +6,8 @@ import { test as setup, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
-import { VISITOR_AUTH_FILE, VISITOR_BOOKING_FILE } from './visitor-cancel.fixtures';
+import { VISITOR_AUTH_FILE, VISITOR_BOOKING_FILE, VISITOR_MEMBER_BOOKING_MENU } from './visitor-cancel.fixtures';
+import { confirmSyntheticBookingPreparation } from './booking-preparation.seed';
 
 // supabase-js v2 は Node 20 で createClient 時に WebSocket を要求し throw する。realtime 非接続のためダミー。
 if (!globalThis.WebSocket) {
@@ -20,6 +21,11 @@ function jstTomorrow(): string {
 }
 
 setup('provision visitor and a cancelable booking', async ({ page }) => {
+  if (process.env.CI !== 'true' || process.env.GITHUB_ACTIONS !== 'true'
+    || process.env.NEXT_PUBLIC_SUPABASE_URL !== 'https://localhost:54330'
+    || process.env.PLAYWRIGHT_BASE_URL !== 'https://localhost:3000') {
+    throw new Error('visitor fixture requires the managed disposable HTTPS CI lifecycle');
+  }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) throw new Error('visitor.setup: SUPABASE env 未設定');
@@ -36,6 +42,23 @@ setup('provision visitor and a cancelable booking', async ({ page }) => {
   }).select('id').single();
   if (fe) throw new Error('seed facility: ' + fe.message);
   await approveSyntheticListing(sb, fac.id);
+
+  // 会員本人が UI から新しく予約できる準備も揃える。既存予約の取消だけでは、
+  // 新規受付が user_id に結びつかず本人履歴へ出ない不具合を検出できない。
+  const staff = await sb.from('staff_profiles').insert({
+    facility_id: fac.id, name: 'E2E会員予約担当', slug: `e2e-member-staff-${ts}`, is_active: true,
+  }).select('id').single();
+  if (staff.error || !staff.data) throw new Error('seed member booking staff failed');
+  const schedules = await sb.from('staff_schedules').insert(Array.from({ length: 7 }, (_, day_of_week) => ({
+    staff_id: staff.data.id, day_of_week, start_time: '09:00', end_time: '20:00',
+  })));
+  if (schedules.error) throw new Error('seed member booking schedules failed');
+  const menu = await sb.from('facility_menus').insert({
+    facility_id: fac.id, category: 'カット', name: VISITOR_MEMBER_BOOKING_MENU,
+    price: 5000, duration_minutes: 60, is_published: true,
+  });
+  if (menu.error) throw new Error('seed member booking menu failed');
+  await confirmSyntheticBookingPreparation(sb, fac.id);
 
   // 来院者ユーザー
   const { data: cu, error: ce } = await sb.auth.admin.createUser({
@@ -64,6 +87,8 @@ setup('provision visitor and a cancelable booking', async ({ page }) => {
 
   fs.mkdirSync(path.dirname(VISITOR_AUTH_FILE), { recursive: true });
   await page.context().storageState({ path: VISITOR_AUTH_FILE });
-  fs.writeFileSync(VISITOR_BOOKING_FILE, JSON.stringify({ id: bk.id }));
+  fs.writeFileSync(VISITOR_BOOKING_FILE, JSON.stringify({
+    id: bk.id, facilityId: fac.id, slug: `e2e-visitor-${ts}`, userId, email,
+  }));
   expect(bk.id).toBeTruthy();
 });
