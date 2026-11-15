@@ -19,6 +19,7 @@ export class BookingNotificationPlanError extends Error {
 }
 const memberSchema=z.object({user_id:z.string().min(1)});
 const profileSchema=z.object({id:z.string().min(1),email:z.email().nullable()});
+const ownerEmailSchema=z.object({user_id:z.string().min(1),email:z.email().nullable()});
 const worksRowSchema=z.object({id:z.string().min(1),line_works_channel_id:z.string().nullable(),line_works_notify_all:z.boolean().nullable().optional()});
 async function collection<T>(page:(offset:number,limit:number)=>PromiseLike<{data:unknown;error:unknown}>,schema:z.ZodType<T>):Promise<T[]> {
   const result=await fetchAllPaged<T>(async(offset,limit)=>{
@@ -47,12 +48,26 @@ export async function buildBookingCreateNotifications(db: SupabaseClient, input:
   if(ids.length>250)throw new BookingNotificationPlanError();
   const profiles = ids.length ? {data:await collection((offset,limit)=>db.from('profiles').select('id,email').in('id',ids).order('id').range(offset,offset+limit-1),profileSchema),error:null} : { data: [], error: null };
   // オーナーの profiles が欠けていても、お客様の予約は止めない（点検 B4-13）。
-  // 欠けたオーナーにはメール・プッシュを計画しない（DB 側の照合も profiles が在るオーナーだけを期待する）。
-  // 店舗には管理画面の案内（MissingProfileNotice）で、運営にはこのログで気づけるようにする。
-  const missingOwnerIds = ids.filter(id => !profiles.data.some(profile => profile.id === id));
-  if (missingOwnerIds.length > 0) {
-    console.error('[booking-notifications] owner profile missing — new-booking email/push skipped for these owners', {
-      facility_id: input.facility_id, missing_owner_ids: missingOwnerIds,
+  // 新規予約メールの宛先は profiles のメール。profiles が無い（またはメールが無い）オーナーは、
+  // メール確認済みのログイン用メールアドレス（auth.users.email）宛てにする（本人決定 2026年11月15日）。
+  // ログイン用メールは DB 関数 booking_owner_notification_emails（service_role 専用・予約受付 RPC の照合と同じ規則）で引き、
+  // 宛先にだけ使う（お客様向けの控え・画面には載せない）。それも無ければ送らずに記録だけ残す。
+  // プッシュは従来どおり profiles が在るオーナーだけ（DB 側の照合も同じ）。
+  const profileEmail = new Map(profiles.data.map(profile => [profile.id, profile.email]));
+  const missingOwnerIds = ids.filter(id => !profileEmail.has(id));
+  const fallbackIds = ids.filter(id => !profileEmail.get(id));
+  const loginEmail = new Map<string, string | null>();
+  if (fallbackIds.length > 0) {
+    const fallback = await db.rpc('booking_owner_notification_emails', { p_facility_id: input.facility_id });
+    const rows = z.array(ownerEmailSchema).safeParse(fallback.data);
+    if (fallback.error || !rows.success) throw new BookingNotificationPlanError();
+    for (const row of rows.data) loginEmail.set(row.user_id, row.email);
+  }
+  const ownerEmailOf = (id: string) => profileEmail.get(id) || loginEmail.get(id) || null;
+  const unreachableOwnerIds = fallbackIds.filter(id => !loginEmail.get(id));
+  if (missingOwnerIds.length > 0 || unreachableOwnerIds.length > 0) {
+    console.error('[booking-notifications] owner profile missing — new-booking push skipped; email goes to the confirmed login address when available', {
+      facility_id: input.facility_id, missing_owner_ids: missingOwnerIds, unreachable_owner_ids: unreachableOwnerIds,
     });
   }
   const data = { customerName: input.customer_name, customerEmail: input.email, facilityName: facility.data.name,
@@ -68,13 +83,14 @@ export async function buildBookingCreateNotifications(db: SupabaseClient, input:
   const plan: BookingCreateNotification[] = [{ kind: 'email', role: 'customer', target: input.email,
     envelope: status === 'confirmed' ? buildBookingConfirmedEnvelope(data) : buildBookingConfirmationEnvelope(data) }];
   const ownerEmails = new Set<string>();
-  for (const profile of profiles.data!) {
-    if (profile.email && !ownerEmails.has(profile.email)) {
-      ownerEmails.add(profile.email);
-      plan.push({ kind: 'email', role: 'owner', user_id: profile.id, target: profile.email,
-        envelope: buildNewBookingNotificationEnvelope({ ...ownerData, facilityEmail: profile.email }) });
+  for (const id of ids) {
+    const email = ownerEmailOf(id);
+    if (email && !ownerEmails.has(email)) {
+      ownerEmails.add(email);
+      plan.push({ kind: 'email', role: 'owner', user_id: id, target: email,
+        envelope: buildNewBookingNotificationEnvelope({ ...ownerData, facilityEmail: email }) });
     }
-    if (flags.data?.push_on_new_booking !== false) plan.push({ kind: 'push', role: 'owner', user_id: profile.id, target: profile.id,
+    if (profileEmail.has(id) && flags.data?.push_on_new_booking !== false) plan.push({ kind: 'push', role: 'owner', user_id: id, target: id,
       payload: { title: '新規予約', body: `${input.customer_name}様から${input.booking_date} ${input.start_time}〜の予約が入りました`, url: '/admin/bookings' } });
   }
   if (actor) plan.push({ kind: 'push', role: 'customer', target: actor,

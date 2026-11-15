@@ -23,6 +23,8 @@ SELECT pg_temp.approve_synthetic_listing('bea41000-0000-4000-8000-000000000001',
 UPDATE public.facility_profiles SET status='published' WHERE id='bea41000-0000-4000-8000-000000000001';
 INSERT INTO public.user_points(user_id,points,reason) VALUES('bea40000-0000-4000-8000-000000000002',500,'Synthetic seed');
 UPDATE public.profiles SET email=NULL WHERE id='bea40000-0000-4000-8000-000000000001';
+-- 既存の照合はオーナー宛てメール 0 件を前提にする。ログイン用メールへの代替（20261115100000）は後段で個別に検査する。
+UPDATE auth.users SET email_confirmed_at=NULL WHERE id='bea40000-0000-4000-8000-000000000001';
 INSERT INTO public.facility_notification_settings(facility_id,push_on_new_booking) VALUES('bea41000-0000-4000-8000-000000000001',false);
 CREATE FUNCTION pg_temp.receipt_create(p_id uuid,p_start time DEFAULT '10:00',p_notifications jsonb DEFAULT '[{"kind":"email","role":"customer","target":"proxy@example.invalid","envelope":{"from":"test@example.invalid","to":"proxy@example.invalid","subject":"Synthetic receipt","html":"<p>Synthetic</p>"}}]')
 RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER AS $$ DECLARE snap jsonb; plan jsonb; BEGIN
@@ -154,6 +156,30 @@ DO $$ BEGIN
  BEGIN UPDATE public.webhook_retry_queue SET target_id='wrong@example.invalid' WHERE payload->>'booking_create_operation'='bea44000-0000-4000-8000-000000000001'; RAISE EXCEPTION 'recipient replaced';
  EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT IN ('BOOKING_CREATE_NOTIFICATION_IMMUTABLE','EVENT_EMAIL_IDENTITY_IMMUTABLE') THEN RAISE; END IF; END;
 END $$;
+RESET ROLE;
+-- profiles のメールが無いオーナーには、確認済みのログイン用メール宛てに新規予約メールを積む（20261115100000）。
+-- 宛先を決める関数は service_role だけが実行でき、ブラウザの役割からは引けない。
+SELECT pg_temp.assert_create(has_function_privilege('service_role','public.booking_owner_notification_emails(uuid)','EXECUTE')
+ AND NOT has_function_privilege('anon','public.booking_owner_notification_emails(uuid)','EXECUTE')
+ AND NOT has_function_privilege('authenticated','public.booking_owner_notification_emails(uuid)','EXECUTE'),'owner login email lookup is service-role only');
+SELECT pg_temp.assert_create((SELECT email IS NULL FROM public.booking_owner_notification_emails('bea41000-0000-4000-8000-000000000001')),'unconfirmed login email is never a recipient');
+UPDATE auth.users SET email_confirmed_at=now() WHERE id='bea40000-0000-4000-8000-000000000001';
+SELECT pg_temp.assert_create((SELECT email='receipt-owner@example.invalid' FROM public.booking_owner_notification_emails('bea41000-0000-4000-8000-000000000001')),'confirmed login email replaces the missing profile email');
+SET LOCAL ROLE service_role;
+SELECT * FROM public.prepare_booking_create_operation('bea44000-0000-4000-8000-000000000030','bea40000-0000-4000-8000-000000000002',NULL,'bea41000-0000-4000-8000-000000000001',repeat('a',64));
+DO $$ DECLARE qid uuid; BEGIN
+ BEGIN PERFORM pg_temp.receipt_create('bea44000-0000-4000-8000-000000000030','15:00');RAISE EXCEPTION 'owner login email omitted';
+ EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'BOOKING_NOTIFICATION_TARGET_CHANGED' THEN RAISE; END IF; END;
+ BEGIN PERFORM pg_temp.receipt_create('bea44000-0000-4000-8000-000000000030','15:00','[{"kind":"email","role":"customer","target":"proxy@example.invalid","envelope":{"from":"test@example.invalid","to":"proxy@example.invalid","subject":"Synthetic receipt","html":"<p>Synthetic</p>"}},{"kind":"email","role":"owner","user_id":"bea40000-0000-4000-8000-000000000001","target":"wrong@example.invalid","envelope":{"from":"test@example.invalid","to":"wrong@example.invalid","subject":"Synthetic owner","html":"<p>Synthetic</p>"}}]');RAISE EXCEPTION 'wrong owner email accepted';
+ EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'BOOKING_NOTIFICATION_TARGET_CHANGED' THEN RAISE; END IF; END;
+ PERFORM pg_temp.assert_create(pg_temp.receipt_create('bea44000-0000-4000-8000-000000000030','15:00','[{"kind":"email","role":"customer","target":"proxy@example.invalid","envelope":{"from":"test@example.invalid","to":"proxy@example.invalid","subject":"Synthetic receipt","html":"<p>Synthetic</p>"}},{"kind":"email","role":"owner","user_id":"bea40000-0000-4000-8000-000000000001","target":"receipt-owner@example.invalid","envelope":{"from":"test@example.invalid","to":"receipt-owner@example.invalid","subject":"Synthetic owner","html":"<p>Synthetic</p>"}}]')->>'state'='accepted','owner login email plan accepted');
+ SELECT id INTO qid FROM public.webhook_retry_queue WHERE payload->>'booking_create_operation'='bea44000-0000-4000-8000-000000000030' AND webhook_type='email' AND payload->>'booking_role'='owner' AND target_id='receipt-owner@example.invalid';
+ PERFORM pg_temp.assert_create(qid IS NOT NULL,'owner login email queued');
+ PERFORM pg_temp.claim_receipt(qid);
+ PERFORM pg_temp.assert_create((SELECT outcome='ready' FROM public.start_booking_create_notification(qid,'2030-01-01T00:00Z')),'send fence accepts the owner login email');
+END $$;
+RESET ROLE;
+UPDATE auth.users SET email_confirmed_at=NULL WHERE id='bea40000-0000-4000-8000-000000000001';
 RESET ROLE;
 -- Dated creation must preserve the ending date in the receipt and the email
 -- snapshot while keeping strict legacy push payloads unchanged.
