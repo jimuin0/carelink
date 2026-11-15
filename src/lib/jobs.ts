@@ -11,7 +11,7 @@ export const SALARY_UNIT_LD: Record<SalaryUnit, string> = { monthly: 'MONTH', ho
 
 /** DB の値を単位に直す。未知の値・未設定は既定の月給として扱う。 */
 export function toSalaryUnit(value: string | null | undefined): SalaryUnit {
-  return (SALARY_UNITS as readonly string[]).includes(value ?? '') ? (value as SalaryUnit) : 'monthly';
+  return SALARY_UNITS.find(unit => unit === value) ?? 'monthly';
 }
 
 export const jobFormSchema = z

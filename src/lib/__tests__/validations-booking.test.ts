@@ -110,6 +110,18 @@ describe('bookingSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  test.each(['24:00', '24:01', '24:59'])('start_time は日付境界以降の %s を拒否する', (start_time) => {
+    const result = bookingSchema.safeParse({ ...validBooking, start_time });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ['start_time'], message: '有効な時間を入力してください' }),
+    ]));
+  });
+
+  test.each(['24:01', '24:59'])('end_time は日の終わり24:00を超える %s を拒否する', (end_time) => {
+    expect(bookingSchema.safeParse({ ...validBooking, end_time }).success).toBe(false);
+  });
+
   test('過去日のbooking_dateはエラー', () => {
     const result = bookingSchema.safeParse({ ...validBooking, booking_date: '2020-01-01' });
     expect(result.success).toBe(false);
