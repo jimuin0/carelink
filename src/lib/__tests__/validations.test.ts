@@ -54,6 +54,18 @@ describe('salonStep1Schema', () => {
     expect(result.success).toBe(false);
   });
 
+  test.each([
+    'javascript:https://example.com',
+    'data:text/plain,https://example.com',
+    'ftp://example.com/https://example.net',
+  ])('途中にhttps://があっても他のスキームは拒否する: %s', (website) => {
+    const result = salonStep1Schema.safeParse({ ...validData, website });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ['website'] }),
+    ]));
+  });
+
   test('ウェブサイト空文字はOK', () => {
     const result = salonStep1Schema.safeParse({ ...validData, website: '' });
     expect(result.success).toBe(true);
