@@ -31,7 +31,9 @@ test.beforeAll(async({request})=>{
   const owner=await approveSyntheticListing(db,facilityId);
   // This fixture tests the single customer notification; suppress independent
   // synthetic-owner channels just as the database receipt fixture does.
-  sql(`UPDATE public.profiles SET email=NULL WHERE id='${owner}'; INSERT INTO public.facility_notification_settings(facility_id,push_on_new_booking) VALUES('${facilityId}',false);`);
+  // Since 20261115100000 a missing profile email falls back to the confirmed login
+  // address, so the login address is left unconfirmed as well.
+  sql(`UPDATE public.profiles SET email=NULL WHERE id='${owner}'; UPDATE auth.users SET email_confirmed_at=NULL WHERE id='${owner}'; INSERT INTO public.facility_notification_settings(facility_id,push_on_new_booking) VALUES('${facilityId}',false);`);
 });
 // The entire isolated database and its private test objects are discarded by
 // the CI lifecycle. Do not bypass Storage's object-deletion protections here.

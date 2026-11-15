@@ -21,6 +21,8 @@ SELECT pg_temp.approve_synthetic_listing('bed31000-0000-4000-8000-000000000001',
 UPDATE public.facility_profiles SET status='published' WHERE id='bed31000-0000-4000-8000-000000000001';
 INSERT INTO public.user_points(user_id,points,reason) VALUES('bed30000-0000-4000-8000-000000000002',500,'Synthetic seed');
 UPDATE public.profiles SET email=NULL WHERE id='bed30000-0000-4000-8000-000000000001';
+-- オーナー宛てメール 0 件の計画を前提にするため、ログイン用メールへの代替（20261115100000）も効かないよう未確認にする。
+UPDATE auth.users SET email_confirmed_at=NULL WHERE id='bed30000-0000-4000-8000-000000000001';
 INSERT INTO public.facility_notification_settings(facility_id,push_on_new_booking) VALUES('bed31000-0000-4000-8000-000000000001',false);
 CREATE FUNCTION pg_temp.receipt_create(p_id uuid,p_start time DEFAULT '10:00',p_notifications jsonb DEFAULT '[{"kind":"email","role":"customer","target":"proxy@example.invalid","envelope":{"from":"test@example.invalid","to":"proxy@example.invalid","subject":"Synthetic receipt","html":"<p>Synthetic</p>"}}]')
 RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER AS $$ DECLARE snap jsonb; plan jsonb; BEGIN
