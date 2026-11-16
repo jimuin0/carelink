@@ -8,7 +8,7 @@ export async function hasLineSupportQuota(token:string):Promise<boolean>{
   try{
     const read=async(path:string)=>{
       const response=await fetch('https://api.line.me/v2/bot/message/'+path,{
-        headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(3000),redirect:'error',cache:'no-store',
+        headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(3000),redirect:'manual',cache:'no-store',
       });
       if(!response.ok)throw new Error('Quota unavailable');
       return response.json() as Promise<unknown>;

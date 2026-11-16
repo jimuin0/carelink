@@ -74,3 +74,5 @@ test('a missing original question is also held for human review',async()=>{
  rpc.mockReset().mockResolvedValueOnce({kind:'customer_reply',question:null,message_type:'text',mode:'automatic'}).mockResolvedValueOnce(null);
  expect(await dispatchLineSupportDelivery(delivery.id)).toBe('not_attempted');expect(rpc.mock.calls[1][1].p_expected_reply).toBeNull();
 });
+
+test('a provider redirect is not followed and cannot become an accepted receipt',async()=>{global.fetch=jest.fn().mockResolvedValue(new Response(null,{status:302,headers:{location:'https://example.invalid'}}));expect(await dispatchLineSupportDelivery(delivery.id)).toBe('unknown');expect(global.fetch).toHaveBeenCalledTimes(1);expect((global.fetch as jest.Mock).mock.calls[0][1].redirect).toBe('manual');expect(rpc.mock.calls.at(-1)[1].p_state).toBe('unknown');});

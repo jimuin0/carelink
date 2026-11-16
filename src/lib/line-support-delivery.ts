@@ -32,7 +32,7 @@ export async function dispatchLineSupportDelivery(id: string): Promise<'accepted
     const response = await fetch('https://api.line.me/v2/bot/message/'+(reply?'reply':'push'), {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(!reply?{'X-Line-Retry-Key':delivery.retry_key}:{}) },
       body: JSON.stringify(reply?{replyToken:delivery.reply_token,messages}:{to:delivery.recipient_id,messages}),
-      signal: AbortSignal.timeout(reply?5000:8000), redirect: 'error',
+      signal: AbortSignal.timeout(reply?5000:8000), redirect: 'manual',
     });
     requestId = response.status === 409 ? response.headers.get('x-line-accepted-request-id') : response.headers.get('x-line-request-id');
     if (response.ok || (!reply&&response.status === 409 && requestId)) outcome = 'accepted';

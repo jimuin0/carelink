@@ -8,7 +8,7 @@ export async function readLineSupportConnection(){
   if(!token?.trim())return null;
   try{
     const response=await fetch('https://api.line.me/v2/bot/info',{
-      headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(8000),cache:'no-store',redirect:'error',
+      headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(8000),cache:'no-store',redirect:'manual',
     });
     if(!response.ok)return null;
     const bot=botSchema.safeParse(await response.json());
