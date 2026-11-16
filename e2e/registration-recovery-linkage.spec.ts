@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { seedSyntheticSalonHistory } from './synthetic-salon-history';
 import { observeFacilitySetup } from './facility-setup-observer';
+import { waitForVisibleDashboard } from './dashboard-readiness';
 
 // Real browser + Auth + application API + disposable Postgres. Never reuse a
 // running developer server, hosted credentials, provider send keys or real data.
@@ -66,12 +67,12 @@ function recoveryRow(page: Page, id: string) {
 }
 async function submitSetup(page: Page, status: number, state: string) {
   await page.getByRole('checkbox').check();
-  // A commit can still contain only Next.js' streaming loading fallback.
-  // Arm the full document readiness wait before the replacing submission.
+  // Wait for the committed destination AND real dashboard, not the entire
+  // streamed document's DOMContentLoaded (which can lag behind visible content).
   const [response] = await Promise.all([
     observeFacilitySetup(page,
       () => page.getByRole('button', { name: '店舗を作成する', exact: true }).click()),
-    page.waitForURL(url => url.pathname === '/admin', { waitUntil: 'domcontentloaded' }),
+    waitForVisibleDashboard(page),
   ]);
   expect(response.status).toBe(status);
   const result = response.body;
@@ -145,10 +146,9 @@ test('Auth unavailable 503 -> no logout -> explicit retry reads original receipt
 
 test('expired handoff -> verified recovery -> one draft -> listing without online booking', async ({ page, browser }, info) => {
   // This verifies Auth, three navigations, creation, publication and booking readiness.
-  // Two full store setups each wait for the real /admin dashboard document; on the single CI
-  // worker one attempt spent its whole 60s budget with /admin already committed and still
-  // streaming. Same budget as the other full registration/admin flows (admin-access-recovery,
-  // salon-legacy-resume); every assertion and wait condition is unchanged.
+  // Keep the existing 90s budget for two full store setups. Readiness requires
+  // the real dashboard heading, while an unrelated deferred module must not
+  // turn a completed setup into a DOMContentLoaded timeout.
   test.setTimeout(90000);
   await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${160 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
   // APIRequestContext does not inherit page-level headers. Give these isolated
