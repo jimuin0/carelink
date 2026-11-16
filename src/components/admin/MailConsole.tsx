@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useClientReady } from '@/lib/use-client-ready';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import Modal from '@/components/Modal';
@@ -30,6 +31,7 @@ const fromRecord = (mail: PlatformMailRecord): PlatformMailDraft => ({ id: mail.
   to: mail.recipient, subject: mail.subject, body: mail.body, scheduledAt: mail.scheduled_at });
 
 export default function MailConsole({ initialContactId }: { initialContactId?: string }) {
+  const clientReady = useClientReady();
   const [folder, setFolder] = useState<Folder>('inbox');
   const [contacts, setContacts] = useState<InboxRow[]>([]);
   const [messages, setMessages] = useState<PlatformMailRecord[]>([]);
@@ -231,10 +233,10 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
 
   if (forbidden) return <section className="rounded-xl border bg-white p-6" role="alert"><h1 className="text-xl font-bold">運営アカウントでログインしてください</h1><p className="mt-3">このメール画面はCareLink運営専用です。</p><Link className="mt-4 inline-block underline" href="/auth/login?redirect=%2Fadmin%2Fmail">ログイン画面へ</Link></section>;
   return <div className="space-y-5">
-    <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">メール</h1><p className="mt-1 text-sm text-gray-600">差出人：{PLATFORM_MAIL_FROM}</p></div><button type="button" className="btn-primary" disabled={busy} onClick={() => compose()}>新規作成</button></header>
+    <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">メール</h1><p className="mt-1 text-sm text-gray-600">差出人：{PLATFORM_MAIL_FROM}</p></div><button type="button" className="btn-primary" disabled={busy || !clientReady} onClick={() => compose()}>新規作成</button></header>
     {notice && <p role="status" className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm leading-6">{notice}</p>}
     <div className="grid min-w-0 gap-3 lg:grid-cols-[144px_minmax(0,1fr)]">
-      <nav aria-label="メールのフォルダー" className="flex gap-1 overflow-x-auto lg:flex-col">{folders.map(item => <button key={item.id} type="button" aria-pressed={folder === item.id} disabled={busy} className={'shrink-0 rounded-lg px-3 py-2.5 text-left text-sm font-medium ' + (folder === item.id ? 'bg-sky-100 text-sky-900' : 'bg-white text-gray-700 hover:bg-gray-50')} onClick={() => navigate(() => { clearSelection(); setFolder(item.id); setCursor(null); setContacts([]); setMessages([]); setRefresh(value => value + 1); })}>{item.label}</button>)}</nav>
+      <nav aria-label="メールのフォルダー" className="flex gap-1 overflow-x-auto lg:flex-col">{folders.map(item => <button key={item.id} type="button" aria-pressed={folder === item.id} disabled={busy || !clientReady} className={'shrink-0 rounded-lg px-3 py-2.5 text-left text-sm font-medium ' + (folder === item.id ? 'bg-sky-100 text-sky-900' : 'bg-white text-gray-700 hover:bg-gray-50')} onClick={() => navigate(() => { clearSelection(); setFolder(item.id); setCursor(null); setContacts([]); setMessages([]); setRefresh(value => value + 1); })}>{item.label}</button>)}</nav>
       <div className={'grid min-w-0 gap-3 ' + (selected ? 'xl:grid-cols-[minmax(240px,0.8fr)_minmax(0,1.4fr)]' : '')}>
       <section className={'min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white ' + (selected ? 'hidden xl:block' : '')} aria-label="メール一覧" aria-busy={loading}>
         <div className="flex items-center justify-between border-b p-3"><h2 className="font-bold">{folders.find(item => item.id === folder)!.label}</h2><button type="button" className="rounded px-3 py-2 text-sm text-sky-800 disabled:opacity-50" disabled={loading || busy} onClick={() => setRefresh(value => value + 1)}>一覧を更新</button></div>

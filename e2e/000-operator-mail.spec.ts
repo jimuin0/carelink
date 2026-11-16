@@ -1,4 +1,4 @@
-import { test, expect, type Response } from '@playwright/test';
+import { test, expect, type Response, type Route } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 
@@ -50,7 +50,20 @@ test('operator saves a durable draft; stale edits and unavailable transport pres
     const mail = (await saved.json()).mail;
     const stored = await db.from('platform_mail').select('recipient,subject,body,state,envelope,created_by').eq('id', mail.id).single();
     expect(stored.error).toBeNull(); expect(stored.data).toEqual({ recipient: 'synthetic-recipient@example.invalid', subject, body: '合成本文。実際には送信しません。', state: 'draft', envelope: null, created_by: person.id });
-    await page.reload(); await page.getByRole('button', { name: '下書き', exact: true }).click();
+    // A document reload can expose SSR controls before their React handlers exist.
+    // Deliberately delay scripts: the folder click must remain unavailable until hydration.
+    let releaseScripts: () => void = () => {};
+    const scriptsReady = new Promise<void>(resolve => { releaseScripts = resolve; });
+    const scriptPattern = /\/_next\/static\/.*\.js(?:\?.*)?$/;
+    const delayScripts = async (route: Route) => { await scriptsReady; await route.fallback(); };
+    await page.route(scriptPattern, delayScripts);
+    try {
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(page.getByRole('button', { name: '下書き', exact: true })).toBeDisabled();
+      releaseScripts();
+      await expect(page.getByRole('button', { name: '下書き', exact: true })).toBeEnabled();
+    } finally { releaseScripts(); await page.unroute(scriptPattern, delayScripts); }
+    await page.getByRole('button', { name: '下書き', exact: true }).click();
     await page.getByRole('button', { name: new RegExp(subject) }).click();
     await expect(page.getByLabel('本文', { exact: true })).toHaveValue('合成本文。実際には送信しません。');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

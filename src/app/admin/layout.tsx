@@ -59,6 +59,7 @@ const navItems: { href: string; label: string; icon: string; platformAdmin?: boo
   { href: '/admin/inquiries', label: '問い合わせ(運営)', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', platformAdmin: true },
   { href: '/admin/mail', label: 'メール', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', platformAdmin: true },
   { href: '/admin/registrations', label: '施設登録', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', platformAdmin: true },
+  { href: '/admin/line-support', label: 'LINEの相談', icon: 'M3 8h18M5 19h14V7H5v12z', platformAdmin: true },
   // line-richmenu / email-setup はプラットフォーム運営専用の内容（全ユーザー一括リッチメニュー・
   // carelink-jp.com のSPF/DKIM手順）で、施設オーナーが操作できる項目ではない。newsletters 等と
   // 同じく platformAdmin: true を付与し、全施設オーナーのナビに出ないようにする。
@@ -173,6 +174,7 @@ const navGroups: NavGroup[] = [
       { href: '/admin/newsletters', label: 'ニュースレター' },
       { href: '/admin/inquiries', label: '問い合わせ(運営)' },
       { href: '/admin/mail', label: 'メール' },
+      { href: '/admin/line-support', label: 'LINEの相談' },
       { href: '/admin/registrations', label: '施設登録' },
       { href: '/admin/moderation', label: 'モデレーション' },
       { href: '/admin/feature-flags', label: 'Feature Flags' },
@@ -248,6 +250,7 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
               <Link href="/admin/inquiries">問い合わせ(運営)</Link>
               <Link href="/admin/mail">メール</Link>
               <Link href="/admin/registrations">施設登録</Link>
+              <Link href="/admin/line-support">LINEの相談</Link>
             </nav>
             <AdminUserMenu />
           </header>

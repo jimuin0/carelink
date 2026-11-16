@@ -343,7 +343,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 - 公開・来院者系：`public`（祝日情報）`facilities` `facility` `salons` `availability` `slots` `booking` `waitlist` `options` `symptoms` `stations` `recommendations` `ab-test` `referral` `review` `nps` `report` `favorites` `preferred-staff`（指名スタッフの登録・解除）`profile` `account` `chat` `intake` `contact` `inquiry` `unsubscribe` `health` `og` `v1` `push` `[...notfound]`（未定義 API パスの catch-all）
 - 認証・LINE：`auth` `liff` `line`
 - 決済：`payment`（`charge`＝予約の前払い・`receipt`＝領収書）`payjp`（`api/payjp/webhook`＝広告枠・有料オプションの月額と予約の前払いの webhook。振り分けは `src/lib/payjp-webhook.ts`）
-- 管理（`api/admin/`・施設オーナー／プラットフォーム）：`bookings` `booking-status` `booking-checkout` `booking-adjust-request` `customers` `staff` `menus` `catalog` `coupons` `packages` `user-packages` `subscription-plans` `user-subscriptions` `payments-settings` `accounting-export` `settings` `facility-verify` `registrations` `jobs` `job-applications` `featured-ads` `features` `feature-flags` `blog` `platform-blog` `qa` `review-summary` `review-replies` `moderation` `newsletter` `inquiries` `report` `gbp` `hpb-menus` `ai-support` `api-keys` `backup` `chain` `white-label` `photos` `notification-reconciliation` `mail` `reviews` `listing-verification` `special-hours`（本数は書かない。実ディレクトリとの一致は `src/__tests__/claude-md-matches-code.test.ts` が `api/admin/` 配下まで検査する）
+- 管理（`api/admin/`・施設オーナー／プラットフォーム）：`bookings` `booking-status` `booking-checkout` `booking-adjust-request` `customers` `staff` `menus` `catalog` `coupons` `packages` `user-packages` `subscription-plans` `user-subscriptions` `payments-settings` `accounting-export` `settings` `facility-verify` `registrations` `jobs` `job-applications` `featured-ads` `features` `feature-flags` `blog` `platform-blog` `qa` `review-summary` `review-replies` `moderation` `newsletter` `inquiries` `line-support` `report` `gbp` `hpb-menus` `ai-support` `api-keys` `backup` `chain` `white-label` `photos` `notification-reconciliation` `mail` `reviews` `listing-verification` `special-hours`（本数は書かない。実ディレクトリとの一致は `src/__tests__/claude-md-matches-code.test.ts` が `api/admin/` 配下まで検査する）
 - cron（`api/cron/`・Render Cron Jobs から Bearer 認証で起動。一覧は下記スケジュール表＝実ディレクトリと同テストが突合）：下記スケジュール参照
 - 運用・監視：`alert-check`（`ALERT_CHECK_TOKEN` で保護）・`admin`（管理画面用API群は下記）
 - Google 連携：`google-calendar` / Slack：`slack`
@@ -429,7 +429,8 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | LINE_WORKS_BOT_ID / LINE_WORKS_CLIENT_ID / LINE_WORKS_CLIENT_SECRET / LINE_WORKS_PRIVATE_KEY / LINE_WORKS_SERVICE_ACCOUNT | LINE WORKS 連携 |
 | SLACK_BOT_TOKEN / SLACK_SIGNING_SECRET / SLACK_DEFAULT_CHANNEL / SLACK_ADMIN_CHANNEL_ID | Slack 通知・スラッシュコマンド署名検証。Render の `carelink-health-check` は共有グループ `slack-gyomu-bot`（`SLACK_BOT_TOKEN`・`SLACK_ADMIN_CHANNEL_ID`）から受け取り、`SLACK_DEFAULT_CHANNEL` が無ければ `SLACK_ADMIN_CHANNEL_ID` へ通報する |
 | GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_MAPS_API_KEY | Google カレンダー連携・地図 |
-| ANTHROPIC_API_KEY | AI サポート |
+| ANTHROPIC_API_KEY / CLAUDE_API_KEY / CLAUDE_MODEL / LINE_SUPPORT_CLAUDE_MODEL | AI サポート・LINE返信案（既存Claudeモデルを明示） |
+| LINE_SUPPORT_ENABLED / LINE_SUPPORT_DESTINATION | LINE相談機能の有効化・署名済みWebhookの宛先照合 |
 | AI_CHAT_DAILY_REQUEST_LIMIT | AI共有24時間上限。省略時100、正整数1〜100000。無効値は外部API開始前に停止 |
 | RECAPTCHA_SECRET_KEY | reCAPTCHA 検証 |
 | VAPID_PRIVATE_KEY / NEXT_PUBLIC_VAPID_PUBLIC_KEY | Web Push |

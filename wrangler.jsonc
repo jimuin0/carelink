@@ -37,5 +37,25 @@
   },
   "images": {
     "binding": "IMAGES"
-  }
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "LINE_SUPPORT_QUEUE",
+        "queue": "carelink-line-support"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "carelink-line-support",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_concurrency": 2,
+        "max_retries": 10,
+        "retry_delay": 120,
+        "dead_letter_queue": "carelink-line-support-dead-letter"
+      }
+    ]
+  },
+  "keep_vars": true
 }
