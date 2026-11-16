@@ -21,6 +21,7 @@ export default defineConfig({
     alias: {
       "./after-response": path.resolve(root, "tools/cloudflare/after-response.ts"),
       "@/lib/after-response": path.resolve(root, "tools/cloudflare/after-response.ts"),
+      "@/lib/line-support-wakeup": path.resolve(root, "tools/cloudflare/line-support-wakeup.ts"),
       "./og-image-assets": path.resolve(root, "tools/cloudflare/og-image-assets.ts"),
       "./public-read-transport": path.resolve(root, "tools/cloudflare/public-read-transport.ts"),
       "@/lib/public-read-transport": path.resolve(root, "tools/cloudflare/public-read-transport.ts"),

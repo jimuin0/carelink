@@ -1,4 +1,5 @@
 import app from 'vinext/server/fetch-handler';
+import { consumeLineSupport } from './line-support-consumer';
 export * from 'vinext/server/fetch-handler';
 
 // Match the app's WebP preference without asking a WebP-incapable browser to
@@ -32,7 +33,14 @@ export function canonicalRedirect(request: Request): Response | null {
 
 export default {
   ...app,
+  async queue(batch:Parameters<typeof consumeLineSupport>[0],env:{CRON_SECRET?:string},ctx:unknown){
+    await consumeLineSupport(batch,env,ctx,(request,bindings,context)=>app.fetch(request,bindings,context));
+  },
   async fetch(request: Request, env: unknown, ctx: unknown) {
-    return canonicalRedirect(request) ?? app.fetch(preferWebp(request), env, ctx);
+    // Local HTTP emulation has no public TLS endpoint. Production bindings keep
+    // the canonical HTTPS redirect, including requests with a localhost Host.
+    const localDevelopment=typeof env==='object'&&env!==null&&'VERCEL_ENV' in env&&env.VERCEL_ENV==='development'
+      && ['localhost','127.0.0.1'].includes(new URL(request.url).hostname);
+    return (localDevelopment?null:canonicalRedirect(request)) ?? app.fetch(preferWebp(request), env, ctx);
   },
 };

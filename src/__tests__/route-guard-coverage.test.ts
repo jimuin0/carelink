@@ -54,6 +54,14 @@ const ALLOW: Record<string, Exemption> = {
       + 'x-line-signature の HMAC 検証（verifyLineSignature）が本人性の根拠',
     rateLimit: '送信元は LINE のみで、署名不一致は本体処理の前に落ちる',
   },
+  'line/support-webhook/route.ts': {
+    csrf: 'LINEのサーバ間Webhook。生本文とx-line-signatureをverifyLineSignatureで検証し、設定済みのdestinationとも照合する',
+    rateLimit: '署名不正は保存前に拒否。LINEの正規再配信はイベントIDの一意制約で重複排除し、本文・イベント件数も制限する',
+  },
+  'line/support-work/route.ts': {
+    csrf: '内部キューからのサーバ間POST。checkCronAuthで既存のBearer秘密値を定数時間照合し、ブラウザのCookie認証は受け付けない',
+    rateLimit: '認証済みキューのみが実行。DBの排他リースと共有AI上限で並行実行と費用を制限する',
+  },
   'slack/interactions/route.ts': {
     csrf: 'Slack からのサーバ間 POST。verifySlackRequest（署名＋タイムスタンプ）が本人性の根拠',
     rateLimit: '同上。署名不一致は本体処理の前に落ちる',

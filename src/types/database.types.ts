@@ -14,6 +14,277 @@ export type Database = {
   }
   public: {
     Tables: {
+      line_support_conversations: {
+        Row: {
+          blocked: boolean
+          id: string
+          line_user_id: string
+          mode: string
+          revision: number
+          updated_at: string
+        }
+        Insert: {
+          blocked?: boolean
+          id?: string
+          line_user_id: string
+          mode?: string
+          revision?: number
+          updated_at?: string
+        }
+        Update: {
+          blocked?: boolean
+          id?: string
+          line_user_id?: string
+          mode?: string
+          revision?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      line_support_deliveries: {
+        Row: {
+          attempts: number
+          body: string
+          conversation_id: string
+          conversation_revision: number
+          created_at: string
+          draft_id: string | null
+          first_attempt_at: string | null
+          id: string
+          kind: string
+          knowledge_revision: string
+          last_attempt_at: string | null
+          proposal_body: string | null
+          provider_request_id: string | null
+          recipient_id: string
+          recipient_version: number
+          reply_expires_at: string | null
+          reply_token: string | null
+          retry_key: string
+          state: string
+        }
+        Insert: {
+          attempts?: number
+          body: string
+          conversation_id: string
+          conversation_revision: number
+          created_at?: string
+          draft_id?: string | null
+          first_attempt_at?: string | null
+          id: string
+          kind: string
+          knowledge_revision: string
+          last_attempt_at?: string | null
+          proposal_body?: string | null
+          provider_request_id?: string | null
+          recipient_id: string
+          recipient_version: number
+          reply_expires_at?: string | null
+          reply_token?: string | null
+          retry_key: string
+          state?: string
+        }
+        Update: {
+          attempts?: number
+          body?: string
+          conversation_id?: string
+          conversation_revision?: number
+          created_at?: string
+          draft_id?: string | null
+          first_attempt_at?: string | null
+          id?: string
+          kind?: string
+          knowledge_revision?: string
+          last_attempt_at?: string | null
+          proposal_body?: string | null
+          provider_request_id?: string | null
+          recipient_id?: string
+          recipient_version?: number
+          reply_expires_at?: string | null
+          reply_token?: string | null
+          retry_key?: string
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "line_support_deliveries_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "line_support_conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "line_support_deliveries_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "line_support_drafts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      line_support_drafts: {
+        Row: {
+          body: string
+          conversation_id: string
+          conversation_revision: number
+          created_at: string
+          id: string
+          knowledge_revision: string
+          model_version: string
+        }
+        Insert: {
+          body: string
+          conversation_id: string
+          conversation_revision: number
+          created_at?: string
+          id: string
+          knowledge_revision: string
+          model_version: string
+        }
+        Update: {
+          body?: string
+          conversation_id?: string
+          conversation_revision?: number
+          created_at?: string
+          id?: string
+          knowledge_revision?: string
+          model_version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "line_support_drafts_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "line_support_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      line_support_events: {
+        Row: {
+          body: string
+          conversation_id: string
+          event_id: string
+          lease_id: string | null
+          lease_until: string | null
+          message_id: string | null
+          message_type: string
+          occurred_at: string
+          raw_message: Json
+          received_at: string
+          reply_expires_at: string | null
+          reply_fallback_reason: string | null
+          reply_token: string | null
+          revision: number
+          send_allowed_at_receipt: boolean
+          state: string
+          withdrawn: boolean
+        }
+        Insert: {
+          body: string
+          conversation_id: string
+          event_id: string
+          lease_id?: string | null
+          lease_until?: string | null
+          message_id?: string | null
+          message_type: string
+          occurred_at: string
+          raw_message?: Json
+          received_at?: string
+          reply_expires_at?: string | null
+          reply_fallback_reason?: string | null
+          reply_token?: string | null
+          revision: number
+          send_allowed_at_receipt?: boolean
+          state?: string
+          withdrawn?: boolean
+        }
+        Update: {
+          body?: string
+          conversation_id?: string
+          event_id?: string
+          lease_id?: string | null
+          lease_until?: string | null
+          message_id?: string | null
+          message_type?: string
+          occurred_at?: string
+          raw_message?: Json
+          received_at?: string
+          reply_expires_at?: string | null
+          reply_fallback_reason?: string | null
+          reply_token?: string | null
+          revision?: number
+          send_allowed_at_receipt?: boolean
+          state?: string
+          withdrawn?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "line_support_events_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "line_support_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      line_support_settings: {
+        Row: {
+          operator_id: string | null
+          pair_actor: string | null
+          pair_candidate: string | null
+          pair_expires_at: string | null
+          pair_hash: string | null
+          recipient_id: string | null
+          recipient_verified: boolean
+          recipient_version: number
+          rollout: string
+          singleton: boolean
+          updated_at: string
+        }
+        Insert: {
+          operator_id?: string | null
+          pair_actor?: string | null
+          pair_candidate?: string | null
+          pair_expires_at?: string | null
+          pair_hash?: string | null
+          recipient_id?: string | null
+          recipient_verified?: boolean
+          recipient_version?: number
+          rollout?: string
+          singleton?: boolean
+          updated_at?: string
+        }
+        Update: {
+          operator_id?: string | null
+          pair_actor?: string | null
+          pair_candidate?: string | null
+          pair_expires_at?: string | null
+          pair_hash?: string | null
+          recipient_id?: string | null
+          recipient_verified?: boolean
+          recipient_version?: number
+          rollout?: string
+          singleton?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "line_support_settings_operator_id_fkey"
+            columns: ["operator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "line_support_settings_pair_actor_fkey"
+            columns: ["pair_actor"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ab_test_events: {
         Row: {
           created_at: string
@@ -6692,6 +6963,73 @@ export type Database = {
       }
     }
     Functions: {
+      accept_line_support_event: {
+        Args: {
+          p_body: string
+          p_event_id: string
+          p_line_user_id: string
+          p_message_id: string
+          p_message_type: string
+          p_occurred_at: string
+          p_raw_message?: Json
+          p_reply_token?: string
+          p_requires_human?: boolean
+        }
+        Returns: Json
+      }
+      accept_line_support_events: { Args: { p_events: Json }; Returns: Json }
+      claim_line_support_delivery: {
+        Args: {
+          p_delivery_id: string
+          p_expected_reply?: string
+          p_knowledge_revision: string
+        }
+        Returns: Json
+      }
+      claim_line_support_event: {
+        Args: { p_event_id: string; p_lease_id: string }
+        Returns: Json
+      }
+      confirm_line_support_pair_candidate: {
+        Args: { p_hash: string; p_line_user_id: string }
+        Returns: boolean
+      }
+      finish_line_support_delivery: {
+        Args: { p_delivery_id: string; p_request_id: string; p_state: string }
+        Returns: boolean
+      }
+      line_support_delivery_context: {
+        Args: { p_delivery_id: string }
+        Returns: Json
+      }
+      line_support_history: {
+        Args: { p_conversation_id: string }
+        Returns: Json
+      }
+      line_support_job_status: { Args: { p_event_id: string }; Returns: Json }
+      line_support_work: { Args: { p_event_id?: string }; Returns: Json }
+      manage_line_support: {
+        Args: { p_action: string; p_actor_id: string; p_values?: Json }
+        Returns: Json
+      }
+      prepare_line_support_delivery: {
+        Args: {
+          p_body: string
+          p_delivery_id: string
+          p_event_id: string
+          p_kind: string
+          p_knowledge_revision: string
+          p_lease_id: string
+          p_model_version: string
+          p_proposal_text?: string
+          p_retry_key: string
+        }
+        Returns: Json
+      }
+      read_line_support: {
+        Args: { p_actor_id: string; p_conversation_id?: string }
+        Returns: Json
+      }
       valid_medical_specialties: {
         Args: { p_values: string[] }
         Returns: boolean
