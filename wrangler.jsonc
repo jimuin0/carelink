@@ -56,5 +56,6 @@
         "dead_letter_queue": "carelink-line-support-dead-letter"
       }
     ]
-  }
+  },
+  "keep_vars": true
 }
