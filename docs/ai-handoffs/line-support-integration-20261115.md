@@ -121,3 +121,11 @@ P2 review finding at `src/app/api/line/support-work/route.ts`: recovery of a pre
 ## MAIL-01: unrelated mailbox hydration regression exposed by final CI
 
 At head `702cb0ee4a5e55b6ff518513a3c667cba4daad0d`, CI run `43817248223` rejected one retry-only Mobile Safari pass in the existing operator-mail test. Snapshot: the Draft button had focus, but Inbox remained selected after reload. Initial SSR toolbar/folder controls were enabled before their React handlers existed. An SSR regression reproduced enabled controls / expected disabled. Reused the existing `useClientReady` guard for the initial New and Folder controls; no transport, permission or email-send logic changed. The existing E2E now deliberately delays JavaScript on reload, asserts disabled controls, then verifies normal draft recovery after hydration. Timeout/retries/assertion thresholds are unchanged. Required final-head CI must run again; the flaky run is not a release pass.
+
+### 2026-11-16 production connection diagnosis: EDGE-01
+- Operator login completed; authenticated connection check returned HTTP 200 with null.
+- Cloudflare production log at 17:10:54.473 JST records `Invalid redirect value`, rejecting fetch option `redirect: error` before LINE responds. Credential invalidity was not established; no token value was read, replaced or rotated.
+- Same unsupported option existed in connection, quota and delivery. Changed all three to `manual`, preserving no-follow behavior; non-success responses still fail closed / remain unknown for dispatch.
+- Added redirect regressions and an actual workerd runtime contract with synthetic outbound responses. Negative control reproduces rejection of the old option before any outbound request; successful provider metadata and redirect rejection both pass with the actual connection/quota modules.
+- Targeted Jest: 3 suites / 44 tests passed. Runtime contract: 2 tests passed. Full PR CI and production retest still pending at this entry.
+- Temporary diagnostic tracing is confirmed disabled again; existing Workers Logs remain enabled. Official webhook remains on legacy Render until connection and recipient verification pass.
