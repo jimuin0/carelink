@@ -25,13 +25,17 @@ export function lineSupportKnowledge(deployment: string | null) {
 }
 export type LineSupportKnowledge = ReturnType<typeof lineSupportKnowledge>;
 
+const pricingSubject='(?:料金|掲載料|掲載費用|掲載料金|けいさいひよう|けいさいりょう|予約手数料)';
+// Full-message grammar: greetings and spelling variants cannot admit a second request.
+const naturalPricingQuestion=new RegExp(`^(?:${pricingSubject}について(?:教えて|おしえて)(?:ほしい|ほし)ん?です(?:けど|が|けれど))?${pricingSubject}(?:(?:は|が|って)?(?:いくら(?:ですか|かかりますか)?|かかりますか|無料ですか)|(?:を|について)?(?:教えて|おしえて)ください)$`);
+
 export type PublicAnswer = { topic: string; text: string; knowledgeRevision: string };
 /** Deliberately narrow: an unrecognised or compound request is a draft, not a guess. */
 export function publicLineSupportAnswer(input: string, knowledge: LineSupportKnowledge): PublicAnswer | null {
   if (!knowledge.deployment || !/^[a-f0-9]{40}$/.test(knowledge.deployment)) return null;
-  const text = input.trim().replace(/[？?。！!\s]/g, '');
+  const text = input.normalize('NFKC').trim().replace(/[？?。！!、,\s]/g, '');
   const answer = (topic: string, body: string): PublicAnswer => ({ topic, text: body, knowledgeRevision: knowledge.revision });
-  if (['料金について', '掲載料', '予約手数料', '掲載料は無料ですか', '料金はかかりますか'].includes(text)) {
+  if (['料金について', '掲載料', '予約手数料', '掲載料は無料ですか', '料金はかかりますか'].includes(text)||naturalPricingQuestion.test(text)) {
     return answer('pricing', `${knowledge.facts.pricing}\n\nhttps://carelink-jp.com/terms`);
   }
   if (['掲載までの流れ', '登録方法', '登録方法を知りたい'].includes(text)) {
