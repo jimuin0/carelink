@@ -1,9 +1,11 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
+jest.mock('@/lib/line-support-connection',()=>({readLineSupportConnection:jest.fn()}));
 jest.mock('@/lib/line-support-readiness',()=>({lineSupportReadiness:jest.fn(()=>({configured:false,missing:['drafts']}))}));
 jest.mock('@/lib/with-route',()=>({withRoute:jest.fn(handler=>handler),authUnavailable:jest.fn(()=>new Response('{}',{status:503})),serverError:jest.fn(()=>new Response('{}',{status:500}))}));
 jest.mock('@/lib/line-support-store',()=>({lineSupportRpc:jest.fn(),supportOperationSchema:{}}));
 jest.mock('@/lib/line-support-processor',()=>({processLineSupportPending:jest.fn()}));
 jest.mock('@/lib/audit-logger',()=>({writeAuditLog:jest.fn()}));
+import { readLineSupportConnection } from '../line-support-connection';
 import { lineSupportReadiness } from '../line-support-readiness';
 import { GET,POST } from '@/app/api/admin/line-support/route';
 import { lineSupportRpc } from '@/lib/line-support-store';
@@ -46,3 +48,9 @@ test('configured runtime still delegates activation to fresh DB recipient/role a
 test('authenticated list exposes safe configuration categories without modifying settings',async()=>{
  rpc.mockResolvedValueOnce({settings:{rollout:'observe'},conversations:[]});const response=await callGet();expect((await response.json()).readiness).toEqual({configured:false,missing:['drafts']});expect(writeAuditLog).not.toHaveBeenCalled();
 });
+
+test('connection metadata requires a fresh operator and performs no storage mutations',async()=>{
+ (readLineSupportConnection as jest.Mock).mockResolvedValueOnce({basicId:'@549rbbyi'});expect(await (await callGet('?connection=line')).json()).toEqual({connection:{basicId:'@549rbbyi'}});expect(rpc).not.toHaveBeenCalled();
+ maybeSingle.mockResolvedValue({data:null,error:null});expect((await callGet('?connection=line')).status).toBe(403);expect(readLineSupportConnection).toHaveBeenCalledTimes(1);
+});
+test.each(['?connection=line&id='+id,'?connection=line&connection=line','?connection=other'])('connection check rejects ambiguous query %s',async query=>{expect((await callGet(query)).status).toBe(400);expect(readLineSupportConnection).not.toHaveBeenCalled();});

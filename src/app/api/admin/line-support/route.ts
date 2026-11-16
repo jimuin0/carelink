@@ -5,6 +5,7 @@ import { withRoute,authUnavailable,serverError,type RouteContext } from '@/lib/w
 import { lineSupportRpc,supportOperationSchema } from '@/lib/line-support-store';
 import { supportCommandSchema,supportStoredListSchema,supportStoredDetailSchema } from '@/lib/line-support-contract';
 import { lineSupportKnowledge } from '@/lib/line-support-knowledge';
+import { readLineSupportConnection } from '@/lib/line-support-connection';
 import { lineSupportReadiness } from '@/lib/line-support-readiness';
 import { processLineSupportPending } from '@/lib/line-support-processor';
 import { writeAuditLog } from '@/lib/audit-logger';
@@ -31,6 +32,10 @@ export const GET=withRoute(async(request,ctx)=>{
   try{
     const denied=await authorize(ctx);if(denied)return denied;
     const params=new URL(request.url).searchParams;
+    if(params.size===1&&params.get('connection')==='line'){
+      const connection=await readLineSupportConnection();
+      return json({connection});
+    }
     if([...params.keys()].some(key=>key!=='id')||params.getAll('id').length>1)return json({error:'一覧の条件を確認してください。'},400);
     const id=params.get('id');if(id&&!z.uuid().safeParse(id).success)return json({error:'相談を選び直してください。'},400);
     if(id)return json({...await lineSupportRpc('read_line_support',{p_actor_id:ctx.user!.id,p_conversation_id:id},supportStoredDetailSchema),currentKnowledgeRevision:lineSupportKnowledge(process.env.VERCEL_GIT_COMMIT_SHA??null).revision});
