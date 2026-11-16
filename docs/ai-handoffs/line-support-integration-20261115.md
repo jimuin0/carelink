@@ -111,3 +111,8 @@ Model lifecycle reference: https://platform.claude.com/docs/en/about-claude/mode
 ## Production cutover request (2026-11-16)
 
 The user explicitly requested switching the carelink official LINE, operating it, and testing it. Target remains `@549rbbyi`; legacy webhook remains the rollback target until acceptance. Added the reviewed durable queue/DLQ configuration to `wrangler.jsonc` and `CLAUDE_API_KEY` to the deployment secret-name inventory. This does not create a new plan or grant access. Queue setup is on the existing paid account; usage/allowance must be checked before creation. CI was currently available on main, so use real PR checks and the existing deployment pipeline. Do not describe the earlier predecessor E2E as final-head validation. Personal LINE recipient confirmation remains required before live activation.
+
+
+## RECV-01: post-dispatch recovery acknowledgement (2026-11-16)
+
+P2 review finding at `src/app/api/line/support-work/route.ts`: recovery of a prepared customer reply could acknowledge the queue after failed/unknown dispatch even though SQL reopened the event for operator fallback. Regression reproduced expected HTTP 503 / actual 200 for both outcomes. Fixed by rereading the durable receipt after every recovered dispatch, including accepted, failed and uncertain results; only an empty/terminal receipt can acknowledge completion. Applied the same reconciliation to manual recovery so it does not report reopened fallback work as processed. Tests preserve terminal acceptance and cover pending/processing work plus actual queue-adapter retry rather than ack. No database or provider contract changed. Previous green PR-head checks do not qualify the new commit; all required checks must finish on the updated head before merge.

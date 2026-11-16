@@ -26,3 +26,24 @@ test.each(['pending','processing'])('a delivery requeued as %s cannot be acknowl
  rpc.mockResolvedValueOnce({state:'done',rollout:'live',delivery_id:delivery}).mockResolvedValueOnce({state,rollout:'live',delivery_id:null});(dispatchLineSupportDelivery as jest.Mock).mockResolvedValueOnce('not_attempted');
  expect((await POST(request())).status).toBe(503);
 });
+
+test.each(['failed','unknown'])('recovered customer reply outcome %s preserves the queued operator fallback',async outcome=>{
+ rpc.mockResolvedValueOnce({state:'done',rollout:'live',delivery_id:delivery}).mockResolvedValueOnce({state:'pending',rollout:'live',delivery_id:null});
+ (dispatchLineSupportDelivery as jest.Mock).mockResolvedValueOnce(outcome);
+ expect((await POST(request())).status).toBe(503);
+ expect(rpc).toHaveBeenCalledTimes(2);
+});
+test.each(['accepted','failed','unknown'])('terminal delivery outcome %s is acknowledged when no durable work remains',async outcome=>{
+ rpc.mockResolvedValueOnce({state:'done',rollout:'live',delivery_id:delivery}).mockResolvedValueOnce({state:'done',rollout:'live',delivery_id:null});
+ (dispatchLineSupportDelivery as jest.Mock).mockResolvedValueOnce(outcome);
+ expect((await POST(request())).status).toBe(200);
+});
+
+test.each(['failed','unknown'])('real queue adapter retries the reopened fallback after recovered %s reply',async outcome=>{
+ const {consumeLineSupport}=await import('../../../tools/cloudflare/line-support-consumer');
+ rpc.mockResolvedValueOnce({state:'done',rollout:'live',delivery_id:delivery}).mockResolvedValueOnce({state:'pending',rollout:'live',delivery_id:null});
+ (dispatchLineSupportDelivery as jest.Mock).mockResolvedValueOnce(outcome);
+ const ack=jest.fn(),retry=jest.fn();
+ await consumeLineSupport({messages:[{body:{eventId:'event'},ack,retry}]},{CRON_SECRET:'synthetic-local-worker-credential'},null,request=>POST(request));
+ expect(ack).not.toHaveBeenCalled();expect(retry).toHaveBeenCalledWith({delaySeconds:120});
+});

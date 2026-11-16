@@ -23,12 +23,11 @@ export async function POST(request:Request){
     if(!status)return reply(false);
     if(status.state==='pending'||status.state==='processing')return reply(true);
     if(status.state==='done'&&status.rollout==='live'&&status.delivery_id){
-      const result=await dispatchLineSupportDelivery(status.delivery_id);
-      // Missing credentials or another active claim cannot be called completed.
-      if(result==='not_attempted'){
-        const current=await lineSupportRpc('line_support_job_status',{p_event_id:id},receipt);
-        return reply(Boolean(current&&(current.delivery_id||current.state==='pending'||current.state==='processing')));
-      }
+      await dispatchLineSupportDelivery(status.delivery_id);
+      // Delivery failure/uncertainty can reopen the event for operator fallback.
+      // The durable post-dispatch state, rather than the HTTP outcome, owns ack.
+      const current=await lineSupportRpc('line_support_job_status',{p_event_id:id},receipt);
+      return reply(Boolean(current&&(current.delivery_id||current.state==='pending'||current.state==='processing')));
     }
     return reply(false);
   }catch{return serverError('line-support-worker',new Error('Durable support job awaits recovery'),'/api/line/support-work');}

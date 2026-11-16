@@ -50,7 +50,7 @@ test('empty recovery performs no external operations',async()=>{rpc.mockResolved
 test('missing deployment cannot turn public text into an automatic reply',async()=>{delete process.env.VERCEL_GIT_COMMIT_SHA;rpc.mockResolvedValueOnce(lease).mockResolvedValueOnce([]).mockResolvedValueOnce({status:'recipient_unbound'});await processLineSupportEvent('event');expect(generateLineSupportDraft).toHaveBeenCalledWith([],expect.objectContaining({deployment:null}),convo);expect(rpc.mock.calls[2][1].p_kind).toBe('operator_draft');});
 test.each(['pending','processing'])('operator recovery does not count %s work as complete',async state=>{rpc.mockResolvedValueOnce([{event_id:'event'}]).mockResolvedValueOnce(null).mockResolvedValueOnce({state,rollout:'live',delivery_id:null});expect(await processLineSupportPending()).toEqual({processed:0,failed:1});});
 test.each([['live','accepted',0],['live','not_attempted',1],['observe','accepted',0]])('prepared outbox recovery respects rollout %s and outcome %s',async(rollout,outcome,failed)=>{
- rpc.mockResolvedValueOnce([{event_id:'event'}]).mockResolvedValueOnce(null).mockResolvedValueOnce({state:'done',rollout,delivery_id:delivery});(dispatchLineSupportDelivery as jest.Mock).mockResolvedValueOnce(outcome);
+ rpc.mockResolvedValueOnce([{event_id:'event'}]).mockResolvedValueOnce(null).mockResolvedValueOnce({state:'done',rollout,delivery_id:delivery}).mockResolvedValueOnce(failed?{state:'done',rollout,delivery_id:delivery}:null);(dispatchLineSupportDelivery as jest.Mock).mockResolvedValueOnce(outcome);
  expect(await processLineSupportPending()).toEqual({processed:failed?0:1,failed});expect(dispatchLineSupportDelivery).toHaveBeenCalledTimes(rollout==='live'?1:0);
 });
 test('a removed event is harmless during recovery',async()=>{rpc.mockResolvedValueOnce([{event_id:'event'}]).mockResolvedValueOnce(null).mockResolvedValueOnce(null);expect(await processLineSupportPending()).toEqual({processed:1,failed:0});});
@@ -73,4 +73,13 @@ test('expiry during preparation reuses the unsent operation for an operator prop
 test('attachments preserve history and create operator proposals without public text matching',async()=>{
  rpc.mockResolvedValueOnce({...lease,event:{...lease.event,message_type:'image',body:''},mode:'human'}).mockResolvedValueOnce([{revision:1,message_type:'image',body:''}]).mockResolvedValueOnce({status:'recipient_unbound'});
  await processLineSupportEvent('event');expect(generateLineSupportDraft).toHaveBeenCalled();expect(rpc.mock.calls[2][1]).toMatchObject({p_kind:'operator_draft'});expect(dispatchLineSupportDelivery).not.toHaveBeenCalled();
+});
+
+test.each(['failed','unknown'])('operator recovery reports fallback work reopened after %s',async outcome=>{
+ rpc.mockResolvedValueOnce([{event_id:'event'}]).mockResolvedValueOnce(null).mockResolvedValueOnce({state:'done',rollout:'live',delivery_id:delivery}).mockResolvedValueOnce({state:'pending',rollout:'live',delivery_id:null});
+ (dispatchLineSupportDelivery as jest.Mock).mockResolvedValueOnce(outcome);expect(await processLineSupportPending()).toEqual({processed:0,failed:1});
+});
+test.each(['processing','done'])('operator recovery reconciles post-dispatch durable state %s',async state=>{
+ rpc.mockResolvedValueOnce([{event_id:'event'}]).mockResolvedValueOnce(null).mockResolvedValueOnce({state:'done',rollout:'live',delivery_id:delivery}).mockResolvedValueOnce({state,rollout:'live',delivery_id:null});
+ (dispatchLineSupportDelivery as jest.Mock).mockResolvedValueOnce('accepted');expect(await processLineSupportPending()).toEqual(state==='done'?{processed:1,failed:0}:{processed:0,failed:1});
 });

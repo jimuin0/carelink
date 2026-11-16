@@ -57,7 +57,9 @@ export async function processLineSupportPending(): Promise<{processed:number;fai
     const job=await lineSupportRpc('line_support_job_status',{p_event_id:event.event_id},supportJobSchema);
     if(job?.state==='pending'||job?.state==='processing')throw new Error('Support work remains pending');
     if(job?.delivery_id&&job.rollout==='live'){
-      if(await dispatchLineSupportDelivery(job.delivery_id)==='not_attempted')throw new Error('Support delivery remains pending');
+      await dispatchLineSupportDelivery(job.delivery_id);
+      const current=await lineSupportRpc('line_support_job_status',{p_event_id:event.event_id},supportJobSchema);
+      if(current&&(current.delivery_id||current.state==='pending'||current.state==='processing'))throw new Error('Support delivery remains pending');
     }
   }));
   const failed = results.filter(result => result.status === 'rejected').length;
