@@ -64,3 +64,22 @@ test('the existing global AI allowance still applies after the per-conversation 
 test('a dedicated support key takes precedence over the common AI credential',async()=>{
  process.env.CLAUDE_API_KEY='synthetic-support-only';expect((await generateLineSupportDraft(history,facts,conversation)).state).toBe('ready');expect(Anthropic).toHaveBeenCalledWith(expect.objectContaining({apiKey:'synthetic-support-only'}));
 });
+
+test('requests provider-enforced JSON while retaining the local strict source and length validator',async()=>{
+ expect((await generateLineSupportDraft(history,facts,conversation)).state).toBe('ready');
+ const format=create.mock.calls[0][0].output_config.format;
+ expect(format.type).toBe('json_schema');expect(format.schema.additionalProperties).toBe(false);
+ expect(format.schema.required).toEqual(['text','missingInformation','sourceUrls']);
+ // This installed SDK moves unsupported constraints into descriptions; the local parser remains authoritative.
+ for(const url of facts.facts.sources)expect(JSON.stringify(format.schema)).toContain(url);
+ expect(format.parse(JSON.stringify({text:'案',missingInformation:[],sourceUrls:[]}))).toEqual({text:'案',missingInformation:[],sourceUrls:[]});
+ expect(()=>format.parse(JSON.stringify({text:'案',missingInformation:[],sourceUrls:['https://evil.invalid']}))).toThrow();
+});
+test.each([
+ ['incomplete_response',{stop_reason:'max_tokens',content:[]}],
+ ['invalid_json',{stop_reason:'end_turn',content:[{type:'text',text:'private malformed response'}]}],
+ ['invalid_schema',{stop_reason:'end_turn',content:[{type:'text',text:'{"text":"案","missingInformation":[],"sourceUrls":["https://evil.invalid"]}'}]}],
+] as const)('only a fixed failure code is logged for %s',async(reason,response)=>{
+ const spy=jest.spyOn(console,'warn').mockImplementation();create.mockResolvedValue(response);
+ try{expect((await generateLineSupportDraft(history,facts,conversation)).state).toBe('unavailable');expect(spy).toHaveBeenCalledWith('[line-support-draft]',reason);expect(JSON.stringify(spy.mock.calls)).not.toContain('private');expect(JSON.stringify(spy.mock.calls)).not.toContain('evil.invalid');}finally{spy.mockRestore();}
+});
