@@ -13,6 +13,7 @@ import { todayJst, addDays } from '@/lib/admin-date';
 import { sendDailySummaryEmail } from '@/lib/email';
 import { fetchAllPaged } from '@/lib/paginate';
 import { selectInChunks } from '@/lib/select-in-chunks';
+import { reportInquiryBacklog } from '@/lib/inquiry-backlog';
 
 export const dynamic = 'force-dynamic';
 // 1クエリの集合集計なので低い既定上限でも足りるが、念のため明示。
@@ -196,7 +197,17 @@ export async function GET(request: Request) {
     // 個別スキップという概念がないため常に0が正しい。メール送信側のスキップ件数
     // （オーナー不在・メールアドレス未設定）は emailsSkipped として別途可視化する
     // （従来はここが常に無音でカウントされておらず、観測不能だった）。
-    await logCronRun('daily-summary', 'success', startedAt, { processed: count, skipped: 0, meta: { date: dateStr, emailsSent, emailsSkipped } });
+    // 運営宛お問い合わせの対応漏れ（未返信・返信後も未完了）を毎日 Slack に出す（src/lib/inquiry-backlog.ts）。
+    // 売上集計とは独立した確認なので、失敗しても集計・メールの結果は捨てず、run の meta に残して可視化する。
+    let inquiryBacklog: { unreplied: number; repliedOpen: number } | 'failed';
+    try {
+      inquiryBacklog = await reportInquiryBacklog(supabase);
+    } catch (e) {
+      console.error('[daily-summary] inquiry backlog check failed', e);
+      inquiryBacklog = 'failed';
+    }
+
+    await logCronRun('daily-summary', inquiryBacklog === 'failed' ? 'error' : 'success', startedAt, { processed: count, skipped: 0, meta: { date: dateStr, emailsSent, emailsSkipped, inquiryBacklog } });
     // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
     alertDeliveryFailures('daily-summary', deliveryFailures, { emailsSent });
     return NextResponse.json({ processed: count, skipped: 0, date: dateStr, emailsSent, emailsSkipped });
