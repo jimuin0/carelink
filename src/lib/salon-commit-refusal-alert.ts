@@ -22,7 +22,7 @@ function isAlerted(state: string): state is AlertedRefusal {
 export function alertSalonCommitRefusal(state: string, fieldErrors?: Record<string, unknown> | null): void {
   if (!isAlerted(state)) return;
   const fields = fieldErrors ? Object.keys(fieldErrors).sort() : [];
-  alertWarning(`掲載申込の確定が受け付けられませんでした（${state}）。申込は保存されていません`, {
+  alertWarning(`掲載申込の送信が受け付けられませんでした（${state}）。この送信は保存していません（以前の申込が保存済みの場合はあります）`, {
     category: '完了未確認',
     route: '/api/salons/commit',
     status: state === 'conflict' || state === 'photo_unverified' ? 409 : state === 'expired' ? 410 : state === 'unverified' ? 403 : 400,
