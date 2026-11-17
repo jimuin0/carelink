@@ -7625,6 +7625,7 @@ export type Database = {
         Returns: { id: string; replayed: boolean }[]
       }
       published_special_hours: { Args: { p_facility_id: string }; Returns: Json | null }
+      booking_owner_notification_emails: { Args: { p_facility_id: string }; Returns: { user_id: string; email: string | null }[] }
       booking_intervals_conflict: { Args: { p_start: string; p_end: string; p_other_start: string; p_other_end: string; p_buffer_minutes: number }; Returns: boolean }
       booking_staff_works_interval: { Args: { p_staff_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string }; Returns: boolean }
       booking_staff_interval_conflict: { Args: { p_facility_id: string; p_staff_id: string; p_date: string; p_start: string; p_end_date: string; p_end: string; p_buffer_minutes: number; p_exclude_booking_id: string }; Returns: boolean }

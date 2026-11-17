@@ -15,6 +15,8 @@ INSERT INTO auth.users(id, email, email_confirmed_at) VALUES
  ('ba500000-0000-4000-8000-000000000001', 'assignment-customer@example.invalid', now()),
  ('ba500000-0000-4000-8000-000000000002', 'assignment-owner@example.invalid', now());
 UPDATE public.profiles SET email = NULL WHERE id = 'ba500000-0000-4000-8000-000000000002';
+-- オーナー宛てメール 0 件の計画を前提にするため、ログイン用メールへの代替（20261115100000）も効かないよう未確認にする。
+UPDATE auth.users SET email_confirmed_at = NULL WHERE id = 'ba500000-0000-4000-8000-000000000002';
 INSERT INTO public.facility_profiles(id, name, slug, business_type, prefecture, city, address, status)
  VALUES ('ba510000-0000-4000-8000-000000000001', 'Assignment clinic', 'assignment-synthetic', 'その他', '検証県', '検証市', '検証住所', 'draft');
 INSERT INTO public.facility_members(user_id, facility_id, role)
