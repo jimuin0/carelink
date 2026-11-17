@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom';
 import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import MailConsole from '../MailConsole';
+import { renderToString } from 'react-dom/server';
 import { PLATFORM_MAIL_FROM } from '@/lib/platform-mail-contract';
 jest.mock('@/components/Modal', () => ({ __esModule: true, default: ({ open, title, children, footer }: { open: boolean; title: string; children: React.ReactNode; footer: React.ReactNode }) => open ? <section role="dialog" aria-label={title}><h2>{title}</h2>{children}{footer}</section> : null }));
 const id = '11111111-1111-4111-8111-111111111111';
@@ -278,4 +279,9 @@ test('a confirmed status without a selected mail does not open a message', async
   mockSync.mockResolvedValueOnce(response({ checked: 1, unconfirmed: 0, remaining: false, nextCursor: null,
     observations: [{ id, revision: 2, state: 'sent', delivery_status: 'delivered', updated_at: at }] }));
   await ready(); expect(screen.getByRole('region', { name: 'メールの内容' })).toBeEmptyDOMElement(); expect(commands).toHaveLength(0);
+});
+
+test('server-rendered mailbox controls stay disabled until React handlers are ready',()=>{
+ const container=document.createElement('div');container.innerHTML=renderToString(<MailConsole/>);
+ for(const button of within(container).getAllByRole('button'))expect(button).toBeDisabled();
 });

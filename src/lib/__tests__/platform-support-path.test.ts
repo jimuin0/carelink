@@ -1,5 +1,12 @@
 import { isPlatformSupportPath } from '../platform-support-path';
 
+test.each(['/admin/line-support','/admin/line-support/','/admin/line-support/case'])(
+  'LINE support stays within the platform admin route: %s',path=>expect(isPlatformSupportPath(path)).toBe(true),
+);
+test.each(['/admin/line-support-evil','/api/admin/line-support'])(
+  'LINE support path does not grant neighbouring routes: %s',path=>expect(isPlatformSupportPath(path)).toBe(false),
+);
+
 test.each(['/admin/email-setup','/admin/line-richmenu','/admin/feature-flags','/admin/ab-tests','/admin/platform-blog','/admin/platform-blog/new','/admin/features','/admin/features/entry','/admin/newsletters', '/admin/newsletters/archive', '/admin/moderation', '/admin/moderation/pending', '/admin/inquiries', '/admin/mail', '/admin/mail/compose', '/admin/inquiries/', '/admin/inquiries/receipt', '/admin/registrations', '/admin/registrations/receipt'])(
   'support path is explicitly scoped: %s', path => expect(isPlatformSupportPath(path)).toBe(true),
 );

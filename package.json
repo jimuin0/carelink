@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/generate-line-support-pricing.mjs",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint src e2e",
@@ -26,9 +27,10 @@
     "prepare": "husky",
     "test:contract": "jest --config=jest.config.contract.js",
     "prelint": "node scripts/ensure-eslint-plugin-link.mjs",
-    "pretest": "node scripts/ensure-eslint-plugin-link.mjs",
-    "postinstall": "node scripts/ensure-eslint-plugin-link.mjs",
+    "pretest": "node scripts/ensure-eslint-plugin-link.mjs && node scripts/generate-line-support-pricing.mjs",
+    "postinstall": "node scripts/ensure-eslint-plugin-link.mjs && node scripts/generate-line-support-pricing.mjs",
     "lint:debt": "node scripts/check-react-compiler-debt.mjs",
+    "prebuild:vinext": "node scripts/generate-line-support-pricing.mjs",
     "build:vinext": "node tools/cloudflare/build-local.mjs",
     "start:vinext": "vite preview --host 127.0.0.1",
     "deploy:cloudflare": "node tools/cloudflare/deploy-production.mjs"

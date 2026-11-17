@@ -323,6 +323,12 @@ jobs:
       - name: Booking LINE notifications require current provider proof (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-line-notification-fixtures.sql
 
+      - name: LINE support durable inbox, manual fence and operator notification (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/line-support-inbox-outbox-fixtures.sql
+
+      - name: LINE support replay, leases and revoked recipient contention (disposable DB)
+        run: node scripts/check-line-support-concurrency.mjs
+
       - name: Verified LINE ownership observed contention (disposable DB)
         run: node scripts/check-line-ownership-concurrency.mjs
 

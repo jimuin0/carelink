@@ -20,6 +20,10 @@ test('production Worker keeps only non-secret platform values in plain vars', ()
   assert.deepEqual(config.vars, { VERCEL_ENV: 'production', CARELINK_EDGE: 'cloudflare' });
 });
 
+test('production deploy preserves dashboard-managed support settings', () => {
+  assert.equal(config.keep_vars, true, 'do not erase the configured model, destination or receiver switch');
+});
+
 test('production Worker exposes no workers.dev or preview URL besides the custom domain', () => {
   assert.equal(config.workers_dev, false);
   assert.equal(config.preview_urls, false);
