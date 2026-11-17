@@ -6,6 +6,8 @@ import PushPermissionBanner from '@/components/push/PushPermissionBanner';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { INTAKE_CUSTOMER_ENABLED } from '@/lib/intake-config';
 import Button from '@/components/ui/Button';
+import GoogleCalendarAutoSync from '@/components/booking/GoogleCalendarAutoSync';
+import { UUID_REGEX } from '@/lib/constants';
 
 // 施設に有効な問診テンプレがあるか（slug 経由）。予約完了時に問診バナーを出すか判定する。
 // 旧実装は has_intake クエリのみに依存していたが、予約送信元(BookingFlow)が has_intake を
@@ -165,6 +167,8 @@ export default async function BookingCompletePage(props: Props) {
             {current?.message ?? '受付状況を取得できません。予約番号で店舗へ確認してください。'}
           </p>
           <div className="space-y-3">
+            {/* Google カレンダー連携済みの方だけ自動で登録する（本人決定・2026年11月18日） */}
+            {canAddCalendar && bookingId && UUID_REGEX.test(bookingId) && <GoogleCalendarAutoSync bookingId={bookingId} />}
             {/* 問診票バナー */}
             {hasIntakeForm && (
               <Link
