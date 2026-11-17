@@ -330,7 +330,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
               }}
               className="flex-1 py-2.5 text-center rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
-              {syncing ? '同期中...' : '📅 カレンダーに同期'}
+              {syncing ? '同期中...' : 'カレンダーに同期'}
             </button>
           ) : (
             <a
@@ -346,7 +346,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
               rel="noopener noreferrer"
               className="flex-1 py-2.5 text-center rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
             >
-              📅 Googleカレンダーに追加
+              Googleカレンダーに追加
             </a>
           )}
           <a
@@ -354,7 +354,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
             download={`carelink-booking-${booking.id.slice(0, 8)}.ics`}
             className="flex-1 py-2.5 text-center rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
           >
-            📥 iCalダウンロード
+            その他のカレンダー用ファイル（.ics）を保存
           </a>
           </div>
         </div>

@@ -179,7 +179,7 @@ export default async function BookingCompletePage(props: Props) {
             </Button>
             {canAddCalendar && icsDataUri && (
               <Button href={icsDataUri} download="carelink-booking.ics" variant="secondary" fullWidth>
-                カレンダーに追加（.ics）
+                カレンダー用ファイル（.ics）を保存
               </Button>
             )}
             <Link href="/mypage/bookings" className="block text-sm text-primary hover:underline">
