@@ -8,7 +8,7 @@ function fixture(pages: Record<string, { data: unknown; error: unknown }[]>) {
   const queries: Record<string, jest.Mock>[] = [];
   const db = { from: jest.fn((table: string) => {
     const query: Record<string, jest.Mock> = {};
-    for (const key of ['select', 'in', 'order', 'limit', 'gt', 'is', 'ilike', 'gte']) query[key] = jest.fn(() => query);
+    for (const key of ['select', 'in', 'order', 'limit', 'gt', 'is', 'ilike', 'or']) query[key] = jest.fn(() => query);
     query.abortSignal = jest.fn(async () => (pages[table] ?? (table === 'contacts' ? [{ count: 1, error: null }] : [])).shift() ?? { count: 1, error: null });
     queries.push(query); return query;
   }) };
@@ -54,13 +54,13 @@ describe('問い合わせに紐づけずに同じ宛先へ送ったメールも�
     const extra = queries.find(query => query.is.mock.calls.length > 0)!;
     expect(extra.is).toHaveBeenCalledWith('contact_id', null);
     expect(extra.ilike).toHaveBeenCalledWith('recipient', 'synthetic\\_user@example.invalid');
-    expect(extra.gte).toHaveBeenCalledWith('created_at', contactAt);
+    expect(extra.or).toHaveBeenCalledWith(`accepted_at.gte.${contactAt},and(accepted_at.is.null,created_at.gte.${contactAt})`);
     expect(extra.limit).toHaveBeenCalledWith(100);
   });
   test('受付日時が無ければ日付で絞らない', async () => {
     const { db, queries } = fixture({ platform_mail: [{ data: [], error: null }, { data: [], error: null }], contact_replies: [{ data: [], error: null }] });
     await readMailThread(db, id, 'a@example.invalid', null);
-    expect(queries.find(query => query.is.mock.calls.length > 0)!.gte).not.toHaveBeenCalled();
+    expect(queries.find(query => query.is.mock.calls.length > 0)!.or).not.toHaveBeenCalled();
     await readMailThread(fixture({ platform_mail: [{ data: [], error: null }, { data: [], error: null }], contact_replies: [{ data: [], error: null }] }).db, id, 'a@example.invalid');
   });
   test.each([undefined, null, '', '   '])('宛先が無ければ読み足さない: %p', async email => {

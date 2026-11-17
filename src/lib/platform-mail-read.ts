@@ -62,7 +62,9 @@ async function readUnlinkedToRecipient(db: DB, recipient: string, since: string 
   if (siblings.error) throw new Error('MAIL_HISTORY_UNAVAILABLE');
   if (siblings.count !== 1) return [];
   let query = db.from('platform_mail').select('*').is('contact_id', null).ilike('recipient', pattern);
-  if (since !== null) query = query.gte('created_at', since);
+  // 下書きは受付より前に作って後で送ることがある（created_at は送信しても変わらない）。
+  // 送信受付済みは accepted_at、未受付は created_at で受付以降かを判断する（MailConsole の時刻表示と同じ）。
+  if (since !== null) query = query.or(`accepted_at.gte.${since},and(accepted_at.is.null,created_at.gte.${since})`);
   const result = await query.order('created_at', { ascending: true }).limit(100).abortSignal(signal);
   if (result.error) throw new Error('MAIL_HISTORY_UNAVAILABLE');
   return z.array(platformMailRecordSchema).max(100).parse(result.data);
