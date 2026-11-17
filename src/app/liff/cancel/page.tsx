@@ -199,7 +199,7 @@ function CancelContent() {
             <p className="text-sm font-bold text-gray-900">{booking.facility_profiles?.name ?? '施設'}</p>
             <p className="text-sm text-gray-600 mt-1">{booking.menu_name ?? '施術'}</p>
             <div className="flex items-center gap-3 mt-3 text-sm text-gray-500">
-              <span>📅 {booking.booking_date}</span>
+              <span>{booking.booking_date}</span>
               <span>🕐 {booking.start_time?.slice(0, 5)}</span>
             </div>
           </div>

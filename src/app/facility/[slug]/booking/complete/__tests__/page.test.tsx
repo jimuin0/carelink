@@ -20,17 +20,17 @@ it.each([
  mockStatus.mockResolvedValue({data:{status}});render(await BookingCompletePage(props));
  expect(screen.getByRole('heading',{name:title as string})).toBeVisible();expect(screen.getByText(message as string,{exact:false})).toBeVisible();
  expect(screen.getByText(/メール通知は予約の受付とは別に処理/)).toBeVisible();
- expect(screen.queryByRole('link',{name:'カレンダーに追加（.ics）'})!==null).toBe(active);
+ expect(screen.queryByRole('link',{name:'カレンダー用ファイル（.ics）を保存'})!==null).toBe(active);
 });
 it.each([null,{status:'unknown'}])('unknown booking state %# is visibly unconfirmed, no calendar promise',async data=>{
- mockStatus.mockResolvedValue({data});render(await BookingCompletePage(props));expect(screen.getByRole('heading',{name:'予約の受付状況を確認しています'})).toBeVisible();expect(screen.queryByRole('link',{name:'カレンダーに追加（.ics）'})).toBeNull();
+ mockStatus.mockResolvedValue({data});render(await BookingCompletePage(props));expect(screen.getByRole('heading',{name:'予約の受付状況を確認しています'})).toBeVisible();expect(screen.queryByRole('link',{name:'カレンダー用ファイル（.ics）を保存'})).toBeNull();
 });
 it('dependency rejection cannot show the booking as confirmed',async()=>{mockStatus.mockRejectedValue(new Error('synthetic'));render(await BookingCompletePage(props));expect(screen.getByText(/予約番号で店舗へ確認/)).toBeVisible();});
 
 it('calendar download moves 24:00 to midnight of the next year', async () => {
  mockStatus.mockResolvedValue({data:{status:'confirmed'}});
  render(await BookingCompletePage({...props,searchParams:Promise.resolve({id:'beaf0000-0000-4000-8000-000000000001',date:'2030-12-31',time:'23:00',end_time:'24:00',facility:'Synthetic'})}));
- const href=screen.getByRole('link',{name:'カレンダーに追加（.ics）'}).getAttribute('href')!;
+ const href=screen.getByRole('link',{name:'カレンダー用ファイル（.ics）を保存'}).getAttribute('href')!;
  const ics=decodeURIComponent(href.slice(href.indexOf(',')+1));
  expect(ics).toContain('DTSTART;TZID=Asia/Tokyo:20301231T230000');
  expect(ics).toContain('DTEND;TZID=Asia/Tokyo:20310101T000000');
@@ -40,7 +40,7 @@ it('calendar download moves 24:00 to midnight of the next year', async () => {
 it('calendar download preserves an explicit next-day end', async () => {
  mockStatus.mockResolvedValue({data:{status:'confirmed'}});
  render(await BookingCompletePage({...props,searchParams:Promise.resolve({id:'beaf0000-0000-4000-8000-000000000001',date:'2030-12-31',time:'23:30',end_time:'00:30',end_date:'2031-01-01',facility:'Synthetic'})}));
- const href=screen.getByRole('link',{name:'カレンダーに追加（.ics）'}).getAttribute('href')!;
+ const href=screen.getByRole('link',{name:'カレンダー用ファイル（.ics）を保存'}).getAttribute('href')!;
  const ics=decodeURIComponent(href.slice(href.indexOf(',')+1));
  expect(ics).toContain('DTSTART;TZID=Asia/Tokyo:20301231T233000');
  expect(ics).toContain('DTEND;TZID=Asia/Tokyo:20310101T003000');
@@ -49,7 +49,7 @@ it('calendar download preserves an explicit next-day end', async () => {
 it('an impossible completion date cannot throw while normalizing a midnight end', async () => {
  mockStatus.mockResolvedValue({data:{status:'confirmed'}});
  render(await BookingCompletePage({...props,searchParams:Promise.resolve({id:'beaf0000-0000-4000-8000-000000000001',date:'2030-99-99',time:'23:00',end_time:'24:00',facility:'Synthetic'})}));
- expect(screen.queryByRole('link',{name:'カレンダーに追加（.ics）'})).toBeNull();
+ expect(screen.queryByRole('link',{name:'カレンダー用ファイル（.ics）を保存'})).toBeNull();
 });
 
 // 監査 B8-M2: id が配列で届いても .slice() で落ちず、先頭の値で表示する。
