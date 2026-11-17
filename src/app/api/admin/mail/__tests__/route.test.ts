@@ -93,7 +93,8 @@ test('keyset pagination uses an observed timestamp and UUID, not offset', async 
 });
 test('single mail read rechecks current privilege atomically', async () => { expect((await read('?id=' + id)).status).toBe(200); expect(mockRpc.mock.calls[0][1]).toMatchObject({ p_actor_id: id, p_mail_id: id, p_action: 'read' }); });
 test.each([{ error: { code: 'P0002' }, expected: 404 }, { error: null, expected: 500 }])('invalid single result is never reported as saved: %j', async scenario => { mockQueue = [{ data: null, error: scenario.error }]; expect((await read('?id=' + id)).status).toBe(scenario.expected); });
-test('contact deep-link resolves the exact selected stored inquiry', async () => { const result = await read('?contactId=' + other); expect((await result.json()).contact.id).toBe(other); });
+test('contact deep-link resolves the exact selected stored inquiry', async () => { const result = await read('?contactId=' + other); const body = await result.json(); expect(body.contact.id).toBe(other);
+  expect(mockThread).toHaveBeenCalledWith(expect.anything(), other, body.contact.email, body.contact.created_at); });
 test.each([{ data: null, error: null, status: 404 }, { data: {}, error: null, status: 500 }, { data: null, error: {}, status: 500 }])('contact read failure is explicit: %j', async scenario => { mockContact = scenario; expect((await read('?contactId=' + other)).status).toBe(scenario.status); });
 test.each([null, {}, { action: 'save', draft: { ...draft, from: 'other@example.invalid' } }, { action: 'send', id, revision: 0 }, { action: 'cancel', id, extra: true }])('rejects invalid or additional sender fields: %j', async command => { expect((await call(command)).status).toBe(400); expect(mockDispatch).not.toHaveBeenCalled(); });
 test('invalid JSON is a client error', async () => { expect((await POST(new Request('https://example.invalid', { method: 'POST', body: '{' }))).status).toBe(400); });

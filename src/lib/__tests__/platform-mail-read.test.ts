@@ -8,8 +8,8 @@ function fixture(pages: Record<string, { data: unknown; error: unknown }[]>) {
   const queries: Record<string, jest.Mock>[] = [];
   const db = { from: jest.fn((table: string) => {
     const query: Record<string, jest.Mock> = {};
-    for (const key of ['select', 'in', 'order', 'limit', 'gt']) query[key] = jest.fn(() => query);
-    query.abortSignal = jest.fn(async () => pages[table].shift());
+    for (const key of ['select', 'in', 'order', 'limit', 'gt', 'is', 'ilike', 'or']) query[key] = jest.fn(() => query);
+    query.abortSignal = jest.fn(async () => (pages[table] ?? (table === 'contacts' ? [{ count: 1, error: null }] : [])).shift() ?? { count: 1, error: null });
     queries.push(query); return query;
   }) };
   return { db: db as never, queries, from: db.from };
@@ -42,4 +42,51 @@ test.each(['platform_mail', 'contact_replies'])('dependency errors do not become
 test.each([null, [{}], Array.from({ length: 501 }, () => evidence)])('malformed/oversized result is an error: %j', async data => {
   const { db } = fixture({ platform_mail: [{ data, error: null }], contact_replies: [{ data: [], error: null }] });
   await expect(readMailReplyEvidence(db, [id])).rejects.toThrow();
+});
+
+describe('問い合わせに紐づけずに同じ宛先へ送ったメールも履歴に出す', () => {
+  const contactAt = '2026-10-23T00:00:00Z';
+  const unlinked = { ...mail, id: '22222222-2222-4222-8222-222222222222', contact_id: null, recipient: 'Synthetic_User@example.invalid', state: 'sent' };
+  test('受付以降・紐づけ無し・宛先一致（大文字小文字無視、_ はエスケープ）を読み足し、紐づけは書き換えない', async () => {
+    const { db, queries } = fixture({ platform_mail: [{ data: [mail], error: null }, { data: [unlinked], error: null }], contact_replies: [{ data: [], error: null }] });
+    const result = await readMailThread(db, id, ' Synthetic_User@Example.invalid ', contactAt);
+    expect(result.messages).toEqual([mail, unlinked]);
+    const extra = queries.find(query => query.is.mock.calls.length > 0)!;
+    expect(extra.is).toHaveBeenCalledWith('contact_id', null);
+    expect(extra.ilike).toHaveBeenCalledWith('recipient', 'synthetic\\_user@example.invalid');
+    expect(extra.or).toHaveBeenCalledWith(`accepted_at.gte.${contactAt},and(accepted_at.is.null,created_at.gte.${contactAt})`);
+    expect(extra.limit).toHaveBeenCalledWith(100);
+  });
+  test('受付日時が無ければ日付で絞らない', async () => {
+    const { db, queries } = fixture({ platform_mail: [{ data: [], error: null }, { data: [], error: null }], contact_replies: [{ data: [], error: null }] });
+    await readMailThread(db, id, 'a@example.invalid', null);
+    expect(queries.find(query => query.is.mock.calls.length > 0)!.or).not.toHaveBeenCalled();
+    await readMailThread(fixture({ platform_mail: [{ data: [], error: null }, { data: [], error: null }], contact_replies: [{ data: [], error: null }] }).db, id, 'a@example.invalid');
+  });
+  test.each([undefined, null, '', '   '])('宛先が無ければ読み足さない: %p', async email => {
+    const { db, from } = fixture({ platform_mail: [{ data: [], error: null }], contact_replies: [{ data: [], error: null }] });
+    await readMailThread(db, id, email);
+    expect(from).toHaveBeenCalledTimes(2);
+  });
+  test.each(['a*b@example.invalid', 'a%b@example.invalid'])('全一致記号を含む宛先は別人を混ぜないよう読み足さない: %s', async email => {
+    const { db, from } = fixture({ platform_mail: [{ data: [], error: null }], contact_replies: [{ data: [], error: null }] });
+    expect((await readMailThread(db, id, email)).messages).toEqual([]);
+    expect(from).toHaveBeenCalledTimes(2);
+  });
+  test.each([0, 2, null])('同じ宛先の問い合わせが1件でなければ（%p件）別件を混ぜないよう読み足さない', async count => {
+    const { db, queries } = fixture({ platform_mail: [{ data: [], error: null }], contact_replies: [{ data: [], error: null }], contacts: [{ count, error: null }] } as never);
+    expect((await readMailThread(db, id, 'a_b@example.invalid')).messages).toEqual([]);
+    const contacts = queries.find(query => query.ilike.mock.calls[0]?.[0] === 'email')!;
+    expect(contacts.ilike).toHaveBeenCalledWith('email', 'a\\_b@example.invalid');
+    expect(contacts.select).toHaveBeenCalledWith('id', { count: 'exact', head: true });
+    expect(queries.some(query => query.is.mock.calls.length > 0)).toBe(false);
+  });
+  test('同じ宛先の問い合わせ件数を読めなければ失敗にする', async () => {
+    const { db } = fixture({ platform_mail: [{ data: [], error: null }], contact_replies: [{ data: [], error: null }], contacts: [{ count: null, error: { message: 'private' } }] } as never);
+    await expect(readMailThread(db, id, 'a@example.invalid')).rejects.toThrow('MAIL_HISTORY_UNAVAILABLE');
+  });
+  test('読み足しの失敗は空の履歴にせず失敗にする', async () => {
+    const { db } = fixture({ platform_mail: [{ data: [], error: null }, { data: null, error: { message: 'private' } }], contact_replies: [{ data: [], error: null }] });
+    await expect(readMailThread(db, id, 'a@example.invalid')).rejects.toThrow('MAIL_HISTORY_UNAVAILABLE');
+  });
 });
