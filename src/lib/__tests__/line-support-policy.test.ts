@@ -43,7 +43,7 @@ describe('LINE support shared facts and dispatch policy', () => {
   test('LINE pricing is courteous plain text and follows updated public fees without asserting an old free price', () => {
     const answer = publicLineSupportAnswer('掲載費用はいくらですか？', knowledge)!.text;
     expect(answer).toContain('お問い合わせありがとうございます。');
-    expect(answer).toContain('掲載料・予約手数料は無料でご利用いただけます。');
+    expect(answer).toContain('掲載料・予約手数料は、いずれも無料となっております。');
     expect(answer).toContain('事前にお知らせいたします。');
     expect(answer).toContain('https://carelink-jp.com/terms');
     expect(answer).not.toMatch(/ケアリンク|\*\*/);
