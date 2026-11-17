@@ -40,6 +40,18 @@ describe('LINE support shared facts and dispatch policy', () => {
   test('fee questions use the public terms rather than the old all-features-free claim', () => {
     expect(publicLineSupportAnswer('料金について', knowledge)?.text).toContain('将来有料プラン');
   });
+  test('LINE pricing is courteous plain text and follows updated public fees without asserting an old free price', () => {
+    const answer = publicLineSupportAnswer('掲載費用はいくらですか？', knowledge)!.text;
+    expect(answer).toContain('お問い合わせありがとうございます。');
+    expect(answer).toContain('掲載料・予約手数料は無料でご利用いただけます。');
+    expect(answer).toContain('事前にお知らせいたします。');
+    expect(answer).toContain('https://carelink-jp.com/terms');
+    expect(answer).not.toMatch(/ケアリンク|\*\*/);
+    const changed = {...knowledge,facts:{...knowledge.facts,pricing:'掲載料・予約手数料は新しい条件をご確認ください。'}};
+    const updated = publicLineSupportAnswer('掲載費用はいくらですか？', changed)!.text;
+    expect(updated).toContain(changed.facts.pricing);
+    expect(updated).not.toContain('無料');
+  });
   test.each(['image','file','audio','video','sticker','location'] as const)('preserves nontext input for manual handling: %s', type => {
     expect(decideLineSupport({type,source:'user',text:''},'automatic',knowledge)).toEqual({action:'draft',reason:'attachment'});
   });
