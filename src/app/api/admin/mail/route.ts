@@ -62,7 +62,7 @@ async function list(request: Request, ctx: RouteContext) {
       if (!result.data) return json({ error: 'お問い合わせが見つかりません。' }, 404);
       const contact = platformMailContactSchema.safeParse(result.data);
       if (!contact.success) return serverError('platform-mail-contact', new Error('MAIL_CONTACT_RECEIPT_INVALID'), path);
-      const history = await readMailThread(db, contact.data.id);
+      const history = await readMailThread(db, contact.data.id, contact.data.email, contact.data.created_at);
       return json({ contact: contact.data, ...history });
     }
     if (params.has('id')) {
