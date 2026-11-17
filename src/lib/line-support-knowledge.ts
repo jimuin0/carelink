@@ -36,7 +36,9 @@ export function publicLineSupportAnswer(input: string, knowledge: LineSupportKno
   const text = input.normalize('NFKC').trim().replace(/[？?。！!、,\s]/g, '');
   const answer = (topic: string, body: string): PublicAnswer => ({ topic, text: body, knowledgeRevision: knowledge.revision });
   if (['料金について', '掲載料', '予約手数料', '掲載料は無料ですか', '料金はかかりますか'].includes(text)||naturalPricingQuestion.test(text)) {
-    return answer('pricing', `${knowledge.facts.pricing}\n\nhttps://carelink-jp.com/terms`);
+    // Preserve the current published facts; only soften sentence endings for LINE.
+    const pricing = knowledge.facts.pricing.replace(/無料です。/g, '無料となっております。').replace(/通知します。/g, 'お知らせいたします。');
+    return answer('pricing', `お問い合わせありがとうございます。\nCareLinkの掲載費用についてご案内いたします。\n\n${pricing}\n\n詳しくは、こちらの利用規約をご確認ください。\nhttps://carelink-jp.com/terms\n\nご不明な点がございましたら、お気軽にお問い合わせください。`);
   }
   if (['掲載までの流れ', '登録方法', '登録方法を知りたい'].includes(text)) {
     return answer('registration', `${knowledge.facts.registrationScope}\n\n${knowledge.facts.registration.map((step, i) => `${i + 1}. ${step}`).join('\n')}\n\nhttps://carelink-jp.com/register/guide`);

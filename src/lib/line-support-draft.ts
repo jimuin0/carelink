@@ -49,6 +49,8 @@ export async function generateLineSupportDraft(history: SupportHistory, knowledg
         '書類の提出は標準の登録手順です。個別の提出猶予や承認状況は公開情報だけでは判定できないため、必須・免除を断定せず運営の確認点に含めてください。',
         '不明な内容は推測せずmissingInformationに記載。既に回答されたことは聞き直さず、必要な質問は最小限にしてください。',
         'textは顧客に送れる自然な文章、missingInformationは運営向けの確認点、sourceUrlsは根拠の公式URLです。',
+        'textは丁寧で親しみやすいです・ます調にし、最初の相談には「お問い合わせありがとうございます。」など状況に合った挨拶を添えてください。継続中の会話で挨拶を繰り返さず、利用実績が不明な相手へ「いつもご利用ありがとうございます」とは書かないでください。',
+        'サービス名はCareLinkと表記し、(ケアリンク)や（ケアリンク）の読み仮名は付けないでください。LINEにそのまま貼れるプレーンテキストを使い、**などのMarkdown装飾は使わないでください。過度な敬語や重複した説明を避け、質問への回答を簡潔に伝えてください。',
         'JSONオブジェクトのみで返してください。形式: {"text":"返信案","missingInformation":["確認点"],"sourceUrls":["公式URL"]}',
         JSON.stringify(knowledge.facts),
       ].join('\n'),
@@ -59,7 +61,11 @@ export async function generateLineSupportDraft(history: SupportHistory, knowledg
     failure='invalid_json';
     const draft = lineSupportDraftSchema.safeParse(JSON.parse(text));
     if (!draft.success) return unavailable('invalid_schema');
-    return { state: 'ready' as const, draft: draft.data, model };
+    // Enforce the requested LINE copy style even if the model ignores the prompt.
+    const plainDraft = lineSupportDraftSchema.safeParse({ ...draft.data, text: draft.data.text
+      .replace(/CareLink\s*[（(]ケアリンク[）)]/g, 'CareLink').replace(/\*\*/g, '').trim() });
+    if (!plainDraft.success) return unavailable('invalid_schema');
+    return { state: 'ready' as const, draft: plainDraft.data, model };
   } catch {
     // Do not log provider errors: they can contain customer input or credentials.
     return unavailable(failure);

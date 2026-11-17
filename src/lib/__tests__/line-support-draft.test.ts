@@ -19,6 +19,17 @@ test('generates a validated draft with bounded history and no tools or customer-
  expect(create.mock.calls[0][0]).toMatchObject({model:'synthetic-model',max_tokens:1200});
  expect(create.mock.calls[0][0].system).toContain('顧客には送信されません');
 });
+test('drafts use the requested CareLink plain text style even when the model adds pronunciation and emphasis',async()=>{
+ create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:'CareLink(ケアリンク)／CareLink（ケアリンク）の**掲載料**についてご案内いたします。',missingInformation:[],sourceUrls:[]})}]});
+ const result=await generateLineSupportDraft(history,facts,conversation);
+ expect(result).toMatchObject({state:'ready',draft:{text:'CareLink／CareLinkの掲載料についてご案内いたします。'}});
+ expect(create.mock.calls[0][0].system).toContain('利用実績が不明な相手');
+ expect(create.mock.calls[0][0].system).toContain('丁寧で親しみやすい');
+});
+test('a draft containing only decoration is rejected after plain text formatting',async()=>{
+ create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:' ** ** ',missingInformation:[],sourceUrls:[]})}]});
+ expect((await generateLineSupportDraft(history,facts,conversation)).state).toBe('unavailable');
+});
 test('existing provider aliases are supported without switching providers',async()=>{
  delete process.env.ANTHROPIC_API_KEY;delete process.env.LINE_SUPPORT_CLAUDE_MODEL;
  process.env.CLAUDE_API_KEY='synthetic-alias';process.env.CLAUDE_MODEL='alias-model';
