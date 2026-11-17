@@ -9,7 +9,7 @@ function fixture(pages: Record<string, { data: unknown; error: unknown }[]>) {
   const db = { from: jest.fn((table: string) => {
     const query: Record<string, jest.Mock> = {};
     for (const key of ['select', 'in', 'order', 'limit', 'gt', 'is', 'ilike', 'gte']) query[key] = jest.fn(() => query);
-    query.abortSignal = jest.fn(async () => pages[table].shift());
+    query.abortSignal = jest.fn(async () => (pages[table] ?? (table === 'contacts' ? [{ count: 1, error: null }] : [])).shift() ?? { count: 1, error: null });
     queries.push(query); return query;
   }) };
   return { db: db as never, queries, from: db.from };
@@ -51,7 +51,7 @@ describe('問い合わせに紐づけずに同じ宛先へ送ったメールも�
     const { db, queries } = fixture({ platform_mail: [{ data: [mail], error: null }, { data: [unlinked], error: null }], contact_replies: [{ data: [], error: null }] });
     const result = await readMailThread(db, id, ' Synthetic_User@Example.invalid ', contactAt);
     expect(result.messages).toEqual([mail, unlinked]);
-    const extra = queries[2];
+    const extra = queries.find(query => query.is.mock.calls.length > 0)!;
     expect(extra.is).toHaveBeenCalledWith('contact_id', null);
     expect(extra.ilike).toHaveBeenCalledWith('recipient', 'synthetic\\_user@example.invalid');
     expect(extra.gte).toHaveBeenCalledWith('created_at', contactAt);
@@ -60,7 +60,7 @@ describe('問い合わせに紐づけずに同じ宛先へ送ったメールも�
   test('受付日時が無ければ日付で絞らない', async () => {
     const { db, queries } = fixture({ platform_mail: [{ data: [], error: null }, { data: [], error: null }], contact_replies: [{ data: [], error: null }] });
     await readMailThread(db, id, 'a@example.invalid', null);
-    expect(queries[2].gte).not.toHaveBeenCalled();
+    expect(queries.find(query => query.is.mock.calls.length > 0)!.gte).not.toHaveBeenCalled();
     await readMailThread(fixture({ platform_mail: [{ data: [], error: null }, { data: [], error: null }], contact_replies: [{ data: [], error: null }] }).db, id, 'a@example.invalid');
   });
   test.each([undefined, null, '', '   '])('宛先が無ければ読み足さない: %p', async email => {
@@ -72,6 +72,18 @@ describe('問い合わせに紐づけずに同じ宛先へ送ったメールも�
     const { db, from } = fixture({ platform_mail: [{ data: [], error: null }], contact_replies: [{ data: [], error: null }] });
     expect((await readMailThread(db, id, email)).messages).toEqual([]);
     expect(from).toHaveBeenCalledTimes(2);
+  });
+  test.each([0, 2, null])('同じ宛先の問い合わせが1件でなければ（%p件）別件を混ぜないよう読み足さない', async count => {
+    const { db, queries } = fixture({ platform_mail: [{ data: [], error: null }], contact_replies: [{ data: [], error: null }], contacts: [{ count, error: null }] } as never);
+    expect((await readMailThread(db, id, 'a_b@example.invalid')).messages).toEqual([]);
+    const contacts = queries.find(query => query.ilike.mock.calls[0]?.[0] === 'email')!;
+    expect(contacts.ilike).toHaveBeenCalledWith('email', 'a\\_b@example.invalid');
+    expect(contacts.select).toHaveBeenCalledWith('id', { count: 'exact', head: true });
+    expect(queries.some(query => query.is.mock.calls.length > 0)).toBe(false);
+  });
+  test('同じ宛先の問い合わせ件数を読めなければ失敗にする', async () => {
+    const { db } = fixture({ platform_mail: [{ data: [], error: null }], contact_replies: [{ data: [], error: null }], contacts: [{ count: null, error: { message: 'private' } }] } as never);
+    await expect(readMailThread(db, id, 'a@example.invalid')).rejects.toThrow('MAIL_HISTORY_UNAVAILABLE');
   });
   test('読み足しの失敗は空の履歴にせず失敗にする', async () => {
     const { db } = fixture({ platform_mail: [{ data: [], error: null }, { data: null, error: { message: 'private' } }], contact_replies: [{ data: [], error: null }] });

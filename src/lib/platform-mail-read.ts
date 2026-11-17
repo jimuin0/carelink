@@ -39,6 +39,8 @@ export async function readMailReplyEvidence(db: DB, ids: string[]) {
  * 2026年10月、運営メール画面の「新規作成」で問い合わせ者へ送った続報が contact_id を持たず、
  * 問い合わせの履歴に出なかった（何を送ったかが元の問い合わせから追えない）。
  * 宛先の一致だけで紐づけ先を書き換えることはせず、表示用に読み足すだけにする。
+ * 同じ宛先の問い合わせが複数あるときは、どの件のメールか決められないので読み足さない
+ * （別件のメールを混ぜるほうが、出ないより誤解を招くため）。
  */
 export async function readMailThread(db: DB, id: string, email?: string | null, since?: string | null) {
   const signal = AbortSignal.timeout(8000);
@@ -56,6 +58,9 @@ async function readUnlinkedToRecipient(db: DB, recipient: string, since: string 
   // PostgREST の全一致記号（* と %）を含む宛先は読み足さない（別人のメールを混ぜないため）。
   if (/[*%]/.test(recipient)) return [];
   const pattern = recipient.replace(/[\\_]/g, (char) => `\\${char}`);
+  const siblings = await db.from('contacts').select('id', { count: 'exact', head: true }).ilike('email', pattern).abortSignal(signal);
+  if (siblings.error) throw new Error('MAIL_HISTORY_UNAVAILABLE');
+  if (siblings.count !== 1) return [];
   let query = db.from('platform_mail').select('*').is('contact_id', null).ilike('recipient', pattern);
   if (since !== null) query = query.gte('created_at', since);
   const result = await query.order('created_at', { ascending: true }).limit(100).abortSignal(signal);
