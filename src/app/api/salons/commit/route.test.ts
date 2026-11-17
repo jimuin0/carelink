@@ -8,6 +8,7 @@ jest.mock('@/lib/salon-submission-commit', () => ({
 jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
 jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 jest.mock('@/lib/salon-submission-intent', () => ({ readSalonIntentStatus: jest.fn() }));
+jest.mock('@/lib/salon-commit-refusal-alert', () => ({ alertSalonCommitRefusal: jest.fn() }));
 import { NextResponse } from 'next/server';
 import { POST } from './route';
 import { checkCsrf } from '@/lib/csrf';
@@ -15,6 +16,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { commitSalonSubmission } from '@/lib/salon-submission-commit';
 import { readSalonIntentStatus } from '@/lib/salon-submission-intent';
+import { alertSalonCommitRefusal } from '@/lib/salon-commit-refusal-alert';
 import { salonIntentCookieName } from '@/lib/salon-submission-proof';
 import { businessTypes } from '@/lib/constants';
 import { SALON_PR_TEXT_PROHIBITED_MESSAGE } from '@/lib/salon-field-errors';
@@ -142,4 +144,28 @@ test.each([{state:'conflict'},{state:'unknown'},{state:'replay',receiptId:intent
 test.each([{consent:null},{...input,consent:null}])('invalid declaration with no selected proof performs no receipt lookup %#',async body=>{
  expect((await POST(request(body,''))).status).toBe(400);
  expect(readSalonIntentStatus).not.toHaveBeenCalled();expect(commitSalonSubmission).not.toHaveBeenCalled();
+});
+
+describe('受け付けなかった申込を運営に知らせる（値は渡さない）', () => {
+  test('入力の不一致は欄名だけを渡す', async () => {
+    const res = await POST(request({ ...input, registration: { ...input.registration, email: 'not-an-email' } }));
+    expect(res.status).toBe(400);
+    expect(alertSalonCommitRefusal).toHaveBeenCalledWith('invalid', expect.objectContaining({ email: expect.any(String) }));
+    expect(JSON.stringify((alertSalonCommitRefusal as jest.Mock).mock.calls)).not.toContain('not-an-email');
+  });
+  test('同意の欠落・申込の証明の欠落も知らせる', async () => {
+    await POST(request({ ...input, consent: null }));
+    expect(alertSalonCommitRefusal).toHaveBeenCalledWith('consent_required');
+    (alertSalonCommitRefusal as jest.Mock).mockClear();
+    await POST(request(input, ''));
+    expect(alertSalonCommitRefusal).toHaveBeenCalledWith('unverified');
+  });
+  test('確定処理の結果はそのまま渡し、欄の誤りがあれば一緒に渡す', async () => {
+    (commitSalonSubmission as jest.Mock).mockResolvedValue({ state: 'expired' });
+    await POST(request());
+    expect(alertSalonCommitRefusal).toHaveBeenLastCalledWith('expired', null);
+    (commitSalonSubmission as jest.Mock).mockResolvedValue({ state: 'invalid', fieldErrors: { pr_text: 'x' } });
+    await POST(request());
+    expect(alertSalonCommitRefusal).toHaveBeenLastCalledWith('invalid', { pr_text: 'x' });
+  });
 });
