@@ -14,7 +14,7 @@ import {
   CHANGE_WINDOW_CLOSED_MESSAGE, hasBookingStarted, hoursUntilBookingStart, isPastFreeCancelWindow, type CancelPolicy,
 } from '@/lib/cancel-fee';
 import ShopContactNotice from '@/components/booking/ShopContactNotice';
-import { bookingStaffLabel, isNominatedBooking } from '@/lib/booking-nomination';
+import { customerStaffLabel, isNominatedBooking } from '@/lib/booking-nomination';
 import { needsSlotReselection, rescheduleDurationMinutes } from '@/lib/booking-slot-rules';
 import { bookingInterval } from '@/lib/booking-interval';
 
@@ -283,7 +283,7 @@ export default function BookingChangePage() {
         <div className="text-sm space-y-1 text-gray-600">
           <p>施設: <span className="font-medium text-gray-900">{booking.facility_name}</span></p>
           <p>メニュー: <span className="font-medium">{booking.menu_name || '-'}</span></p>
-          <p>スタッフ: <span className="font-medium">{bookingStaffLabel(booking.staff_name, booking.staff_auto_assigned)}</span></p>
+          <p>スタッフ: <span className="font-medium">{customerStaffLabel(booking.staff_name, booking.staff_auto_assigned)}</span></p>
           <p>現在の日時: <span className="font-medium">{booking.booking_date} {booking.start_time.slice(0, 5)}</span></p>
         </div>
       </div>

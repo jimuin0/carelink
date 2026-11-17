@@ -298,7 +298,8 @@ describe('指名なしで割り当てられた予約（staff_auto_assigned）', 
     mockSupabase({ booking: { staff_id: 's1', staff_auto_assigned: true }, staff: STAFF, menuStaff: MENU_STAFF });
     mockFetch(slotsFor((staffId) => (staffId === 's2' ? [{ slot_start: '13:00:00', slot_end: '14:00:00' }] : [])));
     render(<BookingChangePage />);
-    expect(await screen.findByText('指名なし（担当: スタッフ）')).toBeInTheDocument();
+    expect(await screen.findByText('指名なし')).toBeInTheDocument();
+    expect(screen.queryByText(/担当: スタッフ/)).not.toBeInTheDocument();
     await pickTomorrow();
     expect(await within(slotPicker()).findByText('13:00')).toBeInTheDocument();
     expect(requestedStaffIds(fetchMock.mock.calls)).toEqual(['s1', 's2']);

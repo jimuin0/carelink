@@ -31,3 +31,12 @@ export function bookingStaffLabel(staffName: string | null | undefined, autoAssi
   if (!staffName) return '指名なし';
   return autoAssigned === true ? `指名なし（担当: ${staffName}）` : staffName;
 }
+
+/**
+ * お客様向けの担当欄の表示。指名なし（おまかせ）で割り当てた担当者の名前は出さず「指名なし」とだけ出す
+ * （本人決定・2026年11月18日）。店舗の画面は割り当てを見分ける必要があるので bookingStaffLabel を使う。
+ */
+export function customerStaffLabel(staffName: string | null | undefined, autoAssigned: boolean | null | undefined): string {
+  if (!staffName || autoAssigned === true) return '指名なし';
+  return staffName;
+}

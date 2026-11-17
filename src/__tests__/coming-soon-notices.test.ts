@@ -32,7 +32,9 @@ describe('近日公開の表示（Issue #408 / #409）', () => {
     // 「店舗でお支払いください」と出すのは誤案内なので、必ず条件付きで描く。
     // （キャンセルボタンの条件 canCancel は開始時刻も見るようになったので、支払いの案内はステータスだけで決める。）
     expect(source).toContain('const isOpenBooking = canCustomerCancelBooking(booking.status);');
-    expect(source).toContain('{isOpenBooking && <p className="text-xs text-gray-500">{ONLINE_PREPAYMENT_NOTICE}</p>}');
+    // 見た目の class は変わり得るので見ない。「isOpenBooking のときだけ出す」条件だけを固定する。
+    expect(source).toMatch(/isOpenBooking && <p className="[^"]*">\{ONLINE_PREPAYMENT_NOTICE\}<\/p>/);
+    expect(source.match(/\{ONLINE_PREPAYMENT_NOTICE\}/g)).toHaveLength(1);
   });
 
   it('Issue #408: 決済導線そのものは出さない（決定どおり）', () => {

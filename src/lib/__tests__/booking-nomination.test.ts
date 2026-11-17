@@ -1,4 +1,4 @@
-import { bookingStaffLabel, isNominatedBooking, rebookSearchParams } from '../booking-nomination';
+import { bookingStaffLabel, customerStaffLabel, isNominatedBooking, rebookSearchParams } from '../booking-nomination';
 
 // おまかせ（指名なし）の予約も予約 RPC が担当者を割り当てて staff_id に保存する（2026年10月22日）。
 // staff_id があるだけで「指名」と扱うと、再予約に指名料がかかり、店舗画面で指名とフリーが見分けられない。
@@ -46,5 +46,17 @@ describe('bookingStaffLabel', () => {
     ['佐藤', undefined, '佐藤'],
   ])('%s / %s → %s', (name, autoAssigned, expected) => {
     expect(bookingStaffLabel(name, autoAssigned)).toBe(expected);
+  });
+});
+
+describe('customerStaffLabel（お客様向け）', () => {
+  it('指名なしで割り当てた担当者の名前は出さない', () => {
+    expect(customerStaffLabel('担当A', true)).toBe('指名なし');
+  });
+  it('担当者が無ければ指名なし', () => {
+    expect(customerStaffLabel(null, false)).toBe('指名なし');
+  });
+  it('指名した予約は担当者名を出す', () => {
+    expect(customerStaffLabel('担当A', false)).toBe('担当A');
   });
 });

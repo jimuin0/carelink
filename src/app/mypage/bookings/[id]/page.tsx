@@ -12,7 +12,7 @@ import { statusChipClass, bookingStatusLabel, canCustomerCancelBooking, canCusto
 import { ONLINE_PREPAYMENT_NOTICE } from '@/lib/coming-soon';
 import { beginStaffOperation, finishStaffOperation } from '@/lib/staff-operation';
 import { UUID_REGEX } from '@/lib/constants';
-import { bookingStaffLabel, rebookSearchParams } from '@/lib/booking-nomination';
+import { customerStaffLabel, rebookSearchParams } from '@/lib/booking-nomination';
 import {
   isOnlineCancelAllowed, isPastFreeCancelWindow, hasBookingStarted, hoursUntilBookingStart, describeCancelFeeEstimate,
   describeConfirmedCancelFee, ONLINE_CANCEL_DISABLED_MESSAGE, BOOKING_STARTED_CONTACT_MESSAGE, CHANGE_WINDOW_CLOSED_MESSAGE,
@@ -27,6 +27,25 @@ import ShopContactNotice from '@/components/booking/ShopContactNotice';
  */
 function readClockMs(): number {
   return Date.now();
+}
+
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+/** 「2026-11-23」を「2026年11月23日（月）」にする。暦日の計算だけなので時差の影響は受けない。 */
+function formatBookingDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  if (!y || !m || !d) return isoDate;
+  const weekday = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${y}年${m}月${d}日（${weekday}）`;
+}
+
+/** カード内の1行（左に項目名・右に値）。 */
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-3 border-b border-gray-100 last:border-b-0">
+      <dt className="text-sm text-gray-500 shrink-0">{label}</dt>
+      <dd className="text-sm font-medium text-gray-900 text-right break-words">{children}</dd>
+    </div>
+  );
 }
 
 export default function BookingDetailPage(props: { params: Promise<{ id: string }> }) {
@@ -236,68 +255,65 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   return (
     <div>
       <h1 className="text-xl font-bold mb-4">予約詳細</h1>
-      <div className="bg-white rounded-2xl shadow-xs p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-500">ステータス</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${statusChipClass(booking.status)}`}>
-            {bookingStatusLabel(booking.status)}
-          </span>
-        </div>
-        {facility?.name && (
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">店舗</span>
-            <span className="font-medium">{facility.name}</span>
-          </div>
-        )}
-        {menuName && (
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">メニュー</span>
-            <span className="font-medium">{menuName}</span>
-          </div>
-        )}
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-500">担当</span>
-          <span className="font-medium">{bookingStaffLabel(staffName, booking.staff_auto_assigned)}</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-500">日付</span>
-          <span className="font-medium">{booking.booking_date}</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-500">時間</span>
-          <span className="font-medium">{booking.start_time?.slice(0, 5)}〜{booking.end_date && booking.end_date !== booking.booking_date ? '翌' : ''}{booking.end_time?.slice(0, 5)}</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-500">お名前</span>
-          <span className="font-medium">{booking.customer_name}</span>
-        </div>
-        {booking.total_price !== null && (
-          <>
-            <div className="flex justify-between text-sm border-t pt-3">
-              <span className="text-gray-500">合計</span>
-              <span className="font-bold text-lg">¥{booking.total_price.toLocaleString()}</span>
+      {/* 予約の要点（店舗・日時・状態）をいちばん上のカードにまとめる */}
+      <section className="bg-white rounded-2xl shadow-xs overflow-hidden">
+        <div className="px-5 pt-5 pb-4 border-b border-gray-100">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs text-gray-500">店舗</p>
+              <p className="text-base font-bold text-gray-900 break-words">{facility?.name ?? '店舗名を取得できませんでした'}</p>
             </div>
-            {/* Issue #408: オンライン前払いは API まで整備済みだが導線を出さないと決めた機能。
-                決済導線そのものは見せず、支払い方法の現状だけを伝える。
-                🔴 これから支払いが発生する予約に限る。isOpenBooking が偽＝キャンセル済み・来店済み・
-                無断キャンセルのいずれかで、そこへ「店舗でお支払いください」と出すのは誤案内。 */}
-            {isOpenBooking && <p className="text-xs text-gray-500">{ONLINE_PREPAYMENT_NOTICE}</p>}
-          </>
-        )}
+            <span className={`shrink-0 text-xs px-2.5 py-1 rounded-full font-bold ${statusChipClass(booking.status)}`} aria-label={`ステータス：${bookingStatusLabel(booking.status)}`}>
+              {bookingStatusLabel(booking.status)}
+            </span>
+          </div>
+        </div>
+        <div className="px-5 py-4 bg-sky-50/60">
+          <p className="text-xs text-gray-500">日時</p>
+          <p className="text-lg font-bold text-gray-900">{formatBookingDate(booking.booking_date)}</p>
+          <p className="text-2xl font-bold text-sky-800 tabular-nums">
+            {booking.start_time?.slice(0, 5)}〜{booking.end_date && booking.end_date !== booking.booking_date ? '翌' : ''}{booking.end_time?.slice(0, 5)}
+          </p>
+        </div>
+      </section>
+
+      {/* 予約内容 */}
+      <section className="mt-4 bg-white rounded-2xl shadow-xs px-5 py-2" aria-labelledby="booking-content-heading">
+        <h2 id="booking-content-heading" className="pt-3 text-sm font-bold text-gray-900">予約内容</h2>
+        <dl>
+          {menuName && <DetailRow label="メニュー">{menuName}</DetailRow>}
+          <DetailRow label="担当">{customerStaffLabel(staffName, booking.staff_auto_assigned)}</DetailRow>
+          {booking.total_price !== null && (
+            <DetailRow label="合計"><span className="text-lg font-bold">¥{booking.total_price.toLocaleString()}</span></DetailRow>
+          )}
+        </dl>
+        {/* Issue #408: オンライン前払いは API まで整備済みだが導線を出さないと決めた機能。
+            決済導線そのものは見せず、支払い方法の現状だけを伝える。
+            🔴 これから支払いが発生する予約に限る。isOpenBooking が偽＝キャンセル済み・来店済み・
+            無断キャンセルのいずれかで、そこへ「店舗でお支払いください」と出すのは誤案内。 */}
+        {booking.total_price !== null && isOpenBooking && <p className="pb-3 text-xs text-gray-500">{ONLINE_PREPAYMENT_NOTICE}</p>}
+      </section>
+
+      {/* お客様情報 */}
+      <section className="mt-4 bg-white rounded-2xl shadow-xs px-5 py-2" aria-labelledby="booking-customer-heading">
+        <h2 id="booking-customer-heading" className="pt-3 text-sm font-bold text-gray-900">お客様情報</h2>
+        <dl>
+          <DetailRow label="お名前">{booking.customer_name}</DetailRow>
+        </dl>
         {booking.note && (
-          <div className="border-t pt-3">
-            <span className="text-sm text-gray-500">備考</span>
-            <p className="text-sm mt-1">{booking.note}</p>
+          <div className="py-3 border-t border-gray-100">
+            <p className="text-sm text-gray-500">備考</p>
+            <p className="text-sm mt-1 text-gray-900 whitespace-pre-wrap break-words">{booking.note}</p>
           </div>
         )}
-      </div>
-      {/* カレンダー追加 */}
-      {booking && booking.booking_date && booking.start_time && (
+      </section>
+
+      {/* カレンダー追加（Google カレンダーだけ。.ics ファイルの保存は本人決定で外した・2026年11月18日） */}
+      {booking.booking_date && booking.start_time && (
         <div className="mt-4">
           {gcalError && (
             <p role="alert" className="text-red-600 text-xs mb-2">カレンダー連携状態を取得できませんでした。時間をおいて再度お試しください。</p>
           )}
-          <div className="flex gap-2">
           {gcalConnected ? (
             <button
               type="button"
@@ -328,9 +344,9 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
                   setSyncing(false);
                 }
               }}
-              className="flex-1 py-2.5 text-center rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+              className="w-full py-3 text-center rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
-              {syncing ? '同期中...' : 'カレンダーに同期'}
+              {syncing ? '同期中...' : 'Googleカレンダーに同期'}
             </button>
           ) : (
             <a
@@ -344,19 +360,11 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
               })()}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex-1 py-2.5 text-center rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              className="block w-full py-3 text-center rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
             >
               Googleカレンダーに追加
             </a>
           )}
-          <a
-            href={`/api/booking/${booking.id}/ical`}
-            download={`carelink-booking-${booking.id.slice(0, 8)}.ics`}
-            className="flex-1 py-2.5 text-center rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            その他のカレンダー用ファイル（.ics）を保存
-          </a>
-          </div>
         </div>
       )}
       {/* 監査F5: オンライン事前決済は未実装（決済導線がフロントに存在しない）。

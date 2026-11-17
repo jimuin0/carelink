@@ -225,7 +225,8 @@ test('指名なしで割り当てられた予約の再予約 → 担当者を指
   const { fireEvent } = await import('@testing-library/react');
   fireEvent.click(await screen.findByRole('button', { name: 'この店舗をもう一度予約する' }));
   expect(mockPush).toHaveBeenCalledWith('/facility/test-salon/booking?menu_id=m1');
-  expect(screen.getByText('指名なし（担当: 担当A）')).toBeInTheDocument();
+  expect(screen.getByText('指名なし')).toBeInTheDocument();
+  expect(screen.queryByText(/担当A/)).not.toBeInTheDocument();
 });
 
 test('指名した予約の再予約 → 同じスタッフを引き継ぐ（従来どおり）', async () => {
