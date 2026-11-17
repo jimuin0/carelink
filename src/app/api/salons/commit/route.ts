@@ -8,6 +8,7 @@ import { salonFieldErrors } from '@/lib/salon-field-errors';
 import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED } from '@/lib/registration-consent';
 import { z } from 'zod';
 import { readSalonIntentStatus } from '@/lib/salon-submission-intent';
+import { alertSalonCommitRefusal } from '@/lib/salon-commit-refusal-alert';
 
 export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'no-store' };
@@ -35,15 +36,20 @@ export const POST = withRoute(async request => {
       }
       // Do not call this a known unsubmitted application: another attempt may
       // be in flight. Old/new clients retain their attempted/unknown fence.
+      alertSalonCommitRefusal('consent_required');
       return NextResponse.json({ state: 'consent_required', error: REGISTRATION_CONSENT_REQUIRED }, { status: 400, headers });
     }
     const fieldErrors = salonFieldErrors(parsed.error.issues
       .filter(issue => issue.path[0] === 'registration').map(issue => ({ path: issue.path.slice(1) })));
+    alertSalonCommitRefusal('invalid', fieldErrors);
     return NextResponse.json({ state: 'invalid', fieldErrors }, { status: 400, headers });
   }
   const name = salonIntentCookieName(parsed.data.intentId)!;
   const proof = new NextRequest(request.url, { headers: request.headers }).cookies.get(name)?.value;
-  if (!isSalonIntentProof(proof)) return NextResponse.json({ state: 'unverified' }, { status: 403, headers });
+  if (!isSalonIntentProof(proof)) {
+    alertSalonCommitRefusal('unverified');
+    return NextResponse.json({ state: 'unverified' }, { status: 403, headers });
+  }
   // PR文の医療広告の検査は commitSalonSubmission の中で、まだ受け付けていない申込にだけ行う
   // （受付済み申込の再送の照合を、後から増えた禁止語で 400 にしないため）。拒否は fieldErrors.pr_text で返る。
   const result = await commitSalonSubmission(createServiceRoleClient(), parsed.data, proof);
@@ -51,5 +57,7 @@ export const POST = withRoute(async request => {
     unavailable: 503, photo_unverified: 409, unknown: 202, consent_required: 400, committed: 201, replay: 200 }[result.state];
   // Keep the same HttpOnly capability for response-loss reconciliation. Do not
   // create an unbound legacy claim cookie from a public receipt identifier.
+  // 断った申込は保存されない。運営が気づけるよう、理由の種類と欄名だけ知らせる（値は出さない）。
+  alertSalonCommitRefusal(result.state, 'fieldErrors' in result ? result.fieldErrors : null);
   return NextResponse.json(result, { status, headers });
 }, { csrf: true, rateLimit: { limiter: mutationRateLimit, limit: 10, windowMs: 60_000, prefix: 'salon-commit' }, sentryTag: 'salon-commit' });

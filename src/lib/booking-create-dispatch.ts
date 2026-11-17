@@ -17,7 +17,11 @@ export async function dispatchBookingCreationNotifications(operationId: string):
     if (!UUID_REGEX.test(operationId)) throw new Error('invalid booking operation');
     const db = createServiceRoleClient();
     const { data: jobs, error } = await db.from('webhook_retry_queue').select('*')
-      .eq('payload->>booking_create_operation', operationId).eq('status','pending').lte('scheduled_at', new Date().toISOString());
+      .eq('payload->>booking_create_operation', operationId).eq('status','pending');
+    // 予定時刻の判定は claim_webhook_retry_queue_v2 が DB の時刻（clock_timestamp）で行う。ここで new Date() と比べると、
+    // Cloudflare Workers では時刻がリクエスト開始時点からほとんど進まないため、同じリクエスト内で DB が付けた
+    // scheduled_at が「未来」になり、受付直後の送信が1件も取り出されず、15分後の cron まで遅れていた。
+    // その間に店舗が承認すると予約内容（状態）が変わり、新規予約の通知が全部送られずに終わった（2026年11月17日 本番受入で発見）。
     if (error || !jobs) throw new Error('booking notification lookup unconfirmed');
     await Promise.all(jobs.map(async job => {
       const epoch = new Date().toISOString(); let attempted = false; let rejected = false;

@@ -62,3 +62,9 @@ describe('permanent Push / LINE WORKS refusals are finished once, not held as �
     expect((await dispatchBookingCreationNotifications(operation)).uncertain).toBe(1);expect(scheduleRetry).not.toHaveBeenCalled();expect(closeWrites).toEqual([]);
   });
 });
+it('受付直後の取り出しはアプリの時刻で予定時刻を絞らない（判定は claim が DB の時刻で行う・Workers の止まった時計で取りこぼさない）',async()=>{
+  await dispatchBookingCreationNotifications(operation);
+  const lookupChain=mockFrom.mock.results[0].value as Record<string,jest.Mock>;
+  expect(lookupChain.lte).not.toHaveBeenCalled();
+  expect(mockClaimGateway).toHaveBeenCalledWith('claim_webhook_retry_queue_v2',expect.objectContaining({p_job_ids:[id]}));
+});
