@@ -1,6 +1,7 @@
 import { businessTypes } from '../constants';
 import { businessTypeLabel } from '../business-type-label';
 import { REGISTRATION_STEPS } from '../registration-flow';
+import { listingEvidenceOptions } from '../listing-verification-evidence';
 import { lineSupportKnowledge, publicLineSupportAnswer } from '../line-support-knowledge';
 import { decideLineSupport, lineSupportDraftSchema, canNotifyLineSupportDraft, formatLineSupportDraftNotice } from '../line-support-policy';
 
@@ -10,6 +11,8 @@ describe('LINE support shared facts and dispatch policy', () => {
     expect(knowledge.facts.industries).toEqual(businessTypes.filter(v => v !== 'その他').map(businessTypeLabel));
     expect(knowledge.facts.registration).toEqual(REGISTRATION_STEPS.map(s => `${s.title}：${s.detail}`));
     expect(knowledge.facts.registration.join()).toContain('書類');
+    expect(knowledge.facts.acceptedDocuments).toEqual(listingEvidenceOptions.map(o => o.label));
+    expect(knowledge.facts.documentTiming).toContain('公開前');
     expect(lineSupportKnowledge(null).revision).toBe(knowledge.revision);
     const changed = JSON.parse(JSON.stringify(knowledge));
     changed.facts.registration[2] = '書類の提出：新しい公開条件';
