@@ -22,9 +22,11 @@ describe('public support knowledge transport', () => {
     expect(data.facts.pricing).toBe(LISTING_FEES_NOTICE);
     expect(data.facts.industries).toContain('歯科');
     expect(data.facts.registration.join()).toContain('書類を1点');
+    expect(data.facts.documentTiming).toContain('公開前');
+    expect(data.facts.acceptedDocuments).toContain('店舗の賃貸借契約書・使用契約書');
     expect(data.facts.registrationScope).toContain('個別の書類提出条件');
     expect(Object.keys(data).sort()).toEqual(['deployment', 'facts', 'revision', 'schema']);
-    expect(Object.keys(data.facts).sort()).toEqual(['documentRequirement', 'industries', 'photos', 'pricing', 'publication', 'registration', 'registrationScope', 'sources']);
+    expect(Object.keys(data.facts).sort()).toEqual(['acceptedDocuments', 'documentRequirement', 'documentTiming', 'industries', 'photos', 'pricing', 'publication', 'registration', 'registrationScope', 'sources']);
   });
   test('represents missing release provenance explicitly', async () => {
     delete process.env.VERCEL_GIT_COMMIT_SHA;
