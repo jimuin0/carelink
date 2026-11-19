@@ -26,6 +26,14 @@ test('drafts use the requested CareLink plain text style even when the model add
  expect(create.mock.calls[0][0].system).toContain('利用実績が不明な相手');
  expect(create.mock.calls[0][0].system).toContain('丁寧で親しみやすい');
 });
+test('drafts answer document timing concretely from published facts without repeating earlier topics',async()=>{
+ await generateLineSupportDraft(history,facts,conversation);
+ const system=create.mock.calls[0][0].system as string;
+ expect(system).toContain('documentTiming');expect(system).toContain('acceptedDocuments');
+ expect(system).toContain('履歴にある別の質問');expect(system).toContain('別の窓口へ誘導しない');
+ expect(system).toContain('個別の提出猶予');
+ for(const label of facts.facts.acceptedDocuments)expect(system).toContain(label);
+});
 test('a draft containing only decoration is rejected after plain text formatting',async()=>{
  create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:' ** ** ',missingInformation:[],sourceUrls:[]})}]});
  expect((await generateLineSupportDraft(history,facts,conversation)).state).toBe('unavailable');
