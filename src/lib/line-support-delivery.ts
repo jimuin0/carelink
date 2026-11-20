@@ -28,7 +28,8 @@ export async function dispatchLineSupportDelivery(id: string): Promise<'accepted
   const expiry=Date.parse(delivery.reply_expires_at??'');
   if(reply&&(!delivery.reply_token||!Number.isFinite(expiry)||expiry<=Date.now()+1000))outcome='failed';
   else try {
-    const messages=[{type:'text',text:delivery.body},...(delivery.proposal_body?[{type:'text',text:delivery.proposal_body}]:[])];
+    // The operator receives only the copyable proposal; case details stay in the admin console (delivery.body).
+    const messages=!reply&&delivery.proposal_body?[{type:'text',text:delivery.proposal_body}]:[{type:'text',text:delivery.body}];
     const response = await fetch('https://api.line.me/v2/bot/message/'+(reply?'reply':'push'), {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(!reply?{'X-Line-Retry-Key':delivery.retry_key}:{}) },
       body: JSON.stringify(reply?{replyToken:delivery.reply_token,messages}:{to:delivery.recipient_id,messages}),

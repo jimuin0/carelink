@@ -38,11 +38,11 @@ test('an unconfirmed DB finish receipt is surfaced rather than reported sent',as
  rpc.mockReset().mockResolvedValueOnce(context).mockResolvedValueOnce(delivery).mockResolvedValueOnce(false);
  await expect(dispatchLineSupportDelivery(delivery.id)).rejects.toThrow('unconfirmed');
 });
-test('operator receives a separate copyable proposal and private checklist in one frozen request',async()=>{
+test('operator receives only the copyable proposal; the checklist stays in the console',async()=>{
  rpc.mockReset().mockResolvedValueOnce(context).mockResolvedValueOnce({...delivery,body:'運営の確認事項・未送信',proposal_body:'お客様に送れる返信文案です。'}).mockResolvedValueOnce(true);
  expect(await dispatchLineSupportDelivery(delivery.id)).toBe('accepted');
  const payload=JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
- expect(payload.messages).toEqual([{type:'text',text:'運営の確認事項・未送信'},{type:'text',text:'お客様に送れる返信文案です。'}]);expect(global.fetch).toHaveBeenCalledTimes(1);
+ expect(payload.messages).toEqual([{type:'text',text:'お客様に送れる返信文案です。'}]);expect(JSON.stringify(payload)).not.toContain('運営の確認事項');expect(global.fetch).toHaveBeenCalledTimes(1);
 });
 test('the runtime stop switch also blocks operator-initiated recovery sends',async()=>{process.env.LINE_SUPPORT_ENABLED='false';expect(await dispatchLineSupportDelivery(delivery.id)).toBe('not_attempted');expect(rpc).not.toHaveBeenCalled();expect(global.fetch).not.toHaveBeenCalled();});
 function replyDelivery(overrides:Record<string,unknown>={}){

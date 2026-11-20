@@ -3,7 +3,7 @@ jest.mock('@anthropic-ai/sdk',()=>({__esModule:true,default:jest.fn()}));
 jest.mock('../chat-rate-limit',()=>({checkChatLimit:jest.fn(),chatDailyLimit:jest.fn(),CHAT_DAILY_WINDOW_MS:86400000}));
 import Anthropic from '@anthropic-ai/sdk';
 import { checkChatLimit,chatDailyLimit } from '../chat-rate-limit';
-import { generateLineSupportDraft,minimiseSupportContext } from '../line-support-draft';
+import { generateLineSupportDraft,minimiseSupportContext,splitConsultation } from '../line-support-draft';
 import { lineSupportKnowledge } from '../line-support-knowledge';
 const create=jest.fn(); const env={...process.env};
 const history=[{revision:1,message_type:'text',body:'ログインできません。'}];
@@ -30,9 +30,14 @@ test('drafts answer document timing concretely from published facts without repe
  await generateLineSupportDraft(history,facts,conversation);
  const system=create.mock.calls[0][0].system as string;
  expect(system).toContain('documentTiming');expect(system).toContain('acceptedDocuments');
- expect(system).toContain('履歴にある別の質問');expect(system).toContain('別の窓口へ誘導しない');
+ expect(system).toContain('聞かれたことだけ');expect(system).toContain('聞かれていない公開情報');expect(system).toContain('別の窓口へ誘導しない');expect(system).toContain('大丈夫です');
+ const sent=JSON.parse(create.mock.calls[0][0].messages[0].content);expect(sent.question.revision).toBe(Math.max(...history.map(h=>h.revision)));expect(sent.earlierMessages).toHaveLength(history.length-1);
  expect(system).toContain('個別の提出猶予');
  for(const label of facts.facts.acceptedDocuments)expect(system).toContain(label);
+});
+test('the newest message is the question even when history arrives out of order',()=>{
+ expect(splitConsultation([{revision:2,message_type:'text',body:'b'},{revision:1,message_type:'text',body:'a'}])).toEqual({question:{revision:2,message_type:'text',body:'b'},earlierMessages:[{revision:1,message_type:'text',body:'a'}]});
+ expect(splitConsultation([])).toEqual({question:null,earlierMessages:[]});
 });
 test('a draft containing only decoration is rejected after plain text formatting',async()=>{
  create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:' ** ** ',missingInformation:[],sourceUrls:[]})}]});
