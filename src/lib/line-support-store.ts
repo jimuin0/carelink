@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 type SupportRpcName = 'accept_line_support_event' | 'accept_line_support_events' | 'claim_line_support_event' | 'prepare_line_support_delivery'
   | 'claim_line_support_delivery' | 'finish_line_support_delivery' | 'manage_line_support'
-  | 'confirm_line_support_pair_candidate' | 'read_line_support' | 'line_support_work' | 'line_support_history' | 'line_support_job_status' | 'line_support_delivery_context';
+  | 'confirm_line_support_pair_candidate' | 'read_line_support' | 'line_support_work' | 'line_support_history' | 'line_support_job_status' | 'line_support_delivery_context' | 'complete_line_support_without_delivery';
 type SupportRpcArgs=Database['public']['Functions'][SupportRpcName]['Args'];
 
 /** One narrow migration-backed boundary; parse every receipt before using it. */

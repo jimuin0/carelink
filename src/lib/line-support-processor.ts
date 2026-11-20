@@ -5,6 +5,7 @@ import { decideLineSupport, formatLineSupportDraftNotice, formatLineSupportFallb
 import { lineSupportKnowledge,publicLineSupportAnswer } from './line-support-knowledge';
 import { generateLineSupportDraft, supportHistorySchema } from './line-support-draft';
 import { dispatchLineSupportDelivery } from './line-support-delivery';
+import { postToSlack } from './slack';
 
 export async function processLineSupportEvent(eventId: string): Promise<void> {
   if(process.env.LINE_SUPPORT_ENABLED!=='true')return;
@@ -37,9 +38,18 @@ export async function processLineSupportEvent(eventId: string): Promise<void> {
       proposal=generated.draft.text;
       model = generated.model;
     } else {
-      // Quota or provider failure must not hide the consultation: notify with fixed text, no AI content.
-      body = formatLineSupportFallbackNotice(event.conversation_id);
-      model = 'fallback-notice-v1';
+      // Quota or provider failure must not hide the consultation: finish the event once and
+      // notify the operator on Slack with fixed text. No AI content and nothing to the customer.
+      const notice = formatLineSupportFallbackNotice(event.conversation_id);
+      const done = await lineSupportRpc('complete_line_support_without_delivery', {
+        p_event_id: event.event_id, p_lease_id: leaseId, p_draft_id: randomUUID(),
+        p_knowledge_revision: knowledge.revision, p_body: notice, p_model_version: 'fallback-notice-v1',
+      }, supportOperationSchema);
+      if (done.status === 'completed') {
+        const posted = await postToSlack({ text: notice, unfurl_links: false });
+        if (!posted.ok) console.warn('[line-support-fallback]', posted.error);
+      }
+      return;
     }
   }
   const deliveryId=randomUUID(),retryKey=randomUUID();

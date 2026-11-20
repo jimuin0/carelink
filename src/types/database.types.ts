@@ -6990,6 +6990,17 @@ export type Database = {
         Args: { p_event_id: string; p_lease_id: string }
         Returns: Json
       }
+      complete_line_support_without_delivery: {
+        Args: {
+          p_body: string
+          p_draft_id: string
+          p_event_id: string
+          p_knowledge_revision: string
+          p_lease_id: string
+          p_model_version: string
+        }
+        Returns: Json
+      }
       confirm_line_support_pair_candidate: {
         Args: { p_hash: string; p_line_user_id: string }
         Returns: boolean
