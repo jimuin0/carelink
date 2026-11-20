@@ -48,3 +48,8 @@ export function canNotifyLineSupportDraft(draft: DraftEnvelope, current: Dispatc
 export function formatLineSupportDraftNotice(caseReference: string, draft: z.infer<typeof lineSupportDraftSchema>): string {
   return `【CareLink 手動返信の文案】\n相談：${caseReference}\n次のメッセージがコピー用の返信文案です。\n\n運営の確認事項：${draft.missingInformation.join('／') || '管理画面で相談内容をご確認ください。'}\n\n運営向けの文案です。公式LINEの送信済み履歴と最新の追記を確認し、必要な内容だけ手動で返信してください。\nhttps://carelink-jp.com/admin/line-support?case=${encodeURIComponent(caseReference)}`;
 }
+
+/** Sent when no AI draft could be produced. Fixed text only: never customer data or model output. */
+export function formatLineSupportFallbackNotice(caseReference: string): string {
+  return `【CareLink】新しい相談が届きました。\n返信案を自動作成できなかったため、管理画面で内容を確認して返信してください。\nhttps://carelink-jp.com/admin/line-support?case=${encodeURIComponent(caseReference)}`;
+}

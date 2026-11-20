@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { lineSupportRpc, supportLeaseSchema, supportOperationSchema,supportJobSchema } from './line-support-store';
-import { decideLineSupport, formatLineSupportDraftNotice, type SupportInput } from './line-support-policy';
+import { decideLineSupport, formatLineSupportDraftNotice, formatLineSupportFallbackNotice, type SupportInput } from './line-support-policy';
 import { lineSupportKnowledge,publicLineSupportAnswer } from './line-support-knowledge';
 import { generateLineSupportDraft, supportHistorySchema } from './line-support-draft';
 import { dispatchLineSupportDelivery } from './line-support-delivery';
@@ -32,10 +32,15 @@ export async function processLineSupportEvent(eventId: string): Promise<void> {
     kind = 'operator_draft';
     const history = await lineSupportRpc('line_support_history', { p_conversation_id: event.conversation_id }, supportHistorySchema);
     const generated = await generateLineSupportDraft(history, knowledge,event.conversation_id);
-    if (generated.state !== 'ready') throw new Error('LINE support draft generation unavailable');
-    body = formatLineSupportDraftNotice(event.conversation_id, generated.draft);
-    proposal=generated.draft.text;
-    model = generated.model;
+    if (generated.state === 'ready') {
+      body = formatLineSupportDraftNotice(event.conversation_id, generated.draft);
+      proposal=generated.draft.text;
+      model = generated.model;
+    } else {
+      // Quota or provider failure must not hide the consultation: notify with fixed text, no AI content.
+      body = formatLineSupportFallbackNotice(event.conversation_id);
+      model = 'fallback-notice-v1';
+    }
   }
   const deliveryId=randomUUID(),retryKey=randomUUID();
   const prepare=()=>lineSupportRpc('prepare_line_support_delivery', {
