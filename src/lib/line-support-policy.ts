@@ -48,3 +48,11 @@ export function canNotifyLineSupportDraft(draft: DraftEnvelope, current: Dispatc
 export function formatLineSupportDraftNotice(caseReference: string, draft: z.infer<typeof lineSupportDraftSchema>): string {
   return `【CareLink 手動返信の文案】\n相談：${caseReference}\n次のメッセージがコピー用の返信文案です。\n\n運営の確認事項：${draft.missingInformation.join('／') || '管理画面で相談内容をご確認ください。'}\n\n運営向けの文案です。公式LINEの送信済み履歴と最新の追記を確認し、必要な内容だけ手動で返信してください。\nhttps://carelink-jp.com/admin/line-support?case=${encodeURIComponent(caseReference)}`;
 }
+
+/** 神原さんの Slack メンバーID（公開情報ではないが秘密値でもない）。通知のメンションに使う。 */
+export const LINE_SUPPORT_SLACK_MENTION = 'U06NYJ30RFF';
+
+/** Slack notice when no AI draft could be produced. Fixed text only: never customer data or model output. */
+export function formatLineSupportFallbackNotice(caseReference: string, mentionUserId: string = LINE_SUPPORT_SLACK_MENTION): string {
+  return `<@${mentionUserId}>\n*CareLink*\n新しい相談が届きました。\n返信案を自動作成できなかったため、管理画面で内容を確認して返信してください。\nhttps://carelink-jp.com/admin/line-support?case=${encodeURIComponent(caseReference)}`;
+}

@@ -2,10 +2,13 @@
 jest.mock('../line-support-store',()=>({lineSupportRpc:jest.fn(),supportLeaseSchema:{},supportOperationSchema:{},supportJobSchema:{}}));
 jest.mock('../line-support-draft',()=>({generateLineSupportDraft:jest.fn(),supportHistorySchema:{}}));
 jest.mock('../line-support-delivery',()=>({dispatchLineSupportDelivery:jest.fn()}));
+jest.mock('../slack',()=>({postToSlack:jest.fn().mockResolvedValue({ok:true})}));
+import { postToSlack } from '../slack';
 import { lineSupportRpc } from '../line-support-store';
 import { generateLineSupportDraft } from '../line-support-draft';
 import { dispatchLineSupportDelivery } from '../line-support-delivery';
 import { processLineSupportEvent,processLineSupportPending } from '../line-support-processor';
+import { formatLineSupportFallbackNotice } from '../line-support-policy';
 const rpc=lineSupportRpc as jest.Mock;
 const convo='10000000-0000-4000-8000-000000000001';const delivery='20000000-0000-4000-8000-000000000001';
 const lease={event:{event_id:'event',conversation_id:convo,revision:1,message_type:'text',body:'登録方法',occurred_at:new Date().toISOString(),reply_token:'synthetic-reply-token',reply_expires_at:new Date(Date.now()+40000).toISOString(),reply_fallback_reason:null},mode:'automatic'};
@@ -32,9 +35,29 @@ test('an unbound operator keeps a draft without dispatch',async()=>{
  rpc.mockResolvedValueOnce({...lease,mode:'human'}).mockResolvedValueOnce([]).mockResolvedValueOnce({status:'recipient_unbound'});
  await processLineSupportEvent('event');expect(dispatchLineSupportDelivery).not.toHaveBeenCalled();
 });
-test('provider failure leaves the leased event recoverable and sends nothing',async()=>{
- rpc.mockResolvedValueOnce({...lease,mode:'human'}).mockResolvedValueOnce([]);(generateLineSupportDraft as jest.Mock).mockResolvedValueOnce({state:'unavailable'});
- await expect(processLineSupportEvent('event')).rejects.toThrow('unavailable');expect(rpc).toHaveBeenCalledTimes(2);expect(dispatchLineSupportDelivery).not.toHaveBeenCalled();
+test('provider failure finishes the event once and notifies Slack with fixed text, never LINE or the customer',async()=>{
+ rpc.mockResolvedValueOnce({...lease,mode:'human'}).mockResolvedValueOnce([{revision:1,message_type:'text',body:'怒っています'}]).mockResolvedValueOnce({status:'completed'});
+ (generateLineSupportDraft as jest.Mock).mockResolvedValueOnce({state:'unavailable'});
+ await processLineSupportEvent('event');
+ const done=rpc.mock.calls.find(c=>c[0]==='complete_line_support_without_delivery')![1];
+ expect(done).toMatchObject({p_model_version:'fallback-notice-v1',p_body:formatLineSupportFallbackNotice(lease.event.conversation_id)});
+ expect(rpc.mock.calls.some(c=>c[0]==='prepare_line_support_delivery')).toBe(false);
+ expect(postToSlack).toHaveBeenCalledWith({text:formatLineSupportFallbackNotice(lease.event.conversation_id),unfurl_links:false});
+ expect(JSON.stringify((postToSlack as jest.Mock).mock.calls)).not.toContain('怒っています');
+ expect(dispatchLineSupportDelivery).not.toHaveBeenCalled();
+});
+test('a stale fallback does not notify Slack twice',async()=>{
+ rpc.mockResolvedValueOnce({...lease,mode:'human'}).mockResolvedValueOnce([]).mockResolvedValueOnce({status:'stale'});
+ (generateLineSupportDraft as jest.Mock).mockResolvedValueOnce({state:'unavailable'});
+ (postToSlack as jest.Mock).mockClear();
+ await processLineSupportEvent('event');expect(postToSlack).not.toHaveBeenCalled();expect(dispatchLineSupportDelivery).not.toHaveBeenCalled();
+});
+test('a failed Slack post logs only the fixed error code',async()=>{
+ rpc.mockResolvedValueOnce({...lease,mode:'human'}).mockResolvedValueOnce([]).mockResolvedValueOnce({status:'completed'});
+ (generateLineSupportDraft as jest.Mock).mockResolvedValueOnce({state:'unavailable'});
+ (postToSlack as jest.Mock).mockResolvedValueOnce({ok:false,error:'not_in_channel'});
+ const spy=jest.spyOn(console,'warn').mockImplementation(()=>{});
+ try{await processLineSupportEvent('event');expect(spy).toHaveBeenCalledWith('[line-support-fallback]','not_in_channel');}finally{spy.mockRestore();}
 });
 test('superseded preparation never dispatches',async()=>{rpc.mockResolvedValueOnce(lease).mockResolvedValueOnce({status:'stale'});await processLineSupportEvent('event');expect(dispatchLineSupportDelivery).not.toHaveBeenCalled();});
 test.each(['unfollow','unsend','follow'])('defensive %s lease cannot send',async message_type=>{rpc.mockResolvedValueOnce({...lease,event:{...lease.event,message_type}});await processLineSupportEvent('event');expect(rpc).toHaveBeenCalledTimes(1);});

@@ -20,6 +20,12 @@ export function minimiseSupportContext(history: SupportHistory): SupportHistory 
   }));
 }
 
+/** The newest message is the question; older messages are context only, so earlier topics are not re-answered. */
+export function splitConsultation(history: SupportHistory) {
+  const ordered = [...history].sort((a, b) => a.revision - b.revision);
+  return { question: ordered.at(-1) ?? null, earlierMessages: ordered.slice(0, -1) };
+}
+
 type DraftFailure = 'configuration' | 'conversation_quota' | 'global_quota' | 'provider_error' | 'incomplete_response' | 'invalid_json' | 'invalid_schema';
 function unavailable(reason:DraftFailure){
   // Fixed codes only: never log the model response, request, SDK error, or credential.
@@ -48,7 +54,8 @@ export async function generateLineSupportDraft(history: SupportHistory, knowledg
         '事実は添付の公開情報だけを根拠にしてください。個別の予約・支払・登録状況の確認済みという主張、返金や対応期限の約束はしないでください。',
         '書類の提出時期（documentTiming）と提出できる書類の種類（acceptedDocuments）は公開情報なので、聞かれたら具体的に答えてください。特定の書類が無い相談には、acceptedDocumentsから代わりに出せる書類の例を挙げてください。',
         '個別の提出猶予（書類を公開後に出すこと）や審査・承認状況は公開情報だけでは判定できないため、約束せず運営の確認点に含めてください。',
-        '最新の相談だけに答え、履歴にある別の質問（料金など）への回答を繰り返さないでください。この会話自体がCareLinkの問い合わせ窓口なので、「サポートまでお問い合わせください」など別の窓口へ誘導しないでください。「大丈夫です」などのくだけた表現は避けてください。',
+        'textはquestion（最新の相談）で聞かれたことだけに丁寧に答えてください。earlierMessagesは文脈の確認用で、そこにある別の質問や、聞かれていない公開情報（料金・掲載料・写真・業種など）を返信に含めないでください。',
+        'この会話自体がCareLinkの問い合わせ窓口なので、「サポートまでお問い合わせください」など別の窓口へ誘導しないでください。「大丈夫です」などのくだけた表現は使わず、「問題ございません」「可能です」などの丁寧な表現にしてください。',
         '不明な内容は推測せずmissingInformationに記載。既に回答されたことは聞き直さず、必要な質問は最小限にしてください。',
         'textは顧客に送れる自然な文章、missingInformationは運営向けの確認点、sourceUrlsは根拠の公式URLです。',
         'textは丁寧で親しみやすいです・ます調にし、最初の相談には「お問い合わせありがとうございます。」など状況に合った挨拶を添えてください。継続中の会話で挨拶を繰り返さず、利用実績が不明な相手へ「いつもご利用ありがとうございます」とは書かないでください。',
@@ -56,7 +63,7 @@ export async function generateLineSupportDraft(history: SupportHistory, knowledg
         'JSONオブジェクトのみで返してください。形式: {"text":"返信案","missingInformation":["確認点"],"sourceUrls":["公式URL"]}',
         JSON.stringify(knowledge.facts),
       ].join('\n'),
-      messages: [{ role: 'user', content: JSON.stringify({ consultation: minimiseSupportContext(history) }) }],
+      messages: [{ role: 'user', content: JSON.stringify(splitConsultation(minimiseSupportContext(history))) }],
     });
     if (result.stop_reason !== 'end_turn') return unavailable('incomplete_response');
     const text = result.content.filter(block => block.type === 'text').map(block => block.text).join('');
