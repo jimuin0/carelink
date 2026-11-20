@@ -50,7 +50,7 @@ export function formatLineSupportDraftNotice(caseReference: string, draft: z.inf
 }
 
 /** 神原さんの Slack メンバーID（公開情報ではないが秘密値でもない）。通知のメンションに使う。 */
-export const LINE_SUPPORT_SLACK_MENTION = 'SLACK_MEMBER_ID_PENDING';
+export const LINE_SUPPORT_SLACK_MENTION = 'U06NYJ30RFF';
 
 /** Slack notice when no AI draft could be produced. Fixed text only: never customer data or model output. */
 export function formatLineSupportFallbackNotice(caseReference: string, mentionUserId: string = LINE_SUPPORT_SLACK_MENTION): string {

@@ -95,5 +95,5 @@ test('Slack fallback notice mentions the operator, bolds CareLink and carries on
  const text=formatLineSupportFallbackNotice('10000000-0000-4000-8000-000000000001','U0TEST');
  expect(text).toBe('<@U0TEST>\n*CareLink*\n新しい相談が届きました。\n返信案を自動作成できなかったため、管理画面で内容を確認して返信してください。\nhttps://carelink-jp.com/admin/line-support?case=10000000-0000-4000-8000-000000000001');
  expect(text).not.toContain('テスト');
- expect(formatLineSupportFallbackNotice('x')).toContain(`<@${LINE_SUPPORT_SLACK_MENTION}>`);
+ expect(LINE_SUPPORT_SLACK_MENTION).toBe('U06NYJ30RFF');expect(formatLineSupportFallbackNotice('x')).toContain('<@U06NYJ30RFF>');
 });
