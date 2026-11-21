@@ -30,7 +30,7 @@ test('drafts answer document timing concretely from published facts without repe
  await generateLineSupportDraft(history,facts,conversation);
  const system=create.mock.calls[0][0].system as string;
  expect(system).toContain('documentTiming');expect(system).toContain('acceptedDocuments');
- expect(system).toContain('聞かれたことだけ');expect(system).toContain('聞かれていない公開情報');expect(system).toContain('別の窓口へ誘導しない');expect(system).toContain('大丈夫です');
+ expect(system).toContain('聞かれたことだけ');expect(system).toContain('聞かれていない公開情報');expect(system).toContain('別の窓口へ誘導しない');expect(system).toContain('大丈夫です');expect(system).toContain('acceptedDocumentsの全項目を1行ずつ');expect(system).toContain('段落の間には空行');
  const sent=JSON.parse(create.mock.calls[0][0].messages[0].content);expect(sent.question.revision).toBe(Math.max(...history.map(h=>h.revision)));expect(sent.earlierMessages).toHaveLength(history.length-1);
  expect(system).toContain('個別の提出猶予');
  for(const label of facts.facts.acceptedDocuments)expect(system).toContain(label);
