@@ -23,6 +23,8 @@ export const lineSupportDraftSchema = z.object({
   text: z.string().trim().min(1).max(2400),
   missingInformation: z.array(z.string().trim().min(1).max(200)).max(5),
   sourceUrls: z.array(z.enum(['https://carelink-jp.com/register', 'https://carelink-jp.com/register/guide', 'https://carelink-jp.com/terms'])).max(3),
+  /** True when the question is about which documents to submit; the application appends the fixed list. */
+  documentList: z.boolean().optional(),
 }).strict();
 
 export type DraftEnvelope = {
