@@ -38,6 +38,13 @@ export const LINE_SUPPORT_DOCUMENT_REPLY = [
   '上記以外でも、店舗名、住所、運営者が確認できる書類であればご提出いただけます。お手元の書類で判断がつかない場合も、お気軽にご相談ください。',
 ].join('\n\n');
 
+/** Document questions are detected from the customer's own words, so the fixed reply never depends on a model flag. */
+const DOCUMENT_QUESTION = /書類|開業届|開設届|届出|営業許可|許可証|証明書|契約書|請求書|確認済証|本人確認/;
+export function isDocumentQuestion(history: SupportHistory): boolean {
+  const question = splitConsultation(history).question;
+  return question !== null && DOCUMENT_QUESTION.test(question.body);
+}
+
 type DraftFailure = 'configuration' | 'conversation_quota' | 'global_quota' | 'provider_error' | 'incomplete_response' | 'invalid_json' | 'invalid_schema';
 function unavailable(reason:DraftFailure){
   // Fixed codes only: never log the model response, request, SDK error, or credential.
@@ -85,7 +92,7 @@ export async function generateLineSupportDraft(history: SupportHistory, knowledg
     // Enforce the requested LINE copy style even if the model ignores the prompt.
     const body = draft.data.text
       .replace(/CareLink\s*[（(]ケアリンク[）)]/g, 'CareLink').replace(/\*\*/g, '').replace(/公官庁/g, '官公庁').trim();
-    const plainDraft = lineSupportDraftSchema.safeParse({ ...draft.data, text: draft.data.documentList ? LINE_SUPPORT_DOCUMENT_REPLY : body });
+    const plainDraft = lineSupportDraftSchema.safeParse({ ...draft.data, text: draft.data.documentList || isDocumentQuestion(history) ? LINE_SUPPORT_DOCUMENT_REPLY : body });
     if (!plainDraft.success) return unavailable('invalid_schema');
     return { state: 'ready' as const, draft: plainDraft.data, model };
   } catch {

@@ -3,7 +3,7 @@ jest.mock('@anthropic-ai/sdk',()=>({__esModule:true,default:jest.fn()}));
 jest.mock('../chat-rate-limit',()=>({checkChatLimit:jest.fn(),chatDailyLimit:jest.fn(),CHAT_DAILY_WINDOW_MS:86400000}));
 import Anthropic from '@anthropic-ai/sdk';
 import { checkChatLimit,chatDailyLimit } from '../chat-rate-limit';
-import { generateLineSupportDraft,LINE_SUPPORT_DOCUMENT_REPLY,minimiseSupportContext,splitConsultation } from '../line-support-draft';
+import { generateLineSupportDraft,isDocumentQuestion,LINE_SUPPORT_DOCUMENT_REPLY,minimiseSupportContext,splitConsultation } from '../line-support-draft';
 import { lineSupportKnowledge } from '../line-support-knowledge';
 const create=jest.fn(); const env={...process.env};
 const history=[{revision:1,message_type:'text',body:'ログインできません。'}];
@@ -40,6 +40,17 @@ test.each([[true,true],[false,false],[undefined,false]])('documentList %s uses t
  create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify(out)}]});
  const result=await generateLineSupportDraft(history,facts,conversation);if(result.state!=='ready')throw new Error('not ready');
  expect(result.draft.text).toBe(fixed?LINE_SUPPORT_DOCUMENT_REPLY:'掲載申込は先に送信できます。官公庁からの通知も対象です。');
+});
+test('a document question gets the fixed reply even when the model omits the flag',async()=>{
+ create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:'短い要約です。',missingInformation:[],sourceUrls:[]})}]});
+ const doc=[{revision:1,message_type:'text',body:'掲載料はいくらですか'},{revision:2,message_type:'text',body:'開業届はまだ手元にないのですが、先に掲載申込できますか？'}];
+ const result=await generateLineSupportDraft(doc,facts,conversation);if(result.state!=='ready')throw new Error('not ready');
+ expect(result.draft.text).toBe(LINE_SUPPORT_DOCUMENT_REPLY);
+});
+test('only the newest message decides whether it is a document question',()=>{
+ expect(isDocumentQuestion([{revision:1,message_type:'text',body:'書類について'},{revision:2,message_type:'text',body:'掲載料はいくらですか'}])).toBe(false);
+ expect(isDocumentQuestion([{revision:1,message_type:'text',body:'賃貸借契約書でも大丈夫ですか'}])).toBe(true);
+ expect(isDocumentQuestion([])).toBe(false);
 });
 test('the fixed document reply keeps one marker per level and a closing sentence',()=>{
  const lines=LINE_SUPPORT_DOCUMENT_REPLY.split('\n');
