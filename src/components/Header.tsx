@@ -11,6 +11,9 @@ import {
   HEADER_LISTING_LINK,
   HEADER_MOBILE_LINK,
   HEADER_MOBILE_LISTING_LINK,
+  HEADER_MOBILE_SHOP_BOX,
+  HEADER_MOBILE_SHOP_NOTE,
+  HEADER_MOBILE_SHOP_TITLE,
   HEADER_MOBILE_STORE_LOGIN_LINK,
   HEADER_NAV_LINK,
   HEADER_STORE_LOGIN_LINK,
@@ -145,6 +148,10 @@ export default function Header({ shopPage = false }: { shopPage?: boolean }) {
             >
               お問い合わせ
             </Link>
+            <div className={HEADER_MOBILE_SHOP_BOX}>
+            <p className={HEADER_MOBILE_SHOP_TITLE}>店舗の方</p>
+            <p className={HEADER_MOBILE_SHOP_NOTE}>CareLink への掲載・管理画面はこちら</p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
             <Link
               href="/register"
               className={HEADER_MOBILE_LISTING_LINK}
@@ -160,6 +167,8 @@ export default function Header({ shopPage = false }: { shopPage?: boolean }) {
             >
               店舗ログイン
             </Link>
+            </div>
+            </div>
           </nav>
         </div>
       </div>

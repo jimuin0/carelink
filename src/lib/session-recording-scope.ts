@@ -27,6 +27,7 @@ export const SESSION_RECORDING_PUBLIC_ROOTS: readonly string[] = [
   'feature',
   'jobs',
   'legal',
+  'medical',
   'privacy',
   'ranking',
   'salon',
