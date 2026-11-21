@@ -7,7 +7,7 @@
  * - 下部ナビのすぐ上に、fixed ではなく sticky で出す（ページ末尾ではフッターを覆わない）
  */
 import '@testing-library/jest-dom';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import StickySignupCta from '../StickySignupCta';
 import { COOKIE_CONSENT_CHANGE_EVENT, COOKIE_CONSENT_STORAGE_KEY, closeCookieSettings, openCookieSettings } from '@/lib/cookie-consent';
 
@@ -64,15 +64,40 @@ test('ログイン済みなら出さない', async () => {
   expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
 });
 
-test('閉じたらこのセッションでは出さない', async () => {
+test('閉じるボタンは出さない（一度閉じると登録の入口が二度と出なくなるため・2026年11月22日）', async () => {
   localStorage.setItem(COOKIE_CONSENT_STORAGE_KEY, '{}');
-  const { unmount } = await renderCta();
-  fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
-  expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
-  unmount();
   await renderCta();
-  expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
-  expect(mockGetUser).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('link', { name: '無料で会員登録する' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '閉じる' })).toBeNull();
+});
+
+test('トップの見出しが見えている間は出さず、通り過ぎたら出す', async () => {
+  localStorage.setItem(COOKIE_CONSENT_STORAGE_KEY, '{}');
+  const hero = document.createElement('div');
+  hero.setAttribute('data-home-hero', '');
+  document.body.appendChild(hero);
+  let callback: (entries: Array<{ isIntersecting: boolean }>) => void = () => {};
+  const disconnect = jest.fn();
+  const original = (window as unknown as { IntersectionObserver?: unknown }).IntersectionObserver;
+  (window as unknown as { IntersectionObserver: unknown }).IntersectionObserver = class {
+    constructor(cb: typeof callback) { callback = cb; }
+    observe() {}
+    disconnect() { disconnect(); }
+  };
+  try {
+    const { unmount } = await renderCta();
+    act(() => callback([{ isIntersecting: true }]));
+    expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
+    act(() => callback([{ isIntersecting: false }]));
+    expect(screen.getByRole('link', { name: '無料で会員登録する' })).toBeInTheDocument();
+    act(() => callback([{ isIntersecting: true }]));
+    expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
+    unmount();
+    expect(disconnect).toHaveBeenCalled();
+  } finally {
+    (window as unknown as { IntersectionObserver: unknown }).IntersectionObserver = original;
+    hero.remove();
+  }
 });
 
 // 2026年10月23日: フッターの「Cookie設定」でバナーを開き直している間は出さない（下部ナビ・CTA・バナーの 3 段にしない）。
@@ -86,21 +111,3 @@ test('Cookie の設定を開き直している間は出さず、閉じたら戻�
   expect(screen.getByRole('link', { name: '無料で会員登録する' })).toBeInTheDocument();
 });
 
-// 監査 A403: sessionStorage が例外を投げる環境でも表示でき、閉じるボタンが効く。
-test('sessionStorage が使えなくても表示でき、閉じるボタンで閉じられる', async () => {
-  localStorage.setItem(COOKIE_CONSENT_STORAGE_KEY, '{}');
-  const getSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key: string) {
-    if (this === window.sessionStorage) throw new Error('SecurityError');
-    return Object.prototype.hasOwnProperty.call(this, key) ? (this as unknown as Record<string, string>)[key] : null;
-  });
-  const setSpy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function () { throw new Error('QuotaExceededError'); });
-  try {
-    await renderCta();
-    expect(screen.getByRole('link', { name: '無料で会員登録する' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
-    expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
-  } finally {
-    getSpy.mockRestore();
-    setSpy.mockRestore();
-  }
-});

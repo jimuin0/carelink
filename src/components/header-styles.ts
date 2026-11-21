@@ -40,10 +40,15 @@ export const HEADER_STORE_LOGIN_LINK =
 export const HEADER_MOBILE_LINK =
   'flex min-h-11 items-center text-gray-600 hover:text-primary text-sm px-3 rounded-lg hover:bg-sky-50 transition-colors';
 
-/** スマホのメニューの「掲載の案内」（区切り線の下に置く）。 */
+/** スマホのメニューの「掲載の案内」（「店舗の方」の枠の中のボタン・2026年11月22日）。 */
 export const HEADER_MOBILE_LISTING_LINK =
-  'flex min-h-11 items-center text-primary font-medium text-sm px-3 mt-1 border-t border-gray-100 hover:bg-sky-50 transition-colors';
+  'flex min-h-11 items-center justify-center rounded-lg bg-white border border-gray-200 text-sm font-medium text-primary hover:bg-sky-50 transition-colors';
 
-/** スマホのメニューの店舗ログイン（弱いトーン）。 */
+/** スマホのメニューの店舗ログイン（「店舗の方」の枠の中のボタン）。 */
 export const HEADER_MOBILE_STORE_LOGIN_LINK =
-  'flex min-h-11 items-center text-gray-500 hover:text-primary text-xs px-3 transition-colors';
+  'flex min-h-11 items-center justify-center rounded-lg bg-white border border-gray-200 text-sm text-gray-700 hover:bg-sky-50 transition-colors';
+
+/** スマホのメニューで店舗向けの入口をまとめる枠と、その中の見出し・説明。 */
+export const HEADER_MOBILE_SHOP_BOX = 'mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3';
+export const HEADER_MOBILE_SHOP_TITLE = 'text-xs font-bold text-gray-600';
+export const HEADER_MOBILE_SHOP_NOTE = 'mt-0.5 text-xs text-gray-500';

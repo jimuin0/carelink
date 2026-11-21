@@ -51,7 +51,8 @@ export default function MobileBottomNav() {
   // data-bottom-fixed … Cookie 同意バナーがこの上に出るための目印（lib/mobile-bottom-bar.ts）。
   return (
     <nav data-bottom-fixed="" className="fixed bottom-0 left-0 right-0 z-40 h-[var(--mobile-nav-height)] bg-white border-t border-gray-200 lg:hidden pb-[env(safe-area-inset-bottom)]" aria-label="メインナビゲーション">
-      <div className="flex">
+      {/* 2026年11月22日（本人指示）: 4項目を画面端いっぱいに並べると窮屈なので、幅を絞って左右に余白を取る */}
+      <div className="flex max-w-sm mx-auto px-6">
         {items.map((item) => {
           const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
           return (

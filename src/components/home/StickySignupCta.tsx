@@ -25,55 +25,47 @@ function getServerSettingsSnapshot(): boolean {
  * - 2026年10月23日: フッターの「Cookie設定」から同意バナーを開き直している間も出さない
  *   （下部ナビ・CTA・バナーの 3 段が重なってボタンを覆うため）。
  */
-// 監査 A403: sessionStorage は Safari のプライベートモード等で例外を投げる。読めなければ「未閉」、
-// 書けなければ今回の表示だけ閉じる（閉じるボタンが効かなくならないように）。
-const DISMISS_KEY = 'sticky-cta-dismissed';
-function wasDismissed(): boolean {
-  try { return !!sessionStorage.getItem(DISMISS_KEY); } catch { return false; }
-}
-function rememberDismissed(): void {
-  try { sessionStorage.setItem(DISMISS_KEY, '1'); } catch { /* この表示だけ閉じる */ }
+/**
+ * 2026年11月22日（本人指示）: 閉じるボタンを外した。一度閉じると二度と出ず、登録の入口を失うため。
+ * 代わりにトップの青い見出し（[data-home-hero]）が画面に見えている間は出さず、
+ * そこを過ぎてスクロールしたときだけ出す（LP によくある出し方）。見出しが見つからなければ出す。
+ */
+function useHeroPassed(): boolean {
+  const [passed, setPassed] = useState(false);
+  useEffect(() => {
+    const hero = document.querySelector('[data-home-hero]');
+    if (!hero || typeof IntersectionObserver === 'undefined') { void Promise.resolve().then(() => setPassed(true)); return; }
+    const observer = new IntersectionObserver(([entry]) => setPassed(!entry.isIntersecting));
+    observer.observe(hero);
+    return () => observer.disconnect();
+  }, []);
+  return passed;
 }
 
 export default function StickySignupCta() {
   const [show, setShow] = useState(false);
+  const heroPassed = useHeroPassed();
   const consentStored = useSyncExternalStore(subscribeToCookieConsent, hasAnsweredCookieBanner, getServerConsentSnapshot);
   const cookieSettingsOpen = useSyncExternalStore(subscribeToCookieSettings, isCookieSettingsOpen, getServerSettingsSnapshot);
 
   useEffect(() => {
-    if (wasDismissed()) return;
     Promise.resolve().then(() => createBrowserSupabaseClient().auth.getUser()).then(({ data: { user } }) => {
       if (!user) setShow(true);
     }).catch(() => {});
   }, []);
 
-  if (!show || !consentStored || cookieSettingsOpen) return null;
+  if (!show || !heroPassed || !consentStored || cookieSettingsOpen) return null;
 
   return (
     <div
       data-sticky-signup-cta=""
       className="sticky bottom-[var(--mobile-nav-height)] z-30 sm:hidden bg-white border-t border-gray-200 shadow-[0_-2px_12px_rgba(0,0,0,0.08)] px-4 py-3"
     >
-      <div className="flex items-center gap-3">
-        <div className="flex-1 min-w-0">
-          <p className="text-xs text-gray-500 mb-1.5">予約のたびにポイント還元。利用は完全無料。</p>
-          {/* 登録 CTA は高意図の導線なので従来どおり先読みさせる（components/BrowseLink.tsx）。 */}
-          <Button href="/auth/signup" prefetch="auto" fullWidth>
-            無料で会員登録する
-          </Button>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            rememberDismissed();
-            setShow(false);
-          }}
-          className="shrink-0 w-11 h-11 flex items-center justify-center text-gray-500 hover:text-gray-600 text-lg"
-          aria-label="閉じる"
-        >
-          ✕
-        </button>
-      </div>
+      <p className="text-xs text-gray-500 mb-1.5">予約のたびにポイント還元。利用は完全無料。</p>
+      {/* 登録 CTA は高意図の導線なので従来どおり先読みさせる（components/BrowseLink.tsx）。 */}
+      <Button href="/auth/signup" prefetch="auto" fullWidth>
+        無料で会員登録する
+      </Button>
     </div>
   );
 }

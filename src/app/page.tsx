@@ -56,7 +56,8 @@ export default async function Home() {
       {/* 紹介リンク（?ref=）で来た方へのコードの案内。?ref= が無ければ何も描かない */}
       <ReferralInviteNotice />
       {/* ===== Hero Section ===== */}
-      <div className="relative overflow-hidden">
+      {/* data-home-hero … スマホの会員登録バーはここを過ぎてから出す（StickySignupCta） */}
+      <div data-home-hero="" className="relative overflow-hidden">
         <div className="absolute inset-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
