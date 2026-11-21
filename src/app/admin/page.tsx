@@ -10,16 +10,20 @@ import { todayJst, addDays, dayOfWeekUtc, jstMonthInfo } from '@/lib/admin-date'
 import { facilitySetupSteps, loadFacilitySetupFacts, SETUP_GROUP_LABELS, type FacilitySetupStep, type SetupStepGroup, type SetupStepKey } from '@/lib/facility-setup-steps';
 import { readWithinDeadline } from '@/lib/bounded-read';
 import { fetchAllPaged } from '@/lib/paginate';
+import { createStageTimer } from '@/lib/stage-timer';
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
 export default async function AdminDashboard(props: { searchParams: Promise<{ facility_id?: string }> }) {
+  const timer = createStageTimer('admin-dashboard');
   const supabase = await createServerSupabaseAuthClient();
   const verification = await verifyAuthUser(supabase.auth);
+  timer.mark('verify');
   if (verification.state === 'unavailable') return <AccessVerificationUnavailable />;
   if (verification.state !== 'verified') notFound();
   const searchParams = await props.searchParams;
   const { choices, selectedId: facilityId } = await loadAdminFacilitySelection(supabase, verification.user.id, searchParams.facility_id ?? null);
+  timer.mark('select');
   const selector = <FacilitySelector choices={choices} selectedId={facilityId} path="/admin" />;
   const addStore = <p className="mb-4 text-sm"><a href="/register" target="_blank" rel="noopener noreferrer" className="text-primary underline">別の店舗を申し込む（新しいタブ）</a></p>;
   if (!facilityId) return <div><SbPageHeader title="ダッシュボード" />{selector}{addStore}</div>;
@@ -32,18 +36,9 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
   // オンボーディング進捗チェック。完了の判定は公開ゲート・ネット予約の判定と同じ単一ソース
   // （facility-setup-steps.ts）から引き、登録3日後のフォローメールとも同じ項目・同じ条件にする。
   // 取得失敗は 0/未完了 に偽装せず例外にする（error.tsx に委ねる）。
-  const setup = await loadFacilitySetupFacts(supabase, facilityId, (label, query) => readWithinDeadline(`dashboard-${label}`, query));
-  const onboardingSteps = facilitySetupSteps(setup);
-  const stepDone = (key: SetupStepKey) => onboardingSteps.some(step => step.key === key && step.done);
-  const showOnboarding = onboardingSteps.some(s => !s.done);
-  const isPublished = stepDone('publish');
-  // 無料掲載に要る項目と、ネット予約に要る項目（任意）は別の進み具合として見せる（1本の棒に混ぜない）。
-  const setupGroups = (['listing', 'booking'] as SetupStepGroup[]).map(group => {
-    const steps = onboardingSteps.filter(step => step.group === group);
-    return { group, steps, done: steps.filter(step => step.done).length };
-  });
-  // 公開後は掲載ページへの導線を出す（公開したのに、どう見えているかを確かめる手段が無かった）。
-  const publicPageHref = isPublished && setup.slug ? `/facility/${encodeURIComponent(setup.slug)}` : null;
+  // セットアップ判定と予約・売上の数字は互いに依存しないので、直列に待たず同時に読む
+  // （直列だと読み取りの待ち時間が足し合わされ、店舗作成直後の初回表示が遅れていた）。
+  const setupFacts = loadFacilitySetupFacts(supabase, facilityId, (label, query) => readWithinDeadline(`dashboard-${label}`, query));
 
   // 予約状況（本日から14日間＝2週間）の日付一覧。各日の件数は1クエリ取得→JST日付で JS 集計する
   // （PostgREST は GROUP BY 非対応のため。範囲は14日固定で転送量は小さい）。
@@ -58,14 +53,14 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
   const monthLastDay = new Date(Date.UTC(curY, curM, 0)).getUTCDate();
   const monthEnd = `${curY}-${curMM}-${String(monthLastDay).padStart(2, '0')}`;
 
-  const [
+  const [setup, [
     { count: todayBookings, error: todayErr },
     { count: pendingBookings, error: pendingErr },
     { data: weekRows, error: weekErr },
     { data: todayRevRows, error: todayRevErr },
     { data: monthCompletedRows, error: monthRevErr },
     { count: monthNoShowCount, error: noShowErr },
-  ] = await Promise.all([
+  ]] = await Promise.all([setupFacts, Promise.all([
     readWithinDeadline('dashboard-bookings-today', supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('booking_date', today).neq('status', 'cancelled')),
     readWithinDeadline('dashboard-bookings-pending', supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'pending')),
     readWithinDeadline('dashboard-bookings-week', supabase.from('bookings').select('booking_date').eq('facility_id', facilityId).neq('status', 'cancelled')
@@ -80,7 +75,20 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
     // 当月の無断キャンセル件数（無断キャンセル率の分子）
     readWithinDeadline('dashboard-no-show-month', supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'no_show')
       .gte('booking_date', monthStart).lte('booking_date', monthEnd)),
-  ]);
+  ])]);
+  timer.mark('reads'); timer.finish();
+  const onboardingSteps = facilitySetupSteps(setup);
+  const stepDone = (key: SetupStepKey) => onboardingSteps.some(step => step.key === key && step.done);
+  const showOnboarding = onboardingSteps.some(s => !s.done);
+  const isPublished = stepDone('publish');
+  // 無料掲載に要る項目と、ネット予約に要る項目（任意）は別の進み具合として見せる（1本の棒に混ぜない）。
+  const setupGroups = (['listing', 'booking'] as SetupStepGroup[]).map(group => {
+    const steps = onboardingSteps.filter(step => step.group === group);
+    return { group, steps, done: steps.filter(step => step.done).length };
+  });
+  // 公開後は掲載ページへの導線を出す（公開したのに、どう見えているかを確かめる手段が無かった）。
+  const publicPageHref = isPublished && setup.slug ? `/facility/${encodeURIComponent(setup.slug)}` : null;
+
   // 取得失敗を 0 に偽装しない（error.tsx に委ねる）。売上・率を過少表示で実績誤認させない。
   if (todayErr || pendingErr || weekErr || todayRevErr || monthRevErr || noShowErr) {
     throw new Error(`ダッシュボードの取得に失敗しました: ${(todayErr ?? pendingErr ?? weekErr ?? todayRevErr ?? monthRevErr ?? noShowErr)?.message}`);
