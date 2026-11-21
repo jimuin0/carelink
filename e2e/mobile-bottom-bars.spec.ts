@@ -97,10 +97,21 @@ for (const path of ['/search', '/ranking', '/auth/login', '/auth/signup']) {
   });
 }
 
+/** トップの青い見出し（[data-home-hero]）が画面から外れるまでスクロールする。 */
+async function scrollPastHero(page: import('@playwright/test').Page) {
+  await page.evaluate(() => {
+    const hero = document.querySelector('[data-home-hero]');
+    if (hero) window.scrollTo(0, hero.getBoundingClientRect().bottom + window.scrollY + 40);
+  });
+}
+
 test('/: 会員登録 CTA が出ていても、下部ナビとフッターの規約リンクを覆わない', async ({ page }) => {
   await withStoredConsent(page);
   await page.goto('/');
   const cta = page.locator('[data-sticky-signup-cta]');
+  // 2026年11月22日: CTA はトップの青い見出しが見えている間は出さず、通り過ぎてから出す。
+  await expect(cta).toHaveCount(0);
+  await scrollPastHero(page);
   // 未ログインなので CTA が出る（出ないまま測ると、覆うものが無いので空振りで緑になる）
   await expect(cta).toBeVisible();
   const nav = page.getByRole('navigation', { name: 'メインナビゲーション' });
@@ -129,6 +140,7 @@ test('/: 初回訪問の Cookie 同意バナーは下部ナビの上に出て、
   await banner.getByRole('button', { name: '必須のみ', exact: true }).click();
   await expect(banner).toBeHidden();
   const cta = page.locator('[data-sticky-signup-cta]');
+  await scrollPastHero(page);
   await expect(cta).toBeVisible();
   await expectHittable(nav.getByRole('link', { name: 'ホーム' }));
 });
