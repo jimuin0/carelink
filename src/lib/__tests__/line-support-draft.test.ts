@@ -30,7 +30,7 @@ test('drafts answer document timing concretely from published facts without repe
  await generateLineSupportDraft(history,facts,conversation);
  const system=create.mock.calls[0][0].system as string;
  expect(system).toContain('documentTiming');expect(system).toContain('acceptedDocuments');
- expect(system).toContain('聞かれたことだけ');expect(system).toContain('聞かれていない公開情報');expect(system).toContain('別の窓口へ誘導しない');expect(system).toContain('大丈夫です');expect(system).toContain('documentList を true');expect(system).toContain('決まった文面に差し替える');expect(system).toContain('段落の間には空行');
+ expect(system).toContain('聞かれたことだけ');expect(system).toContain('聞かれていない公開情報');expect(system).toContain('別の窓口へ誘導しない');expect(system).toContain('大丈夫です');expect(system).toContain('documentList を true');expect(system).toContain('決まった文面に差し替えます');expect(system).toContain('全文を書いて');expect(system).not.toContain('短い要約');expect(system).toContain('段落の間には空行');
  const sent=JSON.parse(create.mock.calls[0][0].messages[0].content);expect(sent.question.revision).toBe(Math.max(...history.map(h=>h.revision)));expect(sent.earlierMessages).toHaveLength(history.length-1);
  expect(system).toContain('個別の提出猶予');
  for(const label of facts.facts.acceptedDocuments)expect(system).toContain(label);
@@ -113,6 +113,16 @@ test.each([
  '営業許可証がなくても掲載できますか',
  'ガスの請求書でもいいでしょうか',
  '店舗の確認に必要なものは書類ですか',
+ '税務署に提出した開業届の控えを店舗確認に使えますか？',
+ '保健所に提出した開設届の写しでも大丈夫ですか',
+ '書類って何を用意すればいい？',
+ '開業届の控えしかないです',
+ '開業届って必要ですか',
+ '書類はどこから出せばいいですか',
+ '営業許可証がまだ届いていませんが申込できますか',
+ '賃貸契約書のコピーで店舗確認できますか',
+ '開設届しか手元にありません',
+ 'どの書類を出せばいいか分かりません',
 ])('a store document question is detected without the model flag: %s',body=>{
  expect(isDocumentQuestion([{revision:1,message_type:'text',body}])).toBe(true);
 });
@@ -181,11 +191,27 @@ test.each([
  '証明書を印刷したい',
  '口コミの削除をお願いします',
  '領収書が届きません',
+ '書類を添付できません。どうすればよいですか？',
+ '書類を送信済みですが、届いていますか？',
+ '書類届きましたか',
+ '開業届を出しました',
+ '書類ありがとうございました',
+ '営業許可の書類、明日送ります',
+ '開業届の提出が完了しました',
+ '書類の件、了解です',
+ '公開後に開業届を出す形で申込できますか',
+ '営業許可証は掲載後に提出でも使えますか',
+ '書類の再提出はどうすればいいですか',
+ '書類の送り先のメールアドレスは？',
+ '書類が文字化けしています',
+ '開業届を出したことを報告します',
+ '書類を差し替えたいです',
+ '書類の返却はできますか',
 ])('a question about another matter keeps the drafted answer: %s',body=>{
  expect(isDocumentQuestion([{revision:1,message_type:'text',body}])).toBe(false);
 });
 test.each([
- ['書類をアップロードできません',false],['掲載料の請求書を発行してください',false],['書類は公開後に提出でもいいですか',false],['何を出せばいいですか',true],
+ ['書類をアップロードできません',false],['書類を添付できません。どうすればよいですか？',false],['税務署に提出した開業届の控えを店舗確認に使えますか？',true],['掲載料の請求書を発行してください',false],['書類は公開後に提出でもいいですか',false],['何を出せばいいですか',true],
 ] as const)('the model flag cannot replace an answer about another matter: %s',async(body,fixed)=>{
  create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:'個別の返信案です。',missingInformation:[],sourceUrls:[],documentList:true})}]});
  const result=await generateLineSupportDraft([{revision:1,message_type:'text',body}],facts,conversation);if(result.state!=='ready')throw new Error('not ready');
