@@ -133,7 +133,7 @@ export default function AuthButton() {
     return (
       <div><Link
         href={`/auth/login?redirect=${encodeURIComponent(pathname)}`}
-        className="text-sm text-gray-600 hover:text-primary px-3 py-1.5 rounded-full hover:bg-sky-50 transition-colors"
+        className="inline-flex items-center text-sm font-medium text-primary border border-sky-300 px-4 py-1.5 rounded-full hover:bg-sky-50 transition-colors"
       >
         ログイン
       </Link>{notice}</div>

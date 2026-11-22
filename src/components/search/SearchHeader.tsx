@@ -4,7 +4,7 @@
 // 先読み対象が最も多い。既定で先読みしない（理由と実測は components/BrowseLink.tsx）。
 import Link from '@/components/BrowseLink';
 import { useEffect, useId, useRef, useState } from 'react';
-import { businessTypes } from '@/lib/constants';
+import { businessTypeMenuGroups } from '@/lib/business-type-menu';
 import AuthButton from '@/components/auth/AuthButton';
 import dynamic from 'next/dynamic';
 import { businessTypeLabel } from '@/lib/business-type-label';
@@ -14,6 +14,9 @@ import {
   HEADER_LISTING_LINK,
   HEADER_MOBILE_LINK,
   HEADER_MOBILE_LISTING_LINK,
+  HEADER_MOBILE_SHOP_BOX,
+  HEADER_MOBILE_SHOP_NOTE,
+  HEADER_MOBILE_SHOP_TITLE,
   HEADER_MOBILE_STORE_LOGIN_LINK,
   HEADER_NAV_LINK,
   HEADER_STORE_LOGIN_LINK,
@@ -79,19 +82,24 @@ function BusinessTypeMenu() {
       </button>
       {open && (
         <div id={panelId} className="absolute left-0 top-full mt-2 max-h-[70vh] overflow-y-auto w-60 rounded-xl border border-gray-100 bg-white p-2 shadow-lg z-10">
-          <ul className="flex flex-col">
-            {businessTypes.map((type) => (
-              <li key={type}>
-                <Link
-                  href={`/search?type=${encodeURIComponent(type)}`}
-                  onClick={() => setOpen(false)}
-                  className="block rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-sky-50 hover:text-primary transition-colors"
-                >
-                  {businessTypeLabel(type)}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          {businessTypeMenuGroups((type) => businessTypeLabel(type)).map((group) => (
+            <div key={group.title} className="py-1">
+              <p className="px-3 pt-1 pb-0.5 text-xs font-bold text-gray-500">{group.title}</p>
+              <ul className="flex flex-col">
+                {group.links.map((link) => (
+                  <li key={link.href}>
+                    <Link
+                      href={link.href}
+                      onClick={() => setOpen(false)}
+                      className="block rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-sky-50 hover:text-primary transition-colors"
+                    >
+                      {link.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -166,15 +174,16 @@ export default function SearchHeader() {
           }`}
         >
           <nav aria-label="モバイルメニュー" className="pb-4 border-t border-gray-100 pt-3 flex flex-col gap-1">
-            {businessTypes.map((type) => (
-              <Link
-                key={type}
-                href={`/search?type=${encodeURIComponent(type)}`}
-                className={HEADER_MOBILE_LINK}
-                onClick={() => setIsOpen(false)}
-              >
-                {businessTypeLabel(type)}
-              </Link>
+            {/* 業種はお客様が探す順に区切って出す。医療は 1 項目にまとめる（lib/business-type-menu.ts・2026年11月22日） */}
+            {businessTypeMenuGroups((type) => businessTypeLabel(type)).map((group) => (
+              <div key={group.title} className="mb-1">
+                <p className="px-3 pt-2 pb-1 text-xs font-bold text-gray-500">{group.title}</p>
+                {group.links.map((link) => (
+                  <Link key={link.href} href={link.href} className={HEADER_MOBILE_LINK} onClick={() => setIsOpen(false)}>
+                    {link.label}
+                  </Link>
+                ))}
+              </div>
             ))}
             <Link
               href="/search/area"
@@ -183,22 +192,27 @@ export default function SearchHeader() {
             >
               エリアから探す
             </Link>
-            {/* 店舗向けの入口（掲載の案内と、掲載中の店舗の管理画面）。区切って置く。 */}
-            <Link
-              href={SHOP_LISTING_HREF}
-              className={HEADER_MOBILE_LISTING_LINK}
-              onClick={() => setIsOpen(false)}
-            >
-              {SHOP_LISTING_LABEL}
-            </Link>
-            {/* デスクトップと同じく店舗オーナー向けの管理画面入口（弱いトーンで置く）。 */}
-            <Link
-              href="/auth/login?redirect=/admin"
-              className={HEADER_MOBILE_STORE_LOGIN_LINK}
-              onClick={() => setIsOpen(false)}
-            >
-              店舗ログイン
-            </Link>
+            {/* 店舗向けの入口は「店舗の方」の枠にまとめ、お客様向けの項目と見た目をはっきり分ける（2026年11月22日）。 */}
+            <div className={HEADER_MOBILE_SHOP_BOX}>
+              <p className={HEADER_MOBILE_SHOP_TITLE}>店舗の方</p>
+              <p className={HEADER_MOBILE_SHOP_NOTE}>CareLink への掲載・管理画面はこちら</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Link
+                  href={SHOP_LISTING_HREF}
+                  className={HEADER_MOBILE_LISTING_LINK}
+                  onClick={() => setIsOpen(false)}
+                >
+                  {SHOP_LISTING_LABEL}
+                </Link>
+                <Link
+                  href="/auth/login?redirect=/admin"
+                  className={HEADER_MOBILE_STORE_LOGIN_LINK}
+                  onClick={() => setIsOpen(false)}
+                >
+                  店舗ログイン
+                </Link>
+              </div>
+            </div>
           </nav>
         </div>
       </div>

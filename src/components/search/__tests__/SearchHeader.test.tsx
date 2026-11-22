@@ -13,6 +13,10 @@ import '@testing-library/jest-dom';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { businessTypes } from '@/lib/constants';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import { businessTypeMenuGroups } from '@/lib/business-type-menu';
+
+// 2026年11月22日: 業種は区切って出し、医療は「病院・クリニック・歯科」1 項目にまとめる（lib/business-type-menu.ts）。
+const menuLinks = businessTypeMenuGroups((t) => businessTypeLabel(t)).flatMap((g) => g.links);
 import SearchHeader from '../SearchHeader';
 
 jest.mock('next/dynamic', () => ({ __esModule: true, default: () => function LocaleStub() { return null; } }));
@@ -33,8 +37,9 @@ test('デスクトップは業種を「業種から探す」1 つにまとめ、
   expect(toggle).toHaveAttribute('aria-expanded', 'true');
   const panel = document.getElementById(toggle.getAttribute('aria-controls')!)!;
   const links = within(panel).getAllByRole('link');
-  expect(links.map((l) => l.textContent)).toEqual(businessTypes.map(businessTypeLabel));
-  expect(links[0]).toHaveAttribute('href', `/search?type=${encodeURIComponent(businessTypes[0]!)}`);
+  expect(links.map((l) => l.textContent)).toEqual(menuLinks.map((l) => l.label));
+  expect(links[0]).toHaveAttribute('href', menuLinks[0]!.href);
+  expect(links.map((l) => l.textContent)).not.toContain('内科');
 
   // リンクを押す・Esc・外側のクリックで閉じる
   fireEvent.click(links[0]!);
@@ -76,7 +81,8 @@ test('スマホのメニューは業種を一覧のまま出し、開閉ボタ�
   fireEvent.click(menu);
   expect(menu).toHaveAttribute('aria-expanded', 'true');
   const links = within(mobileNav()).getAllByRole('link', { hidden: true }).map((l) => l.textContent);
-  expect(links).toEqual(expect.arrayContaining(businessTypes.map(businessTypeLabel)));
+  expect(links).toEqual(expect.arrayContaining(menuLinks.map((l) => l.label)));
+  expect(links).not.toContain('内科');
   fireEvent.click(within(mobileNav()).getByRole('link', { name: '掲載をお考えの方', hidden: true }));
   expect(menu).toHaveAttribute('aria-expanded', 'false');
 });
