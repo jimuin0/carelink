@@ -30,7 +30,7 @@ test('drafts answer document timing concretely from published facts without repe
  await generateLineSupportDraft(history,facts,conversation);
  const system=create.mock.calls[0][0].system as string;
  expect(system).toContain('documentTiming');expect(system).toContain('acceptedDocuments');
- expect(system).toContain('聞かれたことだけ');expect(system).toContain('聞かれていない公開情報');expect(system).toContain('別の窓口へ誘導しない');expect(system).toContain('大丈夫です');expect(system).toContain('documentList を true');expect(system).toContain('決まった文面に差し替えます');expect(system).toContain('全文を書いて');expect(system).not.toContain('短い要約');expect(system).toContain('段落の間には空行');
+ expect(system).toContain('聞かれたことだけ');expect(system).toContain('聞かれていない公開情報');expect(system).toContain('別の窓口へ誘導しない');expect(system).toContain('大丈夫です');expect(system).toContain('documentList を true');expect(system).toContain('決まった文面に差し替えます');expect(system).toContain('全文を書いて');expect(system).not.toContain('短い要約');expect(system).toContain('段落の間には空行');expect(system).toContain('提出猶予ではなく提出時期の相談');expect(system).toContain('公開後の提出でもよいと読める表現は使わない');
  const sent=JSON.parse(create.mock.calls[0][0].messages[0].content);expect(sent.question.revision).toBe(Math.max(...history.map(h=>h.revision)));expect(sent.earlierMessages).toHaveLength(history.length-1);
  expect(system).toContain('個別の提出猶予');
  for(const label of facts.facts.acceptedDocuments)expect(system).toContain(label);
@@ -251,6 +251,88 @@ test.each([
  const result=await generateLineSupportDraft([{revision:1,message_type:'text',body}],facts,conversation);if(result.state!=='ready')throw new Error('not ready');
  expect(result.draft.text).toBe(fixed?LINE_SUPPORT_DOCUMENT_REPLY:'個別の返信案です。');
 });
+// 話し言葉の検査表（2026-11-22 実機テスト不合格を受け、実装前に確定）
+const REPORTED='開業届が手元にないけど、先に申し込みすることって可能ですか？\n\nお手隙の際にご返信のほどお願いします。';
+const NATURAL_FORMS=[
+ '開業届が手元にないけど、先に申し込みすることって可能ですか？',
+ '開業届が手元にないのですが、先に申し込みすることは可能でしょうか',
+ '開業届がまだないんですけど、申し込みってできますか？',
+ '開業届まだなんだけど先に申し込みできる？',
+ '開業届を持ってないんですが申込だけ先にできますか',
+ '営業許可証が手元にありませんが、先に掲載申込することはできますか',
+ '書類がまだ揃ってないんですけど、先に申し込んでも大丈夫ですか',
+ '書類が無くても申込出来ますか',
+ '開業届って手元になくても申し込めます？',
+ '開業届がまだできていないのですが、先に申し込むことは可能ですか',
+ '開業届がない状態でも申し込みはできますか',
+ '開業届がまだ届いてないけど先に登録だけってできますか',
+ '必要な書類って何ですか？',
+ '必要書類って何がありますか',
+ 'どんな書類がいりますか',
+ '書類って何が必要ですか',
+ '開業届でもOKですか',
+ '開業届で大丈夫そうですか',
+ '営業許可証のコピーでもいけますか',
+ '開業届がまだないんだけど、先に申込ってできますか',
+ 'すみません、開業届ってまだ手元にないんですけど申し込みできますか？',
+ '開業届が手元にないけど先に掲載の申し込みだけすることはできますか',
+ '開業届まだ出してないんですけど申し込めますか',
+ '開業届が無いんですが先に申請できますか',
+ '営業許可証がまだ届いてなくて、先に申し込みしてもいいですか',
+ '開業届なくても申し込みいけます？',
+ '書類が揃っていないのですが申し込みは可能ですか。よろしくお願いします',
+ '必要な書類を教えて下さい。お手すきの際にご確認お願いします',
+ '開業届のコピーでも大丈夫ですか？ご返信お待ちしています',
+ '突然のご連絡失礼します。開業届が手元にないけど申し込みできますか',
+ '開業届がないと申し込みできませんか',
+];
+const COURTESY:((question:string)=>string)[]=[
+ q=>q,
+ q=>`${q}\n\nお手隙の際にご返信のほどお願いします。`,
+ q=>`お世話になっております。\n${q}`,
+ q=>`こんばんは！${q}\nよろしくお願いいたします。`,
+ q=>`お忙しいところ恐れ入りますが、${q}`,
+ q=>`はじめまして。夜分遅くに失礼します。${q}\nご確認よろしくお願いします🙇`,
+];
+const NOT_A_FORM=[
+ '開業届が手元にないので申し込みできません',
+ '開業届が手元にないけど申し込みしました',
+ '開業届がないのに申込が完了しました',
+ '書類がなくて申し込み画面でエラーになります',
+ '開業届が手元にないけど掲載料はかかりますか',
+ '開業届が手元にないけど先に申し込みすることって可能ですか？あと掲載料はいくらですか？',
+ '書類のアップロードができないけど申し込みできますか',
+ '開業届が手元にないけど予約の申し込みはできますか',
+ '開業届が手元にないけど先に公開することって可能ですか',
+ '開業届でもいいですか？もう送りましたが不備と言われました。よろしくお願いします。',
+ '開業届を送りました。確認お願いします。',
+ 'お手隙の際にご返信のほどお願いします。',
+ 'よろしくお願いします。',
+ '開業届が手元にないけど申し込みをキャンセルできますか',
+ '開業届がまだですが登録の削除はできますか',
+ '書類がないのに登録できました',
+ '開業届でいいですか。請求書もお願いします',
+ '書類を送りました。ご確認お願いします',
+ '開業届が手元にないけど申し込み内容の変更はできますか',
+ '営業許可証がないけど予約の登録はできますか',
+ '必要な書類を教えてください。あと解約方法も',
+ '開業届がまだなのでメール登録できません',
+ 'お忙しいところ恐れ入りますが、審査状況を教えてください',
+ '開業届がなくても掲載できますか',
+];
+const NATURAL_DEFERRAL=[
+ '開業届が手元にないけど、公開した後に出す形で先に申し込みすることって可能ですか？',
+ '開業届がないので掲載してから出してもいいですか？よろしくお願いします。',
+ '書類は公開してからでも申し込みできますか',
+];
+test('the consultation from the failed device test gets the fixed reply even when the model says false',async()=>{
+ create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:'個別の返信案です。',missingInformation:[],sourceUrls:[],documentList:false})}]});
+ const result=await generateLineSupportDraft([{revision:1,message_type:'text',body:REPORTED}],facts,conversation);if(result.state!=='ready')throw new Error('not ready');
+ expect(result.draft.text).toBe(LINE_SUPPORT_DOCUMENT_REPLY);
+});
+test.each([...NATURAL_FORMS,...ALWAYS_FIXED].flatMap(question=>COURTESY.map(wrap=>wrap(question))))('natural wording is fixed without the model: %s',body=>{expect(ask(body,false)).toBe(true);});
+test.each(NOT_A_FORM.flatMap(question=>COURTESY.map(wrap=>wrap(question))))('natural wording with another meaning is not a form: %s',body=>{expect(ask(body,false)).toBe(false);});
+test.each(NATURAL_DEFERRAL.flatMap(question=>COURTESY.map(wrap=>wrap(question))))('natural wording cannot obtain a deferral: %s',body=>{expect(ask(body,false)).toBe(false);expect(ask(body,true)).toBe(false);});
 test('the fixed document reply keeps one marker per level and a closing sentence',()=>{
  const lines=LINE_SUPPORT_DOCUMENT_REPLY.split('\n');
  expect(LINE_SUPPORT_DOCUMENT_REPLY).not.toContain('・');expect(LINE_SUPPORT_DOCUMENT_REPLY).not.toContain('公官庁');
