@@ -25,9 +25,23 @@ function fixture() {
   const body = { success: true, state: 'created', facilityId: 'synthetic', slug: 'synthetic' };
   const response = { status: () => 201, json: jest.fn(async () => body) };
   const route = { request: () => ({ method: () => 'POST' }), fetch: jest.fn(async () => response),
-    fulfill: jest.fn(async () => undefined), abort: jest.fn(async () => undefined), continue: jest.fn(async () => undefined) };
+    fulfill: jest.fn(async () => undefined), abort: jest.fn(async () => undefined), continue: jest.fn(async () => undefined),
+    fallback: jest.fn(async () => undefined) };
   return { run: (submit: () => Promise<void>) => exported.observeFacilitySetup!(page, submit), page, body, response,
     route, deliver: () => handler(route), handler: () => handler };
+}
+
+// Chromium strands requests in flight when the last route is removed during a navigation, so the
+// observer must never unroute. Once settled it must hand every request on untouched instead.
+async function expectInertWithoutUnroute(f: ReturnType<typeof fixture>) {
+  expect(f.page.unroute).not.toHaveBeenCalled();
+  for (const method of ['POST', 'GET']) {
+    const later = { request: () => ({ method: () => method }), fallback: jest.fn(async () => undefined),
+      fetch: jest.fn(), fulfill: jest.fn(), abort: jest.fn(), continue: jest.fn() };
+    await f.handler()(later);
+    expect(later.fallback).toHaveBeenCalledTimes(1);
+    for (const touched of [later.fetch, later.fulfill, later.abort, later.continue]) expect(touched).not.toHaveBeenCalled();
+  }
 }
 
 test('one real response is inspected and fulfilled without changing status/body', async () => {
@@ -37,7 +51,7 @@ test('one real response is inspected and fulfilled without changing status/body'
   expect(f.route.fetch).toHaveBeenCalledWith({ maxRetries: 0 });
   expect(f.route.fulfill).toHaveBeenCalledWith({ response: f.response });
   expect(f.route.abort).not.toHaveBeenCalled();
-  expect(f.page.unroute).toHaveBeenCalledWith('**/api/facility/setup', f.handler());
+  await expectInertWithoutUnroute(f);
 });
 test.each(['fetch', 'json', 'fulfill'] as const)('upstream %s failure is not a synthetic success or resend', async phase => {
   const f = fixture(); const failure = new Error(`synthetic ${phase} failure`);
@@ -46,7 +60,7 @@ test.each(['fetch', 'json', 'fulfill'] as const)('upstream %s failure is not a s
   await expect(f.run(f.deliver)).rejects.toBe(failure);
   expect(f.route.fetch).toHaveBeenCalledTimes(1);
   expect(f.route.abort).toHaveBeenCalledWith('connectionfailed');
-  expect(f.page.unroute).toHaveBeenCalledWith('**/api/facility/setup', f.handler());
+  await expectInertWithoutUnroute(f);
 });
 test('an observed non-success status is preserved for the caller to reject', async () => {
   const f = fixture(); f.response.status = () => 500;
@@ -57,17 +71,17 @@ test('no response and duplicated posts cannot pass the observation contract', as
   const missing = fixture();
   await expect(missing.run(async () => undefined)).rejects.toThrow();
   expect(missing.route.fetch).not.toHaveBeenCalled();
-  expect(missing.page.unroute).toHaveBeenCalled();
+  await expectInertWithoutUnroute(missing);
   const duplicate = fixture();
   await expect(duplicate.run(async () => { await duplicate.deliver(); await duplicate.deliver(); })).rejects.toThrow();
   expect(duplicate.route.fetch).toHaveBeenCalledTimes(2);
-  expect(duplicate.page.unroute).toHaveBeenCalled();
+  await expectInertWithoutUnroute(duplicate);
 });
-test('submission failure removes only the installed observer', async () => {
+test('submission failure leaves the installed observer inert', async () => {
   const f = fixture(); const failure = new Error('synthetic click failure');
   await expect(f.run(async () => { throw failure; })).rejects.toBe(failure);
   expect(f.route.fetch).not.toHaveBeenCalled();
-  expect(f.page.unroute).toHaveBeenCalledWith('**/api/facility/setup', f.handler());
+  await expectInertWithoutUnroute(f);
 });
 test('non-POST traffic continues unchanged and does not count as setup', async () => {
   const f = fixture();
