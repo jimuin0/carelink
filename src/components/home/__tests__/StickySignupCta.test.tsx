@@ -7,7 +7,7 @@
  * - 下部ナビのすぐ上に、fixed ではなく sticky で出す（ページ末尾ではフッターを覆わない）
  */
 import '@testing-library/jest-dom';
-import { act, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import StickySignupCta from '../StickySignupCta';
 import { COOKIE_CONSENT_CHANGE_EVENT, COOKIE_CONSENT_STORAGE_KEY, closeCookieSettings, openCookieSettings } from '@/lib/cookie-consent';
 
@@ -64,11 +64,40 @@ test('ログイン済みなら出さない', async () => {
   expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
 });
 
-test('閉じるボタンは出さない（一度閉じると登録の入口が二度と出なくなるため・2026年11月22日）', async () => {
+test('閉じるボタンで閉じられ、同じタブを開いている間は出さない（次に来たときは出す・2026年11月22日）', async () => {
   localStorage.setItem(COOKIE_CONSENT_STORAGE_KEY, '{}');
+  const first = await renderCta();
+  fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+  expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
+  first.unmount();
+  await renderCta();
+  expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
+  sessionStorage.clear();
+  cleanup();
   await renderCta();
   expect(screen.getByRole('link', { name: '無料で会員登録する' })).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: '閉じる' })).toBeNull();
+});
+
+test('sessionStorage が使えなくても表示でき、閉じるボタンで閉じられる', async () => {
+  localStorage.setItem(COOKIE_CONSENT_STORAGE_KEY, '{}');
+  const originalGet = Storage.prototype.getItem;
+  const originalSet = Storage.prototype.setItem;
+  const get = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key: string) {
+    if (this === sessionStorage) throw new Error('blocked');
+    return originalGet.call(this, key);
+  });
+  const set = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (this === sessionStorage) throw new Error('blocked');
+    return originalSet.call(this, key, value);
+  });
+  try {
+    await renderCta();
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
+  } finally {
+    get.mockRestore();
+    set.mockRestore();
+  }
 });
 
 test('トップの見出しが見えている間は出さず、通り過ぎたら出す', async () => {
