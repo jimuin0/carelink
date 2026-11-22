@@ -70,7 +70,7 @@ describe('LINE support shared facts and dispatch policy', () => {
     expect(publicLineSupportAnswer('歯科は掲載できますか',knowledge)?.topic).toBe('industry');
   });
   test('draft schema rejects malformed model commands and unapproved sources', () => {
-    for(const value of [{text:{}},{text:'',missingInformation:[],sourceUrls:[]},{text:'案',missingInformation:[],sourceUrls:['https://evil.invalid']},{text:'案',missingInformation:[],sourceUrls:[],send:true}]) expect(lineSupportDraftSchema.safeParse(value).success).toBe(false);
+    for(const value of [{text:{}},{text:'',missingInformation:[],sourceUrls:[],documentList:false},{text:'案',missingInformation:[],sourceUrls:['https://evil.invalid'],documentList:false},{text:'案',missingInformation:[],sourceUrls:[],documentList:false,send:true},{text:'案',missingInformation:[],sourceUrls:[]}]) expect(lineSupportDraftSchema.safeParse(value).success).toBe(false);
   });
   const draft={conversationId:'case-1',conversationRevision:3,knowledgeRevision:knowledge.revision,recipientVersion:2,text:'返信案'};
   const current={conversationId:'case-1',conversationRevision:3,knowledgeRevision:knowledge.revision,recipientVersion:2,recipientVerified:true,operatorAllowed:true,deliveryState:'pending' as const};
@@ -79,7 +79,7 @@ describe('LINE support shared facts and dispatch policy', () => {
     expect(canNotifyLineSupportDraft(draft,{...current,...patch} as typeof current)).toBe(false);
   });
   test('LINE notification distinguishes the draft from a sent customer reply', () => {
-    const model=lineSupportDraftSchema.parse({text:'確認いたします。',missingInformation:[],sourceUrls:[]});
+    const model=lineSupportDraftSchema.parse({text:'確認いたします。',missingInformation:[],sourceUrls:[],documentList:false});
     expect(formatLineSupportDraftNotice('C-1',model)).toContain('送信済み履歴');
     expect(formatLineSupportDraftNotice('C-1',{...model,missingInformation:['発生時刻']})).toContain('発生時刻');
   });

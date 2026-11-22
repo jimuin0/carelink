@@ -38,42 +38,31 @@ export const LINE_SUPPORT_DOCUMENT_REPLY = [
   '上記以外でも、店舗名、住所、運営者が確認できる書類であればご提出いただけます。お手元の書類で判断がつかない場合も、お気軽にご相談ください。',
 ].join('\n\n');
 
-/** Names of store-verification documents. */
-const STORE_DOCUMENT = /書類|開業届|開設届|営業許可|確認済証/;
-/** These words also appear in billing, contract and login questions, so they need a submission intent. */
-const GENERAL_DOCUMENT = /届出|許可証|証明書|契約書|請求書|領収書|証券|本人確認/;
-/** Asking whether a document can be used. Answered by the fixed reply even if it was submitted elsewhere (e.g. to a tax office). */
-const ACCEPTABILITY = /でも(いい|良い|よい|よろし|大丈夫|可能|OK|構|問題|店舗|受け?付)|代用|代わり|使え|しか(な|あり)|店舗確認/;
-/** Asking whether one may apply. Answered by the fixed reply whatever else the sentence mentions. */
-const APPLY_QUESTION = /(申し?込み?|登録)[はもが]?(でき(ますか|るか|るでしょうか)|可能|めますか)/;
-const SUBMISSION_INTENT = /提出|出せ|申込|申し込|手元|何が必要/;
-/** Kind, need or timing: a store document name alone is not a question about which document to submit. */
-const DOCUMENT_INTENT = /必要|要り|要る|いる(の|ん|でしょう)|いつ|後から|あとから|後で|あとで|まだ|なく|無く|ない|無い|無くし|紛失|何|なに|どれ|どの|どんな|種類|教えて|について|揃|申請中|審査中|予定|控え|コピー|写し|ありますか|大丈夫|OK|でしょうか/;
-/** Submitting after publication is an individual exemption: never answered by the fixed reply. */
-const DEFERRAL = /(公開|掲載)(した|された)?(後|あと)/;
-/** Questions the fixed reply does not answer. They keep the drafted answer even if the model sets the flag. */
-const OTHER_DOCUMENT_MATTER = new RegExp([
-  'アップロード|添付|エラー|開けません|開けない', // trouble
-  '(送信|提出|送付)(しました|済|が完了)|送りました|提出した|送った|届いて(い|な)|届きました|受け取', // already submitted or arrival
-  '書類の審査|審査(状況|結果)|確認(は|に)(どのくらい|どれくらい|何日)|却下|不備', // review status
-  '再提出|差し替|返却|削除|保管|個人情報|黒塗|マイナンバー|ファイル形式', // handling of the file
-  '書き方|記入例|取り方|税務署のどこ', // procedures at public offices
-  '同意書|問診|応募書類', // documents of customers and applicants
-  '(請求書|領収書)(を|の)?発行|請求書払|解約|退会', // billing and contract
-  'プロフィール|ページに', // showing a document on the listing
-].join('|'));
-
+const NAMED_DOCUMENT = '(?:開業届|開設届|営業許可証?|検査確認済証|(?:店舗の)?賃貸借契約書)';
 /**
- * The customer's own words decide first, so the fixed reply does not depend on the model flag.
- * The flag only adds questions without such words (e.g. 「何を出せばいいですか」).
+ * A few whole-message forms that always get the fixed reply. They match the entire message, so an added
+ * request (trouble, already submitted, billing) can never be swallowed; everything else follows the model flag.
  */
-export function isDocumentQuestion(history: SupportHistory, modelFlag = false): boolean {
-  const text = (splitConsultation(history).question?.body ?? '').normalize('NFKC').replace(/\s/g, '');
-  const askedToUse = ACCEPTABILITY.test(text) || APPLY_QUESTION.test(text);
-  if (DEFERRAL.test(text) || (OTHER_DOCUMENT_MATTER.test(text) && !askedToUse)) return false;
-  const bareTopic = /^(書類|開業届|開設届|営業許可証?|確認済証|必要書類|提出書類)(について)?[?？]?$/.test(text);
-  const storeQuestion = STORE_DOCUMENT.test(text) && (bareTopic || askedToUse || SUBMISSION_INTENT.test(text) || DOCUMENT_INTENT.test(text));
-  return modelFlag || storeQuestion || (GENERAL_DOCUMENT.test(text) && (askedToUse || SUBMISSION_INTENT.test(text)));
+const FIXED_REPLY_FORMS = [
+  // May I apply before I have the document?
+  `(?:${NAMED_DOCUMENT}|書類)(?:は|が|も)?(?:まだ)?(?:手元にない|手元に無い|ない|無い|なくても|無くても|なし|届いていません|届いていない|届かない|まだ)`
+    + '(?:なのですが|のですが|ですが|のですけど|んですが|が|で|でも)?(?:先に)?(?:掲載)?(?:の)?'
+    + '(?:(?:申込み?|申し込み|登録)(?:は|が)?(?:でき(?:ますか|るでしょうか)|可能(?:ですか|でしょうか))|申し込めますか)',
+  // Which documents are needed?
+  '(?:掲載に)?(?:必要な?書類|提出書類)(?:は|は何ですか|を教えてください)',
+  '(?:掲載に(?:は)?)?どんな書類が必要ですか',
+  // Is this document enough?
+  `(?:(?:税務署|保健所)に提出した)?${NAMED_DOCUMENT}(?:の(?:控え|コピー|写し))?`
+    + '(?:でも?(?:いい|良い|よい|よろしい|大丈夫|問題ない|可能)(?:ですか|でしょうか)|(?:は|を|でも)?(?:店舗確認に)?使えますか)',
+].map(form => new RegExp(`^(?:こんにちは|こんばんは|お世話になります|すみません)?${form}$`));
+/** Submitting after publication is an individual exemption: never answered by the fixed reply. */
+const DEFERRAL = /(?:公開|掲載)(?:した|された)?(?:後|あと)|(?:公開|掲載)(?:して|されて)から/;
+
+/** The listed forms are guaranteed; the required model flag decides every other question. */
+export function isDocumentQuestion(history: SupportHistory, modelFlag: boolean): boolean {
+  const text = (splitConsultation(history).question?.body ?? '').normalize('NFKC').replace(/[\s、,。.?!！？]/g, '');
+  if (DEFERRAL.test(text)) return false;
+  return modelFlag || FIXED_REPLY_FORMS.some(form => form.test(text));
 }
 
 type DraftFailure = 'configuration' | 'conversation_quota' | 'global_quota' | 'provider_error' | 'incomplete_response' | 'invalid_json' | 'invalid_schema';

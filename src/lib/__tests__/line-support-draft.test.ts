@@ -11,7 +11,7 @@ const facts=lineSupportKnowledge('a'.repeat(40));const conversation='10000000-00
 beforeEach(()=>{jest.resetAllMocks();process.env={...env,ANTHROPIC_API_KEY:'synthetic',LINE_SUPPORT_CLAUDE_MODEL:'synthetic-model'};
  (chatDailyLimit as jest.Mock).mockReturnValue(10);(checkChatLimit as jest.Mock).mockResolvedValue('allowed');
  (Anthropic as unknown as jest.Mock).mockImplementation(()=>({messages:{create}}));
- create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'tool_use',name:'ignored'},{type:'text',text:JSON.stringify({text:'状況を確認させてください。',missingInformation:['発生時刻'],sourceUrls:[]})}]});});
+ create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'tool_use',name:'ignored'},{type:'text',text:JSON.stringify({text:'状況を確認させてください。',missingInformation:['発生時刻'],sourceUrls:[],documentList:false})}]});});
 afterEach(()=>{process.env={...env};});
 test('generates a validated draft with bounded history and no tools or customer-send command',async()=>{
  const result=await generateLineSupportDraft(history,facts,conversation);expect(result.state).toBe('ready');
@@ -20,7 +20,7 @@ test('generates a validated draft with bounded history and no tools or customer-
  expect(create.mock.calls[0][0].system).toContain('顧客には送信されません');
 });
 test('drafts use the requested CareLink plain text style even when the model adds pronunciation and emphasis',async()=>{
- create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:'CareLink(ケアリンク)／CareLink（ケアリンク）の**掲載料**についてご案内いたします。',missingInformation:[],sourceUrls:[]})}]});
+ create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:'CareLink(ケアリンク)／CareLink（ケアリンク）の**掲載料**についてご案内いたします。',missingInformation:[],sourceUrls:[],documentList:false})}]});
  const result=await generateLineSupportDraft(history,facts,conversation);
  expect(result).toMatchObject({state:'ready',draft:{text:'CareLink／CareLinkの掲載料についてご案内いたします。'}});
  expect(create.mock.calls[0][0].system).toContain('利用実績が不明な相手');
@@ -35,24 +35,28 @@ test('drafts answer document timing concretely from published facts without repe
  expect(system).toContain('個別の提出猶予');
  for(const label of facts.facts.acceptedDocuments)expect(system).toContain(label);
 });
-test.each([[true,true],[false,false],[undefined,false]])('documentList %s uses the fixed document reply: %s',async(flag,fixed)=>{
- const out:Record<string,unknown>={text:'掲載申込は先に送信できます。公官庁からの通知も対象です。',missingInformation:[],sourceUrls:[]};if(flag!==undefined)out.documentList=flag;
+test.each([[true,true],[false,false]])('documentList %s uses the fixed document reply: %s',async(flag,fixed)=>{
+ const out={text:'掲載申込は先に送信できます。公官庁からの通知も対象です。',missingInformation:[],sourceUrls:[],documentList:flag};
  create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify(out)}]});
  const result=await generateLineSupportDraft(history,facts,conversation);if(result.state!=='ready')throw new Error('not ready');
  expect(result.draft.text).toBe(fixed?LINE_SUPPORT_DOCUMENT_REPLY:'掲載申込は先に送信できます。官公庁からの通知も対象です。');
 });
-test('a document question gets the fixed reply even when the model omits the flag',async()=>{
- create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:'短い要約です。',missingInformation:[],sourceUrls:[]})}]});
+test('a response without the required flag is not used as a draft',async()=>{
+ create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:'案',missingInformation:[],sourceUrls:[]})}]});
+ expect((await generateLineSupportDraft(history,facts,conversation)).state).toBe('unavailable');
+});
+test('a listed form gets the fixed reply even when the model says it is not a document question',async()=>{
+ create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:'短い要約です。',missingInformation:[],sourceUrls:[],documentList:false})}]});
  const doc=[{revision:1,message_type:'text',body:'掲載料はいくらですか'},{revision:2,message_type:'text',body:'開業届はまだ手元にないのですが、先に掲載申込できますか？'}];
  const result=await generateLineSupportDraft(doc,facts,conversation);if(result.state!=='ready')throw new Error('not ready');
  expect(result.draft.text).toBe(LINE_SUPPORT_DOCUMENT_REPLY);
 });
 test('only the newest message decides whether it is a document question',()=>{
- expect(isDocumentQuestion([{revision:1,message_type:'text',body:'書類について'},{revision:2,message_type:'text',body:'掲載料はいくらですか'}])).toBe(false);
- expect(isDocumentQuestion([{revision:1,message_type:'text',body:'賃貸借契約書でも大丈夫ですか'}])).toBe(true);
- expect(isDocumentQuestion([])).toBe(false);
+ expect(isDocumentQuestion([{revision:1,message_type:'text',body:'書類について'},{revision:2,message_type:'text',body:'掲載料はいくらですか'}],false)).toBe(false);
+ expect(isDocumentQuestion([{revision:1,message_type:'text',body:'賃貸借契約書でも大丈夫ですか'}],false)).toBe(true);
+ expect(isDocumentQuestion([],false)).toBe(false);
 });
-test.each([
+const DOCUMENT_QUESTIONS=[
  '開業届はまだ手元にないのですが、先に掲載申込できますか？',
  '開業届はまだ手元にないのですが、先に掲載申込できますか?',
  '開業届がまだ届かないのですが先に申し込めますか',
@@ -123,10 +127,10 @@ test.each([
  '賃貸契約書のコピーで店舗確認できますか',
  '開設届しか手元にありません',
  'どの書類を出せばいいか分かりません',
-])('a store document question is detected without the model flag: %s',body=>{
- expect(isDocumentQuestion([{revision:1,message_type:'text',body}])).toBe(true);
-});
-test.each([
+ '開業届でいいですか？',
+ '営業許可証でよろしいですか？',
+];
+const OTHER_MATTERS=[
  '掲載料はいくらですか',
  '掲載料の請求書を発行してください',
  '請求書はいつ届きますか',
@@ -207,13 +211,43 @@ test.each([
  '開業届を出したことを報告します',
  '書類を差し替えたいです',
  '書類の返却はできますか',
-])('a question about another matter keeps the drafted answer: %s',body=>{
- expect(isDocumentQuestion([{revision:1,message_type:'text',body}])).toBe(false);
-});
+ '書類のアップロードでエラーになります。代わりにメールで送ってもいいですか？',
+ '提出した書類に不備があるようですが、このままでも大丈夫ですか？',
+];
+// 検査表（PR #970・神原さんの回答 2026-11-22「B：決めた型は必ず定型文＋AI判定」）
+const ALWAYS_FIXED=[
+ '開業届はまだ手元にないのですが、先に掲載申込できますか？',
+ '開業届はまだ手元にないのですが、先に掲載申込できますか?',
+ '開 業 届はまだですが申込できますか',
+ '開業届がまだ届かないのですが先に申し込めますか',
+ '営業許可証がまだ届いていませんが申込できますか',
+ '書類がなくても申込できますか',
+ '開業届なしで登録できますか',
+ '必要書類を教えてください',
+ '必要な書類は？',
+ '提出書類は何ですか',
+ 'どんな書類が必要ですか',
+ '開業届でいいですか？',
+ '営業許可証でよろしいですか？',
+ '営業許可証でも大丈夫ですか',
+ '営業許可証のコピーで大丈夫ですか',
+ '開設届のコピーでもいいですか',
+ '賃貸借契約書でも大丈夫ですか',
+ '税務署に提出した開業届の控えを店舗確認に使えますか？',
+ '保健所に提出した開設届の写しでも大丈夫ですか',
+];
+const NEVER_FIXED=['書類は公開後に提出でもいいですか','開業届を出すのは掲載後でも大丈夫ですか','公開後に開業届を出す形で申込できますか','営業許可証は掲載後に提出でも使えますか','書類は公開してから出せますか'];
+const ask=(body:string,flag:boolean)=>isDocumentQuestion([{revision:1,message_type:'text',body}],flag);
+test.each(ALWAYS_FIXED)('a listed form is fixed without the model: %s',body=>{expect(ask(body,false)).toBe(true);expect(ask(body,true)).toBe(true);});
+test.each(DOCUMENT_QUESTIONS.filter(body=>!ALWAYS_FIXED.includes(body)))('a document question outside the forms follows the model: %s',body=>{expect(ask(body,false)).toBe(false);expect(ask(body,true)).toBe(true);});
+test.each(OTHER_MATTERS.filter(body=>!NEVER_FIXED.includes(body)))('another matter follows the model and is never matched by a form: %s',body=>{expect(ask(body,false)).toBe(false);expect(ask(body,true)).toBe(true);});
+test.each(NEVER_FIXED)('submission after publication is never fixed: %s',body=>{expect(ask(body,false)).toBe(false);expect(ask(body,true)).toBe(false);});
+test.each(ALWAYS_FIXED.flatMap(body=>['アップロードでエラーになります','もう提出しましたが不備と言われました','掲載料はいくらですか'].flatMap(extra=>[`${body}${extra}`,`${extra}。${body}`])))('a form mixed with another matter follows the model: %s',body=>{expect(ask(body,false)).toBe(false);});
+test('a greeting and line breaks do not break a listed form',()=>{expect(ask('こんにちは。\n開業届でいいですか？',false)).toBe(true);});
 test.each([
- ['書類をアップロードできません',false],['書類を添付できません。どうすればよいですか？',false],['税務署に提出した開業届の控えを店舗確認に使えますか？',true],['掲載料の請求書を発行してください',false],['書類は公開後に提出でもいいですか',false],['何を出せばいいですか',true],
-] as const)('the model flag cannot replace an answer about another matter: %s',async(body,fixed)=>{
- create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:'個別の返信案です。',missingInformation:[],sourceUrls:[],documentList:true})}]});
+ ['開業届でいいですか？',false,true],['何を出せばいいですか',true,true],['書類を添付できません。どうすればよいですか？',false,false],['書類は公開後に提出でもいいですか',true,false],
+] as const)('generation follows the inspection table: %s / %s',async(body,documentList,fixed)=>{
+ create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:'個別の返信案です。',missingInformation:[],sourceUrls:[],documentList})}]});
  const result=await generateLineSupportDraft([{revision:1,message_type:'text',body}],facts,conversation);if(result.state!=='ready')throw new Error('not ready');
  expect(result.draft.text).toBe(fixed?LINE_SUPPORT_DOCUMENT_REPLY:'個別の返信案です。');
 });
@@ -229,7 +263,7 @@ test('the newest message is the question even when history arrives out of order'
  expect(splitConsultation([])).toEqual({question:null,earlierMessages:[]});
 });
 test('a draft containing only decoration is rejected after plain text formatting',async()=>{
- create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:' ** ** ',missingInformation:[],sourceUrls:[]})}]});
+ create.mockResolvedValue({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({text:' ** ** ',missingInformation:[],sourceUrls:[],documentList:false})}]});
  expect((await generateLineSupportDraft(history,facts,conversation)).state).toBe('unavailable');
 });
 test('existing provider aliases are supported without switching providers',async()=>{
@@ -248,7 +282,7 @@ test.each(['limited','unavailable'])('quota %s blocks generation',async state=>{
  (checkChatLimit as jest.Mock).mockResolvedValue(state);expect((await generateLineSupportDraft(history,facts,conversation)).state).toBe('unavailable');expect(create).not.toHaveBeenCalled();
 });
 test.each([{stop_reason:'max_tokens',content:[]},{stop_reason:'end_turn',content:[{type:'text',text:'bad json'}]},
- {stop_reason:'end_turn',content:[{type:'text',text:'{"text":{},"missingInformation":[],"sourceUrls":[]}'}]}])('does not accept incomplete or malformed model output %j',async value=>{
+ {stop_reason:'end_turn',content:[{type:'text',text:'{"text":{},"missingInformation":[],"sourceUrls":[],"documentList":false}'}]}])('does not accept incomplete or malformed model output %j',async value=>{
  create.mockResolvedValue(value);expect((await generateLineSupportDraft(history,facts,conversation)).state).toBe('unavailable');
 });
 test('provider errors do not log customer details or credentials',async()=>{
@@ -282,16 +316,16 @@ test('requests provider-enforced JSON while retaining the local strict source an
  expect((await generateLineSupportDraft(history,facts,conversation)).state).toBe('ready');
  const format=create.mock.calls[0][0].output_config.format;
  expect(format.type).toBe('json_schema');expect(format.schema.additionalProperties).toBe(false);
- expect(format.schema.required).toEqual(['text','missingInformation','sourceUrls']);
+ expect(format.schema.required).toEqual(['text','missingInformation','sourceUrls','documentList']);
  // This installed SDK moves unsupported constraints into descriptions; the local parser remains authoritative.
  for(const url of facts.facts.sources)expect(JSON.stringify(format.schema)).toContain(url);
- expect(format.parse(JSON.stringify({text:'案',missingInformation:[],sourceUrls:[]}))).toEqual({text:'案',missingInformation:[],sourceUrls:[]});
- expect(()=>format.parse(JSON.stringify({text:'案',missingInformation:[],sourceUrls:['https://evil.invalid']}))).toThrow();
+ expect(format.parse(JSON.stringify({text:'案',missingInformation:[],sourceUrls:[],documentList:false}))).toEqual({text:'案',missingInformation:[],sourceUrls:[],documentList:false});
+ expect(()=>format.parse(JSON.stringify({text:'案',missingInformation:[],sourceUrls:['https://evil.invalid'],documentList:false}))).toThrow();
 });
 test.each([
  ['incomplete_response',{stop_reason:'max_tokens',content:[]}],
  ['invalid_json',{stop_reason:'end_turn',content:[{type:'text',text:'private malformed response'}]}],
- ['invalid_schema',{stop_reason:'end_turn',content:[{type:'text',text:'{"text":"案","missingInformation":[],"sourceUrls":["https://evil.invalid"]}'}]}],
+ ['invalid_schema',{stop_reason:'end_turn',content:[{type:'text',text:'{"text":"案","missingInformation":[],"sourceUrls":["https://evil.invalid"],"documentList":false}'}]}],
 ] as const)('only a fixed failure code is logged for %s',async(reason,response)=>{
  const spy=jest.spyOn(console,'warn').mockImplementation();create.mockResolvedValue(response);
  try{expect((await generateLineSupportDraft(history,facts,conversation)).state).toBe('unavailable');expect(spy).toHaveBeenCalledWith('[line-support-draft]',reason);expect(JSON.stringify(spy.mock.calls)).not.toContain('private');expect(JSON.stringify(spy.mock.calls)).not.toContain('evil.invalid');}finally{spy.mockRestore();}
