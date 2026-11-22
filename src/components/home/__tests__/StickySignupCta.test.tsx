@@ -24,7 +24,13 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   mockGetUser.mockReset().mockResolvedValue({ data: { user: null } });
+  // 既定では最初の画面を過ぎた位置にいる（出し方の検査は下の専用テスト）
+  setScrollY(5000);
 });
+
+function setScrollY(y: number) {
+  Object.defineProperty(window, 'scrollY', { value: y, configurable: true, writable: true });
+}
 
 async function renderCta() {
   const view = render(<StickySignupCta />);
@@ -103,4 +109,21 @@ test('sessionStorage が使えなくても表示でき、閉じるボタンで�
     getSpy.mockRestore();
     setSpy.mockRestore();
   }
+});
+
+test('最初の画面（検索欄）を見ている間は出さず、下へスクロールしたら出し、戻ったら引っ込める', async () => {
+  localStorage.setItem(COOKIE_CONSENT_STORAGE_KEY, JSON.stringify({ necessary: true, analytics: false, marketing: false }));
+  setScrollY(0);
+  await renderCta();
+  expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
+  act(() => {
+    setScrollY(window.innerHeight);
+    window.dispatchEvent(new Event('scroll'));
+  });
+  expect(screen.getByRole('link', { name: '無料で会員登録する' })).toBeInTheDocument();
+  act(() => {
+    setScrollY(0);
+    window.dispatchEvent(new Event('scroll'));
+  });
+  expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
 });

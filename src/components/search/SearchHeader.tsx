@@ -4,10 +4,9 @@
 // 先読み対象が最も多い。既定で先読みしない（理由と実測は components/BrowseLink.tsx）。
 import Link from '@/components/BrowseLink';
 import { useEffect, useId, useRef, useState } from 'react';
-import { businessTypes } from '@/lib/constants';
+import BusinessTypeLinkList from '@/components/BusinessTypeLinkList';
 import AuthButton from '@/components/auth/AuthButton';
 import dynamic from 'next/dynamic';
-import { businessTypeLabel } from '@/lib/business-type-label';
 import {
   HEADER_ACCOUNT_GROUP,
   HEADER_BAR,
@@ -79,19 +78,12 @@ function BusinessTypeMenu() {
       </button>
       {open && (
         <div id={panelId} className="absolute left-0 top-full mt-2 max-h-[70vh] overflow-y-auto w-60 rounded-xl border border-gray-100 bg-white p-2 shadow-lg z-10">
-          <ul className="flex flex-col">
-            {businessTypes.map((type) => (
-              <li key={type}>
-                <Link
-                  href={`/search?type=${encodeURIComponent(type)}`}
-                  onClick={() => setOpen(false)}
-                  className="block rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-sky-50 hover:text-primary transition-colors"
-                >
-                  {businessTypeLabel(type)}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <div className="flex flex-col">
+            <BusinessTypeLinkList
+              linkClassName="block rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-sky-50 hover:text-primary transition-colors"
+              onNavigate={() => setOpen(false)}
+            />
+          </div>
         </div>
       )}
     </div>
@@ -166,16 +158,7 @@ export default function SearchHeader() {
           }`}
         >
           <nav aria-label="モバイルメニュー" className="pb-4 border-t border-gray-100 pt-3 flex flex-col gap-1">
-            {businessTypes.map((type) => (
-              <Link
-                key={type}
-                href={`/search?type=${encodeURIComponent(type)}`}
-                className={HEADER_MOBILE_LINK}
-                onClick={() => setIsOpen(false)}
-              >
-                {businessTypeLabel(type)}
-              </Link>
-            ))}
+            <BusinessTypeLinkList linkClassName={HEADER_MOBILE_LINK} onNavigate={() => setIsOpen(false)} />
             <Link
               href="/search/area"
               className={HEADER_MOBILE_LINK}
@@ -183,22 +166,17 @@ export default function SearchHeader() {
             >
               エリアから探す
             </Link>
-            {/* 店舗向けの入口（掲載の案内と、掲載中の店舗の管理画面）。区切って置く。 */}
-            <Link
-              href={SHOP_LISTING_HREF}
-              className={HEADER_MOBILE_LISTING_LINK}
-              onClick={() => setIsOpen(false)}
-            >
-              {SHOP_LISTING_LABEL}
-            </Link>
-            {/* デスクトップと同じく店舗オーナー向けの管理画面入口（弱いトーンで置く）。 */}
-            <Link
-              href="/auth/login?redirect=/admin"
-              className={HEADER_MOBILE_STORE_LOGIN_LINK}
-              onClick={() => setIsOpen(false)}
-            >
-              店舗ログイン
-            </Link>
+            {/* 店舗向けの入口（掲載の案内と、掲載中の店舗の管理画面）。来院者向けの項目と並べると
+                「誰向けのサイトか」が分かりにくい（2026年11月22日 神原さん指摘）ので、区切って最後に小さくまとめる。 */}
+            <div className="mt-3 pt-3 border-t border-gray-100">
+              <p className="px-4 pb-1 text-xs text-gray-500">店舗・施設の方</p>
+              <Link href={SHOP_LISTING_HREF} className={HEADER_MOBILE_LISTING_LINK} onClick={() => setIsOpen(false)}>
+                {SHOP_LISTING_LABEL}
+              </Link>
+              <Link href="/auth/login?redirect=/admin" className={HEADER_MOBILE_STORE_LOGIN_LINK} onClick={() => setIsOpen(false)}>
+                店舗ログイン
+              </Link>
+            </div>
           </nav>
         </div>
       </div>

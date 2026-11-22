@@ -51,18 +51,18 @@ export default function MobileBottomNav() {
   // data-bottom-fixed … Cookie 同意バナーがこの上に出るための目印（lib/mobile-bottom-bar.ts）。
   return (
     <nav data-bottom-fixed="" className="fixed bottom-0 left-0 right-0 z-40 h-[var(--mobile-nav-height)] bg-white border-t border-gray-200 lg:hidden pb-[env(safe-area-inset-bottom)]" aria-label="メインナビゲーション">
-      <div className="flex">
+      <div className="flex max-w-md mx-auto px-2">
         {items.map((item) => {
           const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex-1 flex flex-col items-center py-2 text-xs transition-colors ${
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 h-14 text-xs transition-colors ${
                 isActive ? 'text-sky-700' : 'text-gray-600'
               }`}
             >
-              <svg className="w-5 h-5 mb-0.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+              <svg className="w-[22px] h-[22px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
               </svg>
               {item.label}

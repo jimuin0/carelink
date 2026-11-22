@@ -1,11 +1,11 @@
 'use client';
 
 // Keep every SEO anchor in HTML, with one delegated router handler and no prefetch.
+import BusinessTypeLinkList from '@/components/BusinessTypeLinkList';
 import Link from '@/components/BrowseLink';
 import { useFooterNavigation } from '@/components/useFooterNavigation';
-import { regionGroups, businessTypes } from '@/lib/constants';
+import { regionGroups } from '@/lib/constants';
 import { getPrefectureSlug } from '@/lib/seo-constants';
-import { businessTypeLabel } from '@/lib/business-type-label';
 import CookieSettingsButton from '@/components/CookieSettingsButton';
 import { FOOTER_CATEGORY_LINKS_HTML } from '@/lib/footer-category-links';
 
@@ -107,15 +107,7 @@ export default function SearchFooter({ className = '' }: { className?: string })
           <div>
             <h2 className="text-white font-bold text-sm mb-3">業種から探す</h2>
             <nav className="flex flex-col gap-1.5 text-sm">
-              {businessTypes.map((type) => (
-                <a
-                  key={type}
-                  href={`/search?type=${encodeURIComponent(type)}`}
-                  className="hover:text-white transition-colors"
-                >
-                  {businessTypeLabel(type)}
-                </a>
-              ))}
+              <BusinessTypeLinkList linkClassName="hover:text-white transition-colors py-0.5" />
             </nav>
           </div>
         </div>

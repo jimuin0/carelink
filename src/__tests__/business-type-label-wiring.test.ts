@@ -26,8 +26,8 @@ const DISPLAY_SURFACES = [
   // 検索・絞り込み・回遊
   'src/components/search/SearchBar.tsx',
   'src/components/search/SearchFilters.tsx',
-  'src/components/search/SearchHeader.tsx',
-  'src/components/search/SearchFooter.tsx',
+  // ヘッダーのメニュー・検索側フッターの業種一覧は共用部品で描く（2026年11月22日）。
+  'src/components/BusinessTypeLinkList.tsx',
   'src/components/search/SearchSuggest.tsx',
   'src/components/Footer.tsx',
   'src/app/page.tsx',

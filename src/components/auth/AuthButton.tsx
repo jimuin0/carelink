@@ -133,8 +133,9 @@ export default function AuthButton() {
     return (
       <div><Link
         href={`/auth/login?redirect=${encodeURIComponent(pathname)}`}
-        className="text-sm text-gray-600 hover:text-primary px-3 py-1.5 rounded-full hover:bg-sky-50 transition-colors"
+        className="inline-flex items-center gap-1 text-sm font-medium text-primary border border-sky-300 px-3 py-1.5 rounded-full hover:bg-sky-50 transition-colors whitespace-nowrap"
       >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
         ログイン
       </Link>{notice}</div>
     );

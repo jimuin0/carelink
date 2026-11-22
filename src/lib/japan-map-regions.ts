@@ -26,9 +26,9 @@ interface RegionPlacement {
 }
 
 const PLACEMENT: Record<string, RegionPlacement> = {
-  '北海道・東北': { hub: '北海道', left: 146, top: 92 },
+  '北海道・東北': { hub: '北海道', left: 145, top: 52 },
   関東: { hub: '東京都', left: 270, top: 196 },
-  中部: { hub: '愛知県', left: 160, top: 132 },
+  中部: { hub: '愛知県', left: 146, top: 164 },
   近畿: { hub: '大阪府', left: 172, top: 246 },
   '中国・四国': { hub: '広島県', left: 50, top: 182 },
   '九州・沖縄': { hub: '福岡県', left: 2, top: 272 },

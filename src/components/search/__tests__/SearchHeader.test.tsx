@@ -11,7 +11,7 @@
  */
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { businessTypes } from '@/lib/constants';
+import { businessTypes, groupedMedicalBusinessTypes, MEDICAL_GROUP_LABEL, primaryBusinessTypes } from '@/lib/constants';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import SearchHeader from '../SearchHeader';
 
@@ -33,7 +33,13 @@ test('デスクトップは業種を「業種から探す」1 つにまとめ、
   expect(toggle).toHaveAttribute('aria-expanded', 'true');
   const panel = document.getElementById(toggle.getAttribute('aria-controls')!)!;
   const links = within(panel).getAllByRole('link');
-  expect(links.map((l) => l.textContent)).toEqual(businessTypes.map(businessTypeLabel));
+  // 美容系を先に、医療機関は「病院・クリニック」の折りたたみの中、最後に「その他」（2026年11月22日）
+  expect(links.map((l) => l.textContent)).toEqual(
+    [...primaryBusinessTypes, ...groupedMedicalBusinessTypes, 'その他'].map(businessTypeLabel),
+  );
+  expect([...links.map((l) => l.textContent)].sort()).toEqual(businessTypes.map(businessTypeLabel).sort());
+  expect(panel.querySelector('details[data-medical-group] summary')?.textContent).toBe(MEDICAL_GROUP_LABEL);
+  expect(panel.querySelector('details[data-medical-group]')).not.toHaveAttribute('open');
   expect(links[0]).toHaveAttribute('href', `/search?type=${encodeURIComponent(businessTypes[0]!)}`);
 
   // リンクを押す・Esc・外側のクリックで閉じる

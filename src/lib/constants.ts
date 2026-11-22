@@ -91,3 +91,13 @@ export function normalizeSiteUrl(raw: string | undefined): string {
   return base.replace(/^https?:\/\/www\.carelink-jp\.com/i, 'https://carelink-jp.com');
 }
 export const SITE_URL = normalizeSiteUrl(process.env.NEXT_PUBLIC_BASE_URL);
+
+/**
+ * 来院者向けの業種一覧の見せ方（2026年11月22日 神原さん指摘）。
+ * 診療科を 30 近く同列に並べると「病院のサイト」に見えるため、メニュー・フッターでは
+ * 美容系を先に並べ、医療機関は「病院・クリニック」の折りたたみの中にまとめる。
+ * 保存値・検索 URL（?type=）は変えない。並びの正は businessTypes。
+ */
+export const MEDICAL_GROUP_LABEL = '病院・クリニック';
+export const primaryBusinessTypes: readonly string[] = businessTypes.filter((t) => !medicalBusinessTypes.includes(t) && t !== 'その他');
+export const groupedMedicalBusinessTypes: readonly string[] = businessTypes.filter((t) => medicalBusinessTypes.includes(t));

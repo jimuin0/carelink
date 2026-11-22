@@ -37,6 +37,7 @@ function rememberDismissed(): void {
 
 export default function StickySignupCta() {
   const [show, setShow] = useState(false);
+  const [scrolledPastHero, setScrolledPastHero] = useState(false);
   const consentStored = useSyncExternalStore(subscribeToCookieConsent, hasAnsweredCookieBanner, getServerConsentSnapshot);
   const cookieSettingsOpen = useSyncExternalStore(subscribeToCookieSettings, isCookieSettingsOpen, getServerSettingsSnapshot);
 
@@ -47,7 +48,16 @@ export default function StickySignupCta() {
     }).catch(() => {});
   }, []);
 
-  if (!show || !consentStored || cookieSettingsOpen) return null;
+  // 2026年11月22日（神原さん指摘）: 最初の画面（検索欄）を見ている間は出さず、そこを過ぎて
+  // 下へスクロールしたら出す。上へ戻ったら引っ込める（LP によくある出し方）。
+  useEffect(() => {
+    const update = () => setScrolledPastHero(window.scrollY > window.innerHeight * 0.6);
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    return () => window.removeEventListener('scroll', update);
+  }, []);
+
+  if (!show || !scrolledPastHero || !consentStored || cookieSettingsOpen) return null;
 
   return (
     <div
