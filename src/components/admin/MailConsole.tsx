@@ -67,7 +67,10 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
     const form = composerForm.current;
     if (!form) return draft;
     const fields = new FormData(form);
-    const text = (name: string, fallback: string) => { const value = fields.get(name); return typeof value === 'string' ? value : fallback; };
+    // textarea は CRLF を LF に直して表示する。改行の違いしか無ければ保存済みの値を使い、
+    // 開いただけの下書きを未保存扱いにも、保存内容の書き換えにもしない（CL-985-04）。
+    const sameText = (a: string, b: string) => a.replace(/\r\n?/g, '\n') === b.replace(/\r\n?/g, '\n');
+    const text = (name: string, fallback: string) => { const value = fields.get(name); return typeof value === 'string' && !sameText(value, fallback) ? value : fallback; };
     return { ...draft, to: draft.contactId !== null ? draft.to : text('to', draft.to), subject: text('subject', draft.subject), body: text('body', draft.body) };
   };
   const dirty = composer !== null && JSON.stringify(composer) !== saved;

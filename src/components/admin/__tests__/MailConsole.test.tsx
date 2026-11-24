@@ -78,6 +78,21 @@ test('a freshly opened composer without input does not warn on reload', async ()
   const unload = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(unload);
   expect(unload.defaultPrevented).toBe(false);
 });
+test('a saved draft with CRLF line breaks is not treated as unsaved and keeps its stored body (CL-985-04)', async () => {
+  records = [{ ...base, body: '一行目\r\n二行目' }];
+  await ready();
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /ご案内.*synthetic/ }));
+  expect(screen.getByLabelText('本文')).toHaveValue('一行目\n二行目');
+  const unload = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: '送信済み', exact: true }));
+  expect(screen.queryByRole('dialog', { name: '未保存の変更があります' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /ご案内.*synthetic/ }));
+  fireEvent.click(screen.getByRole('button', { name: '下書き保存' })); await screen.findByText('下書きを保存しました。');
+  expect(commands[0]).toMatchObject({ action: 'save', draft: { body: '一行目\r\n二行目' } });
+});
 test('reply recipient stays the stored contact even if the read-only field is altered in the page', async () => {
   await ready(); fireEvent.click(screen.getByRole('button', { name: /合成問い合わせ/ }));
   fireEvent.click(await screen.findByRole('button', { name: '返信を書く' }));
