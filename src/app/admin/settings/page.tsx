@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { verifyAuthUser } from '@/lib/auth-verification';
+import { readAuthorization } from '@/lib/authorization-read';
 import { businessTypes, facilityFeatures, prefectures } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -143,7 +144,8 @@ function AdminSettingsContent() {
       if (!active) return;
       setFacilityChoices(selection.choices);
       if (!selection.selectedId) { setLoading(false); return; }
-      const { data, error } = await supabase.from('facility_profiles').select(FACILITY_PROFILE_READABLE_COLUMNS).eq('id', selection.selectedId).single();
+      // 認証・店舗選択と同じく期限を付ける。無期限だと「読み込み中」のまま再試行も出ない。
+      const { data, error } = await readAuthorization(supabase.from('facility_profiles').select(FACILITY_PROFILE_READABLE_COLUMNS).eq('id', selection.selectedId).single());
       if (!active) return;
       if (error) { setLoadError(true); setLoading(false); return; }
       if (!data) { setLoadError(true); setLoading(false); return; }
