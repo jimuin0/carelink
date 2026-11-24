@@ -59,14 +59,31 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
   const selectionSequence = useRef(0);
   const statusSync = useRef<{ generation: number; promise: Promise<SyncOutcome> } | null>(null);
   const syncCursor = useRef<z.infer<typeof syncSchema>['nextCursor']>(null);
+  // 宛先・件名・本文は非制御の入力欄で、表示中の値を正とする。制御された入力欄では、change が
+  // React に届かなかった値（自動入力など）を次の再描画が state の値で消してしまい、E2E で宛先だけ
+  // 空の下書きが保存された（CL-985-01）。保存・送信確認は必ず表示中の値を読み直す。
+  // 下書きを差し替えたとき（開く・新規作成・保存結果の反映）は composerVersion で入力欄を作り直す。
+  const visibleDraft = (draft: PlatformMailDraft): PlatformMailDraft => {
+    const form = composerForm.current;
+    if (!form) return draft;
+    const fields = new FormData(form);
+    const text = (name: string, fallback: string) => { const value = fields.get(name); return typeof value === 'string' ? value : fallback; };
+    return { ...draft, to: draft.contactId !== null ? draft.to : text('to', draft.to), subject: text('subject', draft.subject), body: text('body', draft.body) };
+  };
   const dirty = composer !== null && JSON.stringify(composer) !== saved;
+  // 未保存かどうかの判定（移動・再読み込みの確認）も表示中の値で行う。state だけを見ると、
+  // change が届かなかった入力を警告なしで捨ててしまう（CL-985-03）。
+  const hasUnsavedInput = () => composer !== null && JSON.stringify(visibleDraft(composer)) !== saved;
+  const unsavedCheck = useRef(hasUnsavedInput);
+  useEffect(() => { unsavedCheck.current = hasUnsavedInput; });
 
+  const hasComposer = composer !== null;
   useEffect(() => {
-    if (!dirty) return;
-    const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    if (!hasComposer) return;
+    const guard = (event: BeforeUnloadEvent) => { if (!unsavedCheck.current()) return; event.preventDefault(); event.returnValue = ''; };
     window.addEventListener('beforeunload', guard);
     return () => window.removeEventListener('beforeunload', guard);
-  }, [dirty]);
+  }, [hasComposer]);
 
   const synchronize = useCallback((): Promise<SyncOutcome> => {
     // One inspection per explicit reload, shared by list and selected history.
@@ -168,7 +185,7 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
   const navigate = (action: () => void) => {
     if (busy) return;
     const proceed = () => { selectionSequence.current += 1; setNotice(''); setPreview(null); setProviderId(undefined); action(); };
-    if (dirty) setPendingNavigation(() => proceed); else proceed();
+    if (hasUnsavedInput()) setPendingNavigation(() => proceed); else proceed();
   };
   const clearSelection = () => { setMail(null); setContact(null); setComposer(null); setSaved(''); };
   const openMail = (item: PlatformMailRecord) => {
@@ -198,17 +215,6 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
     else { setComposer(null); setSaved(''); }
     setRefresh(value => value + 1);
     return result.mail;
-  };
-  // 宛先・件名・本文は非制御の入力欄で、表示中の値を正とする。制御された入力欄では、change が
-  // React に届かなかった値（自動入力など）を次の再描画が state の値で消してしまい、E2E で宛先だけ
-  // 空の下書きが保存された（CL-985-01）。保存・送信確認は必ず表示中の値を読み直す。
-  // 下書きを差し替えたとき（開く・新規作成・保存結果の反映）は composerVersion で入力欄を作り直す。
-  const visibleDraft = (draft: PlatformMailDraft): PlatformMailDraft => {
-    const form = composerForm.current;
-    if (!form) return draft;
-    const fields = new FormData(form);
-    const text = (name: string, fallback: string) => { const value = fields.get(name); return typeof value === 'string' ? value : fallback; };
-    return { ...draft, to: draft.contactId !== null ? draft.to : text('to', draft.to), subject: text('subject', draft.subject), body: text('body', draft.body) };
   };
   const save = async (forPreview = false) => {
     if (!composer || busy) return;

@@ -63,6 +63,21 @@ test('displayed recipient is saved even when the browser never reported a change
   expect(commands[0]).toMatchObject({ action: 'save', draft: { to: contact.email, subject: 'ご案内', body: '架空の本文' } });
   expect(screen.getByLabelText('宛先')).toHaveValue(contact.email);
 });
+test('unreported recipient input still triggers the unsaved-changes guard on navigation and reload (CL-985-03)', async () => {
+  await ready(); fireEvent.click(screen.getByRole('button', { name: /新規作成/ }));
+  const to = screen.getByLabelText('宛先') as HTMLInputElement;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(to, contact.email);
+  const unload = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));
+  expect(await screen.findByRole('dialog', { name: '未保存の変更があります' })).toBeInTheDocument();
+  expect(screen.getByLabelText('宛先')).toHaveValue(contact.email);
+});
+test('a freshly opened composer without input does not warn on reload', async () => {
+  await ready(); fireEvent.click(screen.getByRole('button', { name: /新規作成/ }));
+  const unload = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(false);
+});
 test('reply recipient stays the stored contact even if the read-only field is altered in the page', async () => {
   await ready(); fireEvent.click(screen.getByRole('button', { name: /合成問い合わせ/ }));
   fireEvent.click(await screen.findByRole('button', { name: '返信を書く' }));
