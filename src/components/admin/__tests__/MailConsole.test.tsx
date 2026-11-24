@@ -1,6 +1,5 @@
 import '@testing-library/jest-dom';
 import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
-import React from 'react';
 import MailConsole from '../MailConsole';
 import { renderToString } from 'react-dom/server';
 import { PLATFORM_MAIL_FROM } from '@/lib/platform-mail-contract';
@@ -52,18 +51,26 @@ async function fill() {
   fireEvent.change(screen.getByLabelText('件名'), { target: { value: 'ご案内' } });
   fireEvent.change(screen.getByLabelText('本文'), { target: { value: '架空の本文' } });
 }
-test('consecutive field edits before a re-render keep every field (no stale composer)', async () => {
+test('displayed recipient is saved even when the browser never reported a change event', async () => {
   await ready(); fireEvent.click(screen.getByRole('button', { name: /新規作成/ }));
-  const setValue = (label: string, value: string) => {
-    const field = screen.getByLabelText(label) as HTMLInputElement | HTMLTextAreaElement;
-    const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(field, value);
-    field.dispatchEvent(new Event('input', { bubbles: true }));
-  };
-  // 1つの batch 内で続けて入力されると、再描画前の composer を使う実装は宛先を空に戻していた。
-  act(() => { React.startTransition(() => { setValue('宛先', contact.email); setValue('件名', 'ご案内'); setValue('本文', '架空の本文'); }); });
+  // 自動入力のように、表示だけ変わって React の change が届かない宛先（CL-985-01 の症状：宛先だけ空で保存）。
+  const to = screen.getByLabelText('宛先') as HTMLInputElement;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(to, contact.email);
+  fireEvent.change(screen.getByLabelText('件名'), { target: { value: 'ご案内' } });
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '架空の本文' } });
+  fireEvent.click(screen.getByRole('button', { name: '下書き保存' })); await screen.findByText('下書きを保存しました。');
+  expect(commands).toHaveLength(1);
+  expect(commands[0]).toMatchObject({ action: 'save', draft: { to: contact.email, subject: 'ご案内', body: '架空の本文' } });
   expect(screen.getByLabelText('宛先')).toHaveValue(contact.email);
-  expect(screen.getByLabelText('件名')).toHaveValue('ご案内'); expect(screen.getByLabelText('本文')).toHaveValue('架空の本文');
+});
+test('reply recipient stays the stored contact even if the read-only field is altered in the page', async () => {
+  await ready(); fireEvent.click(screen.getByRole('button', { name: /合成問い合わせ/ }));
+  fireEvent.click(await screen.findByRole('button', { name: '返信を書く' }));
+  const to = screen.getByLabelText('宛先') as HTMLInputElement;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(to, 'other@example.invalid');
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '架空の返信' } });
+  fireEvent.click(screen.getByRole('button', { name: '下書き保存' })); await screen.findByText('下書きを保存しました。');
+  expect(commands[0]).toMatchObject({ action: 'save', draft: { to: contact.email, body: '架空の返信' } });
 });
 test('fixed business identity; mounting never sends or creates a draft', async () => {
   await ready(); expect(screen.getByText('差出人：' + PLATFORM_MAIL_FROM)).toBeInTheDocument(); expect(commands).toHaveLength(0);
