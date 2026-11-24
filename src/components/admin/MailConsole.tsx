@@ -67,11 +67,19 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
     const form = composerForm.current;
     if (!form) return draft;
     const fields = new FormData(form);
-    // textarea は CRLF を LF に直して表示する。改行の違いしか無ければ保存済みの値を使い、
-    // 開いただけの下書きを未保存扱いにも、保存内容の書き換えにもしない（CL-985-04）。
+    // textarea は CRLF を LF に直して表示する。表示中の値が【保存済みの値】と改行の違いしか無ければ
+    // 保存済みの値を使い、開いただけ・編集して元に戻しただけの下書きを未保存扱いにも、
+    // 保存内容の改行の書き換えにもしない（CL-985-04・05）。比べる相手は編集中の state ではなく、
+    // この下書きを開いた・保存した時点の値（saved）。
     const sameText = (a: string, b: string) => a.replace(/\r\n?/g, '\n') === b.replace(/\r\n?/g, '\n');
-    const text = (name: string, fallback: string) => { const value = fields.get(name); return typeof value === 'string' && !sameText(value, fallback) ? value : fallback; };
-    return { ...draft, to: draft.contactId !== null ? draft.to : text('to', draft.to), subject: text('subject', draft.subject), body: text('body', draft.body) };
+    const baseline: Partial<PlatformMailDraft> = (() => { try { const value: unknown = saved ? JSON.parse(saved) : null; return value && typeof value === 'object' && (value as PlatformMailDraft).id === draft.id ? value as PlatformMailDraft : {}; } catch { return {}; } })();
+    const text = (name: 'to' | 'subject' | 'body') => {
+      const value = fields.get(name);
+      if (typeof value !== 'string') return draft[name];
+      const stored = baseline[name];
+      return typeof stored === 'string' && sameText(value, stored) ? stored : value;
+    };
+    return { ...draft, to: draft.contactId !== null ? draft.to : text('to'), subject: text('subject'), body: text('body') };
   };
   const dirty = composer !== null && JSON.stringify(composer) !== saved;
   // 未保存かどうかの判定（移動・再読み込みの確認）も表示中の値で行う。state だけを見ると、

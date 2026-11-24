@@ -93,6 +93,35 @@ test('a saved draft with CRLF line breaks is not treated as unsaved and keeps it
   fireEvent.click(screen.getByRole('button', { name: '下書き保存' })); await screen.findByText('下書きを保存しました。');
   expect(commands[0]).toMatchObject({ action: 'save', draft: { body: '一行目\r\n二行目' } });
 });
+test('editing CRLF line breaks and restoring them is not unsaved and keeps CRLF (CL-985-05)', async () => {
+  records = [{ ...base, body: '一行目\r\n二行目' }];
+  await ready();
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /ご案内.*synthetic/ }));
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '一行目\n\n二行目' } });
+  const edited = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(edited);
+  expect(edited.defaultPrevented).toBe(true);
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '一行目\n二行目' } });
+  const restored = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(restored);
+  expect(restored.defaultPrevented).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: '送信済み', exact: true }));
+  expect(screen.queryByRole('dialog', { name: '未保存の変更があります' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /ご案内.*synthetic/ }));
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '一行目\n\n二行目' } });
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '一行目\n二行目' } });
+  fireEvent.click(screen.getByRole('button', { name: '下書き保存' })); await screen.findByText('下書きを保存しました。');
+  expect(commands[0]).toMatchObject({ action: 'save', draft: { body: '一行目\r\n二行目' } });
+});
+test('a real line-break edit on a CRLF draft is saved as edited', async () => {
+  records = [{ ...base, body: '一行目\r\n二行目' }];
+  await ready();
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /ご案内.*synthetic/ }));
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '一行目\n\n二行目' } });
+  fireEvent.click(screen.getByRole('button', { name: '下書き保存' })); await screen.findByText('下書きを保存しました。');
+  expect(commands[0]).toMatchObject({ action: 'save', draft: { body: '一行目\n\n二行目' } });
+});
 test('reply recipient stays the stored contact even if the read-only field is altered in the page', async () => {
   await ready(); fireEvent.click(screen.getByRole('button', { name: /合成問い合わせ/ }));
   fireEvent.click(await screen.findByRole('button', { name: '返信を書く' }));
