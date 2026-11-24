@@ -258,18 +258,24 @@ jobs:
           Acquire::https::Timeout "15";
           DPkg::Lock::Timeout "60";
           EOF
-          # Azure's regional Ubuntu mirror repeatedly stalled package downloads
-          # on fresh runners. Use the official archive with the same suites and
-          # signing keys; keep dependency validation and the bounded retries.
+          # Regional Ubuntu mirrors (Azure, and since 2026-11-23 the EC2
+          # us-east-2 mirror reached via mirror+file:/etc/apt/apt-mirrors.txt)
+          # repeatedly stalled package downloads on fresh runners. Use the
+          # official archive with the same suites and signing keys; keep
+          # dependency validation and the bounded retries.
           sudo python3 - <<'PYTHON'
+          import re
           from pathlib import Path
+          official = 'https://archive.ubuntu.com/ubuntu/'
+          regional = re.compile(r'https?://(?:[a-z0-9-]+\.)+archive\.ubuntu\.com/ubuntu/?')
+          mirror_list = re.compile(r'mirror\+file:/etc/apt/apt-mirrors\.txt/?')
           source_dir = Path('/etc/apt/sources.list.d')
           sources = [Path('/etc/apt/sources.list'), *source_dir.glob('*.sources'), *source_dir.glob('*.list')]
           for source in sources:
               if not source.exists():
                   continue
               original = source.read_text()
-              updated = original.replace('http://azure.archive.ubuntu.com', 'https://archive.ubuntu.com').replace('https://azure.archive.ubuntu.com', 'https://archive.ubuntu.com')
+              updated = regional.sub(official, mirror_list.sub(official, original))
               if updated != original:
                   source.write_text(updated)
                   print('Using official Ubuntu archive:', source.name)
