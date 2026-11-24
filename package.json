@@ -102,7 +102,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^5",
     "vite": "^8.3.5",
-    "wrangler": "4.156.0"
+    "wrangler": "4.166.0"
   },
   "overrides": {
     "axios": "1.20.0",
