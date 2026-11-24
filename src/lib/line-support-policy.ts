@@ -23,8 +23,8 @@ export const lineSupportDraftSchema = z.object({
   text: z.string().trim().min(1).max(2400),
   missingInformation: z.array(z.string().trim().min(1).max(200)).max(5),
   sourceUrls: z.array(z.enum(['https://carelink-jp.com/register', 'https://carelink-jp.com/register/guide', 'https://carelink-jp.com/terms'])).max(3),
-  /** True when the question is about which documents to submit; the application appends the fixed list. */
-  documentList: z.boolean().optional(),
+  /** Required: true when the question is about documents for listing, which gets the fixed reply. */
+  documentList: z.boolean(),
 }).strict();
 
 export type DraftEnvelope = {
@@ -47,7 +47,7 @@ export function canNotifyLineSupportDraft(draft: DraftEnvelope, current: Dispatc
 }
 
 /** Notification preview contains the proposed text; original customer data stays in the console. */
-export function formatLineSupportDraftNotice(caseReference: string, draft: z.infer<typeof lineSupportDraftSchema>): string {
+export function formatLineSupportDraftNotice(caseReference: string, draft: Omit<z.infer<typeof lineSupportDraftSchema>, 'documentList'>): string {
   return `【CareLink 手動返信の文案】\n相談：${caseReference}\n次のメッセージがコピー用の返信文案です。\n\n運営の確認事項：${draft.missingInformation.join('／') || '管理画面で相談内容をご確認ください。'}\n\n運営向けの文案です。公式LINEの送信済み履歴と最新の追記を確認し、必要な内容だけ手動で返信してください。\nhttps://carelink-jp.com/admin/line-support?case=${encodeURIComponent(caseReference)}`;
 }
 
