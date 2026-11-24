@@ -67,7 +67,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",
-    "@babel/plugin-transform-runtime": "7.29.7",
+    "@babel/plugin-transform-runtime": "8.1.2",
     "@carelink/next-root-glob": "file:tools/next-root-glob",
     "@cloudflare/vite-plugin": "1.66.0",
     "@eslint/eslintrc": "^3.3.6",
