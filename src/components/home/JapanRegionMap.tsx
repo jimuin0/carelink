@@ -36,6 +36,8 @@ function applyFill(container: HTMLElement, prefCodes: string[], color: string) {
 export default function JapanRegionMap() {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
   const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
   const hoveredRef = useRef<string | null>(null);
   const listenersAttached = useRef(false);
@@ -120,9 +122,23 @@ export default function JapanRegionMap() {
     });
   }, [hoveredRegion]);
 
+  // 2026年11月22日: 地図は 340px 固定なので、iPhone SE（表示幅 320px・余白を除くと 288px）では右端の
+  // 「関東」が切れていた（本番で実測）。地図とラベルを同じ倍率でまとめて縮め、ラベルの位置関係を保つ。
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const update = () => setScale(Math.min(1, frame.clientWidth / JAPAN_MAP_SIZE.width));
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(update);
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    // ラベルは地図上の px 座標で置くので、外枠を地図と同じ大きさに固定する（幅が変わるとずれる）。
-    <div ref={containerRef} className="relative mx-auto" style={{ width: JAPAN_MAP_SIZE.width, height: JAPAN_MAP_SIZE.height }}>
+    <div ref={frameRef} data-japan-map-frame="" className="w-full" style={{ height: JAPAN_MAP_SIZE.height * scale }}>
+    {/* ラベルは地図上の px 座標で置くので、内側は地図と同じ大きさに固定し、狭い画面では全体を縮める。 */}
+    <div ref={containerRef} className="relative mx-auto origin-top" style={{ width: JAPAN_MAP_SIZE.width, height: JAPAN_MAP_SIZE.height, transform: scale < 1 ? `scale(${scale})` : undefined, marginLeft: scale < 1 ? `calc(50% - ${JAPAN_MAP_SIZE.width / 2}px)` : undefined }}>
       <div className="flex justify-center">
         <Japan
           type="select-single"
@@ -161,6 +177,7 @@ export default function JapanRegionMap() {
           </Link>
         ))}
       </div>
+    </div>
     </div>
   );
 }
