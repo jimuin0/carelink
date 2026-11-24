@@ -104,6 +104,8 @@ test('editing CRLF line breaks and restoring them is not unsaved and keeps CRLF 
   fireEvent.change(screen.getByLabelText('本文'), { target: { value: '一行目\n二行目' } });
   const restored = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(restored);
   expect(restored.defaultPrevented).toBe(false);
+  expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument();
+  expect(screen.getByText('保存済み')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '送信済み', exact: true }));
   expect(screen.queryByRole('dialog', { name: '未保存の変更があります' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));

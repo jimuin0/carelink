@@ -81,7 +81,11 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
     };
     return { ...draft, to: draft.contactId !== null ? draft.to : text('to'), subject: text('subject'), body: text('body') };
   };
-  const dirty = composer !== null && JSON.stringify(composer) !== saved;
+  // 表示用の「未保存の変更があります」も、改行の違いだけでは未保存にしない（CL-985-06）。
+  const lineBreaks = (draft: PlatformMailDraft) => JSON.stringify({ ...draft, to: draft.to.replace(/\r\n?/g, '\n'),
+    subject: draft.subject.replace(/\r\n?/g, '\n'), body: draft.body.replace(/\r\n?/g, '\n') });
+  const savedDraft = (() => { try { const value: unknown = saved ? JSON.parse(saved) : null; return value && typeof value === 'object' ? value as PlatformMailDraft : null; } catch { return null; } })();
+  const dirty = composer !== null && (savedDraft === null || lineBreaks(composer) !== lineBreaks(savedDraft));
   // 未保存かどうかの判定（移動・再読み込みの確認）も表示中の値で行う。state だけを見ると、
   // change が届かなかった入力を警告なしで捨ててしまう（CL-985-03）。
   const hasUnsavedInput = () => composer !== null && JSON.stringify(visibleDraft(composer)) !== saved;
