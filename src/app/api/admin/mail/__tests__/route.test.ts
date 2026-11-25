@@ -14,6 +14,8 @@ let mockProfile: { data: unknown; error: unknown };
 let mockList: { data: unknown; error: unknown };
 let mockContact: { data: unknown; error: unknown };
 let mockRows: Record<string, unknown>;
+let mockClaims: Set<string>;
+let mockClaimResult: { data: unknown; error: unknown } | null;
 let mockQueue: { data: unknown; error: unknown }[];
 const mockInbox = jest.fn();
 const mockEvidence = jest.fn();
@@ -71,7 +73,14 @@ beforeEach(() => {
   mockInbox.mockResolvedValue({ state: 'confirmed', contacts: [mockContact.data], nextCursor: null });
   mockEvidence.mockResolvedValue({ messages: [], replies: [] });
   mockThread.mockResolvedValue({ messages: [], replies: [] });
-  mockRpc.mockImplementation((_name: string, args: { p_action: string }) => mockBuilder(() => mockQueue.length ? mockQueue.shift() : { data: mockRows[args.p_action], error: null }));
+  mockClaims = new Set(); mockClaimResult = null;
+  mockRpc.mockImplementation((name: string, args: { p_action: string; p_key: string }) => mockBuilder(() => {
+    if (name === 'check_rate_limit') {
+      if (mockClaimResult) return mockClaimResult;
+      const limited = mockClaims.has(args.p_key); mockClaims.add(args.p_key); return { data: limited, error: null };
+    }
+    return mockQueue.length ? mockQueue.shift() : { data: mockRows[args.p_action], error: null };
+  }));
   mockProvider.mockReturnValue({ opaque: 'synthetic-provider' });
   mockDispatch.mockResolvedValue({ state: 'accepted', id: other });
   mockInspect.mockResolvedValue({ id: other, event: 'delivered' });
@@ -302,6 +311,21 @@ describe('Slack notification after provider acceptance', () => {
     if (outcome instanceof Error) mockNotify.mockRejectedValue(outcome); else mockNotify.mockResolvedValue(outcome);
     const result = await call({ action: 'send', id, revision: 1 }); expect(result.status).toBe(200);
     await expect(runAfter()).resolves.toBeUndefined(); expect(spy).toHaveBeenCalledWith('[platform-mail] Slack notification failed');
+    spy.mockRestore();
+  });
+  test('concurrent sends confirming the same acceptance notify only once', async () => {
+    await call({ action: 'send', id, revision: 1 });
+    mockRows.read = { ...base, state: 'pending', envelope, reserved_at: at };
+    await call({ action: 'send', id, revision: 1 });
+    expect(mockAfter).toHaveLength(2); await runAfter();
+    expect(mockNotify).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledWith('check_rate_limit', { p_key: 'platform-mail-notify:' + id, p_limit: 1, p_window_ms: 24 * 24 * 3600000 });
+  });
+  test.each([[{ data: null, error: { message: 'private' } }], [{ data: null, error: null }]])('unavailable claim skips the notification without changing the result: %j', async claim => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockClaimResult = claim;
+    expect((await call({ action: 'send', id, revision: 1 })).status).toBe(200); await runAfter();
+    expect(mockNotify).not.toHaveBeenCalled(); expect(spy).toHaveBeenCalledWith('[platform-mail] Slack notification claim unavailable');
     spy.mockRestore();
   });
   test('unknown dispatch, unsaved acceptance, refresh and cancel never notify', async () => {

@@ -16,12 +16,22 @@ import { sendNotify, type NotifyPayload } from '@/lib/notify';
 
 // 送信サービスが受け付けた時点で一度だけ運営 Slack へ知らせる。氏名・宛先・件名・本文は載せない。
 // 失敗しても送信結果は変えない（応答後に実行し、例外も握る）。
-function notifySent(record: PlatformMailRecord) {
+// 同じメールへの並行した send は reserve を両方通り、同じ受付 ID で observe も両方成功し得る（応答からは
+// 最初の確定かを区別できない）。そこで既存の原子的カウンタ check_rate_limit を「メールごとに1回だけ」の
+// 取り合いに使い、勝った呼び出しだけが通知する。判定できないときは通知しない（二重より欠落を選ぶ）。
+const NOTIFY_CLAIM_WINDOW_MS = 24 * 24 * 3600000; // INT の上限内（約24日）。古い行が掃除されても、守りたい並行の重なりは秒単位なので足りる。
+function notifySent(db: DB, record: PlatformMailRecord) {
   const payload: NotifyPayload = record.contact_id
     ? { type: 'contact_reply_sent', data: { contact_id: record.contact_id } }
     : { type: 'platform_mail_sent', data: { mail_id: record.id, scheduled: record.scheduled_at !== null } };
   runAfterResponse(async () => {
     try {
+      const claim = await db.rpc('check_rate_limit', { p_key: 'platform-mail-notify:' + record.id, p_limit: 1, p_window_ms: NOTIFY_CLAIM_WINDOW_MS })
+        .abortSignal(AbortSignal.timeout(8000));
+      if (claim.error || claim.data !== false) {
+        if (claim.error || claim.data !== true) console.error('[platform-mail] Slack notification claim unavailable');
+        return;
+      }
       const result = await sendNotify(payload);
       if (!result.ok) console.error('[platform-mail] Slack notification failed');
     } catch {
@@ -214,7 +224,7 @@ async function post(request: Request, ctx: RouteContext) {
         return json({ mail: record, providerId: acceptance.id, warning: '送信結果の保存を確認できません。状況を確認してください。' }, 202);
       }
       void writeAuditLog({ userId: actor, action: 'confirm', tableName: 'platform_mail', recordId: record.id, newValues: { event: 'provider_accepted', state: confirmed.state } });
-      notifySent(confirmed);
+      notifySent(db, confirmed);
       return json({ mail: confirmed });
     }
 
