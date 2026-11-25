@@ -36,6 +36,11 @@ export type NotifyPayload =
       data: { contact_id: string };
     }
   | {
+      /** 問い合わせに紐づかない運営メール（/admin/mail の新規作成）の送信受付。platform_mail.id だけを渡す。 */
+      type: 'platform_mail_sent';
+      data: { mail_id: string; scheduled: boolean };
+    }
+  | {
       type: 'contact';
       data: {
         /** contacts.id（運営宛のお問い合わせの受付番号） */
@@ -63,6 +68,9 @@ function adminUrlFor(payload: NotifyPayload): string {
 
     case 'contact_reply_sent':
       return `${base}/admin/mail?contactId=${payload.data.contact_id}`;
+
+    case 'platform_mail_sent':
+      return `${base}/admin/mail`;
 
     case 'facility_inquiry':
       // 【2026年7月10日 恒久根治】/admin/inquiries は contacts テーブル（運営宛の全社横断
@@ -93,6 +101,14 @@ function buildSlackMessage(payload: NotifyPayload): string {
         `> *受付番号:* ${payload.data.contact_id}`,
         '> 内容と送信状況は管理画面で確認してください。',
       ].join('\n');
+    case 'platform_mail_sent':
+      return [
+        payload.data.scheduled
+          ? ':outbox_tray: *運営メール（問い合わせ以外）の送信予約を送信サービスが受理しました*'
+          : ':outbox_tray: *運営メール（問い合わせ以外）を送信サービスが受理しました*',
+        `> *受付番号:* ${payload.data.mail_id.slice(0, 8)}`,
+        '> 内容と送信状況は管理画面で確認してください。',
+      ].join('\n');
     case 'contact':
       return [
         ':envelope: *お問い合わせ（運営宛）を受け付けました*',
@@ -114,6 +130,7 @@ const recordId = z.string().regex(UUID_REGEX);
 
 export const notifyPayloadSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('contact_reply_sent'), data: z.object({ contact_id: recordId }) }),
+  z.object({ type: z.literal('platform_mail_sent'), data: z.object({ mail_id: recordId, scheduled: z.boolean() }) }),
   z.object({
     type: z.literal('contact'),
     data: z.object({ contact_id: recordId }),

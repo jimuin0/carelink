@@ -284,3 +284,15 @@ describe('adminUrlFor — type ごとの管理画面 URL', () => {
     expect(getBlocksJson()).toContain(`/admin/facility-inquiries?facility_id=${facilityId}`);
   });
 });
+
+test.each([[false, '受理しました'], [true, '送信予約を送信サービスが受理']])('問い合わせ以外の運営メールは受付番号の先頭8文字だけを載せる（予約=%s）', async (scheduled, label) => {
+  const input = untyped({ type: 'platform_mail_sent', data: { mail_id: CONTACT_ID, scheduled, recipient: 'secret@example.invalid', subject: '秘密の件名' } });
+  expect((await sendNotify(input)).ok).toBe(true);
+  const posted = postedToSlack();
+  expect(posted).toContain(label);
+  expect(posted).toContain(CONTACT_ID.slice(0, 8));
+  expect(posted).not.toContain(CONTACT_ID);
+  expect(posted).toContain('https://carelink-jp.com/admin/mail"');
+  expect(posted).not.toContain('secret@example.invalid');
+  expect(posted).not.toContain('秘密の件名');
+});
