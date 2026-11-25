@@ -153,4 +153,3 @@ describe('extractCityLegacyV1（申込 HMAC v1 用に修正前の挙動を固定
     expect(extractCityLegacyV1(input)).toBe(expected);
   });
 });
-
