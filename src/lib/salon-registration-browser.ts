@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { extractCity } from './japan-address';
 import { canonicalSalonSubmission } from './salon-submission-contract';
 import { salonPhotoPath, SALON_PHOTO_BUCKET } from './salon-photo-contract';
 import { readSalonBrowserContext, saveSalonBrowserContext, type SalonBrowserContext, SALON_BROWSER_CONTEXT_KEY } from './salon-browser-context';
@@ -160,7 +161,10 @@ export class SalonRegistrationBrowser {
     }
     const agreement = registrationConsentSchema.safeParse(consent);
     if (!agreement.success) return { state: 'retryable', message: REGISTRATION_CONSENT_REQUIRED };
+    // サーバー側の正規化は HMAC v1 のため修正前の抽出を固定している。画面側で修正後の
+    // extractCity を明示的に入れ、保存される city を正しくする（「市川市市」にしない）。
     const canonical = canonicalSalonSubmission({ ...data,
+      city: data.city || extractCity(data.address) || null,
       seat_count: Number.isNaN(data.seat_count) ? null : data.seat_count,
       staff_count: Number.isNaN(data.staff_count) ? null : data.staff_count,
       source: 'register', photo_urls: [] });
