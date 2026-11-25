@@ -12,7 +12,7 @@
  *   - CARELINK_BASE_URL      例: https://carelink-jp.com（必須）
  *   - SLACK_BOT_TOKEN        通報用（任意・未設定ならログのみ）
  *   - SLACK_DEFAULT_CHANNEL  同上（未設定なら SLACK_ADMIN_CHANNEL_ID を使う）
- *   - SLACK_ADMIN_CHANNEL_ID SLACK_DEFAULT_CHANNEL が無いときの予備の通報先（2026年11月26日に共有グループ slack-gyomu-bot の紐付けを外し、Render では未設定）
+ *   - SLACK_ADMIN_CHANNEL_ID SLACK_DEFAULT_CHANNEL が無いときの予備の通報先
  *   - ADMIN_HEARTBEAT_URL    admin-dashboard heartbeat 送信先（任意・未設定なら no-op）
  *   - ADMIN_HEARTBEAT_TOKEN  同上
  */

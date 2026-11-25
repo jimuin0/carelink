@@ -44,7 +44,7 @@ function runHealth(mode: string, slack: boolean | 'shared-group' = false, opts: 
       CRON_SECRET: 'synthetic-cron-secret',
       SLACK_BOT_TOKEN: slack ? 'synthetic-fixture-token' : '',
       SLACK_DEFAULT_CHANNEL: slack === true ? 'synthetic-fixture-channel' : '',
-      // Fallback channel used when SLACK_DEFAULT_CHANNEL is unset (formerly from the slack-gyomu-bot group).
+      // Fallback channel used when SLACK_DEFAULT_CHANNEL is unset.
       SLACK_ADMIN_CHANNEL_ID: slack === 'shared-group' ? 'synthetic-admin-channel' : '',
     },
   });

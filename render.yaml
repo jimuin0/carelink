@@ -81,10 +81,7 @@ services:
         - package-lock.json
     envVars:
       - fromGroup: carelink-cron-env
-      # Slack 通報の資格情報は、このサービス自身の環境変数に Carelink アプリの値を置く
-      # （値はリポジトリに書かない＝sync: false。Render の画面で入れる）。2026年11月26日に、
-      # 旧アカウントの業務Bot の鍵を持つ共有グループ slack-gyomu-bot の紐付けを外した。
-      # Slack を使うのはこの監視だけなので他の cron には付けない。
+      # Slack 通報の値は Render の画面で入れる（sync: false）。Slack を使うのはこの監視だけ。
       - key: SLACK_BOT_TOKEN
         sync: false
       - key: SLACK_DEFAULT_CHANNEL
