@@ -102,12 +102,45 @@ export function extractCity(address: string | null | undefined): string | null {
   }
   // 「〇〇郡△△町」のように郡の町村が市より手前にあれば町村で切る（「芳賀郡市貝町市塙」など）。
   const gunTownFirst = best >= 0 && (cityIdx < 0 || best < cityIdx) && rest.lastIndexOf('郡', best) >= 0;
+  // 郡の町村が先にあれば区は町域名の一部（「紋別郡湧別町北兵村二区」）なので使わない。
   // 東京23区など「〇〇区」が市より手前にあれば区で切る（「新宿区市谷」の「市」は町名）。
   // 区を途中に含む市名は無いため、町・村と違って誤らない（「十日町市」「東村山市」は市まで）。
   const wardIdx = rest.indexOf('区', 1);
-  if (wardIdx >= 0 && (cityIdx < 0 || wardIdx < cityIdx)) return rest.slice(0, wardIdx + 1);
+  if (wardIdx >= 0 && !gunTownFirst && (cityIdx < 0 || wardIdx < cityIdx)) return rest.slice(0, wardIdx + 1);
   if (cityIdx >= 0 && !gunTownFirst) {
     if (rest[cityIdx + 1] === '市' && DOUBLE_SHI_CITY_STEMS.has(rest.slice(0, cityIdx + 1))) cityIdx += 1;
+    return rest.slice(0, cityIdx + 1);
+  }
+  if (best === -1) return null;
+  return rest.slice(0, best + 1);
+}
+
+/**
+ * 修正前（2026年11月25日まで）の extractCity をそのまま固定したもの。
+ *
+ * 🔴 使ってよいのはサーバー側の申込正規化（`salon-submission-contract.ts`）だけ。
+ * 正規化結果は受付済み申込の HMAC 照合に使われ、`SALON_CANONICAL_VERSION` を変えずに
+ * 解釈を変えると、受付済み申込の再送が replay ではなく conflict になる。
+ * 申込画面（RegisterForm）は新しい extractCity で city を計算して明示的に送るため、
+ * 保存される city は修正後の値になる。
+ */
+export function extractCityLegacyV1(address: string | null | undefined): string | null {
+  if (!address) return null;
+  const trimmed = address.trim();
+  const pref = extractPrefecture(trimmed);
+  const rest = pref ? trimmed.slice(pref.length) : trimmed;
+  if (!rest) return null;
+  let cityIdx = rest.indexOf('市', 1);
+  if (cityIdx >= 0 && rest[cityIdx - 1] === '郡') cityIdx = rest.indexOf('市', cityIdx + 1);
+  let best = -1;
+  for (const suffix of CITY_SUFFIXES) {
+    if (suffix === '市') continue;
+    const idx = rest.indexOf(suffix);
+    if (idx >= 0 && (best === -1 || idx < best)) best = idx;
+  }
+  const gunTownFirst = best >= 0 && (cityIdx < 0 || best < cityIdx) && rest.lastIndexOf('郡', best) >= 0;
+  if (cityIdx >= 0 && !gunTownFirst) {
+    if (rest[cityIdx + 1] === '市') cityIdx += 1;
     return rest.slice(0, cityIdx + 1);
   }
   if (best === -1) return null;

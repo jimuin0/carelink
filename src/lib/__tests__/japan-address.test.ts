@@ -7,7 +7,7 @@
  *   1. 都道府県は 47 件すべてで確実に取れること（`/search` の結合キーなので誤りが致命的）
  *   2. 取れないときに【推測で埋めない】こと。誤った値を入れるより null のほうが安全
  */
-import { extractPrefecture, extractCity } from '../japan-address';
+import { extractPrefecture, extractCity, extractCityLegacyV1 } from '../japan-address';
 import { prefectures } from '../constants';
 
 describe('extractPrefecture', () => {
@@ -129,6 +129,28 @@ describe('extractCity', () => {
     it('郡の町村は従来どおり', () => {
       expect(extractCity('北海道虻田郡倶知安町北1条')).toBe('虻田郡倶知安町');
       expect(extractCity('兵庫県神崎郡市川町西川辺1')).toBe('神崎郡市川町');
+      // 郡の町より後ろの「区」は町域名の一部（Codex ADDR-01）
+      expect(extractCity('北海道紋別郡湧別町北兵村二区')).toBe('紋別郡湧別町');
     });
   });
 });
+
+describe('extractCityLegacyV1（申込 HMAC v1 用に修正前の挙動を固定）', () => {
+  it.each([
+    ['千葉県市川市市川南1-1-8', '市川市市'],
+    ['三重県四日市市安島1-2-3', '四日市市'],
+    ['千葉県市川市八幡1-1', '市川市'],
+    ['栃木県芳賀郡市貝町市塙1-1', '芳賀郡市貝町'],
+    ['福島県郡山市朝日1-1', '郡山市'],
+    ['東京都町田市原町田1-1', '町田市'],
+    ['東京都渋谷区神宮前町1-2-3', '渋谷区'],
+    ['北海道紋別郡湧別町北兵村二区', '紋別郡湧別町'],
+    ['大阪府', null],
+    ['どこでもない住所', null],
+    ['', null],
+    [null, null],
+  ])('%s → %s', (input, expected) => {
+    expect(extractCityLegacyV1(input)).toBe(expected);
+  });
+});
+
