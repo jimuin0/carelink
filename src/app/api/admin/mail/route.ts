@@ -11,6 +11,24 @@ import { readAdminInquiryList } from '@/lib/admin-inquiry-list';
 import { readMailReplyEvidence, readMailThread } from '@/lib/platform-mail-read';
 import { summarizeMailReplies } from '@/lib/platform-mail-contract';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
+import { runAfterResponse } from '@/lib/after-response';
+import { sendNotify, type NotifyPayload } from '@/lib/notify';
+
+// 送信サービスが受け付けた時点で一度だけ運営 Slack へ知らせる。氏名・宛先・件名・本文は載せない。
+// 失敗しても送信結果は変えない（応答後に実行し、例外も握る）。
+function notifySent(record: PlatformMailRecord) {
+  const payload: NotifyPayload = record.contact_id
+    ? { type: 'contact_reply_sent', data: { contact_id: record.contact_id } }
+    : { type: 'platform_mail_sent', data: { mail_id: record.id, scheduled: record.scheduled_at !== null } };
+  runAfterResponse(async () => {
+    try {
+      const result = await sendNotify(payload);
+      if (!result.ok) console.error('[platform-mail] Slack notification failed');
+    } catch {
+      console.error('[platform-mail] Slack notification failed');
+    }
+  });
+}
 
 export const dynamic = 'force-dynamic';
 const path = '/api/admin/mail';
@@ -196,6 +214,7 @@ async function post(request: Request, ctx: RouteContext) {
         return json({ mail: record, providerId: acceptance.id, warning: '送信結果の保存を確認できません。状況を確認してください。' }, 202);
       }
       void writeAuditLog({ userId: actor, action: 'confirm', tableName: 'platform_mail', recordId: record.id, newValues: { event: 'provider_accepted', state: confirmed.state } });
+      notifySent(confirmed);
       return json({ mail: confirmed });
     }
 
