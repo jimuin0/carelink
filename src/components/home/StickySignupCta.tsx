@@ -42,6 +42,19 @@ function useHeroPassed(): boolean {
   return passed;
 }
 
+/**
+ * 2026年11月22日（本人指示・2回目）: 閉じるボタンを戻す。ずっと消せない帯は広告のように受け取られやすいため。
+ * ただし閉じて有効なのは「このタブを開いている間（sessionStorage）」だけにし、次に来たときはまた出す
+ * （以前の問題＝一度閉じると二度と出ない、を作らない）。sessionStorage が使えない環境では今回の表示だけ閉じる。
+ */
+const DISMISS_KEY = 'sticky-cta-dismissed';
+function wasDismissed(): boolean {
+  try { return !!sessionStorage.getItem(DISMISS_KEY); } catch { return false; }
+}
+function rememberDismissed(): void {
+  try { sessionStorage.setItem(DISMISS_KEY, '1'); } catch { /* この表示だけ閉じる */ }
+}
+
 export default function StickySignupCta() {
   const [show, setShow] = useState(false);
   const heroPassed = useHeroPassed();
@@ -49,6 +62,7 @@ export default function StickySignupCta() {
   const cookieSettingsOpen = useSyncExternalStore(subscribeToCookieSettings, isCookieSettingsOpen, getServerSettingsSnapshot);
 
   useEffect(() => {
+    if (wasDismissed()) return;
     Promise.resolve().then(() => createBrowserSupabaseClient().auth.getUser()).then(({ data: { user } }) => {
       if (!user) setShow(true);
     }).catch(() => {});
@@ -61,11 +75,26 @@ export default function StickySignupCta() {
       data-sticky-signup-cta=""
       className="sticky bottom-[var(--mobile-nav-height)] z-30 sm:hidden bg-white border-t border-gray-200 shadow-[0_-2px_12px_rgba(0,0,0,0.08)] px-4 py-3"
     >
-      <p className="text-xs text-gray-500 mb-1.5">予約のたびにポイント還元。利用は完全無料。</p>
-      {/* 登録 CTA は高意図の導線なので従来どおり先読みさせる（components/BrowseLink.tsx）。 */}
-      <Button href="/auth/signup" prefetch="auto" fullWidth>
-        無料で会員登録する
-      </Button>
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-gray-500 mb-1.5">予約のたびにポイント還元。利用は完全無料。</p>
+          {/* 登録 CTA は高意図の導線なので従来どおり先読みさせる（components/BrowseLink.tsx）。 */}
+          <Button href="/auth/signup" prefetch="auto" fullWidth>
+            無料で会員登録する
+          </Button>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            rememberDismissed();
+            setShow(false);
+          }}
+          className="shrink-0 w-11 h-11 flex items-center justify-center text-gray-500 hover:text-gray-600 text-lg"
+          aria-label="閉じる"
+        >
+          ✕
+        </button>
+      </div>
     </div>
   );
 }
