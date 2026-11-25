@@ -478,3 +478,17 @@ test('a PR-text refusal keeps the fence if the reopened selector cannot be saved
   expect(JSON.parse(values.get(SALON_BROWSER_CONTEXT_KEY)!)).toMatchObject({ phase: 'attempted' });
   expect(engine.canReviseUnsubmittedInput()).toBe(false);
 });
+
+test('city が空なら修正後の extractCity で補って送る（「市川市市」にしない・Codex ADDR-03）', async () => {
+  const { deps, engine } = harness();
+  deps.request.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(committed());
+  expect((await engine.submit({ ...data, address: '千葉県市川市市川南1-1-8', city: null }, [null], consent)).state).toBe('confirmed');
+  expect(bodies(deps.request, '/api/salons/commit')[0].registration).toMatchObject({ address: '千葉県市川市市川南1-1-8', city: '市川市' });
+});
+
+test('郵便番号検索で入った city はそのまま送る', async () => {
+  const { deps, engine } = harness();
+  deps.request.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(committed());
+  expect((await engine.submit({ ...data, address: '千葉県市川市市川南1-1-8', city: '市川市' }, [null], consent)).state).toBe('confirmed');
+  expect(bodies(deps.request, '/api/salons/commit')[0].registration.city).toBe('市川市');
+});

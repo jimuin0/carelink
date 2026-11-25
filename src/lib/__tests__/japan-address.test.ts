@@ -7,7 +7,7 @@
  *   1. 都道府県は 47 件すべてで確実に取れること（`/search` の結合キーなので誤りが致命的）
  *   2. 取れないときに【推測で埋めない】こと。誤った値を入れるより null のほうが安全
  */
-import { extractPrefecture, extractCity } from '../japan-address';
+import { extractPrefecture, extractCity, extractCityLegacyV1 } from '../japan-address';
 import { prefectures } from '../constants';
 
 describe('extractPrefecture', () => {
@@ -103,5 +103,53 @@ describe('extractCity', () => {
       // 郡の無い「町」で始まる市名は町で切らない
       expect(extractCity('東京都町田市原町田1-1')).toBe('町田市');
     });
+  });
+
+  describe('市区町村の直後に「市」で始まる町名が続く住所（2026年11月22日 本番で再現）', () => {
+    it('町名先頭の「市」を市名に取り込まない', () => {
+      expect(extractCity('千葉県市川市市川南1-1-8')).toBe('市川市');
+      expect(extractCity('愛知県岡崎市市場町1')).toBe('岡崎市');
+      expect(extractCity('千葉県市原市市原1')).toBe('市原市');
+      expect(extractCity('三重県四日市市市場町1')).toBe('四日市市');
+      expect(extractCity('石川県野々市市本町1')).toBe('野々市市');
+    });
+
+    it('区が市より手前にあれば区で切る（東京23区）', () => {
+      expect(extractCity('東京都新宿区市谷田町1-1')).toBe('新宿区');
+      expect(extractCity('東京都千代田区一番町1')).toBe('千代田区');
+    });
+
+    it('政令指定都市は市で切る・町村を含む市名は市まで', () => {
+      expect(extractCity('神奈川県横浜市中区山下町1')).toBe('横浜市');
+      expect(extractCity('大阪府堺市堺区市之町東1')).toBe('堺市');
+      expect(extractCity('新潟県十日町市本町1')).toBe('十日町市');
+      expect(extractCity('東京都東村山市本町1')).toBe('東村山市');
+    });
+
+    it('郡の町村は従来どおり', () => {
+      expect(extractCity('北海道虻田郡倶知安町北1条')).toBe('虻田郡倶知安町');
+      expect(extractCity('兵庫県神崎郡市川町西川辺1')).toBe('神崎郡市川町');
+      // 郡の町より後ろの「区」は町域名の一部（Codex ADDR-01）
+      expect(extractCity('北海道紋別郡湧別町北兵村二区')).toBe('紋別郡湧別町');
+    });
+  });
+});
+
+describe('extractCityLegacyV1（申込 HMAC v1 用に修正前の挙動を固定）', () => {
+  it.each([
+    ['千葉県市川市市川南1-1-8', '市川市市'],
+    ['三重県四日市市安島1-2-3', '四日市市'],
+    ['千葉県市川市八幡1-1', '市川市'],
+    ['栃木県芳賀郡市貝町市塙1-1', '芳賀郡市貝町'],
+    ['福島県郡山市朝日1-1', '郡山市'],
+    ['東京都町田市原町田1-1', '町田市'],
+    ['東京都渋谷区神宮前町1-2-3', '渋谷区'],
+    ['北海道紋別郡湧別町北兵村二区', '紋別郡湧別町'],
+    ['大阪府', null],
+    ['どこでもない住所', null],
+    ['', null],
+    [null, null],
+  ])('%s → %s', (input, expected) => {
+    expect(extractCityLegacyV1(input)).toBe(expected);
   });
 });

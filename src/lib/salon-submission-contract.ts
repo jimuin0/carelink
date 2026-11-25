@@ -1,5 +1,5 @@
 import { salonInsertSchema } from './validations';
-import { extractCity, extractPrefecture } from './japan-address';
+import { extractCityLegacyV1, extractPrefecture } from './japan-address';
 
 // Changing normalization requires a new version, never silently reinterpreting
 // an already committed intent. This module has no persistence or I/O.
@@ -27,7 +27,8 @@ export function canonicalSalonSubmission(input: unknown) {
     postal_code: d.postal_code?.replace(/-/g, '') || null,
     address: d.address || null,
     prefecture: d.prefecture || extractPrefecture(d.address) || null,
-    city: d.city || extractCity(d.address) || null,
+    // v1 の HMAC を保つため修正前の抽出を固定して使う（画面側は修正後の city を明示的に送る）。
+    city: d.city || extractCityLegacyV1(d.address) || null,
     building_name: d.building_name || null,
     nearest_station: d.nearest_station || null,
     business_hours: d.business_hours || null,
