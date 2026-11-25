@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { verifyAuthUser } from '@/lib/auth-verification';
+import { readWithinDeadline } from '@/lib/bounded-read';
 import { businessTypes, facilityFeatures, prefectures } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -143,7 +144,9 @@ function AdminSettingsContent() {
       if (!active) return;
       setFacilityChoices(selection.choices);
       if (!selection.selectedId) { setLoading(false); return; }
-      const { data, error } = await supabase.from('facility_profiles').select(FACILITY_PROFILE_READABLE_COLUMNS).eq('id', selection.selectedId).single();
+      // 無期限だと「読み込み中」のまま再試行も出ない。権限確認用の5秒ではなく、ページの読み取りの
+      // 期限（8秒・期限切れはラベル付きでログに残る）を使い、遅いだけの応答をエラーにしにくくする。
+      const { data, error } = await readWithinDeadline('admin-settings-facility-profile', supabase.from('facility_profiles').select(FACILITY_PROFILE_READABLE_COLUMNS).eq('id', selection.selectedId).single());
       if (!active) return;
       if (error) { setLoadError(true); setLoading(false); return; }
       if (!data) { setLoadError(true); setLoading(false); return; }

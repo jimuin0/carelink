@@ -54,17 +54,51 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
   const [providerId, setProviderId] = useState<string | undefined>();
   const requestSequence = useRef(0);
+  const composerForm = useRef<HTMLFormElement>(null);
+  const [composerVersion, setComposerVersion] = useState(0);
   const selectionSequence = useRef(0);
   const statusSync = useRef<{ generation: number; promise: Promise<SyncOutcome> } | null>(null);
   const syncCursor = useRef<z.infer<typeof syncSchema>['nextCursor']>(null);
-  const dirty = composer !== null && JSON.stringify(composer) !== saved;
+  // 宛先・件名・本文は非制御の入力欄で、表示中の値を正とする。制御された入力欄では、change が
+  // React に届かなかった値（自動入力など）を次の再描画が state の値で消してしまい、E2E で宛先だけ
+  // 空の下書きが保存された（CL-985-01）。保存・送信確認は必ず表示中の値を読み直す。
+  // 下書きを差し替えたとき（開く・新規作成・保存結果の反映）は composerVersion で入力欄を作り直す。
+  const visibleDraft = (draft: PlatformMailDraft): PlatformMailDraft => {
+    const form = composerForm.current;
+    if (!form) return draft;
+    const fields = new FormData(form);
+    // textarea は CRLF を LF に直して表示する。表示中の値が【保存済みの値】と改行の違いしか無ければ
+    // 保存済みの値を使い、開いただけ・編集して元に戻しただけの下書きを未保存扱いにも、
+    // 保存内容の改行の書き換えにもしない（CL-985-04・05）。比べる相手は編集中の state ではなく、
+    // この下書きを開いた・保存した時点の値（saved）。
+    const sameText = (a: string, b: string) => a.replace(/\r\n?/g, '\n') === b.replace(/\r\n?/g, '\n');
+    const baseline: Partial<PlatformMailDraft> = (() => { try { const value: unknown = saved ? JSON.parse(saved) : null; return value && typeof value === 'object' && (value as PlatformMailDraft).id === draft.id ? value as PlatformMailDraft : {}; } catch { return {}; } })();
+    const text = (name: 'to' | 'subject' | 'body') => {
+      const value = fields.get(name);
+      if (typeof value !== 'string') return draft[name];
+      const stored = baseline[name];
+      return typeof stored === 'string' && sameText(value, stored) ? stored : value;
+    };
+    return { ...draft, to: draft.contactId !== null ? draft.to : text('to'), subject: text('subject'), body: text('body') };
+  };
+  // 表示用の「未保存の変更があります」も、改行の違いだけでは未保存にしない（CL-985-06）。
+  const lineBreaks = (draft: PlatformMailDraft) => JSON.stringify({ ...draft, to: draft.to.replace(/\r\n?/g, '\n'),
+    subject: draft.subject.replace(/\r\n?/g, '\n'), body: draft.body.replace(/\r\n?/g, '\n') });
+  const savedDraft = (() => { try { const value: unknown = saved ? JSON.parse(saved) : null; return value && typeof value === 'object' ? value as PlatformMailDraft : null; } catch { return null; } })();
+  const dirty = composer !== null && (savedDraft === null || lineBreaks(composer) !== lineBreaks(savedDraft));
+  // 未保存かどうかの判定（移動・再読み込みの確認）も表示中の値で行う。state だけを見ると、
+  // change が届かなかった入力を警告なしで捨ててしまう（CL-985-03）。
+  const hasUnsavedInput = () => composer !== null && JSON.stringify(visibleDraft(composer)) !== saved;
+  const unsavedCheck = useRef(hasUnsavedInput);
+  useEffect(() => { unsavedCheck.current = hasUnsavedInput; });
 
+  const hasComposer = composer !== null;
   useEffect(() => {
-    if (!dirty) return;
-    const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    if (!hasComposer) return;
+    const guard = (event: BeforeUnloadEvent) => { if (!unsavedCheck.current()) return; event.preventDefault(); event.returnValue = ''; };
     window.addEventListener('beforeunload', guard);
     return () => window.removeEventListener('beforeunload', guard);
-  }, [dirty]);
+  }, [hasComposer]);
 
   const synchronize = useCallback((): Promise<SyncOutcome> => {
     // One inspection per explicit reload, shared by list and selected history.
@@ -166,21 +200,21 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
   const navigate = (action: () => void) => {
     if (busy) return;
     const proceed = () => { selectionSequence.current += 1; setNotice(''); setPreview(null); setProviderId(undefined); action(); };
-    if (dirty) setPendingNavigation(() => proceed); else proceed();
+    if (hasUnsavedInput()) setPendingNavigation(() => proceed); else proceed();
   };
   const clearSelection = () => { setMail(null); setContact(null); setComposer(null); setSaved(''); };
   const openMail = (item: PlatformMailRecord) => {
     navigate(() => {
     setContact(null); setMail(item);
     const draft = item.state === 'draft' ? fromRecord(item) : null;
-    setComposer(draft); setSaved(draft === null ? '' : JSON.stringify(draft));
+    setComposer(draft); setSaved(draft === null ? '' : JSON.stringify(draft)); setComposerVersion(value => value + 1);
     });
   };
   const compose = (reply?: PlatformMailContact) => {
     navigate(() => {
     const draft: PlatformMailDraft = { id: crypto.randomUUID(), revision: 0, contactId: reply?.id ?? null,
       to: reply?.email ?? '', subject: reply ? '【CareLink】お問い合わせへのご返信' : '', body: '', scheduledAt: null };
-    setContact(reply ?? null); setMail(null); setComposer(draft); setSaved(JSON.stringify(draft));
+    setContact(reply ?? null); setMail(null); setComposer(draft); setSaved(JSON.stringify(draft)); setComposerVersion(value => value + 1);
     });
   };
   const request = async (command: Record<string, unknown>): Promise<PlatformMailRecord> => {
@@ -192,17 +226,19 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
     const expectedId = command.action === 'save' ? (command.draft as PlatformMailDraft).id : command.id;
     if (result.mail.id !== expectedId) throw new Error('対象メールの保存結果を確認できませんでした。');
     setNotice(result.warning ?? ''); setProviderId(result.providerId); setMail(result.mail);
-    if (result.mail.state === 'draft') { const draft = fromRecord(result.mail); setComposer(draft); setSaved(JSON.stringify(draft)); }
+    if (result.mail.state === 'draft') { const draft = fromRecord(result.mail); setComposer(draft); setSaved(JSON.stringify(draft)); setComposerVersion(value => value + 1); }
     else { setComposer(null); setSaved(''); }
     setRefresh(value => value + 1);
     return result.mail;
   };
   const save = async (forPreview = false) => {
     if (!composer || busy) return;
+    const draft = visibleDraft(composer);
+    setComposer(draft);
     setBusy(true); setNotice('');
     try {
-      if (forPreview) buildPlatformMailEnvelope(composer);
-      const record = await request({ action: 'save', draft: composer });
+      if (forPreview) buildPlatformMailEnvelope(draft);
+      const record = await request({ action: 'save', draft });
       if (forPreview) setPreview(record); else setNotice('下書きを保存しました。');
     } catch (error) { setNotice(errorMessage(error, '宛先・件名・本文と通信状態をご確認ください。入力内容は保持されています。')); }
     finally { setBusy(false); }
@@ -266,12 +302,12 @@ export default function MailConsole({ initialContactId }: { initialContactId?: s
           {entry.record && <button type="button" disabled={busy} className="mt-2 text-sm text-sky-800 underline" onClick={() => openMail(entry.record!)}>{entry.record.state === 'draft' ? '下書きを編集' : 'このメールの送信状況を開く'}</button>}
         </li>)}</ol><p className="mt-4 text-xs leading-5 text-gray-600">送信済みは送信サービスの受付記録です。「配信完了」は届け先への配信確認が取れた場合のみ表示します。</p></section>}
         {contact && !composer && !mail && <div className="mb-5 flex flex-wrap items-center gap-4"><button type="button" className="btn-primary" disabled={!contact.email || busy || threadLoading || threadError} onClick={() => compose(contact)}>返信を書く</button><Link href="/admin/inquiries" className="text-sm underline">問い合わせの対応状況を管理</Link></div>}
-        {composer && <form onSubmit={event => { event.preventDefault(); void save(true); }}>
+        {composer && <form key={composerVersion} ref={composerForm} onSubmit={event => { event.preventDefault(); void save(true); }}>
           <fieldset disabled={busy} className="space-y-5">
-            <div><label htmlFor="operator-mail-to" className="mb-2 block text-sm font-medium">宛先</label><input id="operator-mail-to" type="email" autoComplete="off" maxLength={254} className={inputClass} readOnly={composer.contactId !== null} value={composer.to} onChange={event => setComposer({ ...composer, to: event.target.value })} />{composer.contactId !== null && <p className="mt-1.5 text-xs text-gray-500">お問い合わせに登録された返信先です。</p>}</div>
-            <div><label htmlFor="operator-mail-subject" className="mb-2 block text-sm font-medium">件名</label><input id="operator-mail-subject" maxLength={200} className={inputClass} value={composer.subject} onChange={event => setComposer({ ...composer, subject: event.target.value })} /></div>
-            <div><label htmlFor="operator-mail-body" className="mb-2 block text-sm font-medium">本文</label><textarea id="operator-mail-body" rows={14} maxLength={10000} className={inputClass + ' leading-7'} value={composer.body} onChange={event => setComposer({ ...composer, body: event.target.value })} /></div>
-            <div><label htmlFor="operator-mail-time" className="mb-2 block text-sm font-medium">送信日時（任意・日本時間）</label><input id="operator-mail-time" type="datetime-local" className={inputClass} value={composer.scheduledAt === null ? '' : new Date(Date.parse(composer.scheduledAt) + 9 * 3600000).toISOString().slice(0, 16)} onChange={event => { try { setComposer({ ...composer, scheduledAt: mailJapanTime(event.target.value) }); } catch { setNotice('送信日時を確認してください。'); } }} /><p className="mt-1.5 text-xs leading-5 text-gray-500">空欄なら今すぐ送信。予約は1分後から30日以内で指定できます。</p></div>
+            <div><label htmlFor="operator-mail-to" className="mb-2 block text-sm font-medium">宛先</label><input id="operator-mail-to" name="to" type="email" autoComplete="off" maxLength={254} className={inputClass} readOnly={composer.contactId !== null} defaultValue={composer.to} onChange={event => { const value = event.target.value; setComposer(current => current && { ...current, to: value }); }} />{composer.contactId !== null && <p className="mt-1.5 text-xs text-gray-500">お問い合わせに登録された返信先です。</p>}</div>
+            <div><label htmlFor="operator-mail-subject" className="mb-2 block text-sm font-medium">件名</label><input id="operator-mail-subject" name="subject" maxLength={200} className={inputClass} defaultValue={composer.subject} onChange={event => { const value = event.target.value; setComposer(current => current && { ...current, subject: value }); }} /></div>
+            <div><label htmlFor="operator-mail-body" className="mb-2 block text-sm font-medium">本文</label><textarea id="operator-mail-body" name="body" rows={14} maxLength={10000} className={inputClass + ' leading-7'} defaultValue={composer.body} onChange={event => { const value = event.target.value; setComposer(current => current && { ...current, body: value }); }} /></div>
+            <div><label htmlFor="operator-mail-time" className="mb-2 block text-sm font-medium">送信日時（任意・日本時間）</label><input id="operator-mail-time" type="datetime-local" className={inputClass} value={composer.scheduledAt === null ? '' : new Date(Date.parse(composer.scheduledAt) + 9 * 3600000).toISOString().slice(0, 16)} onChange={event => { try { const scheduledAt = mailJapanTime(event.target.value); setComposer(current => current && { ...current, scheduledAt }); } catch { setNotice('送信日時を確認してください。'); } }} /><p className="mt-1.5 text-xs leading-5 text-gray-500">空欄なら今すぐ送信。予約は1分後から30日以内で指定できます。</p></div>
             <div className="flex flex-wrap items-center gap-3 border-t pt-5"><button type="submit" className="btn-primary">{busy ? '確認中…' : composer.scheduledAt ? '予約内容を確認' : '送信内容を確認'}</button><button type="button" className="btn-secondary" onClick={() => void save()}>下書き保存</button><span className="text-xs text-gray-500">{dirty ? '未保存の変更があります' : composer.revision > 0 ? '保存済み' : ''}</span></div>
           </fieldset>
         </form>}

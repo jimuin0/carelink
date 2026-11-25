@@ -1,3 +1,4 @@
+import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import AdminSettingsPage from '../page';
 import { FACILITY_PROFILE_READABLE_COLUMNS } from '@/lib/facility-profile-columns';
@@ -7,6 +8,7 @@ const second = '71000000-0000-4000-8000-000000000002';
 let mockRequested: string | null = second;
 let mockProfile: Record<string, unknown>;
 let mockReads: string[];
+let mockProfileRead: (() => Promise<unknown>) | null = null;
 let mockSetup: Record<string, { data?: unknown; count?: number | null; error: unknown }>;
 const mockFetch = jest.fn();
 const mockDb = jest.fn();
@@ -22,7 +24,7 @@ jest.mock('@/components/admin/SpecialHoursSettings', () => ({ __esModule: true,
     <button type="button" onClick={() => onDirtyChange(true)}>特別時間の仮編集</button> }));
 
 beforeEach(() => {
-  jest.clearAllMocks(); mockRequested = second; mockReads = [];
+  jest.clearAllMocks(); mockRequested = second; mockReads = []; mockProfileRead = null;
   mockSetup = {
     facility_menus: { count: 0, error: null },
     facility_photos: { count: 1, error: null },
@@ -47,7 +49,7 @@ beforeEach(() => {
         let columns = '';
         const chain = { select: (c: string) => { columns = c; return chain; },
           eq: (_key: string, value: string) => { if (columns === FACILITY_PROFILE_READABLE_COLUMNS) mockReads.push(value); return chain; },
-          single: async () => ({ data: mockProfile, error: null }) };
+          single: () => (columns === FACILITY_PROFILE_READABLE_COLUMNS && mockProfileRead ? mockProfileRead() : Promise.resolve({ data: mockProfile, error: null })) };
         return chain;
       }
       // ネット予約の準備状況（保存済みのメニュー・写真・勤務するスタッフ）
@@ -594,4 +596,33 @@ test('visibility changes mark the selected facility dirty and persist an actual 
   save(); await waitFor(() => expect(mockFetch).toHaveBeenCalled());
   expect(mockFetch.mock.calls[0][0]).toContain('facility_id=' + second);
   expect(JSON.parse(mockFetch.mock.calls[0][1].body).show_business_status).toBe(false);
+});
+
+describe('施設情報の読み込みの期限（CL-985-02）', () => {
+  beforeEach(() => { jest.useFakeTimers(); jest.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
+
+  test('5秒を超えても8秒以内に返った施設情報はエラーにせず表示する', async () => {
+    mockProfileRead = () => new Promise(resolve => setTimeout(() => resolve({ data: mockProfile, error: null }), 6500));
+    render(<AdminSettingsPage />);
+    await jest.advanceTimersByTimeAsync(6600);
+    expect(await screen.findByDisplayValue('合成店舗B')).toBeInTheDocument();
+    expect(console.error).not.toHaveBeenCalledWith('[page-read] timeout', expect.anything());
+    expect(screen.queryByText(/施設情報の読み込みに失敗しました/)).not.toBeInTheDocument();
+  });
+
+  test('施設情報の取得が止まったら8秒で読み込み中を終え、再試行を出す', async () => {
+    mockProfileRead = () => new Promise(() => {});
+    render(<AdminSettingsPage />);
+    const timedOut = () => (console.error as jest.Mock).mock.calls.some(([tag]) => tag === '[page-read] timeout');
+    await jest.advanceTimersByTimeAsync(7900);
+    expect(timedOut()).toBe(false);
+    expect(screen.queryByText(/施設情報の読み込みに失敗しました/)).not.toBeInTheDocument();
+    await jest.advanceTimersByTimeAsync(200);
+    expect(console.error).toHaveBeenCalledWith('[page-read] timeout', { label: 'admin-settings-facility-profile', ms: 8000 });
+    expect(await screen.findByText(/施設情報の読み込みに失敗しました/)).toBeInTheDocument();
+    mockProfileRead = null;
+    fireEvent.click(screen.getByRole('button', { name: '再試行' }));
+    expect(await screen.findByDisplayValue('合成店舗B')).toBeInTheDocument();
+  });
 });

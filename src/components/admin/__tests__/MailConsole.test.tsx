@@ -51,6 +51,88 @@ async function fill() {
   fireEvent.change(screen.getByLabelText('件名'), { target: { value: 'ご案内' } });
   fireEvent.change(screen.getByLabelText('本文'), { target: { value: '架空の本文' } });
 }
+test('displayed recipient is saved even when the browser never reported a change event', async () => {
+  await ready(); fireEvent.click(screen.getByRole('button', { name: /新規作成/ }));
+  // 自動入力のように、表示だけ変わって React の change が届かない宛先（CL-985-01 の症状：宛先だけ空で保存）。
+  const to = screen.getByLabelText('宛先') as HTMLInputElement;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(to, contact.email);
+  fireEvent.change(screen.getByLabelText('件名'), { target: { value: 'ご案内' } });
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '架空の本文' } });
+  fireEvent.click(screen.getByRole('button', { name: '下書き保存' })); await screen.findByText('下書きを保存しました。');
+  expect(commands).toHaveLength(1);
+  expect(commands[0]).toMatchObject({ action: 'save', draft: { to: contact.email, subject: 'ご案内', body: '架空の本文' } });
+  expect(screen.getByLabelText('宛先')).toHaveValue(contact.email);
+});
+test('unreported recipient input still triggers the unsaved-changes guard on navigation and reload (CL-985-03)', async () => {
+  await ready(); fireEvent.click(screen.getByRole('button', { name: /新規作成/ }));
+  const to = screen.getByLabelText('宛先') as HTMLInputElement;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(to, contact.email);
+  const unload = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));
+  expect(await screen.findByRole('dialog', { name: '未保存の変更があります' })).toBeInTheDocument();
+  expect(screen.getByLabelText('宛先')).toHaveValue(contact.email);
+});
+test('a freshly opened composer without input does not warn on reload', async () => {
+  await ready(); fireEvent.click(screen.getByRole('button', { name: /新規作成/ }));
+  const unload = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(false);
+});
+test('a saved draft with CRLF line breaks is not treated as unsaved and keeps its stored body (CL-985-04)', async () => {
+  records = [{ ...base, body: '一行目\r\n二行目' }];
+  await ready();
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /ご案内.*synthetic/ }));
+  expect(screen.getByLabelText('本文')).toHaveValue('一行目\n二行目');
+  const unload = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: '送信済み', exact: true }));
+  expect(screen.queryByRole('dialog', { name: '未保存の変更があります' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /ご案内.*synthetic/ }));
+  fireEvent.click(screen.getByRole('button', { name: '下書き保存' })); await screen.findByText('下書きを保存しました。');
+  expect(commands[0]).toMatchObject({ action: 'save', draft: { body: '一行目\r\n二行目' } });
+});
+test('editing CRLF line breaks and restoring them is not unsaved and keeps CRLF (CL-985-05)', async () => {
+  records = [{ ...base, body: '一行目\r\n二行目' }];
+  await ready();
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /ご案内.*synthetic/ }));
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '一行目\n\n二行目' } });
+  const edited = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(edited);
+  expect(edited.defaultPrevented).toBe(true);
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '一行目\n二行目' } });
+  const restored = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(restored);
+  expect(restored.defaultPrevented).toBe(false);
+  expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument();
+  expect(screen.getByText('保存済み')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '送信済み', exact: true }));
+  expect(screen.queryByRole('dialog', { name: '未保存の変更があります' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /ご案内.*synthetic/ }));
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '一行目\n\n二行目' } });
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '一行目\n二行目' } });
+  fireEvent.click(screen.getByRole('button', { name: '下書き保存' })); await screen.findByText('下書きを保存しました。');
+  expect(commands[0]).toMatchObject({ action: 'save', draft: { body: '一行目\r\n二行目' } });
+});
+test('a real line-break edit on a CRLF draft is saved as edited', async () => {
+  records = [{ ...base, body: '一行目\r\n二行目' }];
+  await ready();
+  fireEvent.click(screen.getByRole('button', { name: '下書き', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /ご案内.*synthetic/ }));
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '一行目\n\n二行目' } });
+  fireEvent.click(screen.getByRole('button', { name: '下書き保存' })); await screen.findByText('下書きを保存しました。');
+  expect(commands[0]).toMatchObject({ action: 'save', draft: { body: '一行目\n\n二行目' } });
+});
+test('reply recipient stays the stored contact even if the read-only field is altered in the page', async () => {
+  await ready(); fireEvent.click(screen.getByRole('button', { name: /合成問い合わせ/ }));
+  fireEvent.click(await screen.findByRole('button', { name: '返信を書く' }));
+  const to = screen.getByLabelText('宛先') as HTMLInputElement;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(to, 'other@example.invalid');
+  fireEvent.change(screen.getByLabelText('本文'), { target: { value: '架空の返信' } });
+  fireEvent.click(screen.getByRole('button', { name: '下書き保存' })); await screen.findByText('下書きを保存しました。');
+  expect(commands[0]).toMatchObject({ action: 'save', draft: { to: contact.email, body: '架空の返信' } });
+});
 test('fixed business identity; mounting never sends or creates a draft', async () => {
   await ready(); expect(screen.getByText('差出人：' + PLATFORM_MAIL_FROM)).toBeInTheDocument(); expect(commands).toHaveLength(0);
 });

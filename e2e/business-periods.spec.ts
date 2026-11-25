@@ -49,6 +49,10 @@ test('owner saves, reloads and publishes split, night, early and all-day hours i
     expect((await saved).status()).toBe(200);
     expect((await db.from('facility_profiles').select('business_hours').eq('id', id).single()).data?.business_hours).toEqual({ ...closed, mon: period });
     await page.reload();
+    // 再読み込み後の取得は認証（5秒）・店舗選択（5秒）・施設情報（8秒）の3段で、各段に期限がある。
+    // 「読み込み中」が終わるのを期限の合計（18秒）に余裕を足した時間まで待ち、失敗表示なら値を待たずに落とす。
+    await expect(page.getByRole('status', { name: '読み込み中' })).toHaveCount(0, { timeout: 25_000 });
+    await expect(page.getByText('施設情報の読み込みに失敗しました')).toHaveCount(0);
     await expect(mon.getByLabel('月曜日の閉店時間', { exact: true })).toHaveValue(period.close);
   }
   await mon.getByLabel('月曜日の開店時間', { exact: true }).fill('09:00');
