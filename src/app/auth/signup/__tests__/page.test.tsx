@@ -53,6 +53,10 @@ let mockLineLoginEnabled = false;
 jest.mock('@/lib/line-availability', () => ({ isLineLoginEnabled: () => mockLineLoginEnabled }));
 afterEach(() => { mockLineLoginEnabled = false; });
 
+// 強度メーターが遅延読込する判定モジュール（辞書を含み初回は重い）を先に読み込んでおく。
+// 各テストの途中で初回読込が走ると、全件並列の負荷下で送信後の描画と競合して不安定になる。
+beforeAll(async () => { await import('@/lib/password-strength'); });
+
 /** signupSchema が要求する必須項目をすべて有効な値で埋める。 */
 function fillForm() {
   fireEvent.change(screen.getByLabelText(/^お名前/), { target: { value: 'テスト太郎' } });
@@ -63,6 +67,16 @@ function fillForm() {
   fireEvent.change(screen.getByLabelText('パスワード *'), { target: { value: 'password123' } });
   fireEvent.change(screen.getByLabelText('パスワード（確認） *'), { target: { value: 'password123' } });
   fireEvent.click(screen.getByRole('checkbox', { name: /利用規約/ }));
+}
+
+/**
+ * 入力後、パスワード強度メーターの動的 import（辞書の初回読込で重い）が終わるまで待つ。
+ * 待たずに送信すると、全件並列実行の負荷下で import が送信後の描画と競合し、
+ * findByRole の既定待ち時間を超えたり act() 外の state 更新警告が出たりする。
+ */
+async function fillFormAndAwaitMeter() {
+  fillForm();
+  await waitFor(() => expect(screen.getByRole('meter')).not.toHaveAttribute('aria-valuetext', '判定中…'), { timeout: 15000 });
 }
 
 function submit() {
@@ -88,7 +102,7 @@ test('native autofill is protected from accidental reload without storing the dr
 test('a failed submission retains the visible form and reload protection; confirmation releases it', async () => {
   mockSignUp.mockResolvedValueOnce({ data: { session: null, user: null }, error: { code: 'unexpected_failure' } });
   render(<SignupPage />);
-  fillForm();
+  await fillFormAndAwaitMeter();
   submit();
   await screen.findByRole('alert');
   expect(screen.getByLabelText('パスワード *')).toHaveValue('password123');
@@ -120,10 +134,10 @@ test('OAuth can navigate immediately, but an OAuth failure restores input protec
   expect(failed.defaultPrevented).toBe(true);
 });
 
-test('consented LINE submission releases protection and a back-forward restore reinstates it', () => {
+test('consented LINE submission releases protection and a back-forward restore reinstates it', async () => {
   mockLineLoginEnabled = true;
   render(<SignupPage />);
-  fillForm();
+  await fillFormAndAwaitMeter();
   fireEvent.submit(screen.getByTestId('signup-line-form'));
   const approvedDeparture = new Event('beforeunload', { cancelable: true });
   window.dispatchEvent(approvedDeparture);
