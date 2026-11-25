@@ -35,6 +35,13 @@ import { prefectures } from './constants';
 const CITY_SUFFIXES = ['市', '区', '町', '村'];
 
 /**
+ * 「市」の直後にもう一度「市」が続く実在の市名（「四日市」＋「市」）。
+ * 「市市」を無条件に結合すると「市川市市川南」「岡崎市市場町」の町名先頭の「市」まで
+ * 市名に取り込み、町名側が壊れる（2026年11月22日 本番の試し申込で再現）。
+ */
+const DOUBLE_SHI_CITY_STEMS = new Set(['四日市', '廿日市', '野々市']);
+
+/**
  * 住所の先頭から都道府県名を取り出す。
  *
  * 47 都道府県の完全一致で判定するため、誤検出は起きない。
@@ -95,8 +102,12 @@ export function extractCity(address: string | null | undefined): string | null {
   }
   // 「〇〇郡△△町」のように郡の町村が市より手前にあれば町村で切る（「芳賀郡市貝町市塙」など）。
   const gunTownFirst = best >= 0 && (cityIdx < 0 || best < cityIdx) && rest.lastIndexOf('郡', best) >= 0;
+  // 東京23区など「〇〇区」が市より手前にあれば区で切る（「新宿区市谷」の「市」は町名）。
+  // 区を途中に含む市名は無いため、町・村と違って誤らない（「十日町市」「東村山市」は市まで）。
+  const wardIdx = rest.indexOf('区', 1);
+  if (wardIdx >= 0 && (cityIdx < 0 || wardIdx < cityIdx)) return rest.slice(0, wardIdx + 1);
   if (cityIdx >= 0 && !gunTownFirst) {
-    if (rest[cityIdx + 1] === '市') cityIdx += 1;
+    if (rest[cityIdx + 1] === '市' && DOUBLE_SHI_CITY_STEMS.has(rest.slice(0, cityIdx + 1))) cityIdx += 1;
     return rest.slice(0, cityIdx + 1);
   }
   if (best === -1) return null;

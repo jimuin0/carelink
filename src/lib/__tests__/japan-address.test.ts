@@ -104,4 +104,31 @@ describe('extractCity', () => {
       expect(extractCity('東京都町田市原町田1-1')).toBe('町田市');
     });
   });
+
+  describe('市区町村の直後に「市」で始まる町名が続く住所（2026年11月22日 本番で再現）', () => {
+    it('町名先頭の「市」を市名に取り込まない', () => {
+      expect(extractCity('千葉県市川市市川南1-1-8')).toBe('市川市');
+      expect(extractCity('愛知県岡崎市市場町1')).toBe('岡崎市');
+      expect(extractCity('千葉県市原市市原1')).toBe('市原市');
+      expect(extractCity('三重県四日市市市場町1')).toBe('四日市市');
+      expect(extractCity('石川県野々市市本町1')).toBe('野々市市');
+    });
+
+    it('区が市より手前にあれば区で切る（東京23区）', () => {
+      expect(extractCity('東京都新宿区市谷田町1-1')).toBe('新宿区');
+      expect(extractCity('東京都千代田区一番町1')).toBe('千代田区');
+    });
+
+    it('政令指定都市は市で切る・町村を含む市名は市まで', () => {
+      expect(extractCity('神奈川県横浜市中区山下町1')).toBe('横浜市');
+      expect(extractCity('大阪府堺市堺区市之町東1')).toBe('堺市');
+      expect(extractCity('新潟県十日町市本町1')).toBe('十日町市');
+      expect(extractCity('東京都東村山市本町1')).toBe('東村山市');
+    });
+
+    it('郡の町村は従来どおり', () => {
+      expect(extractCity('北海道虻田郡倶知安町北1条')).toBe('虻田郡倶知安町');
+      expect(extractCity('兵庫県神崎郡市川町西川辺1')).toBe('神崎郡市川町');
+    });
+  });
 });
