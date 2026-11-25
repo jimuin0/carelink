@@ -76,7 +76,7 @@ function fillForm() {
  */
 async function fillFormAndAwaitMeter() {
   fillForm();
-  await waitFor(() => expect(screen.getByRole('meter')).not.toHaveAttribute('aria-valuetext', '判定中…'), { timeout: 15000 });
+  await waitFor(() => expect(screen.getByRole('meter')).not.toHaveAttribute('aria-valuetext', '判定中…'), { timeout: 8000 }); // Jest のテスト上限（10秒）より短くし、待ちの失敗内容が見えるようにする
 }
 
 function submit() {
