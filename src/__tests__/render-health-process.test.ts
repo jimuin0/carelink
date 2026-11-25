@@ -44,7 +44,7 @@ function runHealth(mode: string, slack: boolean | 'shared-group' = false, opts: 
       CRON_SECRET: 'synthetic-cron-secret',
       SLACK_BOT_TOKEN: slack ? 'synthetic-fixture-token' : '',
       SLACK_DEFAULT_CHANNEL: slack === true ? 'synthetic-fixture-channel' : '',
-      // render.yaml links the shared slack-gyomu-bot group, which names its channel this way.
+      // Fallback channel used when SLACK_DEFAULT_CHANNEL is unset.
       SLACK_ADMIN_CHANNEL_ID: slack === 'shared-group' ? 'synthetic-admin-channel' : '',
     },
   });
