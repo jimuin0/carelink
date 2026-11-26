@@ -76,17 +76,17 @@ describe('reportInquiryBacklog', () => {
   beforeEach(() => { jest.clearAllMocks(); delete process.env.NEXT_PUBLIC_BASE_URL; });
   afterAll(() => { process.env.NEXT_PUBLIC_BASE_URL = env; });
 
-  test('未完了の問い合わせだけを読み、受付日・種類・タブ・受付番号を Slack に出す（名前・メール・本文は載せない）', async () => {
+  test('未完了の問い合わせだけを読み、お名前・受付日・種類・タブを Slack に出す（メール・電話・本文は載せない）', async () => {
     const { db, calls } = fakeDb([{ data: [
-      { id: uuid(1), created_at: '2026-09-18T15:30:00Z', ticket_status: 'open', inquiry_type: '施設掲載について（オーナー向け）', name: '山田', email: 'a@example.invalid', message: '本文' },
-      { id: uuid(2), created_at: daysAgo(20), ticket_status: 'in_progress', inquiry_type: null },
-      { id: uuid(3), created_at: null, ticket_status: 'unknown', inquiry_type: 'その他' },
-      { id: '01234567-0000-4000-8000-000000000004', created_at: daysAgo(5), ticket_status: 'waiting', inquiry_type: '佐藤花子です。腰の痛みについて相談したい' },
+      { id: uuid(1), created_at: '2026-09-18T15:30:00Z', ticket_status: 'open', inquiry_type: '施設掲載について（オーナー向け）', name: ' 山田 太郎 ', phone: '090-1234-5678', email: 'a@example.invalid', message: '本文' },
+      { id: uuid(2), created_at: daysAgo(20), name: 'あ'.repeat(25), ticket_status: 'in_progress', inquiry_type: null },
+      { id: uuid(3), created_at: null, name: '', ticket_status: 'unknown', inquiry_type: 'その他' },
+      { id: '01234567-0000-4000-8000-000000000004', created_at: daysAgo(5), name: null, ticket_status: 'waiting', inquiry_type: '佐藤花子です。腰の痛みについて相談したい' },
     ], error: null }]);
     (readMailReplyEvidence as jest.Mock).mockResolvedValue({ messages: [sentMail(uuid(2))], replies: [] });
 
     await expect(reportInquiryBacklog(db, now)).resolves.toEqual({ unreplied: 3, repliedOpen: 1 });
-    expect(calls[0].select).toEqual(['id,created_at,ticket_status,inquiry_type']);
+    expect(calls[0].select).toEqual(['id,created_at,name,ticket_status,inquiry_type']);
     expect(calls[0].in).toEqual(['ticket_status', ['open', 'in_progress', 'waiting']]);
     expect(calls[0].is).toEqual(['resolved_at', null]);
     expect(readMailReplyEvidence).toHaveBeenCalledWith(db, [uuid(1), uuid(2), uuid(3), '01234567-0000-4000-8000-000000000004']);
@@ -99,18 +99,18 @@ describe('reportInquiryBacklog', () => {
       adminUrl: 'https://carelink-jp.com/admin/inquiries',
       howToClose: expect.stringContaining('解決済み'),
       unreplied: [
-        '受付日不明・その他・状態不明タブ（日時不明）',
-        '9/19受付・施設掲載について（オーナー向け）・新着タブ（59日）',
-        '11/12受付・その他の種類・返信待ちタブ（5日）',
+        'お名前なし・受付日不明・その他・状態不明タブ（日時不明）',
+        '山田 太郎様・9/19受付・施設掲載について（オーナー向け）・新着タブ（59日）',
+        'お名前なし・11/12受付・その他の種類・返信待ちタブ（5日）',
       ],
-      repliedOpen: ['10/28受付・種類不明・対応中タブ（20日）'],
+      repliedOpen: [`${'あ'.repeat(20)}…様・10/28受付・種類不明・対応中タブ（20日）`],
       omitted: 0,
     });
     // 案内が一覧より先（1500 文字の切り詰めで消えない）
     expect(Object.keys(opts.extra).slice(0, 2)).toEqual(['adminUrl', 'howToClose']);
-    // 名前・メール・本文も、種類欄に書かれた自由記述も、受付番号も載らない
+    // メール・電話・本文も、種類欄に書かれた自由記述も、受付番号も載らない
     const sent = JSON.stringify([message, opts]);
-    for (const secret of ['山田', 'a@example.invalid', '本文', '佐藤花子', '腰の痛み', '01234567', '00000000']) expect(sent).not.toContain(secret);
+    for (const secret of ['a@example.invalid', '090-1234-5678', '本文', '佐藤花子', '腰の痛み', '01234567', '00000000']) expect(sent).not.toContain(secret);
   });
 
   test('知らせるものが無ければ Slack に出さない', async () => {

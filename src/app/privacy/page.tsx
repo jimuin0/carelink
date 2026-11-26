@@ -89,6 +89,7 @@ export default function PrivacyPage() {
             <li>Microsoft Corporation（米国）：ユーザー行動分析（Microsoft Clarity）</li>
             <li>LINEヤフー株式会社（日本）：認証連携およびメッセージ配信</li>
             <li>Resend, Inc.（米国）：メール配信（予約確認・リマインド・お問い合わせ返信等。宛先メールアドレス・氏名・予約内容を含みます）</li>
+            <li>Slack Technologies, LLC（米国）：運営内の業務連絡（お問い合わせの対応状況の通知。お名前・受付日・お問い合わせの種類を含みます）</li>
             <li>Anthropic PBC（米国）：AI機能（チャットサポート・症状の絞り込み提案・口コミ要約）。利用者が入力した文章および公開済みの口コミ本文を送信します</li>
           </ul>
           <p className="text-gray-600 mt-2 text-sm">
@@ -190,7 +191,7 @@ export default function PrivacyPage() {
         </section>
 
         <p className="text-gray-500 text-sm">制定日：2026年3月19日</p>
-        <p className="text-gray-500 text-sm">最終改定日：2026年11月13日</p>
+        <p className="text-gray-500 text-sm">最終改定日：2026年11月26日</p>
       </div>
     </div>
   );

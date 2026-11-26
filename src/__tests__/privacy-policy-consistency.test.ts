@@ -48,6 +48,7 @@ describe('プライバシーポリシーと実装の整合', () => {
       'LINEヤフー',  // 認証連携・メッセージ配信
       'Resend',      // メール配信（氏名・メール・予約内容）
       'Anthropic',   // AI（利用者の入力文・公開済み口コミ本文）
+      'Slack',       // 運営内の通知（問い合わせのお名前・受付日・種類）
     ];
     for (const vendor of required) {
       expect(privacySource).toContain(vendor);

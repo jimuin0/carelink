@@ -10,9 +10,10 @@
  * - repliedOpen: 返信の記録はあるが、REPLIED_OPEN_DAYS 日以上たっても完了になっていないもの
  *   （相手の返事待ち・CareLink の外でのやり取り・閉じ忘れのどれか。人が確かめて閉じる）
  *
- * 🔴 Slack はプライバシーポリシーの委託先に無いため、名前・メール・本文は載せない
- * （受付日・問い合わせの種類・管理画面のタブ・経過日数だけ。中身は /admin/inquiries で見る・
- * src/lib/notify.ts と同じ方針）。
+ * 載せるのは、お名前・受付日・問い合わせの種類・管理画面のタブ・経過日数。
+ * 運営が Slack だけでどの問い合わせかを判別できるよう、お名前を載せる（2026年11月26日 神原さん決定。
+ * プライバシーポリシー第5条に Slack を委託先として追記済み）。
+ * 🔴 メール・電話・本文は載せない（判別に要らない。本文には症状が書かれやすい）。中身は /admin/inquiries で見る。
  * 種類は API が任意の文字列を受け付けるため、フォームの選択肢（INQUIRY_TYPE_OPTIONS）に
  * 一致するものだけを出す。それ以外は「その他の種類」にし、保存値をそのまま Slack へ流さない。
  * 受付番号は載せない（数字だけの並びは alert.ts の電話番号マスクに消され、照合に使えないため）。
@@ -33,10 +34,10 @@ const EVIDENCE_CHUNK = 100;
 const LISTED_ITEMS = 10; // Slack の本文は 1500 文字で切れるため（alert.ts）。超えた分は omitted に数える
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export interface BacklogContact { id: string; created_at: string | null; ticket_status?: string | null; inquiry_type?: string | null }
+export interface BacklogContact { id: string; created_at: string | null; name?: string | null; ticket_status?: string | null; inquiry_type?: string | null }
 export interface BacklogItem {
   id: string; ageDays: number; reason: 'unreplied' | 'repliedOpen';
-  createdAt?: string | null; ticketStatus?: string | null; inquiryType?: string | null;
+  name?: string | null; createdAt?: string | null; ticketStatus?: string | null; inquiryType?: string | null;
 }
 
 /** お問い合わせフォーム（src/app/contact/page.tsx）の種類の選択肢。テストがフォームと突合する。 */
@@ -60,7 +61,7 @@ export function classifyInquiryBacklog(contacts: BacklogContact[], evidence: Evi
       evidence.replies.filter((reply: LegacyMailReply) => reply.contact_id === contact.id),
     );
     const ageDays = ageInDays(contact.created_at, now);
-    const detail = { createdAt: contact.created_at, ticketStatus: contact.ticket_status ?? null, inquiryType: contact.inquiry_type ?? null };
+    const detail = { name: contact.name ?? null, createdAt: contact.created_at, ticketStatus: contact.ticket_status ?? null, inquiryType: contact.inquiry_type ?? null };
     if (!summary.replied && ageDays >= UNREPLIED_DAYS) items.push({ id: contact.id, ageDays, reason: 'unreplied', ...detail });
     else if (summary.replied && ageDays >= REPLIED_OPEN_DAYS) items.push({ id: contact.id, ageDays, reason: 'repliedOpen', ...detail });
   }
@@ -79,11 +80,19 @@ function typeLabel(inquiryType: string | null | undefined): string {
   return (INQUIRY_TYPE_OPTIONS as readonly string[]).includes(inquiryType) ? inquiryType : 'その他の種類';
 }
 
-/** 例：「9/22受付・施設掲載について（オーナー向け）・新着タブ（64日）」 */
+/** お名前は 20 文字で切る（フォームは 100 文字まで受けるため。1500 文字の切り詰めに収める）。 */
+const NAME_MAX = 20;
+function nameLabel(name: string | null | undefined): string {
+  const trimmed = (name ?? '').trim();
+  if (!trimmed) return 'お名前なし';
+  return `${trimmed.length > NAME_MAX ? `${trimmed.slice(0, NAME_MAX)}…` : trimmed}様`;
+}
+
+/** 例：「池田 拓郎様・9/22受付・施設掲載について（オーナー向け）・新着タブ（64日）」 */
 function formatItem(item: BacklogItem): string {
   const days = item.ageDays === Number.MAX_SAFE_INTEGER ? '日時不明' : `${item.ageDays}日`;
   const tab = (item.ticketStatus && STATUS_TABS[item.ticketStatus]) || '状態不明';
-  return `${[receivedOn(item.createdAt), typeLabel(item.inquiryType), `${tab}タブ`].join('・')}（${days}）`;
+  return `${[nameLabel(item.name), receivedOn(item.createdAt), typeLabel(item.inquiryType), `${tab}タブ`].join('・')}（${days}）`;
 }
 
 /**
@@ -92,7 +101,7 @@ function formatItem(item: BacklogItem): string {
  */
 export async function reportInquiryBacklog(db: DB, now: Date = new Date()): Promise<{ unreplied: number; repliedOpen: number }> {
   const { rows, error } = await fetchAllPaged<BacklogContact>(async (offset, limit) => {
-    const result = await db.from('contacts').select('id,created_at,ticket_status,inquiry_type')
+    const result = await db.from('contacts').select('id,created_at,name,ticket_status,inquiry_type')
       .in('ticket_status', [...OPEN_STATUSES]).is('resolved_at', null)
       .order('id', { ascending: true })
       .range(offset, offset + limit - 1);
