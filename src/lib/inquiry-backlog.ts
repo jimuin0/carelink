@@ -128,10 +128,12 @@ function nameLabel(name: string | null | undefined): string {
   const normalized = (name ?? '').normalize('NFKC').trim();
   if (!normalized) return 'お名前なし';
   if (/[\p{Nd}@]/u.test(normalized)) return 'お名前は管理画面で確認';
-  // alert.ts の伏せ字処理（token= 等）にかかる名前は、行ごと伏せ字にされて受付日なども消えるため載せない（Codex 指摘 PR993-06）
-  if (redactAlertText(normalized) !== normalized) return 'お名前は管理画面で確認';
   const chars = Array.from(normalized);
-  return `${chars.length > NAME_MAX ? `${chars.slice(0, NAME_MAX).join('')}…` : normalized}様`;
+  const label = `${chars.length > NAME_MAX ? `${chars.slice(0, NAME_MAX).join('')}…` : normalized}様`;
+  // alert.ts の伏せ字処理（token= 等）にかかる名前は、行ごと伏せ字にされて受付日なども消えるため載せない。
+  // 切り詰めて「様」を付けた後の形で判定する（切る前は通っても、切った後にかかることがある・Codex 指摘 PR993-06）
+  if (redactAlertText(normalized) !== normalized || redactAlertText(label) !== label) return 'お名前は管理画面で確認';
+  return label;
 }
 
 /** 例：「池田 拓郎様・9/22受付・施設掲載について（オーナー向け）・新着タブ（64日）」 */
@@ -184,7 +186,9 @@ export async function reportInquiryBacklog(db: DB, now: Date = new Date()): Prom
     const base = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-jp.com';
     alertWarning(`運営宛のお問い合わせに未完了が${items.length}件あります（未返信${unreplied.length}件・返信後${REPLIED_OPEN_DAYS}日以上未完了${repliedOpen.length}件）`, {
       category: '完了未確認',
-      route: '/api/cron/cron-heartbeat',
+      // 死活監視の警告（route=/api/cron/cron-heartbeat）と同じ Slack スレッドに混ざらないよう、route を分ける
+      // （alert.ts はスレッドを level・route・commit でまとめる・Codex 指摘 PR993-07）
+      route: '/api/cron/cron-heartbeat/inquiry-backlog',
       extra: {
         // 案内を先に置く（alert.ts は本文を 1500 文字で切るため、一覧が長くても案内は残る）
         adminUrl: `${base}/admin/inquiries`,

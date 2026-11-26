@@ -139,6 +139,7 @@ describe('reportInquiryBacklog', () => {
     const [message, opts] = (alertWarning as jest.Mock).mock.calls[0];
     expect(message).toContain('未完了が4件');
     expect(opts.category).toBe('完了未確認');
+    expect(opts.route).toBe('/api/cron/cron-heartbeat/inquiry-backlog'); // 死活監視のスレッドと分ける
     expect(opts.extra).toEqual({
       adminUrl: 'https://carelink-jp.com/admin/inquiries',
       howToClose: expect.stringContaining('解決済み'),
@@ -239,6 +240,14 @@ describe('reportInquiryBacklog', () => {
     // 伏せ字にかかる名前の行も、受付日・種類・タブが残る
     expect(extra.unreplied[0]).toBe('お名前は管理画面で確認・11/7受付・施設掲載について（オーナー向け）・新着タブ（10日）');
     expect(JSON.stringify(extra)).not.toContain('token');
+  });
+
+  test('切り詰めた後に伏せ字にかかる名前も載せない（切る前は通る形）', async () => {
+    const rows = [{ id: uuid(1), created_at: daysAgo(10), name: 'ABCDEFGHIJKLM token=, 甲', ticket_status: 'open', inquiry_type: 'その他' }];
+    const { db } = fakeDb([{ data: rows, error: null }]);
+    (readMailReplyEvidence as jest.Mock).mockResolvedValue(empty);
+    await reportInquiryBacklog(db, now);
+    expect((alertWarning as jest.Mock).mock.calls[0][1].extra.unreplied).toEqual(['お名前は管理画面で確認・11/7受付・その他・新着タブ（10日）']);
   });
 
   test('省略件数は区分ごとに数える（未返信11件・返信済み0件なら1件）', async () => {
