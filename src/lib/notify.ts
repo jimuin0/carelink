@@ -151,7 +151,10 @@ export const CONTACT_PREVIEW_MAX = 100;
 export function sanitizeContactField(value: string): string {
   return value
     .normalize('NFKC')
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email redacted]')
+    // ゼロ幅スペースなど見えない書式文字で照合を途切れさせないよう、先に取り除く
+    .replace(/\p{Cf}/gu, '')
+    // 国際化ドメインも含め、@ を挟んで点を含む塊はメールアドレスとみなす（漏らさない側に倒す）
+    .replace(/[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/gu, '[email redacted]')
     .replace(/\+?\(?\d[\d\s().\-‐-‒–—―ーｰ−]{7,}\d/g, (m) => (m.replace(/\D/g, '').length >= 10 ? '[phone redacted]' : m))
     .replace(/[*_~`]/g, (c) => ({ '*': '＊', _: '＿', '~': '～', '`': '｀' })[c] as string);
 }
