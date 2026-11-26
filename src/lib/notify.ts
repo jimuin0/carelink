@@ -172,8 +172,8 @@ function redactEmail(candidate: string): string {
 export function sanitizeContactField(value: string): string {
   return value
     .normalize('NFKC')
-    // ゼロ幅スペースなど見えない書式文字で照合を途切れさせないよう、先に取り除く
-    .replace(/[\p{Cf}\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/gu, '')
+    // ゼロ幅スペース・異体字セレクタ・U+034F など見えない文字（Unicode の既定で無視される文字）で照合を途切れさせないよう、先に取り除く
+    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '')
     // 前半は英数字記号に限る（空白の無い日本語の文を巻き込まないため）。ドメインの区切りの判定は redactEmail
     .replace(EMAIL_CANDIDATE, redactEmail)
     .replace(/\+?\(?\d[\d\s().\-‐-‒–—―ーｰ−]{7,}\d/g, (m) => (m.replace(/\D/g, '').length >= 10 ? '[phone redacted]' : m))
