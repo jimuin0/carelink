@@ -49,7 +49,9 @@ export async function claimInquiryBacklogReport(db: DB, now: Date): Promise<bool
   try {
     const { data, error } = await db.rpc('check_rate_limit', { p_key: `inquiry-backlog-report:${day}`, p_limit: 1, p_window_ms: 26 * 60 * 60 * 1000 });
     if (error || typeof data !== 'boolean') return true;
-    return data;
+    // 🔴 check_rate_limit の戻り値は TRUE＝制限中（上限超え）・FALSE＝許可（20260526000001 の定義）。
+    // 「取れたか」は逆なので反転する（一度ここを逆に読み、初回が出ず 2 回目以降が出る実装になった・Codex 指摘 PR993-05）。
+    return !data;
   } catch {
     return true;
   }
@@ -126,6 +128,8 @@ function nameLabel(name: string | null | undefined): string {
   const normalized = (name ?? '').normalize('NFKC').trim();
   if (!normalized) return 'お名前なし';
   if (/[\p{Nd}@]/u.test(normalized)) return 'お名前は管理画面で確認';
+  // alert.ts の伏せ字処理（token= 等）にかかる名前は、行ごと伏せ字にされて受付日なども消えるため載せない（Codex 指摘 PR993-06）
+  if (redactAlertText(normalized) !== normalized) return 'お名前は管理画面で確認';
   const chars = Array.from(normalized);
   return `${chars.length > NAME_MAX ? `${chars.slice(0, NAME_MAX).join('')}…` : normalized}様`;
 }

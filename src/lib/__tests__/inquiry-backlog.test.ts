@@ -30,12 +30,27 @@ describe('isInquiryBacklogReportTime', () => {
 describe('claimInquiryBacklogReport', () => {
   const rpcDb = (impl: () => Promise<unknown>) => { const rpc = jest.fn(impl); return { db: { rpc } as never, rpc }; };
 
-  test('日本時間の日付ごとに 1 回だけの枠を check_rate_limit で取り、結果を返す', async () => {
-    const { db, rpc } = rpcDb(async () => ({ data: false, error: null }));
-    await expect(claimInquiryBacklogReport(db, new Date('2026-11-26T00:07:00Z'))).resolves.toBe(false);
+  test('日本時間の日付ごとに 1 回だけの枠を check_rate_limit で取る（SQL と同じく 初回 FALSE＝許可・以後 TRUE＝制限中）', async () => {
+    // 実際の SQL（20260526000001）と同じ振る舞い：同じキーで上限 1 なら、1 回目だけ false、2 回目から true
+    const counts = new Map<string, number>();
+    const rpc = jest.fn(async (_name: string, args: { p_key: string; p_limit: number }) => {
+      const count = (counts.get(args.p_key) ?? 0) + 1;
+      counts.set(args.p_key, count);
+      return { data: count > args.p_limit, error: null };
+    });
+    const db = { rpc } as never;
+    const at = new Date('2026-11-26T00:07:00Z');
+    const results = [await claimInquiryBacklogReport(db, at), await claimInquiryBacklogReport(db, at), await claimInquiryBacklogReport(db, at)];
+    expect(results).toEqual([true, false, false]);
     expect(rpc).toHaveBeenCalledWith('check_rate_limit', { p_key: 'inquiry-backlog-report:2026-11-26', p_limit: 1, p_window_ms: 26 * 60 * 60 * 1000 });
-    const ok = rpcDb(async () => ({ data: true, error: null }));
-    await expect(claimInquiryBacklogReport(ok.db, now)).resolves.toBe(true);
+    // 翌日は別のキーなので、また 1 回だけ取れる
+    await expect(claimInquiryBacklogReport(db, new Date('2026-11-27T00:07:00Z'))).resolves.toBe(true);
+  });
+
+  test('SQL の定義が「TRUE＝制限中」のままであること（逆に読む事故の再発防止）', () => {
+    const sql = readFileSync(join(__dirname, '../../../supabase/migrations/20260526000001_rate_limit_supabase.sql'), 'utf8');
+    expect(sql).toContain('戻り値 TRUE = limited');
+    expect(sql).toMatch(/RETURN v_count > p_limit/);
   });
 
   test('RPC の失敗・真偽値以外・例外では通知する側（true）に倒す', async () => {
@@ -211,7 +226,7 @@ describe('reportInquiryBacklog', () => {
   });
 
   test('伏せ字で長くなる名前でも、送る内容の長さで数えるので 1500 文字に収まる', async () => {
-    const masked = 'token=' + 'x'.repeat(14); // 数字も @ も無いが、alert.ts の伏せ字で書き換わる
+    const masked = 'token=' + 'x'.repeat(14); // 数字も @ も無いが、alert.ts の伏せ字にかかる → 名前として載せない
     const rows = Array.from({ length: 24 }, (_, index) => ({ id: uuid(index), created_at: daysAgo(10), name: index % 4 === 0 ? masked : '𠮷'.repeat(20), ticket_status: 'open', inquiry_type: '施設掲載について（オーナー向け）' }));
     const { db } = fakeDb([{ data: rows, error: null }]);
     (readMailReplyEvidence as jest.Mock).mockResolvedValue({ messages: rows.slice(12).map((row) => sentMail(row.id)), replies: [] });
@@ -221,6 +236,9 @@ describe('reportInquiryBacklog', () => {
     const sanitized = JSON.parse(JSON.stringify(extra), (_key, value) => (typeof value === 'string' ? redactAlertText(value) : value));
     expect(JSON.stringify(sanitized, null, 2).length).toBeLessThanOrEqual(1500);
     expect(extra.omitted).toBe(24 - extra.unreplied.length - extra.repliedOpen.length);
+    // 伏せ字にかかる名前の行も、受付日・種類・タブが残る
+    expect(extra.unreplied[0]).toBe('お名前は管理画面で確認・11/7受付・施設掲載について（オーナー向け）・新着タブ（10日）');
+    expect(JSON.stringify(extra)).not.toContain('token');
   });
 
   test('省略件数は区分ごとに数える（未返信11件・返信済み0件なら1件）', async () => {
