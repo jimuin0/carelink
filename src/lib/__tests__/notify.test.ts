@@ -37,7 +37,7 @@ jest.mock('@/lib/slack', () => ({
   }),
 }));
 
-import { sendNotify, type NotifyPayload } from '../notify';
+import { sendNotify, contactPreview, CONTACT_PREVIEW_MAX, type NotifyPayload } from '../notify';
 
 const CONTACT_ID = '71000000-0000-4000-8000-0000000000c1';
 const INQUIRY_ID = '71000000-0000-4000-8000-0000000000a1';
@@ -145,7 +145,7 @@ describe('sendNotify — type ごとの Slack メッセージ送信', () => {
 
     expect(args[0].text).toContain('お問い合わせ（運営宛）を受け付けました');
     expect(args[0].text).toContain(CONTACT_ID);
-    expect(args[0].text).toContain('内容は管理画面で確認してください');
+    expect(args[0].text).toContain('全文と連絡先は管理画面で確認してください');
   });
 
   test('facility_inquiry type → 施設名と受付番号を載せて送信し ok=true', async () => {
@@ -176,7 +176,6 @@ describe('sendNotify — Slack に個人情報を載せない', () => {
 
   test.each([
     ['facility_inquiry', { inquiry_id: INQUIRY_ID, facility_id: '71000000-0000-4000-8000-000000000002', facility_name: 'テスト施設', ...pii }],
-    ['contact', { contact_id: CONTACT_ID, ...pii }],
   ])('%s: 入力した氏名・メール・電話・本文が Slack の本文にもブロックにも含まれない', async (type, data) => {
     const result = await sendNotify(untyped({ type, data }));
 
@@ -186,6 +185,51 @@ describe('sendNotify — Slack に個人情報を載せない', () => {
       expect(posted).not.toContain(value);
     }
     expect(posted).not.toMatch(/お名前|メール:|電話:|内容:|流入元/);
+  });
+});
+
+// 2026年11月27日 本人決定: 運営宛のお問い合わせだけは、お名前・種類・本文冒頭を載せる。
+// メール・電話・流入元は載せず、本文中のメール・電話は伏せ字にし、冒頭100文字で切る。
+describe('sendNotify — contact は名前・種類・本文冒頭だけを載せる', () => {
+  const pii = {
+    name: '山田花子',
+    email: 'hanako.yamada@example.invalid',
+    phone: '090-1234-5678',
+    message: '先週から腰痛がひどく、相談したいです。連絡は 090-8765-4321 か taro@example.invalid へ',
+    inquiry_type: '個人的なご相談',
+    traffic_source: { source: 'threads', medium: 'social', referrerHost: 'www.threads.net', landingPath: '/lp/secret', capturedAt: '2026-10-22T00:00:00.000Z' },
+  };
+
+  test('名前・種類・本文を載せ、メール・電話・流入元は載せない', async () => {
+    const result = await sendNotify(untyped({ type: 'contact', data: { contact_id: CONTACT_ID, ...pii } }));
+    expect(result.ok).toBe(true);
+    const posted = postedToSlack();
+    for (const value of [pii.name, pii.inquiry_type, '腰痛', CONTACT_ID]) expect(posted).toContain(value);
+    for (const value of [pii.email, pii.phone, '8765-4321', 'taro@example', pii.traffic_source.landingPath, pii.traffic_source.referrerHost]) {
+      expect(posted).not.toContain(value);
+    }
+    expect(posted).toContain('[phone redacted]');
+    expect(posted).toContain('[email redacted]');
+  });
+
+  test('本文は改行を詰めて冒頭 CONTACT_PREVIEW_MAX 文字で切る', () => {
+    expect(contactPreview('あ\n\nい')).toBe('あ い');
+    expect(contactPreview('字'.repeat(CONTACT_PREVIEW_MAX))).toBe('字'.repeat(CONTACT_PREVIEW_MAX));
+    expect(contactPreview('字'.repeat(CONTACT_PREVIEW_MAX + 1))).toBe(`${'字'.repeat(CONTACT_PREVIEW_MAX)}…`);
+  });
+
+  test('内容の欄が無くても受付番号で通知し、不正な欄は捨てる', async () => {
+    await sendNotify(untyped({ type: 'contact', data: { contact_id: CONTACT_ID, name: 123, inquiry_type: 'x'.repeat(101) } }));
+    const text = mockPostToSlack.mock.calls[0][0].text as string;
+    expect(text).toContain(CONTACT_ID);
+    expect(text).not.toMatch(/お名前|種類|内容（冒頭）/);
+  });
+
+  test('名前・本文の HTML 特殊文字はエスケープされる', async () => {
+    await sendNotify({ type: 'contact', data: { contact_id: CONTACT_ID, name: '<b>&', inquiry_type: '<i>', message: '<script>' } });
+    const text = mockPostToSlack.mock.calls[0][0].text as string;
+    expect(text).toContain('&lt;b&gt;&amp;');
+    expect(text).not.toContain('<script>');
   });
 });
 

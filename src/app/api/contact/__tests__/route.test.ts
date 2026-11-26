@@ -363,7 +363,8 @@ describe('POST /api/contact', () => {
 
   // 🔴 回帰（2026年10月22日）: 以前は氏名・メール・本文・流入元をそのまま Slack へ送っていた。
   // Slack はプライバシーポリシーの委託先に無いので、受付番号だけを渡す。
-  test('Slack 通知には受付番号だけを渡し、入力された個人情報を渡さない', async () => {
+  // 2026年11月27日 本人決定で、お名前・種類・本文は渡す（冒頭化と伏せ字は notify.ts）。メール・電話・流入元は渡さない。
+  test('Slack 通知には名前・種類・本文と受付番号を渡し、メール・電話・流入元を渡さない', async () => {
     await POST(
       makeRequest({
         name: '山田花子',
@@ -377,9 +378,9 @@ describe('POST /api/contact', () => {
     );
 
     expect(sendNotify).toHaveBeenCalledTimes(1);
-    expect(sendNotify).toHaveBeenCalledWith({ type: 'contact', data: { contact_id: CONTACT_ID } });
+    expect(sendNotify).toHaveBeenCalledWith({ type: 'contact', data: { contact_id: CONTACT_ID, name: '山田花子', inquiry_type: '個人的なご相談', message: '先週から腰痛がひどく相談したいです' } });
     const sent = JSON.stringify((sendNotify as jest.Mock).mock.calls);
-    for (const value of ['山田花子', 'hanako.yamada@example.com', '09012345678', '腰痛', '個人的なご相談', 'threads']) {
+    for (const value of ['hanako.yamada@example.com', '09012345678', 'threads']) {
       expect(sent).not.toContain(value);
     }
   });
@@ -404,7 +405,7 @@ describe('POST /api/contact', () => {
     expect(sendOperatorNotification).not.toHaveBeenCalled();
     expect(tasks).toHaveLength(2);
     await Promise.all(tasks.map((t) => t()));
-    expect(sendNotify).toHaveBeenCalledWith({ type: 'contact', data: { contact_id: CONTACT_ID } });
+    expect(sendNotify).toHaveBeenCalledWith({ type: 'contact', data: expect.objectContaining({ contact_id: CONTACT_ID }) });
     expect(sendOperatorNotification).toHaveBeenCalledTimes(1);
   });
 

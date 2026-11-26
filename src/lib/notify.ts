@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { adminFacilityHref } from '@/lib/admin-facility-url';
 import { UUID_REGEX } from '@/lib/constants';
+import { redactAlertText } from '@/lib/alert';
 import {
   postToSlack,
   sectionBlock,
@@ -16,13 +17,14 @@ function escSlack(s: string): string {
 /**
  * 運営 Slack への受付通知（2026年10月22日 改訂）。
  *
- * 🔴 Slack には【個人情報を一切載せない】。載せてよいのは「何の受付か」「施設名」「受付番号（レコードの id）」
- * 「管理画面へのリンク」だけ。お名前・メール・電話・本文は管理画面（ログイン必須）で見る。
+ * 🔴 Slack にはメールアドレス・電話番号を載せない。運営宛のお問い合わせ（contact）だけは、2026年11月27日の
+ * 本人決定で「お名前・種類・本文の冒頭（100文字・メールと電話は伏せ字）」を載せる（プライバシーポリシー第5条に記載）。
+ * それ以外の種別は「何の受付か」「施設名」「受付番号」「管理画面へのリンク」だけ。
  *
  * 【なぜ】以前は施設への問い合わせ（facility_inquiry）と運営へのお問い合わせ（contact）の
  * 氏名・メール・電話・本文（症状が書かれやすい）を全文そのまま Slack へ転記していたが、
  * 当時 Slack はプライバシーポリシー第5条の委託先に載っていなかった（2026年11月26日に、問い合わせの
- * 対応状況の通知に限りお名前・受付日・種類を載せる形で追記した。この受付通知は対象外のまま）。
+ * 対応状況の通知に限りお名前・受付日・種類を載せる形で追記し、11月27日に受付通知の本文冒頭まで広げた）。
  * 転記された写しは退会時の削除や開示等の請求の対象からも外れる。施設掲載申込（src/lib/salon-outbox-delivery.ts）は既に
  * 「受付番号と管理画面 URL だけ」に作り直してあり、同じ方針にそろえた。
  *
@@ -46,6 +48,12 @@ export type NotifyPayload =
       data: {
         /** contacts.id（運営宛のお問い合わせの受付番号） */
         contact_id: string;
+        /** お名前（2026年11月27日 本人決定で載せる。メール・電話は載せない） */
+        name?: string;
+        /** お問い合わせの種類 */
+        inquiry_type?: string;
+        /** 本文。冒頭 CONTACT_PREVIEW_MAX 文字だけを、メール・電話を伏せて載せる */
+        message?: string;
       };
     }
   | {
@@ -110,12 +118,16 @@ function buildSlackMessage(payload: NotifyPayload): string {
         `> *受付番号:* ${payload.data.mail_id.slice(0, 8)}`,
         '> 内容と送信状況は管理画面で確認してください。',
       ].join('\n');
-    case 'contact':
-      return [
-        ':envelope: *お問い合わせ（運営宛）を受け付けました*',
-        `> *受付番号:* ${payload.data.contact_id}`,
-        '> 内容は管理画面で確認してください。',
-      ].join('\n');
+    case 'contact': {
+      const { name, inquiry_type, message } = payload.data;
+      const lines = [':envelope: *お問い合わせ（運営宛）を受け付けました*'];
+      if (name) lines.push(`> *お名前:* ${escSlack(name)}`);
+      if (inquiry_type) lines.push(`> *種類:* ${escSlack(inquiry_type)}`);
+      if (message) lines.push(`> *内容（冒頭）:* ${escSlack(contactPreview(message))}`);
+      lines.push(`> *受付番号:* ${payload.data.contact_id}`);
+      lines.push('> 全文と連絡先は管理画面で確認してください。');
+      return lines.join('\n');
+    }
 
     case 'facility_inquiry':
       return [
@@ -129,12 +141,28 @@ function buildSlackMessage(payload: NotifyPayload): string {
 
 const recordId = z.string().regex(UUID_REGEX);
 
+/** 受信通知に載せる本文の最大文字数（2026年11月27日 本人決定「名前・種類・本文冒頭」） */
+export const CONTACT_PREVIEW_MAX = 100;
+
+/** 本文の冒頭だけを、改行を詰め、メール・電話を伏せて返す */
+export function contactPreview(message: string): string {
+  const flat = redactAlertText(message).replace(/\s+/g, ' ').trim();
+  const chars = Array.from(flat);
+  return chars.length > CONTACT_PREVIEW_MAX ? `${chars.slice(0, CONTACT_PREVIEW_MAX).join('')}…` : flat;
+}
+
 export const notifyPayloadSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('contact_reply_sent'), data: z.object({ contact_id: recordId }) }),
   z.object({ type: z.literal('platform_mail_sent'), data: z.object({ mail_id: recordId, scheduled: z.boolean() }) }),
   z.object({
     type: z.literal('contact'),
-    data: z.object({ contact_id: recordId }),
+    data: z.object({
+      contact_id: recordId,
+      // 内容の欄は不正でも通知全体を落とさない（値だけ捨てる）
+      name: z.string().max(100).optional().catch(undefined),
+      inquiry_type: z.string().max(100).optional().catch(undefined),
+      message: z.string().optional().catch(undefined),
+    }),
   }),
 
   z.object({

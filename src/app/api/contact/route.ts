@@ -82,14 +82,18 @@ export const POST = withRoute(async (request) => {
   // /api/notify の CSRF で 403 になり通知が無音欠落していたため、
   // 共有ロジック sendNotify を直接呼ぶ（HTTP 往復を排除）。
   //
-  // 🔴 Slack に載せるのは受付番号（contacts.id）と管理画面へのリンクだけ（2026年10月22日）。
-  // Slack はプライバシーポリシーの委託先に無いため、お名前・メール・本文・流入元は載せない
-  // （内容は管理画面 /admin/inquiries で見る。src/lib/notify.ts 冒頭）。
+  // 🔴 Slack に載せるのはお名前・種類・本文の冒頭（伏せ字済み）と受付番号だけ（2026年11月27日 本人決定）。
+  // メール・電話・流入元は載せない（src/lib/notify.ts 冒頭・プライバシーポリシー第5条）。
   //
   // 通知失敗はお問い合わせ受付自体を失敗扱いにしない。
   runAfterResponse(() => sendNotify({
   type: 'contact',
-  data: { contact_id: saved.id },
+  data: {
+    contact_id: saved.id,
+    name: parsed.data.name,
+    inquiry_type: parsed.data.inquiry_type,
+    message: parsed.data.message,
+  },
 })
   .then((r) => {
     if (!r.ok) {
