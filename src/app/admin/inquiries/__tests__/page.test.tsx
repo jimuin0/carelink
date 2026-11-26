@@ -401,5 +401,10 @@ test('対応状況は見出し付きのボタンの列で、今の状態が分�
     expect.stringMatching(/\/api\/admin\/inquiries\/[^/]+$/),
     expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ ticket_status: 'in_progress' }) }),
   ));
-  expect(screen.getByRole('combobox', { name: '優先度' })).toBeInTheDocument();
+  await screen.findByText('更新しました');
+  fireEvent.change(screen.getByRole('combobox', { name: '優先度' }), { target: { value: 'high' } });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
+    expect.stringMatching(/\/api\/admin\/inquiries\/[^/]+$/),
+    expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ priority: 'high' }) }),
+  ));
 });
