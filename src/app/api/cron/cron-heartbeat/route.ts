@@ -15,7 +15,7 @@ import { alertWarning } from '@/lib/alert';
 import { getStaleCronJobs } from '@/lib/cron-heartbeat';
 import { summarizeDependencyError } from '@/lib/err';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { isInquiryBacklogReportTime, reportInquiryBacklog, wasInquiryBacklogReportedToday } from '@/lib/inquiry-backlog';
+import { isInquiryBacklogReportTime, reportInquiryBacklog, claimInquiryBacklogReport } from '@/lib/inquiry-backlog';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -64,9 +64,9 @@ export async function GET(request: Request) {
     if (isInquiryBacklogReportTime(startedAt)) {
       try {
         const db = createServiceRoleClient();
-        inquiryBacklog = await wasInquiryBacklogReportedToday(db, startedAt)
-          ? 'already'
-          : await reportInquiryBacklog(db, startedAt);
+        inquiryBacklog = await claimInquiryBacklogReport(db, startedAt)
+          ? await reportInquiryBacklog(db, startedAt)
+          : 'already';
       } catch (e) {
         console.error('[cron-heartbeat] inquiry backlog check failed', { errorMessage: summarizeDependencyError(e) });
         inquiryBacklog = 'failed';

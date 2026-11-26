@@ -1,11 +1,11 @@
-jest.mock('../alert', () => ({ alertWarning: jest.fn() }));
+jest.mock('../alert', () => ({ alertWarning: jest.fn(), redactAlertText: jest.requireActual('../alert').redactAlertText }));
 jest.mock('../platform-mail-read', () => ({ readMailReplyEvidence: jest.fn() }));
 
 import { alertWarning } from '../alert';
 import { readMailReplyEvidence } from '../platform-mail-read';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { classifyInquiryBacklog, isInquiryBacklogReportTime, reportInquiryBacklog, wasInquiryBacklogReportedToday, UNREPLIED_DAYS, REPLIED_OPEN_DAYS, INQUIRY_TYPE_OPTIONS } from '../inquiry-backlog';
+import { classifyInquiryBacklog, isInquiryBacklogReportTime, reportInquiryBacklog, claimInquiryBacklogReport, UNREPLIED_DAYS, REPLIED_OPEN_DAYS, INQUIRY_TYPE_OPTIONS } from '../inquiry-backlog';
 
 const now = new Date('2026-11-17T06:00:00Z');
 const daysAgo = (days: number) => new Date(now.getTime() - days * 86_400_000).toISOString();
@@ -27,28 +27,21 @@ describe('isInquiryBacklogReportTime', () => {
   });
 });
 
-describe('wasInquiryBacklogReportedToday', () => {
-  function logsDb(result: { data: unknown; error: unknown }) {
-    const calls: Record<string, unknown[]> = {};
-    const query: Record<string, unknown> = {};
-    for (const key of ['select', 'eq', 'gte', 'lt', 'not']) query[key] = jest.fn((...args: unknown[]) => { calls[key] = args; return query; });
-    query.limit = jest.fn(async () => result);
-    return { db: { from: jest.fn(() => query) } as never, calls };
-  }
+describe('claimInquiryBacklogReport', () => {
+  const rpcDb = (impl: () => Promise<unknown>) => { const rpc = jest.fn(impl); return { db: { rpc } as never, rpc }; };
 
-  test('今日（日本時間）の通知済みの記録があれば真。日の始まりは日本時間 0 時', async () => {
-    const { db, calls } = logsDb({ data: [{ id: 1 }], error: null });
-    await expect(wasInquiryBacklogReportedToday(db, new Date('2026-11-26T00:08:00Z'))).resolves.toBe(true);
-    expect(calls.eq).toEqual(['job_name', 'cron-heartbeat']);
-    expect(calls.gte).toEqual(['started_at', '2026-11-25T15:00:00.000Z']);
-    expect(calls.lt).toEqual(['started_at', '2026-11-26T00:08:00.000Z']);
-    expect(calls.not).toEqual(['meta->inquiryBacklog->unreplied', 'is', null]);
+  test('日本時間の日付ごとに 1 回だけの枠を check_rate_limit で取り、結果を返す', async () => {
+    const { db, rpc } = rpcDb(async () => ({ data: false, error: null }));
+    await expect(claimInquiryBacklogReport(db, new Date('2026-11-26T00:07:00Z'))).resolves.toBe(false);
+    expect(rpc).toHaveBeenCalledWith('check_rate_limit', { p_key: 'inquiry-backlog-report:2026-11-26', p_limit: 1, p_window_ms: 26 * 60 * 60 * 1000 });
+    const ok = rpcDb(async () => ({ data: true, error: null }));
+    await expect(claimInquiryBacklogReport(ok.db, now)).resolves.toBe(true);
   });
 
-  test('記録が無い・読めないときは偽（通知する側に倒す）', async () => {
-    await expect(wasInquiryBacklogReportedToday(logsDb({ data: [], error: null }).db, now)).resolves.toBe(false);
-    await expect(wasInquiryBacklogReportedToday(logsDb({ data: null, error: null }).db, now)).resolves.toBe(false);
-    await expect(wasInquiryBacklogReportedToday(logsDb({ data: null, error: { message: 'down' } }).db, now)).resolves.toBe(false);
+  test('RPC の失敗・真偽値以外・例外では通知する側（true）に倒す', async () => {
+    await expect(claimInquiryBacklogReport(rpcDb(async () => ({ data: null, error: { message: 'down' } })).db, now)).resolves.toBe(true);
+    await expect(claimInquiryBacklogReport(rpcDb(async () => ({ data: null, error: null })).db, now)).resolves.toBe(true);
+    await expect(claimInquiryBacklogReport(rpcDb(async () => { throw new Error('network'); }).db, now)).resolves.toBe(true);
   });
 });
 
@@ -215,6 +208,19 @@ describe('reportInquiryBacklog', () => {
     expect(extra.repliedOpen.length).toBeGreaterThan(0);
     expect(shown).toBeLessThan(20); // 件数の上限（各10件）より前に文字数の上限で止まっている
     expect(extra.omitted).toBe(24 - shown);
+  });
+
+  test('伏せ字で長くなる名前でも、送る内容の長さで数えるので 1500 文字に収まる', async () => {
+    const masked = 'token=' + 'x'.repeat(14); // 数字も @ も無いが、alert.ts の伏せ字で書き換わる
+    const rows = Array.from({ length: 24 }, (_, index) => ({ id: uuid(index), created_at: daysAgo(10), name: index % 4 === 0 ? masked : '𠮷'.repeat(20), ticket_status: 'open', inquiry_type: '施設掲載について（オーナー向け）' }));
+    const { db } = fakeDb([{ data: rows, error: null }]);
+    (readMailReplyEvidence as jest.Mock).mockResolvedValue({ messages: rows.slice(12).map((row) => sentMail(row.id)), replies: [] });
+    await reportInquiryBacklog(db, now);
+    const extra = (alertWarning as jest.Mock).mock.calls[0][1].extra;
+    const { redactAlertText } = jest.requireActual('../alert');
+    const sanitized = JSON.parse(JSON.stringify(extra), (_key, value) => (typeof value === 'string' ? redactAlertText(value) : value));
+    expect(JSON.stringify(sanitized, null, 2).length).toBeLessThanOrEqual(1500);
+    expect(extra.omitted).toBe(24 - extra.unreplied.length - extra.repliedOpen.length);
   });
 
   test('省略件数は区分ごとに数える（未返信11件・返信済み0件なら1件）', async () => {

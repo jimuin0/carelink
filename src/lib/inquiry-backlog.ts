@@ -19,7 +19,7 @@
  * 受付番号は載せない（数字だけの並びは alert.ts の電話番号マスクに消され、照合に使えないため）。
  */
 import type { createServiceRoleClient } from './supabase-server';
-import { alertWarning } from './alert';
+import { alertWarning, redactAlertText } from './alert';
 import { fetchAllPaged } from './paginate';
 import { readMailReplyEvidence } from './platform-mail-read';
 import { summarizeMailReplies, type LegacyMailReply } from './platform-mail-contract';
@@ -38,21 +38,21 @@ export function isInquiryBacklogReportTime(now: Date): boolean {
 }
 
 /**
- * 今日（日本時間）すでに通知したか。cron-heartbeat の run 記録（cron_logs.meta.inquiryBacklog に件数が入る）で判定する。
- * 手動の再実行や dispatcher の重複起動で 9 時台に 2 回動いても、2 通目を出さない（Codex 指摘 PR993-05）。
- * 記録を読めないときは false（＝通知する）。重複は困るが、黙って出さないほうがもっと困るため。
+ * 今日（日本時間）の通知の権利を 1 回だけ取る。取れたら true。
+ * 既存のレート制限 RPC（check_rate_limit・DB の中で原子的に数える）を「日付ごとに 1 回」で使うので、
+ * 9 時台に 2 回動いても、同時に 2 本動いても、通知は 1 通だけになる（Codex 指摘 PR993-05）。
+ * RPC が失敗したときは true（＝通知する）。重複は困るが、黙って出さないほうがもっと困るため。
  */
-export async function wasInquiryBacklogReportedToday(db: DB, now: Date): Promise<boolean> {
+export async function claimInquiryBacklogReport(db: DB, now: Date): Promise<boolean> {
   const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  const dayStartUtc = new Date(Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate()) - 9 * 60 * 60 * 1000);
-  const { data, error } = await db.from('cron_logs').select('id')
-    .eq('job_name', 'cron-heartbeat')
-    .gte('started_at', dayStartUtc.toISOString())
-    .lt('started_at', now.toISOString())
-    .not('meta->inquiryBacklog->unreplied', 'is', null)
-    .limit(1);
-  if (error) return false;
-  return (data ?? []).length > 0;
+  const day = jst.toISOString().slice(0, 10);
+  try {
+    const { data, error } = await db.rpc('check_rate_limit', { p_key: `inquiry-backlog-report:${day}`, p_limit: 1, p_window_ms: 26 * 60 * 60 * 1000 });
+    if (error || typeof data !== 'boolean') return true;
+    return data;
+  } catch {
+    return true;
+  }
 }
 
 export const UNREPLIED_DAYS = 1;
@@ -166,7 +166,8 @@ export async function reportInquiryBacklog(db: DB, now: Date = new Date()): Prom
       let budget = LIST_CHAR_BUDGET;
       const lines: string[] = [];
       for (const item of list.slice(0, LISTED_ITEMS)) {
-        const line = formatItem(item);
+        // alert.ts が送る前にかける伏せ字処理を先に通し、送る内容そのものの長さで数える（Codex 指摘 PR993-04）
+        const line = redactAlertText(formatItem(item));
         const cost = JSON.stringify(line).length + LINE_OVERHEAD;
         if (cost > budget) break;
         budget -= cost;
