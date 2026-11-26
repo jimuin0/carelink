@@ -395,6 +395,10 @@ test('対応状況は見出し付きのボタンの列で、今の状態が分�
   const current = within(group).getByRole('button', { pressed: true });
   expect(current).toHaveTextContent('✓ 新着');
   expect(current).toBeDisabled();
+  // 今の状態は主色の塗りつぶしで、ほかのボタン（白地）と見分けられる
+  expect(current.className).toContain('bg-[var(--primary)]');
+  expect(current.className).toContain('text-white');
+  expect(within(group).getByRole('button', { name: '対応中' }).className).toContain('bg-white');
   expect(screen.getByText(/やり取りが終わったら「解決済み」を押してください/)).toBeVisible();
   fireEvent.click(within(group).getByRole('button', { name: '対応中' }));
   await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(

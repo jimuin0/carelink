@@ -514,7 +514,7 @@ export default function AdminInquiriesPage() {
                     <div>
                       <p id={`status-label-${c.id}`} className="text-xs font-bold text-gray-600 mb-2">対応状況</p>
                       <div role="group" aria-labelledby={`status-label-${c.id}`} className="flex flex-wrap gap-2">
-                        {Object.entries(TICKET_STATUS_CONFIG).map(([val, { label, className }]) => {
+                        {Object.entries(TICKET_STATUS_CONFIG).map(([val, { label }]) => {
                           const current = c.ticket_status === val;
                           return (
                             <button
@@ -525,7 +525,10 @@ export default function AdminInquiriesPage() {
                               onClick={() => updateTicket(c.id, { ticket_status: val as Contact['ticket_status'] })}
                               className={`min-h-[40px] rounded-full px-4 text-sm font-medium border transition-colors disabled:cursor-not-allowed ${
                                 current
-                                  ? `${className} border-transparent ring-2 ring-offset-1 ring-gray-400`
+                                  // 今の状態は塗りつぶしで示す。状態ごとの淡い色（bg-sky-100 等）は店舗向けの配色テーマに
+                                  // 上書きされて他のボタンと見分けがつかなかったため、テーマの主色（--primary）に白文字にした
+                                  // （白文字とのコントラストは globals.css の --primary の値で、店舗テーマ・ブランド色とも AA を満たす）
+                                  ? 'bg-[var(--primary)] text-white font-bold border-transparent shadow-sm'
                                   : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 disabled:opacity-50'
                               }`}
                             >
