@@ -17,7 +17,7 @@ const empty = { messages: [], replies: [] };
 describe('classifyInquiryBacklog', () => {
   test('返信の記録が無く1日以上たったものは未返信', () => {
     expect(classifyInquiryBacklog([{ id: uuid(1), created_at: daysAgo(UNREPLIED_DAYS) }], empty, now))
-      .toEqual([{ id: uuid(1), ageDays: UNREPLIED_DAYS, reason: 'unreplied' }]);
+      .toEqual([expect.objectContaining({ id: uuid(1), ageDays: UNREPLIED_DAYS, reason: 'unreplied' })]);
   });
 
   test('受信から1日未満の未返信はまだ知らせない（境界）', () => {
@@ -26,7 +26,7 @@ describe('classifyInquiryBacklog', () => {
 
   test('下書きだけでは返信とみなさない（下書きのまま止まる事故）', () => {
     const items = classifyInquiryBacklog([{ id: uuid(1), created_at: daysAgo(50) }], { messages: [draftMail(uuid(1))], replies: [] } as never, now);
-    expect(items).toEqual([{ id: uuid(1), ageDays: 50, reason: 'unreplied' }]);
+    expect(items).toEqual([expect.objectContaining({ id: uuid(1), ageDays: 50, reason: 'unreplied' })]);
   });
 
   test('返信済みでも7日以上未完了なら知らせ、7日未満なら知らせない（境界）', () => {
@@ -34,7 +34,7 @@ describe('classifyInquiryBacklog', () => {
     expect(classifyInquiryBacklog([
       { id: uuid(1), created_at: daysAgo(REPLIED_OPEN_DAYS) },
       { id: uuid(2), created_at: daysAgo(REPLIED_OPEN_DAYS - 0.5) },
-    ], evidence, now)).toEqual([{ id: uuid(1), ageDays: REPLIED_OPEN_DAYS, reason: 'repliedOpen' }]);
+    ], evidence, now)).toEqual([expect.objectContaining({ id: uuid(1), ageDays: REPLIED_OPEN_DAYS, reason: 'repliedOpen' })]);
   });
 
   test('旧形式の返信も返信として扱い、他の問い合わせの返信は混ぜない', () => {
@@ -42,7 +42,7 @@ describe('classifyInquiryBacklog', () => {
       { id: uuid(1), created_at: daysAgo(3) },
       { id: uuid(2), created_at: daysAgo(3) },
     ], { messages: [], replies: [legacyReply(uuid(1))] } as never, now);
-    expect(items).toEqual([{ id: uuid(2), ageDays: 3, reason: 'unreplied' }]);
+    expect(items).toEqual([expect.objectContaining({ id: uuid(2), ageDays: 3, reason: 'unreplied' })]);
   });
 
   test('作成日時が無い行は漏れ側（最も古い）に倒し、古い順に並べる', () => {
@@ -74,16 +74,16 @@ describe('reportInquiryBacklog', () => {
   beforeEach(() => { jest.clearAllMocks(); delete process.env.NEXT_PUBLIC_BASE_URL; });
   afterAll(() => { process.env.NEXT_PUBLIC_BASE_URL = env; });
 
-  test('未完了の問い合わせだけを読み、件数と受付番号だけを Slack に出す（個人情報は載せない）', async () => {
+  test('未完了の問い合わせだけを読み、受付日・種類・タブ・受付番号を Slack に出す（名前・メール・本文は載せない）', async () => {
     const { db, calls } = fakeDb([{ data: [
-      { id: uuid(1), created_at: daysAgo(60) },
-      { id: uuid(2), created_at: daysAgo(20) },
-      { id: uuid(3), created_at: null },
+      { id: uuid(1), created_at: '2026-09-18T15:30:00Z', ticket_status: 'open', inquiry_type: '施設掲載について（オーナー向け）', name: '山田', email: 'a@example.invalid', message: '本文' },
+      { id: uuid(2), created_at: daysAgo(20), ticket_status: 'in_progress', inquiry_type: null },
+      { id: uuid(3), created_at: null, ticket_status: 'unknown', inquiry_type: 'その他' },
     ], error: null }]);
     (readMailReplyEvidence as jest.Mock).mockResolvedValue({ messages: [sentMail(uuid(2))], replies: [] });
 
     await expect(reportInquiryBacklog(db, now)).resolves.toEqual({ unreplied: 2, repliedOpen: 1 });
-    expect(calls[0].select).toEqual(['id,created_at']);
+    expect(calls[0].select).toEqual(['id,created_at,ticket_status,inquiry_type']);
     expect(calls[0].in).toEqual(['ticket_status', ['open', 'in_progress', 'waiting']]);
     expect(calls[0].is).toEqual(['resolved_at', null]);
     expect(readMailReplyEvidence).toHaveBeenCalledWith(db, [uuid(1), uuid(2), uuid(3)]);
@@ -93,11 +93,14 @@ describe('reportInquiryBacklog', () => {
     expect(message).toContain('未完了が3件');
     expect(opts.category).toBe('完了未確認');
     expect(opts.extra).toEqual({
-      unreplied: '00000000（日時不明）、00000000（60日）',
-      repliedOpen: '00000000（20日）',
+      unreplied: ['受付日不明・その他・状態不明タブ（日時不明・00000000）', '9/19受付・施設掲載について（オーナー向け）・新着タブ（59日・00000000）'],
+      repliedOpen: ['10/28受付・種類不明・対応中タブ（20日・00000000）'],
       omitted: 0,
-      adminUrl: 'https://carelink-jp.com/admin/mail',
+      adminUrl: 'https://carelink-jp.com/admin/inquiries',
+      howToClose: expect.stringContaining('解決済み'),
     });
+    const sent = JSON.stringify([message, opts]);
+    for (const secret of ['山田', 'a@example.invalid', '本文']) expect(sent).not.toContain(secret);
   });
 
   test('知らせるものが無ければ Slack に出さない', async () => {
@@ -119,9 +122,9 @@ describe('reportInquiryBacklog', () => {
     expect((readMailReplyEvidence as jest.Mock).mock.calls[1][1]).toHaveLength(50);
     const opts = (alertWarning as jest.Mock).mock.calls[0][1];
     expect(opts.extra.repliedOpen).toBe('なし');
-    expect(opts.extra.unreplied.split('、')).toHaveLength(20);
-    expect(opts.extra.omitted).toBe(110);
-    expect(opts.extra.adminUrl).toBe('https://staging.example.invalid/admin/mail');
+    expect(opts.extra.unreplied).toHaveLength(10);
+    expect(opts.extra.omitted).toBe(130);
+    expect(opts.extra.adminUrl).toBe('https://staging.example.invalid/admin/inquiries');
   });
 
   test('現在時刻の既定値を使い、返信済みだけなら未返信側は「なし」と出す', async () => {
