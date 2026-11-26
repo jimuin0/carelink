@@ -527,7 +527,7 @@ export default function AdminInquiriesPage() {
                                 current
                                   // 今の状態は塗りつぶしで示す。状態ごとの淡い色（bg-sky-100 等）は店舗向けの配色テーマに
                                   // 上書きされて他のボタンと見分けがつかなかったため、テーマの主色（--primary）に白文字にした
-                                  // （くすみローズ #8E6A61 に白で 4.79:1・ブランド色 #0369A1 でも AA を満たす）
+                                  // （白文字とのコントラストは globals.css の --primary の値で、店舗テーマ・ブランド色とも AA を満たす）
                                   ? 'bg-[var(--primary)] text-white font-bold border-transparent shadow-sm'
                                   : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 disabled:opacity-50'
                               }`}
