@@ -146,7 +146,7 @@ export const CONTACT_PREVIEW_MAX = 100;
 // ドメインのラベルは使える文字を列挙せず、空白・区切り・括弧・句読点以外を全て含める（col·legi.cat の
 // 「·」のように国際化ドメインが許す文字を取りこぼさないため。漏らさない側に倒す）
 const DOMAIN_LABEL = String.raw`[^\s@<>.。、，,()（）「」『』【】\[\]"'：:；;!?！？]+`;
-const EMAIL_CANDIDATE = new RegExp(String.raw`[A-Z0-9._%+-]+@${DOMAIN_LABEL}(?:[.。]${DOMAIN_LABEL})+`, 'giu');
+const EMAIL_CANDIDATE = new RegExp(`[A-Z0-9.!#$%&'*+/=?^_\u0060{|}~-]+@${DOMAIN_LABEL}(?:[.。]${DOMAIN_LABEL})+`, 'giu');
 
 /**
  * メールアドレスの候補のうち、ドメインとして読める範囲だけを伏せ、後ろに続く文は残す。
@@ -177,7 +177,7 @@ export function sanitizeContactField(value: string): string {
     .normalize('NFKC')
     // ゼロ幅スペース・異体字セレクタ・U+034F など見えない文字（Unicode の既定で無視される文字）で照合を途切れさせないよう、先に取り除く
     .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '')
-    // 前半は英数字記号に限る（空白の無い日本語の文を巻き込まないため）。ドメインの区切りの判定は redactEmail
+    // 前半は RFC 5322 の英数字と記号（mary.o'connor など）に限る（空白の無い日本語の文を巻き込まないため）。ドメインの区切りの判定は redactEmail
     .replace(EMAIL_CANDIDATE, redactEmail)
     .replace(/\+?\(?\d[\d\s().\-‐-‒–—―ーｰ−]{7,}\d/g, (m) => (m.replace(/\D/g, '').length >= 10 ? '[phone redacted]' : m))
     .replace(/[*_~`]/g, (c) => ({ '*': '＊', _: '＿', '~': '～', '`': '｀' })[c] as string);
