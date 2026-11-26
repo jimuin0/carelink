@@ -34,14 +34,12 @@ jest.mock('@/lib/cron-logger', () => {
 });
 jest.mock('@/lib/email', () => ({ sendDailySummaryEmail: jest.fn() }));
 jest.mock('@/lib/alert', () => ({ alertDeliveryFailures: jest.fn() }));
-jest.mock('@/lib/inquiry-backlog', () => ({ reportInquiryBacklog: jest.fn() }));
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { sendDailySummaryEmail } from '@/lib/email';
 import { alertDeliveryFailures } from '@/lib/alert';
-import { reportInquiryBacklog } from '@/lib/inquiry-backlog';
 import { GET } from '../route';
 
 const mockRpc = jest.fn();
@@ -106,7 +104,6 @@ beforeEach(() => {
   (logCronRun as jest.Mock).mockResolvedValue(undefined);
   (createServiceRoleClient as jest.Mock).mockReturnValue({ rpc: mockRpc, from: mockFrom });
   (sendDailySummaryEmail as jest.Mock).mockResolvedValue(true);
-  (reportInquiryBacklog as jest.Mock).mockResolvedValue({ unreplied: 0, repliedOpen: 0 });
   setupEmailFrom(); // 既定は opt-in 施設なし＝メール送信ゼロ（既存テストに影響しない）
 });
 
@@ -444,24 +441,3 @@ test('ON の施設が多くても daily_revenue_summary は小分けにして全
   expect(Math.max(...inCalls.map((ids) => ids.length))).toBeLessThanOrEqual(200);
 });
 
-describe('運営宛お問い合わせの対応漏れ確認', () => {
-  beforeEach(() => { mockRpc.mockResolvedValue({ data: 2, error: null }); });
-
-  test('件数を run の meta に残し、success で記録する', async () => {
-    (reportInquiryBacklog as jest.Mock).mockResolvedValue({ unreplied: 2, repliedOpen: 1 });
-    const res = await GET(makeRequest());
-    expect(res.status).toBe(200);
-    expect(reportInquiryBacklog).toHaveBeenCalledTimes(1);
-    expect(logCronRun).toHaveBeenCalledWith('daily-summary', 'success', expect.any(Date),
-      expect.objectContaining({ processed: 2, meta: expect.objectContaining({ inquiryBacklog: { unreplied: 2, repliedOpen: 1 } }) }));
-  });
-
-  test('確認に失敗しても集計結果は返し、run を error で記録して黙らない', async () => {
-    (reportInquiryBacklog as jest.Mock).mockRejectedValue(new Error('db down'));
-    const res = await GET(makeRequest());
-    expect(res.status).toBe(200);
-    expect((await res.json()).processed).toBe(2);
-    expect(logCronRun).toHaveBeenCalledWith('daily-summary', 'error', expect.any(Date),
-      expect.objectContaining({ meta: expect.objectContaining({ inquiryBacklog: 'failed' }) }));
-  });
-});

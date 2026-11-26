@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import Page from '../page';
 
 const id = '11111111-1111-4111-8111-111111111111';
@@ -190,8 +190,8 @@ test('a ticket mutation refreshes the latest filter instead of its stale capture
 
   render(<Page />);
   fireEvent.click(await screen.findByText('合成問い合わせ'));
-  fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'resolved' } });
-  fireEvent.click(screen.getByRole('button', { name: 'クローズ' }));
+  fireEvent.click(within(screen.getByRole('group', { name: '対応状況' })).getByRole('button', { name: '解決済み' }));
+  fireEvent.click(screen.getAllByRole('button', { name: 'クローズ' })[0]); // 上の絞り込みタブ（下の対応状況にも同名のボタンがある）
   await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
     '/api/admin/inquiries?status=closed', expect.any(Object),
   ));
@@ -225,7 +225,7 @@ test('a ticket mutation completing after unmount does not start a new PII list r
 
   const view = render(<Page />);
   fireEvent.click(await screen.findByText('合成問い合わせ'));
-  fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'resolved' } });
+  fireEvent.click(within(screen.getByRole('group', { name: '対応状況' })).getByRole('button', { name: '解決済み' }));
   await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(3));
   view.unmount();
 
@@ -375,10 +375,31 @@ test('a successful ticket update keeps the loaded rows and updates only that row
   });
   render(<Page />);
   fireEvent.click(await screen.findByText('合成問い合わせ'));
-  fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'resolved' } });
+  fireEvent.click(within(screen.getByRole('group', { name: '対応状況' })).getByRole('button', { name: '解決済み' }));
   await screen.findByText('更新しました');
   const listCalls = mockFetch.mock.calls.filter(([url, init]) => !String(url).endsWith('/reply') && init?.method !== 'PATCH');
   expect(listCalls).toHaveLength(1);
   expect(screen.getByText('合成問い合わせ')).toBeVisible();
-  expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('resolved');
+  expect(within(screen.getByRole('group', { name: '対応状況' })).getByRole('button', { name: '✓ 解決済み' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('対応状況は見出し付きのボタンの列で、今の状態が分かり、押すとその状態で保存する', async () => {
+  mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+    if (url.endsWith('/reply')) return Promise.resolve(response({ reply: null }));
+    if (init?.method === 'PATCH') return Promise.resolve(response({ ok: true }));
+    return Promise.resolve(response({ contacts: [row], nextCursor: null }));
+  });
+  render(<Page />);
+  fireEvent.click(await screen.findByText('合成問い合わせ'));
+  const group = screen.getByRole('group', { name: '対応状況' });
+  const current = within(group).getByRole('button', { pressed: true });
+  expect(current).toHaveTextContent('✓ 新着');
+  expect(current).toBeDisabled();
+  expect(screen.getByText(/やり取りが終わったら「解決済み」を押してください/)).toBeVisible();
+  fireEvent.click(within(group).getByRole('button', { name: '対応中' }));
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
+    expect.stringMatching(/\/api\/admin\/inquiries\/[^/]+$/),
+    expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ ticket_status: 'in_progress' }) }),
+  ));
+  expect(screen.getByRole('combobox', { name: '優先度' })).toBeInTheDocument();
 });

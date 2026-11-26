@@ -507,28 +507,48 @@ export default function AdminInquiriesPage() {
   )}
 </div>
 
-{/* ステータス・優先度変更 */}
-                  <div className="flex flex-wrap gap-2">
-                    <select
-                      value={c.ticket_status}
-                      disabled={savingId !== null}
-                      onChange={(e) => updateTicket(c.id, { ticket_status: e.target.value as Contact['ticket_status'] })}
-                      className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {Object.entries(TICKET_STATUS_CONFIG).map(([val, { label }]) => (
-                        <option key={val} value={val}>{label}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={c.priority}
-                      disabled={savingId !== null}
-                      onChange={(e) => updateTicket(c.id, { priority: e.target.value as Contact['priority'] })}
-                      className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {Object.entries(PRIORITY_CONFIG).map(([val, { label }]) => (
-                        <option key={val} value={val}>優先度: {label}</option>
-                      ))}
-                    </select>
+{/* 対応状況・優先度 */}
+                  {/* 2026年11月26日: 見出しの無い select では「何を変える欄か」「解決済みにするにはどうするか」が
+                      分からなかったため、対応状況をボタンの列にして今の状態を色で示し、見出しを付けた。 */}
+                  <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-3">
+                    <div>
+                      <p id={`status-label-${c.id}`} className="text-xs font-bold text-gray-600 mb-2">対応状況</p>
+                      <div role="group" aria-labelledby={`status-label-${c.id}`} className="flex flex-wrap gap-2">
+                        {Object.entries(TICKET_STATUS_CONFIG).map(([val, { label, className }]) => {
+                          const current = c.ticket_status === val;
+                          return (
+                            <button
+                              key={val}
+                              type="button"
+                              aria-pressed={current}
+                              disabled={savingId !== null || current}
+                              onClick={() => updateTicket(c.id, { ticket_status: val as Contact['ticket_status'] })}
+                              className={`min-h-[40px] rounded-full px-4 text-sm font-medium border transition-colors disabled:cursor-not-allowed ${
+                                current
+                                  ? `${className} border-transparent ring-2 ring-offset-1 ring-gray-400`
+                                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 disabled:opacity-50'
+                              }`}
+                            >
+                              {current ? `✓ ${label}` : label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="mt-2 text-xs text-gray-500">やり取りが終わったら「解決済み」を押してください。毎朝の Slack 通知に出なくなります。</p>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs font-bold text-gray-600">
+                      優先度
+                      <select
+                        value={c.priority}
+                        disabled={savingId !== null}
+                        onChange={(e) => updateTicket(c.id, { priority: e.target.value as Contact['priority'] })}
+                        className="text-sm font-normal border border-gray-300 rounded-lg px-2 py-1.5 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {Object.entries(PRIORITY_CONFIG).map(([val, { label }]) => (
+                          <option key={val} value={val}>{label}</option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
 
                   {/* 内部メモ */}

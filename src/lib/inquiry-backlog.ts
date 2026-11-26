@@ -27,6 +27,16 @@ import { summarizeMailReplies, type LegacyMailReply } from './platform-mail-cont
 type DB = ReturnType<typeof createServiceRoleClient>;
 type Evidence = Awaited<ReturnType<typeof readMailReplyEvidence>>;
 
+/**
+ * 通知は日本時間の朝9時台の前半に1回だけ出す（2026年11月26日 神原さん決定「朝9時」）。
+ * 毎時 7・37 分に動く cron-heartbeat に相乗りし、9:07 の回だけが当たる（9:37 の回は外れる）。
+ * 専用の cron を足さないのは、時刻表（cron-jobs.data.json）と運用文書の更新を伴わずに済ませるため。
+ */
+export function isInquiryBacklogReportTime(now: Date): boolean {
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return jst.getUTCHours() === 9 && jst.getUTCMinutes() < 30;
+}
+
 export const UNREPLIED_DAYS = 1;
 export const REPLIED_OPEN_DAYS = 7;
 const OPEN_STATUSES = ['open', 'in_progress', 'waiting'] as const;
@@ -130,7 +140,7 @@ export async function reportInquiryBacklog(db: DB, now: Date = new Date()): Prom
     const base = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-jp.com';
     alertWarning(`運営宛のお問い合わせに未完了が${items.length}件あります（未返信${unreplied.length}件・返信後${REPLIED_OPEN_DAYS}日以上未完了${repliedOpen.length}件）`, {
       category: '完了未確認',
-      route: '/api/cron/daily-summary',
+      route: '/api/cron/cron-heartbeat',
       extra: {
         // 案内を先に置く（alert.ts は本文を 1500 文字で切るため、一覧が長くても案内は残る）
         adminUrl: `${base}/admin/inquiries`,

@@ -5,7 +5,7 @@ import { alertWarning } from '../alert';
 import { readMailReplyEvidence } from '../platform-mail-read';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { classifyInquiryBacklog, reportInquiryBacklog, UNREPLIED_DAYS, REPLIED_OPEN_DAYS, INQUIRY_TYPE_OPTIONS } from '../inquiry-backlog';
+import { classifyInquiryBacklog, isInquiryBacklogReportTime, reportInquiryBacklog, UNREPLIED_DAYS, REPLIED_OPEN_DAYS, INQUIRY_TYPE_OPTIONS } from '../inquiry-backlog';
 
 const now = new Date('2026-11-17T06:00:00Z');
 const daysAgo = (days: number) => new Date(now.getTime() - days * 86_400_000).toISOString();
@@ -15,6 +15,17 @@ const draftMail = (contactId: string) => ({ id: uuid(901), contact_id: contactId
 const legacyReply = (contactId: string) => ({ id: uuid(902), contact_id: contactId, author_name: '運営', body: '返信', is_internal: false,
   created_at: daysAgo(1), sent_at: daysAgo(1), delivery_abandoned_at: null });
 const empty = { messages: [], replies: [] };
+
+describe('isInquiryBacklogReportTime', () => {
+  test('日本時間 9:00〜9:29 だけ真（9:07 の回が当たり、9:37 の回は外れる）', () => {
+    expect(isInquiryBacklogReportTime(new Date('2026-11-26T00:07:00Z'))).toBe(true);
+    expect(isInquiryBacklogReportTime(new Date('2026-11-26T00:00:00Z'))).toBe(true);
+    expect(isInquiryBacklogReportTime(new Date('2026-11-26T00:29:59Z'))).toBe(true);
+    expect(isInquiryBacklogReportTime(new Date('2026-11-26T00:37:00Z'))).toBe(false);
+    expect(isInquiryBacklogReportTime(new Date('2026-11-25T23:59:59Z'))).toBe(false);
+    expect(isInquiryBacklogReportTime(new Date('2026-11-26T09:07:00Z'))).toBe(false);
+  });
+});
 
 describe('classifyInquiryBacklog', () => {
   test('返信の記録が無く1日以上たったものは未返信', () => {
