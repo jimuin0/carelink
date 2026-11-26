@@ -11,9 +11,11 @@
  *   （相手の返事待ち・CareLink の外でのやり取り・閉じ忘れのどれか。人が確かめて閉じる）
  *
  * 🔴 Slack はプライバシーポリシーの委託先に無いため、名前・メール・本文は載せない
- * （受付日・問い合わせの種類・管理画面のタブ・受付番号の先頭8文字・経過日数だけ。
- * 中身は /admin/inquiries で見る・src/lib/notify.ts と同じ方針）。
- * 種類はフォームの選択肢（自由記述ではない）なので個人情報に当たらない。
+ * （受付日・問い合わせの種類・管理画面のタブ・経過日数だけ。中身は /admin/inquiries で見る・
+ * src/lib/notify.ts と同じ方針）。
+ * 種類は API が任意の文字列を受け付けるため、フォームの選択肢（INQUIRY_TYPE_OPTIONS）に
+ * 一致するものだけを出す。それ以外は「その他の種類」にし、保存値をそのまま Slack へ流さない。
+ * 受付番号は載せない（数字だけの並びは alert.ts の電話番号マスクに消され、照合に使えないため）。
  */
 import type { createServiceRoleClient } from './supabase-server';
 import { alertWarning } from './alert';
@@ -36,6 +38,9 @@ export interface BacklogItem {
   id: string; ageDays: number; reason: 'unreplied' | 'repliedOpen';
   createdAt?: string | null; ticketStatus?: string | null; inquiryType?: string | null;
 }
+
+/** お問い合わせフォーム（src/app/contact/page.tsx）の種類の選択肢。テストがフォームと突合する。 */
+export const INQUIRY_TYPE_OPTIONS = ['検索・予約について', 'アカウントについて', '施設掲載について（オーナー向け）', 'その他'] as const;
 
 /** 管理画面（/admin/inquiries）のタブ名。そのタブを開けば該当の問い合わせが見つかる。 */
 const STATUS_TABS: Record<string, string> = { open: '新着', in_progress: '対応中', waiting: '返信待ち' };
@@ -69,12 +74,16 @@ function receivedOn(createdAt: string | null | undefined): string {
   return `${jst.getUTCMonth() + 1}/${jst.getUTCDate()}受付`;
 }
 
-/** 例：「9/22受付・施設掲載について（オーナー向け）・新着タブ（64日・33ba2f1e）」 */
+function typeLabel(inquiryType: string | null | undefined): string {
+  if (!inquiryType) return '種類不明';
+  return (INQUIRY_TYPE_OPTIONS as readonly string[]).includes(inquiryType) ? inquiryType : 'その他の種類';
+}
+
+/** 例：「9/22受付・施設掲載について（オーナー向け）・新着タブ（64日）」 */
 function formatItem(item: BacklogItem): string {
   const days = item.ageDays === Number.MAX_SAFE_INTEGER ? '日時不明' : `${item.ageDays}日`;
   const tab = (item.ticketStatus && STATUS_TABS[item.ticketStatus]) || '状態不明';
-  const parts = [receivedOn(item.createdAt), item.inquiryType || '種類不明', `${tab}タブ`];
-  return `${parts.join('・')}（${days}・${item.id.slice(0, 8)}）`;
+  return `${[receivedOn(item.createdAt), typeLabel(item.inquiryType), `${tab}タブ`].join('・')}（${days}）`;
 }
 
 /**
@@ -107,11 +116,12 @@ export async function reportInquiryBacklog(db: DB, now: Date = new Date()): Prom
       category: '完了未確認',
       route: '/api/cron/daily-summary',
       extra: {
-        unreplied: unreplied.length ? unreplied.slice(0, LISTED_ITEMS).map(formatItem) : 'なし',
-        repliedOpen: repliedOpen.length ? repliedOpen.slice(0, LISTED_ITEMS).map(formatItem) : 'なし',
-        omitted: Math.max(0, items.length - LISTED_ITEMS * 2),
+        // 案内を先に置く（alert.ts は本文を 1500 文字で切るため、一覧が長くても案内は残る）
         adminUrl: `${base}/admin/inquiries`,
         howToClose: '問い合わせ管理で該当のタブを開き、状態を「解決済み」にすると次回から出ません',
+        unreplied: unreplied.length ? unreplied.slice(0, LISTED_ITEMS).map(formatItem) : 'なし',
+        repliedOpen: repliedOpen.length ? repliedOpen.slice(0, LISTED_ITEMS).map(formatItem) : 'なし',
+        omitted: Math.max(0, unreplied.length - LISTED_ITEMS) + Math.max(0, repliedOpen.length - LISTED_ITEMS),
       },
     });
   }

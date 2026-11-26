@@ -3,7 +3,9 @@ jest.mock('../platform-mail-read', () => ({ readMailReplyEvidence: jest.fn() }))
 
 import { alertWarning } from '../alert';
 import { readMailReplyEvidence } from '../platform-mail-read';
-import { classifyInquiryBacklog, reportInquiryBacklog, UNREPLIED_DAYS, REPLIED_OPEN_DAYS } from '../inquiry-backlog';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { classifyInquiryBacklog, reportInquiryBacklog, UNREPLIED_DAYS, REPLIED_OPEN_DAYS, INQUIRY_TYPE_OPTIONS } from '../inquiry-backlog';
 
 const now = new Date('2026-11-17T06:00:00Z');
 const daysAgo = (days: number) => new Date(now.getTime() - days * 86_400_000).toISOString();
@@ -79,28 +81,36 @@ describe('reportInquiryBacklog', () => {
       { id: uuid(1), created_at: '2026-09-18T15:30:00Z', ticket_status: 'open', inquiry_type: '施設掲載について（オーナー向け）', name: '山田', email: 'a@example.invalid', message: '本文' },
       { id: uuid(2), created_at: daysAgo(20), ticket_status: 'in_progress', inquiry_type: null },
       { id: uuid(3), created_at: null, ticket_status: 'unknown', inquiry_type: 'その他' },
+      { id: '01234567-0000-4000-8000-000000000004', created_at: daysAgo(5), ticket_status: 'waiting', inquiry_type: '佐藤花子です。腰の痛みについて相談したい' },
     ], error: null }]);
     (readMailReplyEvidence as jest.Mock).mockResolvedValue({ messages: [sentMail(uuid(2))], replies: [] });
 
-    await expect(reportInquiryBacklog(db, now)).resolves.toEqual({ unreplied: 2, repliedOpen: 1 });
+    await expect(reportInquiryBacklog(db, now)).resolves.toEqual({ unreplied: 3, repliedOpen: 1 });
     expect(calls[0].select).toEqual(['id,created_at,ticket_status,inquiry_type']);
     expect(calls[0].in).toEqual(['ticket_status', ['open', 'in_progress', 'waiting']]);
     expect(calls[0].is).toEqual(['resolved_at', null]);
-    expect(readMailReplyEvidence).toHaveBeenCalledWith(db, [uuid(1), uuid(2), uuid(3)]);
+    expect(readMailReplyEvidence).toHaveBeenCalledWith(db, [uuid(1), uuid(2), uuid(3), '01234567-0000-4000-8000-000000000004']);
 
     expect(alertWarning).toHaveBeenCalledTimes(1);
     const [message, opts] = (alertWarning as jest.Mock).mock.calls[0];
-    expect(message).toContain('未完了が3件');
+    expect(message).toContain('未完了が4件');
     expect(opts.category).toBe('完了未確認');
     expect(opts.extra).toEqual({
-      unreplied: ['受付日不明・その他・状態不明タブ（日時不明・00000000）', '9/19受付・施設掲載について（オーナー向け）・新着タブ（59日・00000000）'],
-      repliedOpen: ['10/28受付・種類不明・対応中タブ（20日・00000000）'],
-      omitted: 0,
       adminUrl: 'https://carelink-jp.com/admin/inquiries',
       howToClose: expect.stringContaining('解決済み'),
+      unreplied: [
+        '受付日不明・その他・状態不明タブ（日時不明）',
+        '9/19受付・施設掲載について（オーナー向け）・新着タブ（59日）',
+        '11/12受付・その他の種類・返信待ちタブ（5日）',
+      ],
+      repliedOpen: ['10/28受付・種類不明・対応中タブ（20日）'],
+      omitted: 0,
     });
+    // 案内が一覧より先（1500 文字の切り詰めで消えない）
+    expect(Object.keys(opts.extra).slice(0, 2)).toEqual(['adminUrl', 'howToClose']);
+    // 名前・メール・本文も、種類欄に書かれた自由記述も、受付番号も載らない
     const sent = JSON.stringify([message, opts]);
-    for (const secret of ['山田', 'a@example.invalid', '本文']) expect(sent).not.toContain(secret);
+    for (const secret of ['山田', 'a@example.invalid', '本文', '佐藤花子', '腰の痛み', '01234567', '00000000']) expect(sent).not.toContain(secret);
   });
 
   test('知らせるものが無ければ Slack に出さない', async () => {
@@ -123,7 +133,7 @@ describe('reportInquiryBacklog', () => {
     const opts = (alertWarning as jest.Mock).mock.calls[0][1];
     expect(opts.extra.repliedOpen).toBe('なし');
     expect(opts.extra.unreplied).toHaveLength(10);
-    expect(opts.extra.omitted).toBe(130);
+    expect(opts.extra.omitted).toBe(140);
     expect(opts.extra.adminUrl).toBe('https://staging.example.invalid/admin/inquiries');
   });
 
@@ -132,6 +142,20 @@ describe('reportInquiryBacklog', () => {
     (readMailReplyEvidence as jest.Mock).mockResolvedValue({ messages: [sentMail(uuid(1))], replies: [] });
     await expect(reportInquiryBacklog(db)).resolves.toEqual({ unreplied: 0, repliedOpen: 1 });
     expect((alertWarning as jest.Mock).mock.calls[0][1].extra.unreplied).toBe('なし');
+  });
+
+  test('省略件数は区分ごとに数える（未返信11件・返信済み0件なら1件）', async () => {
+    const rows = Array.from({ length: 11 }, (_, index) => ({ id: uuid(index), created_at: daysAgo(3) }));
+    const { db } = fakeDb([{ data: rows, error: null }]);
+    (readMailReplyEvidence as jest.Mock).mockResolvedValue(empty);
+    await reportInquiryBacklog(db, now);
+    expect((alertWarning as jest.Mock).mock.calls[0][1].extra.omitted).toBe(1);
+  });
+
+  test('種類の選択肢はお問い合わせフォームの選択肢と一致する', () => {
+    const page = readFileSync(join(__dirname, '../../app/contact/page.tsx'), 'utf8');
+    const options = [...page.matchAll(/<option value="([^"]+)">/g)].map((match) => match[1]);
+    expect(options).toEqual([...INQUIRY_TYPE_OPTIONS]);
   });
 
   test('取得に失敗したら「0件」にせず throw する', async () => {
