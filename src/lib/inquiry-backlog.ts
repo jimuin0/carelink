@@ -147,7 +147,13 @@ function formatItem(item: BacklogItem): string {
  * 未完了の問い合わせを数え、知らせるものがあれば Slack に 1 通出す。
  * 取得に失敗したら throw する（「0件」と区別できないまま黙らないため。呼び出し側の cron で記録する）。
  */
-export async function reportInquiryBacklog(db: DB, now: Date = new Date()): Promise<{ unreplied: number; repliedOpen: number }> {
+export async function reportInquiryBacklog(
+  db: DB,
+  now: Date = new Date(),
+  // 送る直前に呼ぶ「今日の通知の枠」。読み取りが済んで送るものがあるときだけ取るので、
+  // 読み取りに失敗しても枠は残り、同じ日に再実行すれば通知できる（Codex 指摘 PR993-08）。
+  opts: { claim?: () => Promise<boolean> } = {},
+): Promise<{ unreplied: number; repliedOpen: number } | 'already'> {
   const { rows, error } = await fetchAllPaged<BacklogContact>(async (offset, limit) => {
     const result = await db.from('contacts').select('id,created_at,name,ticket_status,inquiry_type')
       .in('ticket_status', [...OPEN_STATUSES]).is('resolved_at', null)
@@ -168,6 +174,7 @@ export async function reportInquiryBacklog(db: DB, now: Date = new Date()): Prom
   const unreplied = items.filter((item) => item.reason === 'unreplied');
   const repliedOpen = items.filter((item) => item.reason === 'repliedOpen');
   if (items.length > 0) {
+    if (opts.claim && !(await opts.claim())) return 'already';
     const take = (list: BacklogItem[]): string[] => {
       let budget = LIST_CHAR_BUDGET;
       const lines: string[] = [];

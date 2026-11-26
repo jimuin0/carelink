@@ -264,6 +264,26 @@ describe('reportInquiryBacklog', () => {
     expect(options).toEqual([...INQUIRY_TYPE_OPTIONS]);
   });
 
+  test('通知の枠は、読み取りが済んで送るものがあるときだけ取る。取れなければ送らない', async () => {
+    const claim = jest.fn(async () => false);
+    const { db } = fakeDb([{ data: [{ id: uuid(1), created_at: daysAgo(3) }], error: null }]);
+    (readMailReplyEvidence as jest.Mock).mockResolvedValue(empty);
+    await expect(reportInquiryBacklog(db, now, { claim })).resolves.toBe('already');
+    expect(claim).toHaveBeenCalledTimes(1);
+    expect(alertWarning).not.toHaveBeenCalled();
+  });
+
+  test('読み取りに失敗したら枠を取らない（回復後の再実行で通知できる）。送るものが無いときも取らない', async () => {
+    const claim = jest.fn(async () => true);
+    await expect(reportInquiryBacklog(fakeDb([{ data: null, error: { message: 'db down' } }]).db, now, { claim })).rejects.toThrow();
+    await expect(reportInquiryBacklog(fakeDb([{ data: [], error: null }]).db, now, { claim })).resolves.toEqual({ unreplied: 0, repliedOpen: 0 });
+    expect(claim).not.toHaveBeenCalled();
+    const { db } = fakeDb([{ data: [{ id: uuid(1), created_at: daysAgo(3) }], error: null }]);
+    (readMailReplyEvidence as jest.Mock).mockResolvedValue(empty);
+    await expect(reportInquiryBacklog(db, now, { claim })).resolves.toEqual({ unreplied: 1, repliedOpen: 0 });
+    expect(alertWarning).toHaveBeenCalledTimes(1);
+  });
+
   test('取得に失敗したら「0件」にせず throw する', async () => {
     const { db } = fakeDb([{ data: null, error: { message: 'db down' } }]);
     await expect(reportInquiryBacklog(db, now)).rejects.toThrow('Inquiry backlog lookup failed');

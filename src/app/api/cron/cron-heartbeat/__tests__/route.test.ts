@@ -169,7 +169,7 @@ describe('運営宛お問い合わせの対応漏れ確認（日本時間 9:07 �
     (reportInquiryBacklog as jest.Mock).mockResolvedValue({ unreplied: 0, repliedOpen: 4 });
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
-    expect(reportInquiryBacklog).toHaveBeenCalledWith({ db: true }, expect.any(Date));
+    expect(reportInquiryBacklog).toHaveBeenCalledWith({ db: true }, expect.any(Date), { claim: expect.any(Function) });
     expect(logCronRun).toHaveBeenCalledWith('cron-heartbeat', 'success', expect.any(Date),
       expect.objectContaining({ meta: expect.objectContaining({ inquiryBacklog: { unreplied: 0, repliedOpen: 4 } }) }));
   });
@@ -186,11 +186,11 @@ describe('運営宛お問い合わせの対応漏れ確認（日本時間 9:07 �
 
   test('同じ日にすでに通知していれば 2 通目は出さない', async () => {
     jest.setSystemTime(new Date('2026-11-26T00:08:00Z'));
+    (reportInquiryBacklog as jest.Mock).mockImplementation(async (_db, _now, opts) => ((await opts.claim()) ? { unreplied: 1, repliedOpen: 0 } : 'already'));
     (claimInquiryBacklogReport as jest.Mock).mockResolvedValueOnce(false);
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
     expect(claimInquiryBacklogReport).toHaveBeenCalledWith({ db: true }, expect.any(Date));
-    expect(reportInquiryBacklog).not.toHaveBeenCalled();
     expect(logCronRun).toHaveBeenCalledWith('cron-heartbeat', 'success', expect.any(Date),
       expect.objectContaining({ meta: expect.objectContaining({ inquiryBacklog: 'already' }) }));
   });

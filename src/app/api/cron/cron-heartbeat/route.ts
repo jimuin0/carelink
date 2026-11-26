@@ -64,9 +64,7 @@ export async function GET(request: Request) {
     if (isInquiryBacklogReportTime(startedAt)) {
       try {
         const db = createServiceRoleClient();
-        inquiryBacklog = await claimInquiryBacklogReport(db, startedAt)
-          ? await reportInquiryBacklog(db, startedAt)
-          : 'already';
+        inquiryBacklog = await reportInquiryBacklog(db, startedAt, { claim: () => claimInquiryBacklogReport(db, startedAt) });
       } catch (e) {
         console.error('[cron-heartbeat] inquiry backlog check failed', { errorMessage: summarizeDependencyError(e) });
         inquiryBacklog = 'failed';
