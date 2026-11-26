@@ -150,6 +150,7 @@ describe('reportInquiryBacklog', () => {
       { id: uuid(2), created_at: daysAgo(3), name: 'abcdefghijkl@example.invalid' },
       { id: uuid(3), created_at: daysAgo(3), name: `${'あ'.repeat(19)}𠮷野` },
       { id: uuid(4), created_at: daysAgo(3), name: 'ﾔﾏﾀﾞ' },
+      { id: uuid(5), created_at: daysAgo(3), name: '٠٩٠-١٢٣٤-٥٦٧٨' },
     ];
     const { db } = fakeDb([{ data: rows, error: null }]);
     (readMailReplyEvidence as jest.Mock).mockResolvedValue(empty);
@@ -159,8 +160,9 @@ describe('reportInquiryBacklog', () => {
     expect(lines[1]).toMatch(/^お名前は管理画面で確認・/);
     expect(lines[2]).toMatch(new RegExp(`^${'あ'.repeat(19)}𠮷…様・`));
     expect(lines[3]).toMatch(/^ヤマダ様・/);
+    expect(lines[4]).toMatch(/^お名前は管理画面で確認・/);
     const sent = JSON.stringify(lines);
-    for (const secret of ['1234', 'example', '\\ud842']) expect(sent).not.toContain(secret);
+    for (const secret of ['1234', 'example', '\\ud842', '١٢٣٤']) expect(sent).not.toContain(secret);
   });
 
   test('省略件数は区分ごとに数える（未返信11件・返信済み0件なら1件）', async () => {

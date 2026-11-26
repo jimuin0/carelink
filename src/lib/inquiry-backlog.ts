@@ -83,14 +83,14 @@ function typeLabel(inquiryType: string | null | undefined): string {
 /**
  * お名前は 20 文字（コードポイント単位・サロゲートペアを壊さない）で切る。
  * フォームの名前欄は自由入力なので、全角を半角へ正規化したうえで、数字や「@」を含むもの
- * （電話番号・メールアドレスの書き込み）は載せずに管理画面で確認してもらう。
+ * （電話番号・メールアドレスの書き込み。数字はアラビア数字なども含む Unicode の数字すべて）は載せずに管理画面で確認してもらう。
  * 切ってからではなく、切る前の全文で判定する（切った後だとメールの一部が判定をすり抜けるため）。
  */
 const NAME_MAX = 20;
 function nameLabel(name: string | null | undefined): string {
   const normalized = (name ?? '').normalize('NFKC').trim();
   if (!normalized) return 'お名前なし';
-  if (/[0-9@]/.test(normalized)) return 'お名前は管理画面で確認';
+  if (/[\p{Nd}@]/u.test(normalized)) return 'お名前は管理画面で確認';
   const chars = Array.from(normalized);
   return `${chars.length > NAME_MAX ? `${chars.slice(0, NAME_MAX).join('')}…` : normalized}様`;
 }
