@@ -143,7 +143,10 @@ const recordId = z.string().regex(UUID_REGEX);
 /** 受信通知に載せる本文の最大文字数（2026年11月27日 本人決定「名前・種類・本文冒頭」） */
 export const CONTACT_PREVIEW_MAX = 100;
 
-const EMAIL_CANDIDATE = /[A-Z0-9._%+-]+@[\p{L}\p{M}\p{N}-]+(?:[.。][\p{L}\p{M}\p{N}-]+)+/giu;
+// ドメインのラベルは使える文字を列挙せず、空白・区切り・括弧・句読点以外を全て含める（col·legi.cat の
+// 「·」のように国際化ドメインが許す文字を取りこぼさないため。漏らさない側に倒す）
+const DOMAIN_LABEL = String.raw`[^\s@<>.。、，,()（）「」『』【】\[\]"'：:；;!?！？]+`;
+const EMAIL_CANDIDATE = new RegExp(String.raw`[A-Z0-9._%+-]+@${DOMAIN_LABEL}(?:[.。]${DOMAIN_LABEL})+`, 'giu');
 
 /**
  * メールアドレスの候補のうち、ドメインとして読める範囲だけを伏せ、後ろに続く文は残す。

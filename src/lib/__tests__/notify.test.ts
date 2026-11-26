@@ -234,6 +234,8 @@ describe('sendNotify — contact は名前・種類・本文冒頭だけを載�
     ['連絡先はtaro@example.com。折り返しをお願いします。', '連絡先は[email redacted]。折り返しをお願いします。'],
     ['taro@भारत.example', '[email redacted]'],
     ['taro@example。jp', '[email redacted]'],
+    ['taro@col·legi.cat', '[email redacted]'],
+    ['連絡は taro@example.jp、または電話で', '連絡は [email redacted]、または電話で'],
     ['taro@例え.テスト。折り返しをお願いします。', '[email redacted]。折り返しをお願いします。'],
     ['taro@example。折り返し', '[email redacted]'],
     ['taro@例え。テスト.com', '[email redacted]'],
