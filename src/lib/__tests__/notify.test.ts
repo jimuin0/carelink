@@ -229,6 +229,8 @@ describe('sendNotify — contact は名前・種類・本文冒頭だけを載�
     ['090−1234−\u200b5678', '[phone redacted]'],
     ['090−1234−\ufe0f5678', '[phone redacted]'],
     ['taro@例え。テスト', '[email redacted]'],
+    ['連絡先はtaro@example.com。折り返しをお願いします。', '連絡先は[email redacted]。折り返しをお願いします。'],
+    ['taro@भारत.example', '[email redacted]'],
     ['予約の変更を希望します。連絡先はtaro@example.invalid です。', '予約の変更を希望します。連絡先は[email redacted] です。'],
     ['〒150-0001 です', '〒150-0001 です'],
     ['注文番号 123-456-789', '注文番号 123-456-789'],
