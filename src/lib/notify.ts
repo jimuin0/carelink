@@ -152,9 +152,10 @@ export function sanitizeContactField(value: string): string {
   return value
     .normalize('NFKC')
     // ゼロ幅スペースなど見えない書式文字で照合を途切れさせないよう、先に取り除く
-    .replace(/\p{Cf}/gu, '')
-    // 国際化ドメインも含め、@ を挟んで点を含む塊はメールアドレスとみなす（漏らさない側に倒す）
-    .replace(/[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/gu, '[email redacted]')
+    .replace(/[\p{Cf}\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/gu, '')
+    // 前半は英数字記号に限る（空白の無い日本語の文を巻き込まないため）。ドメインは国際化ドメインも含め、
+    // 区切りに「。」も認める（ブラウザ・Node は「。」をドメイン区切りとして扱う）
+    .replace(/[A-Z0-9._%+-]+@[\p{L}\p{N}-]+(?:[.。][\p{L}\p{N}-]+)+/giu, '[email redacted]')
     .replace(/\+?\(?\d[\d\s().\-‐-‒–—―ーｰ−]{7,}\d/g, (m) => (m.replace(/\D/g, '').length >= 10 ? '[phone redacted]' : m))
     .replace(/[*_~`]/g, (c) => ({ '*': '＊', _: '＿', '~': '～', '`': '｀' })[c] as string);
 }
