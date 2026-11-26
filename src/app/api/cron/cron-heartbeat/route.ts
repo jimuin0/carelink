@@ -14,6 +14,8 @@ import { logCronRun, cronError } from '@/lib/cron-logger';
 import { alertWarning } from '@/lib/alert';
 import { getStaleCronJobs } from '@/lib/cron-heartbeat';
 import { summarizeDependencyError } from '@/lib/err';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { isInquiryBacklogReportTime, reportInquiryBacklog, claimInquiryBacklogReport } from '@/lib/inquiry-backlog';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -55,10 +57,26 @@ export async function GET(request: Request) {
       });
     }
 
-    await logCronRun(SELF, queryErrors.length > 0 ? 'error' : 'success', startedAt, {
+    // 運営宛お問い合わせの対応漏れを、日本時間の朝9時台の回（9:07）だけ Slack に出す（src/lib/inquiry-backlog.ts）。
+    // 死活判定とは独立した確認なので、失敗しても死活判定の結果は捨てず、run を error にして黙らない。
+    // 同じ日に 2 回目が動いても通知は 1 回だけ（'already'）。
+    let inquiryBacklog: { unreplied: number; repliedOpen: number } | 'failed' | 'skipped' | 'already' = 'skipped';
+    if (isInquiryBacklogReportTime(startedAt)) {
+      try {
+        const db = createServiceRoleClient();
+        inquiryBacklog = await reportInquiryBacklog(db, startedAt, { claim: () => claimInquiryBacklogReport(db, startedAt) });
+      } catch (e) {
+        console.error('[cron-heartbeat] inquiry backlog check failed', { errorMessage: summarizeDependencyError(e) });
+        inquiryBacklog = 'failed';
+      }
+    }
+    const failed = queryErrors.length > 0 || inquiryBacklog === 'failed';
+
+    await logCronRun(SELF, failed ? 'error' : 'success', startedAt, {
       processed: stale.length + missing.length,
-      ...(queryErrors.length > 0 ? { error_msg: 'cron 実行履歴を取得できず死活を判定できませんでした' } : {}),
-      meta: { stale: stale.map((s) => s.name), missing: missing.map((s) => s.name), queryErrors },
+      ...(queryErrors.length > 0 ? { error_msg: 'cron 実行履歴を取得できず死活を判定できませんでした' }
+        : inquiryBacklog === 'failed' ? { error_msg: '運営宛お問い合わせの対応漏れを確認できませんでした' } : {}),
+      meta: { stale: stale.map((s) => s.name), missing: missing.map((s) => s.name), queryErrors, inquiryBacklog },
     });
     return NextResponse.json({ stale: stale.map((s) => s.name), missing: missing.map((s) => s.name), queryErrors }, { status: queryErrors.length > 0 ? 503 : 200 });
   } catch (e) {

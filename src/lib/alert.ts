@@ -38,7 +38,8 @@ const SENSITIVE_ALERT_KEY = /token|secret|key|password|authorization|cookie|emai
 const MAX_ALERT_EXTRA_DEPTH = 3;
 const MAX_ALERT_EXTRA_ITEMS = 20;
 
-function redactAlertText(value: string): string {
+/** Slack に載せる前の伏せ字処理。文字数の見積もりを送る内容と揃えるため inquiry-backlog.ts も使う。 */
+export function redactAlertText(value: string): string {
   return summarizeDependencyError(value)
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[email redacted]')
     .replace(/(?<!\d)(?:\+?81[-\s]?)?0\d{1,4}[-\s]?\d{1,4}[-\s]?\d{3,4}(?!\d)/g, '[phone redacted]')

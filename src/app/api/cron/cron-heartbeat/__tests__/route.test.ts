@@ -28,19 +28,30 @@ jest.mock('@/lib/cron-logger', () => {
 });
 jest.mock('@/lib/alert', () => ({ alertWarning: jest.fn() }));
 jest.mock('@/lib/cron-heartbeat', () => ({ getStaleCronJobs: jest.fn() }));
+jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: jest.fn(() => ({ db: true })) }));
+jest.mock('@/lib/inquiry-backlog', () => ({
+  ...jest.requireActual('@/lib/inquiry-backlog'),
+  reportInquiryBacklog: jest.fn(),
+  claimInquiryBacklogReport: jest.fn(async () => true),
+}));
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { alertWarning } from '@/lib/alert';
 import { getStaleCronJobs } from '@/lib/cron-heartbeat';
+import { reportInquiryBacklog, claimInquiryBacklogReport } from '@/lib/inquiry-backlog';
 import { GET } from '../route';
 
 function makeRequest() {
   return new Request('http://localhost/api/cron/cron-heartbeat');
 }
 
+afterEach(() => { jest.useRealTimers(); });
+
 beforeEach(() => {
   jest.clearAllMocks();
+  // 既定は問い合わせ確認の時刻外（日本時間 12:07）
+  jest.useFakeTimers({ now: new Date('2026-11-26T03:07:00Z'), doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
   (checkCronAuth as jest.Mock).mockReturnValue(null);
   (logCronRun as jest.Mock).mockResolvedValue(undefined);
 });
@@ -127,7 +138,7 @@ test('実行履歴なしのみでも警告・応答・監査ログへ残す', as
     route: '/api/cron/cron-heartbeat', extra: { stale_jobs: [], missing_jobs: ['booking-reminder'] },
   });
   expect(logCronRun).toHaveBeenCalledWith('cron-heartbeat', 'success', expect.any(Date), {
-    processed: 1, meta: { stale: [], missing: ['booking-reminder'], queryErrors: [] },
+    processed: 1, meta: { stale: [], missing: ['booking-reminder'], queryErrors: [], inquiryBacklog: 'skipped' },
   });
 });
 
@@ -148,4 +159,48 @@ test('非 Error 例外でも 500（String 化）', async () => {
   const res = await GET(makeRequest());
   expect(res.status).toBe(500);
   expect(logCronRun).toHaveBeenCalledWith('cron-heartbeat', 'error', expect.any(Date), expect.objectContaining({ error_msg: 'plain-string' }));
+});
+
+describe('運営宛お問い合わせの対応漏れ確認（日本時間 9:07 の回だけ）', () => {
+  beforeEach(() => { (getStaleCronJobs as jest.Mock).mockResolvedValue({ stale: [], queryErrors: [] }); });
+
+  test('9:07 の回は確認し、件数を run の meta に残して success で記録する', async () => {
+    jest.setSystemTime(new Date('2026-11-26T00:07:00Z'));
+    (reportInquiryBacklog as jest.Mock).mockResolvedValue({ unreplied: 0, repliedOpen: 4 });
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(reportInquiryBacklog).toHaveBeenCalledWith({ db: true }, expect.any(Date), { claim: expect.any(Function) });
+    expect(logCronRun).toHaveBeenCalledWith('cron-heartbeat', 'success', expect.any(Date),
+      expect.objectContaining({ meta: expect.objectContaining({ inquiryBacklog: { unreplied: 0, repliedOpen: 4 } }) }));
+  });
+
+  test('9:37 の回とそれ以外の時刻は確認しない', async () => {
+    for (const iso of ['2026-11-26T00:37:00Z', '2026-11-26T03:07:00Z', '2026-11-25T23:37:00Z']) {
+      jest.setSystemTime(new Date(iso));
+      await GET(makeRequest());
+    }
+    expect(reportInquiryBacklog).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenLastCalledWith('cron-heartbeat', 'success', expect.any(Date),
+      expect.objectContaining({ meta: expect.objectContaining({ inquiryBacklog: 'skipped' }) }));
+  });
+
+  test('同じ日にすでに通知していれば 2 通目は出さない', async () => {
+    jest.setSystemTime(new Date('2026-11-26T00:08:00Z'));
+    (reportInquiryBacklog as jest.Mock).mockImplementation(async (_db, _now, opts) => ((await opts.claim()) ? { unreplied: 1, repliedOpen: 0 } : 'already'));
+    (claimInquiryBacklogReport as jest.Mock).mockResolvedValueOnce(false);
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(claimInquiryBacklogReport).toHaveBeenCalledWith({ db: true }, expect.any(Date));
+    expect(logCronRun).toHaveBeenCalledWith('cron-heartbeat', 'success', expect.any(Date),
+      expect.objectContaining({ meta: expect.objectContaining({ inquiryBacklog: 'already' }) }));
+  });
+
+  test('確認に失敗したら run を error で記録して黙らない（死活判定の結果は返す）', async () => {
+    jest.setSystemTime(new Date('2026-11-26T00:07:00Z'));
+    (reportInquiryBacklog as jest.Mock).mockRejectedValue(new Error('db down'));
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(logCronRun).toHaveBeenCalledWith('cron-heartbeat', 'error', expect.any(Date),
+      expect.objectContaining({ error_msg: '運営宛お問い合わせの対応漏れを確認できませんでした', meta: expect.objectContaining({ inquiryBacklog: 'failed' }) }));
+  });
 });
