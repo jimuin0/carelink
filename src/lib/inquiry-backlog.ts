@@ -80,12 +80,19 @@ function typeLabel(inquiryType: string | null | undefined): string {
   return (INQUIRY_TYPE_OPTIONS as readonly string[]).includes(inquiryType) ? inquiryType : 'その他の種類';
 }
 
-/** お名前は 20 文字で切る（フォームは 100 文字まで受けるため。1500 文字の切り詰めに収める）。 */
+/**
+ * お名前は 20 文字（コードポイント単位・サロゲートペアを壊さない）で切る。
+ * フォームの名前欄は自由入力なので、全角を半角へ正規化したうえで、数字や「@」を含むもの
+ * （電話番号・メールアドレスの書き込み）は載せずに管理画面で確認してもらう。
+ * 切ってからではなく、切る前の全文で判定する（切った後だとメールの一部が判定をすり抜けるため）。
+ */
 const NAME_MAX = 20;
 function nameLabel(name: string | null | undefined): string {
-  const trimmed = (name ?? '').trim();
-  if (!trimmed) return 'お名前なし';
-  return `${trimmed.length > NAME_MAX ? `${trimmed.slice(0, NAME_MAX)}…` : trimmed}様`;
+  const normalized = (name ?? '').normalize('NFKC').trim();
+  if (!normalized) return 'お名前なし';
+  if (/[0-9@]/.test(normalized)) return 'お名前は管理画面で確認';
+  const chars = Array.from(normalized);
+  return `${chars.length > NAME_MAX ? `${chars.slice(0, NAME_MAX).join('')}…` : normalized}様`;
 }
 
 /** 例：「池田 拓郎様・9/22受付・施設掲載について（オーナー向け）・新着タブ（64日）」 */

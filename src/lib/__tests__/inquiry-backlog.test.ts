@@ -144,6 +144,25 @@ describe('reportInquiryBacklog', () => {
     expect((alertWarning as jest.Mock).mock.calls[0][1].extra.unreplied).toBe('なし');
   });
 
+  test('名前欄の電話番号・メールは載せず、20文字で切るときに文字を壊さない', async () => {
+    const rows = [
+      { id: uuid(1), created_at: daysAgo(3), name: '０９０－１２３４－５６７８' },
+      { id: uuid(2), created_at: daysAgo(3), name: 'abcdefghijkl@example.invalid' },
+      { id: uuid(3), created_at: daysAgo(3), name: `${'あ'.repeat(19)}𠮷野` },
+      { id: uuid(4), created_at: daysAgo(3), name: 'ﾔﾏﾀﾞ' },
+    ];
+    const { db } = fakeDb([{ data: rows, error: null }]);
+    (readMailReplyEvidence as jest.Mock).mockResolvedValue(empty);
+    await reportInquiryBacklog(db, now);
+    const lines: string[] = (alertWarning as jest.Mock).mock.calls[0][1].extra.unreplied;
+    expect(lines[0]).toMatch(/^お名前は管理画面で確認・/);
+    expect(lines[1]).toMatch(/^お名前は管理画面で確認・/);
+    expect(lines[2]).toMatch(new RegExp(`^${'あ'.repeat(19)}𠮷…様・`));
+    expect(lines[3]).toMatch(/^ヤマダ様・/);
+    const sent = JSON.stringify(lines);
+    for (const secret of ['1234', 'example', '\\ud842']) expect(sent).not.toContain(secret);
+  });
+
   test('省略件数は区分ごとに数える（未返信11件・返信済み0件なら1件）', async () => {
     const rows = Array.from({ length: 11 }, (_, index) => ({ id: uuid(index), created_at: daysAgo(3) }));
     const { db } = fakeDb([{ data: rows, error: null }]);
