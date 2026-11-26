@@ -146,13 +146,13 @@ export const CONTACT_PREVIEW_MAX = 100;
 /**
  * 受信通知の欄からメール・電話を伏せ、Slack の装飾記号を無効にする。
  * 全角数字・全角記号は NFKC で半角へ寄せてから判定し、括弧・空白・ハイフン・点で区切った
- * 数字が合計10桁以上続くものを電話番号とみなす（郵便番号の7桁は残る）。
+ * 数字が合計10桁以上続くもの（区切りは電話番号欄の normalizePhone と同じダッシュ類も含む）を電話番号とみなす（郵便番号の7桁は残る）。
  */
 export function sanitizeContactField(value: string): string {
   return value
     .normalize('NFKC')
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email redacted]')
-    .replace(/\+?\(?\d[\d\s().-]{7,}\d/g, (m) => (m.replace(/\D/g, '').length >= 10 ? '[phone redacted]' : m))
+    .replace(/\+?\(?\d[\d\s().\-‐-‒–—―ーｰ−]{7,}\d/g, (m) => (m.replace(/\D/g, '').length >= 10 ? '[phone redacted]' : m))
     .replace(/[*_~`]/g, (c) => ({ '*': '＊', _: '＿', '~': '～', '`': '｀' })[c] as string);
 }
 
