@@ -143,6 +143,27 @@ const recordId = z.string().regex(UUID_REGEX);
 /** 受信通知に載せる本文の最大文字数（2026年11月27日 本人決定「名前・種類・本文冒頭」） */
 export const CONTACT_PREVIEW_MAX = 100;
 
+const EMAIL_CANDIDATE = /[A-Z0-9._%+-]+@[\p{L}\p{M}\p{N}-]+(?:[.。][\p{L}\p{M}\p{N}-]+)+/giu;
+
+/**
+ * メールアドレスの候補のうち、ドメインとして読める範囲だけを伏せ、後ろに続く文は残す。
+ * 「。」はブラウザ・Node ではドメインの区切りだが、日本語では文の句点でもある。区切りとみなすのは
+ * 後ろが英数字のラベルのとき（example。jp）と、ドメインに「.」が1つも無い全角表記のとき（例え。テスト）だけ。
+ * それ以外の「。」（example.com。折り返し…／例え.テスト。折り返し…）は文の句点として残す。
+ * ただし最初の区切りは常に採り、迷う場合は伏せる側に倒す。
+ */
+function redactEmail(candidate: string): string {
+  const at = candidate.indexOf('@');
+  const parts = candidate.slice(at + 1).split(/([.。])/);
+  const hasDot = parts.includes('.');
+  // 最初の区切りは必ず採る（メールを丸ごと残さないため。漏らさない側に倒す）
+  let i = 3;
+  for (; i < parts.length; i += 2) {
+    if (parts[i] === '。' && hasDot && !/^[A-Z0-9-]+$/i.test(parts[i + 1])) break;
+  }
+  return `[email redacted]${parts.slice(i).join('')}`;
+}
+
 /**
  * 受信通知の欄からメール・電話を伏せ、Slack の装飾記号を無効にする。
  * 全角数字・全角記号は NFKC で半角へ寄せてから判定し、括弧・空白・ハイフン・点で区切った
@@ -153,10 +174,8 @@ export function sanitizeContactField(value: string): string {
     .normalize('NFKC')
     // ゼロ幅スペースなど見えない書式文字で照合を途切れさせないよう、先に取り除く
     .replace(/[\p{Cf}\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/gu, '')
-    // 前半は英数字記号に限る（空白の無い日本語の文を巻き込まないため）。ドメインは国際化ドメインも含め、
-    // 直前のラベルが非英字のときに限り区切りに「。」も認める（ブラウザ・Node は「。」をドメイン区切りとして
-    // 扱う。英字のドメインの後ろの「。」は文の句点なので、後続の文を巻き込まない）
-    .replace(/[A-Z0-9._%+-]+@[\p{L}\p{M}\p{N}-]+(?:(?:\.|(?<=[^\x00-\x7F])。)[\p{L}\p{M}\p{N}-]+)+/giu, '[email redacted]')
+    // 前半は英数字記号に限る（空白の無い日本語の文を巻き込まないため）。ドメインの区切りの判定は redactEmail
+    .replace(EMAIL_CANDIDATE, redactEmail)
     .replace(/\+?\(?\d[\d\s().\-‐-‒–—―ーｰ−]{7,}\d/g, (m) => (m.replace(/\D/g, '').length >= 10 ? '[phone redacted]' : m))
     .replace(/[*_~`]/g, (c) => ({ '*': '＊', _: '＿', '~': '～', '`': '｀' })[c] as string);
 }
