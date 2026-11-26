@@ -15,7 +15,7 @@ import { alertWarning } from '@/lib/alert';
 import { getStaleCronJobs } from '@/lib/cron-heartbeat';
 import { summarizeDependencyError } from '@/lib/err';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { isInquiryBacklogReportTime, reportInquiryBacklog } from '@/lib/inquiry-backlog';
+import { isInquiryBacklogReportTime, reportInquiryBacklog, wasInquiryBacklogReportedToday } from '@/lib/inquiry-backlog';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -59,10 +59,14 @@ export async function GET(request: Request) {
 
     // 運営宛お問い合わせの対応漏れを、日本時間の朝9時台の回（9:07）だけ Slack に出す（src/lib/inquiry-backlog.ts）。
     // 死活判定とは独立した確認なので、失敗しても死活判定の結果は捨てず、run を error にして黙らない。
-    let inquiryBacklog: { unreplied: number; repliedOpen: number } | 'failed' | 'skipped' = 'skipped';
+    // 同じ日に 2 回目が動いても通知は 1 回だけ（'already'）。
+    let inquiryBacklog: { unreplied: number; repliedOpen: number } | 'failed' | 'skipped' | 'already' = 'skipped';
     if (isInquiryBacklogReportTime(startedAt)) {
       try {
-        inquiryBacklog = await reportInquiryBacklog(createServiceRoleClient(), startedAt);
+        const db = createServiceRoleClient();
+        inquiryBacklog = await wasInquiryBacklogReportedToday(db, startedAt)
+          ? 'already'
+          : await reportInquiryBacklog(db, startedAt);
       } catch (e) {
         console.error('[cron-heartbeat] inquiry backlog check failed', { errorMessage: summarizeDependencyError(e) });
         inquiryBacklog = 'failed';

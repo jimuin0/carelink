@@ -5,7 +5,7 @@ import { alertWarning } from '../alert';
 import { readMailReplyEvidence } from '../platform-mail-read';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { classifyInquiryBacklog, isInquiryBacklogReportTime, reportInquiryBacklog, UNREPLIED_DAYS, REPLIED_OPEN_DAYS, INQUIRY_TYPE_OPTIONS } from '../inquiry-backlog';
+import { classifyInquiryBacklog, isInquiryBacklogReportTime, reportInquiryBacklog, wasInquiryBacklogReportedToday, UNREPLIED_DAYS, REPLIED_OPEN_DAYS, INQUIRY_TYPE_OPTIONS } from '../inquiry-backlog';
 
 const now = new Date('2026-11-17T06:00:00Z');
 const daysAgo = (days: number) => new Date(now.getTime() - days * 86_400_000).toISOString();
@@ -24,6 +24,31 @@ describe('isInquiryBacklogReportTime', () => {
     expect(isInquiryBacklogReportTime(new Date('2026-11-26T00:37:00Z'))).toBe(false);
     expect(isInquiryBacklogReportTime(new Date('2026-11-25T23:59:59Z'))).toBe(false);
     expect(isInquiryBacklogReportTime(new Date('2026-11-26T09:07:00Z'))).toBe(false);
+  });
+});
+
+describe('wasInquiryBacklogReportedToday', () => {
+  function logsDb(result: { data: unknown; error: unknown }) {
+    const calls: Record<string, unknown[]> = {};
+    const query: Record<string, unknown> = {};
+    for (const key of ['select', 'eq', 'gte', 'lt', 'not']) query[key] = jest.fn((...args: unknown[]) => { calls[key] = args; return query; });
+    query.limit = jest.fn(async () => result);
+    return { db: { from: jest.fn(() => query) } as never, calls };
+  }
+
+  test('今日（日本時間）の通知済みの記録があれば真。日の始まりは日本時間 0 時', async () => {
+    const { db, calls } = logsDb({ data: [{ id: 1 }], error: null });
+    await expect(wasInquiryBacklogReportedToday(db, new Date('2026-11-26T00:08:00Z'))).resolves.toBe(true);
+    expect(calls.eq).toEqual(['job_name', 'cron-heartbeat']);
+    expect(calls.gte).toEqual(['started_at', '2026-11-25T15:00:00.000Z']);
+    expect(calls.lt).toEqual(['started_at', '2026-11-26T00:08:00.000Z']);
+    expect(calls.not).toEqual(['meta->inquiryBacklog->unreplied', 'is', null]);
+  });
+
+  test('記録が無い・読めないときは偽（通知する側に倒す）', async () => {
+    await expect(wasInquiryBacklogReportedToday(logsDb({ data: [], error: null }).db, now)).resolves.toBe(false);
+    await expect(wasInquiryBacklogReportedToday(logsDb({ data: null, error: null }).db, now)).resolves.toBe(false);
+    await expect(wasInquiryBacklogReportedToday(logsDb({ data: null, error: { message: 'down' } }).db, now)).resolves.toBe(false);
   });
 });
 
@@ -174,6 +199,22 @@ describe('reportInquiryBacklog', () => {
     expect(lines[4]).toMatch(/^お名前は管理画面で確認・/);
     const sent = JSON.stringify(lines);
     for (const secret of ['1234', 'example', '\\ud842', '١٢٣٤']) expect(sent).not.toContain(secret);
+  });
+
+  test('名前が長くても、alert.ts と同じ整形で 1500 文字以内に案内・載せた全行・省略件数が収まる', async () => {
+    const longName = '𠮷'.repeat(25);
+    const rows = Array.from({ length: 24 }, (_, index) => ({ id: uuid(index), created_at: daysAgo(10), name: longName, ticket_status: 'open', inquiry_type: '施設掲載について（オーナー向け）' }));
+    const { db } = fakeDb([{ data: rows, error: null }]);
+    (readMailReplyEvidence as jest.Mock).mockResolvedValue({ messages: rows.slice(12).map((row) => sentMail(row.id)), replies: [] });
+    await reportInquiryBacklog(db, now);
+    const extra = (alertWarning as jest.Mock).mock.calls[0][1].extra;
+    // alert.ts は JSON.stringify(extra, null, 2).slice(0, 1500) で Slack に載せる
+    expect(JSON.stringify(extra, null, 2).length).toBeLessThanOrEqual(1500);
+    const shown = extra.unreplied.length + extra.repliedOpen.length;
+    expect(extra.unreplied.length).toBeGreaterThan(0);
+    expect(extra.repliedOpen.length).toBeGreaterThan(0);
+    expect(shown).toBeLessThan(20); // 件数の上限（各10件）より前に文字数の上限で止まっている
+    expect(extra.omitted).toBe(24 - shown);
   });
 
   test('省略件数は区分ごとに数える（未返信11件・返信済み0件なら1件）', async () => {

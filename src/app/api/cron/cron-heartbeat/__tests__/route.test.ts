@@ -32,13 +32,14 @@ jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: jest.fn(() 
 jest.mock('@/lib/inquiry-backlog', () => ({
   ...jest.requireActual('@/lib/inquiry-backlog'),
   reportInquiryBacklog: jest.fn(),
+  wasInquiryBacklogReportedToday: jest.fn(async () => false),
 }));
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { alertWarning } from '@/lib/alert';
 import { getStaleCronJobs } from '@/lib/cron-heartbeat';
-import { reportInquiryBacklog } from '@/lib/inquiry-backlog';
+import { reportInquiryBacklog, wasInquiryBacklogReportedToday } from '@/lib/inquiry-backlog';
 import { GET } from '../route';
 
 function makeRequest() {
@@ -181,6 +182,17 @@ describe('運営宛お問い合わせの対応漏れ確認（日本時間 9:07 �
     expect(reportInquiryBacklog).not.toHaveBeenCalled();
     expect(logCronRun).toHaveBeenLastCalledWith('cron-heartbeat', 'success', expect.any(Date),
       expect.objectContaining({ meta: expect.objectContaining({ inquiryBacklog: 'skipped' }) }));
+  });
+
+  test('同じ日にすでに通知していれば 2 通目は出さない', async () => {
+    jest.setSystemTime(new Date('2026-11-26T00:08:00Z'));
+    (wasInquiryBacklogReportedToday as jest.Mock).mockResolvedValueOnce(true);
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(wasInquiryBacklogReportedToday).toHaveBeenCalledWith({ db: true }, expect.any(Date));
+    expect(reportInquiryBacklog).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenCalledWith('cron-heartbeat', 'success', expect.any(Date),
+      expect.objectContaining({ meta: expect.objectContaining({ inquiryBacklog: 'already' }) }));
   });
 
   test('確認に失敗したら run を error で記録して黙らない（死活判定の結果は返す）', async () => {

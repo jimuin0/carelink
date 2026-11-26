@@ -37,11 +37,36 @@ export function isInquiryBacklogReportTime(now: Date): boolean {
   return jst.getUTCHours() === 9 && jst.getUTCMinutes() < 30;
 }
 
+/**
+ * 今日（日本時間）すでに通知したか。cron-heartbeat の run 記録（cron_logs.meta.inquiryBacklog に件数が入る）で判定する。
+ * 手動の再実行や dispatcher の重複起動で 9 時台に 2 回動いても、2 通目を出さない（Codex 指摘 PR993-05）。
+ * 記録を読めないときは false（＝通知する）。重複は困るが、黙って出さないほうがもっと困るため。
+ */
+export async function wasInquiryBacklogReportedToday(db: DB, now: Date): Promise<boolean> {
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const dayStartUtc = new Date(Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate()) - 9 * 60 * 60 * 1000);
+  const { data, error } = await db.from('cron_logs').select('id')
+    .eq('job_name', 'cron-heartbeat')
+    .gte('started_at', dayStartUtc.toISOString())
+    .lt('started_at', now.toISOString())
+    .not('meta->inquiryBacklog->unreplied', 'is', null)
+    .limit(1);
+  if (error) return false;
+  return (data ?? []).length > 0;
+}
+
 export const UNREPLIED_DAYS = 1;
 export const REPLIED_OPEN_DAYS = 7;
 const OPEN_STATUSES = ['open', 'in_progress', 'waiting'] as const;
 const EVIDENCE_CHUNK = 100;
-const LISTED_ITEMS = 10; // Slack の本文は 1500 文字で切れるため（alert.ts）。超えた分は omitted に数える
+const LISTED_ITEMS = 10;
+/**
+ * 一覧に使ってよい文字数（UTF-16 単位）。alert.ts は補足欄の JSON を 1500 文字で切るため、
+ * 案内・キー・字下げ・省略件数のぶんを残し、一覧の行はこの範囲に収まるだけ載せる。
+ * 件数だけで切ると、名前が長いときに Slack 側で行の途中から切れ、省略件数も消える（Codex 指摘 PR993-04）。
+ */
+const LIST_CHAR_BUDGET = 500; // 区分ごと（未返信・返信後未完了）。1行は最大でも約90文字なので、区分に1件以上あれば必ず1行は載る
+const LINE_OVERHEAD = 8; // 字下げ・引用符・カンマ・改行
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface BacklogContact { id: string; created_at: string | null; name?: string | null; ticket_status?: string | null; inquiry_type?: string | null }
@@ -137,6 +162,20 @@ export async function reportInquiryBacklog(db: DB, now: Date = new Date()): Prom
   const unreplied = items.filter((item) => item.reason === 'unreplied');
   const repliedOpen = items.filter((item) => item.reason === 'repliedOpen');
   if (items.length > 0) {
+    const take = (list: BacklogItem[]): string[] => {
+      let budget = LIST_CHAR_BUDGET;
+      const lines: string[] = [];
+      for (const item of list.slice(0, LISTED_ITEMS)) {
+        const line = formatItem(item);
+        const cost = JSON.stringify(line).length + LINE_OVERHEAD;
+        if (cost > budget) break;
+        budget -= cost;
+        lines.push(line);
+      }
+      return lines;
+    };
+    const shownUnreplied = take(unreplied);
+    const shownRepliedOpen = take(repliedOpen);
     const base = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-jp.com';
     alertWarning(`運営宛のお問い合わせに未完了が${items.length}件あります（未返信${unreplied.length}件・返信後${REPLIED_OPEN_DAYS}日以上未完了${repliedOpen.length}件）`, {
       category: '完了未確認',
@@ -145,9 +184,9 @@ export async function reportInquiryBacklog(db: DB, now: Date = new Date()): Prom
         // 案内を先に置く（alert.ts は本文を 1500 文字で切るため、一覧が長くても案内は残る）
         adminUrl: `${base}/admin/inquiries`,
         howToClose: '問い合わせ管理で該当のタブを開き、状態を「解決済み」にすると次回から出ません',
-        unreplied: unreplied.length ? unreplied.slice(0, LISTED_ITEMS).map(formatItem) : 'なし',
-        repliedOpen: repliedOpen.length ? repliedOpen.slice(0, LISTED_ITEMS).map(formatItem) : 'なし',
-        omitted: Math.max(0, unreplied.length - LISTED_ITEMS) + Math.max(0, repliedOpen.length - LISTED_ITEMS),
+        unreplied: shownUnreplied.length ? shownUnreplied : 'なし',
+        repliedOpen: shownRepliedOpen.length ? shownRepliedOpen : 'なし',
+        omitted: items.length - shownUnreplied.length - shownRepliedOpen.length,
       },
     });
   }
