@@ -37,7 +37,7 @@ jest.mock('@/lib/slack', () => ({
   }),
 }));
 
-import { sendNotify, contactPreview, CONTACT_PREVIEW_MAX, type NotifyPayload } from '../notify';
+import { sendNotify, contactPreview, sanitizeContactField, CONTACT_PREVIEW_MAX, type NotifyPayload } from '../notify';
 
 const CONTACT_ID = '71000000-0000-4000-8000-0000000000c1';
 const INQUIRY_ID = '71000000-0000-4000-8000-0000000000a1';
@@ -216,6 +216,25 @@ describe('sendNotify — contact は名前・種類・本文冒頭だけを載�
     expect(contactPreview('あ\n\nい')).toBe('あ い');
     expect(contactPreview('字'.repeat(CONTACT_PREVIEW_MAX))).toBe('字'.repeat(CONTACT_PREVIEW_MAX));
     expect(contactPreview('字'.repeat(CONTACT_PREVIEW_MAX + 1))).toBe(`${'字'.repeat(CONTACT_PREVIEW_MAX)}…`);
+  });
+
+  test.each([
+    ['０９０－１２３４－５６７８', '[phone redacted]'],
+    ['(03) 1234-5678', '[phone redacted]'],
+    ['+81 90 1234 5678', '[phone redacted]'],
+    ['ｔａｒｏ＠ｅｘａｍｐｌｅ．ｊｐ', '[email redacted]'],
+    ['〒150-0001 です', '〒150-0001 です'],
+    ['注文番号 123-456-789', '注文番号 123-456-789'],
+    ['*強調* _斜体_ ~消~ `コード`', '＊強調＊ ＿斜体＿ ～消～ ｀コード｀'],
+  ])('sanitizeContactField(%s)', (input, expected) => {
+    expect(sanitizeContactField(input)).toBe(expected);
+  });
+
+  test('名前・種類の欄に書かれたメール・電話も伏せる', async () => {
+    await sendNotify({ type: 'contact', data: { contact_id: CONTACT_ID, name: 'a@example.invalid', inquiry_type: '03-1234-5678' } });
+    const text = mockPostToSlack.mock.calls[0][0].text as string;
+    expect(text).not.toContain('a@example.invalid');
+    expect(text).not.toContain('1234-5678');
   });
 
   test('内容の欄が無くても受付番号で通知し、不正な欄は捨てる', async () => {

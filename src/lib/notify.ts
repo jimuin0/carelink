@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { adminFacilityHref } from '@/lib/admin-facility-url';
 import { UUID_REGEX } from '@/lib/constants';
-import { redactAlertText } from '@/lib/alert';
 import {
   postToSlack,
   sectionBlock,
@@ -121,8 +120,8 @@ function buildSlackMessage(payload: NotifyPayload): string {
     case 'contact': {
       const { name, inquiry_type, message } = payload.data;
       const lines = [':envelope: *お問い合わせ（運営宛）を受け付けました*'];
-      if (name) lines.push(`> *お名前:* ${escSlack(name)}`);
-      if (inquiry_type) lines.push(`> *種類:* ${escSlack(inquiry_type)}`);
+      if (name) lines.push(`> *お名前:* ${escSlack(sanitizeContactField(name))}`);
+      if (inquiry_type) lines.push(`> *種類:* ${escSlack(sanitizeContactField(inquiry_type))}`);
       if (message) lines.push(`> *内容（冒頭）:* ${escSlack(contactPreview(message))}`);
       lines.push(`> *受付番号:* ${payload.data.contact_id}`);
       lines.push('> 全文と連絡先は管理画面で確認してください。');
@@ -144,9 +143,22 @@ const recordId = z.string().regex(UUID_REGEX);
 /** 受信通知に載せる本文の最大文字数（2026年11月27日 本人決定「名前・種類・本文冒頭」） */
 export const CONTACT_PREVIEW_MAX = 100;
 
+/**
+ * 受信通知の欄からメール・電話を伏せ、Slack の装飾記号を無効にする。
+ * 全角数字・全角記号は NFKC で半角へ寄せてから判定し、括弧・空白・ハイフン・点で区切った
+ * 数字が合計10桁以上続くものを電話番号とみなす（郵便番号の7桁は残る）。
+ */
+export function sanitizeContactField(value: string): string {
+  return value
+    .normalize('NFKC')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email redacted]')
+    .replace(/\+?\(?\d[\d\s().-]{7,}\d/g, (m) => (m.replace(/\D/g, '').length >= 10 ? '[phone redacted]' : m))
+    .replace(/[*_~`]/g, (c) => ({ '*': '＊', _: '＿', '~': '～', '`': '｀' })[c] as string);
+}
+
 /** 本文の冒頭だけを、改行を詰め、メール・電話を伏せて返す */
 export function contactPreview(message: string): string {
-  const flat = redactAlertText(message).replace(/\s+/g, ' ').trim();
+  const flat = sanitizeContactField(message).replace(/\s+/g, ' ').trim();
   const chars = Array.from(flat);
   return chars.length > CONTACT_PREVIEW_MAX ? `${chars.slice(0, CONTACT_PREVIEW_MAX).join('')}…` : flat;
 }
