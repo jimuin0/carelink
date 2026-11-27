@@ -212,6 +212,13 @@ describe('sendNotify — contact は名前・種類・本文冒頭だけを載�
     expect(posted).toContain('[email redacted]');
   });
 
+  test('項目名の後ろは全角コロン（2026-11-27 本人指定）', async () => {
+    await sendNotify(untyped({ type: 'contact', data: { contact_id: CONTACT_ID, ...pii } }));
+    const posted = postedToSlack();
+    for (const label of ['お名前', '種類', '内容（冒頭）', '受付番号']) expect(posted).toContain(`*${label}：*`);
+    expect(posted).not.toMatch(/[ぁ-んァ-ヶ一-龠）]:\*/);
+  });
+
   test('本文は改行を詰めて冒頭 CONTACT_PREVIEW_MAX 文字で切る', () => {
     expect(contactPreview('あ\n\nい')).toBe('あ い');
     expect(contactPreview('字'.repeat(CONTACT_PREVIEW_MAX))).toBe('字'.repeat(CONTACT_PREVIEW_MAX));
