@@ -23,6 +23,7 @@ import { alertWarning, redactAlertText } from './alert';
 import { fetchAllPaged } from './paginate';
 import { readMailReplyEvidence } from './platform-mail-read';
 import { summarizeMailReplies, type LegacyMailReply } from './platform-mail-contract';
+import { postInquiryResolveButtons } from './inquiry-slack-actions';
 
 type DB = ReturnType<typeof createServiceRoleClient>;
 type Evidence = Awaited<ReturnType<typeof readMailReplyEvidence>>;
@@ -205,6 +206,9 @@ export async function reportInquiryBacklog(
         omitted: items.length - shownUnreplied.length - shownRepliedOpen.length,
       },
     });
+    // 1件ごとに「解決済みにする」ボタンを付けたメッセージを続けて出す（2026年11月27日 神原さん指示）。
+    // 解決済みにするまで毎朝出し続ける（自動では閉じない）。
+    await postInquiryResolveButtons(items.map((item) => ({ id: item.id, label: redactAlertText(formatItem(item)) })), `${base}/admin/inquiries`);
   }
   return { unreplied: unreplied.length, repliedOpen: repliedOpen.length };
 }

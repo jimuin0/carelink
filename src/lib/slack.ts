@@ -205,6 +205,39 @@ export async function postToSlackWithThreadGrouping(opts: {
   return postResult;
 }
 
+/**
+ * Slack ユーザーのメールアドレスを users.info で取る（ボタンを押した人の確認用・users:read.email の権限が要る）。
+ * 取れない・退会済み・bot・Preview は null。throw しない。
+ */
+export async function getSlackUserEmail(userId: string): Promise<string | null> {
+  if (isPublicReadOnlyPreview()) return null;
+  const token = process.env.SLACK_BOT_TOKEN;
+  if (!token) return null;
+  try {
+    const res = await fetch(`${SLACK_API_BASE}/users.info?user=${encodeURIComponent(userId)}`, { headers: { Authorization: `Bearer ${token}` } });
+    const json = await res.json() as { ok?: boolean; user?: { deleted?: boolean; is_bot?: boolean; profile?: { email?: string } } };
+    if (!json.ok || !json.user || json.user.deleted || json.user.is_bot) return null;
+    const email = json.user.profile?.email?.trim().toLowerCase();
+    return email ? email : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ボタン操作への返事を、押した本人にだけ見える形で返す（response_url）。
+ * 送り先は Slack の hooks.slack.com だけに限る（payload の値をそのまま送り先にしないため）。throw しない。
+ */
+export async function respondToSlackAction(responseUrl: string | undefined, text: string): Promise<void> {
+  if (isPublicReadOnlyPreview()) return;
+  if (!responseUrl || !responseUrl.startsWith('https://hooks.slack.com/')) return;
+  try {
+    await fetch(responseUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ response_type: 'ephemeral', replace_original: false, text }) });
+  } catch {
+    console.error('[slack] respond failed:', 'notification_failure');
+  }
+}
+
 // ===== Block Kit ヘルパー（Phase 7b で活用） =====
 
 /**

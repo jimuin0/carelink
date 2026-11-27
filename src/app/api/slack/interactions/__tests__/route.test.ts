@@ -13,6 +13,11 @@ import { createHmac } from 'crypto';
 
 const mockRunAfterResponse = jest.fn((t: () => PromiseLike<unknown>) => Promise.resolve(t()).then(() => undefined));
 jest.mock('@/lib/after-response', () => ({ runAfterResponse: (t: () => PromiseLike<unknown>) => mockRunAfterResponse(t) }));
+const mockResolve = jest.fn();
+jest.mock('@/lib/inquiry-slack-actions', () => ({ INQUIRY_RESOLVE_ACTION_ID: 'inquiry_resolve', resolveInquiryFromSlack: (...a: unknown[]) => mockResolve(...a) }));
+jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => 'service-db' }));
+const mockAlertCaught = jest.fn();
+jest.mock('@/lib/alert', () => ({ alertCaughtError: (...a: unknown[]) => mockAlertCaught(...a) }));
 import { POST } from '../route';
 
 const SECRET = 'test-signing-secret';
@@ -139,5 +144,23 @@ describe('POST /api/slack/interactions', () => {
       }
       expect(mockRunAfterResponse).not.toHaveBeenCalled();
     }
+  });
+
+  test('inquiry_resolve ボタン → 解決処理へ payload とボタンの値（問い合わせ id）を渡して 200', async () => {
+    mockResolve.mockResolvedValueOnce('resolved');
+    const body = { type: 'block_actions', user: { id: 'U1', name: 'x' }, response_url: 'https://hooks.slack.com/a', actions: [{ type: 'button', action_id: 'inquiry_resolve', value: 'abc' }] };
+    const res = await POST(makeSignedRequest(`payload=${encodeURIComponent(JSON.stringify(body))}`));
+    expect(res.status).toBe(200);
+    await Promise.resolve();
+    expect(mockResolve).toHaveBeenCalledWith('service-db', expect.objectContaining({ user: body.user, response_url: body.response_url }), 'abc');
+  });
+
+  test('解決処理が throw しても 200 ack し、Slack へ例外を通知する', async () => {
+    mockResolve.mockRejectedValueOnce(new Error('boom'));
+    const body = { type: 'block_actions', actions: [{ type: 'button', action_id: 'inquiry_resolve', value: 'abc' }] };
+    const res = await POST(makeSignedRequest(`payload=${encodeURIComponent(JSON.stringify(body))}`));
+    expect(res.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockAlertCaught).toHaveBeenCalledWith('slack-action:inquiry_resolve', expect.any(Error), '/api/slack/interactions');
   });
 });

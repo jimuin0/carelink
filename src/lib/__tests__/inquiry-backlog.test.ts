@@ -1,7 +1,9 @@
 jest.mock('../alert', () => ({ alertWarning: jest.fn(), redactAlertText: jest.requireActual('../alert').redactAlertText }));
 jest.mock('../platform-mail-read', () => ({ readMailReplyEvidence: jest.fn() }));
+jest.mock('../inquiry-slack-actions', () => ({ postInquiryResolveButtons: jest.fn().mockResolvedValue(true) }));
 
 import { alertWarning } from '../alert';
+import { postInquiryResolveButtons } from '../inquiry-slack-actions';
 import { readMailReplyEvidence } from '../platform-mail-read';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -156,6 +158,15 @@ describe('reportInquiryBacklog', () => {
     // メール・電話・本文も、種類欄に書かれた自由記述も、受付番号も載らない
     const sent = JSON.stringify([message, opts]);
     for (const secret of ['a@example.invalid', '090-1234-5678', '本文', '佐藤花子', '腰の痛み', '01234567', '00000000']) expect(sent).not.toContain(secret);
+    // 1件ごとに「解決済みにする」ボタンを付けたメッセージも出す（ボタンの値は問い合わせの id・表示は同じ1行）
+    expect(postInquiryResolveButtons).toHaveBeenCalledTimes(1);
+    const [lines, adminUrl] = (postInquiryResolveButtons as jest.Mock).mock.calls[0];
+    expect(adminUrl).toBe('https://carelink-jp.com/admin/inquiries');
+    expect(lines.map((l: { id: string }) => l.id).sort()).toEqual([uuid(1), uuid(2), uuid(3), '01234567-0000-4000-8000-000000000004'].sort());
+    expect(lines).toContainEqual({ id: uuid(1), label: '山田 太郎様・9/19受付・施設掲載について（オーナー向け）・新着タブ（59日）' });
+    expect(lines).toHaveLength(4);
+    const buttonText = JSON.stringify(lines.map((l: { label: string }) => l.label));
+    for (const secret of ['a@example.invalid', '090-1234-5678', '本文', '佐藤花子', '腰の痛み']) expect(buttonText).not.toContain(secret);
   });
 
   test('知らせるものが無ければ Slack に出さない', async () => {
@@ -163,6 +174,7 @@ describe('reportInquiryBacklog', () => {
     await expect(reportInquiryBacklog(db, now)).resolves.toEqual({ unreplied: 0, repliedOpen: 0 });
     expect(readMailReplyEvidence).not.toHaveBeenCalled();
     expect(alertWarning).not.toHaveBeenCalled();
+    expect(postInquiryResolveButtons).not.toHaveBeenCalled();
   });
 
   test('片方の区分が空なら「なし」と出し、上限を超えた分は省略件数に数え、設定済みの URL を使う', async () => {
