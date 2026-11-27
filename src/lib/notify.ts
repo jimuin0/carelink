@@ -177,7 +177,7 @@ const EMAIL_MASK = '[email redacted]';
 const PHONE_MASK = '[phone redacted]';
 // 数字の塊の間は、改行以外の任意の文字3字までを区切りとみなす（／・〜・「の」など区切りの書き方を1つずつ追いかけないため）。
 // 塊をつないだ数字が10桁以上なら電話とみなす。日時や数量が電話とみなされる伏せすぎは許容する
-const PHONE_CANDIDATE = /\+?\(?\d+(?:[^\d\n]{1,3}\d+)+/gu;
+const PHONE_CANDIDATE = /\+?\(?\d+(?:[^\d\n]{1,3}\d+)*/gu;
 
 /**
  * 正規化した文字列の先頭 limit 文字（コードポイント）までを、メール・電話を伏せて返す。

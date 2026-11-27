@@ -222,6 +222,8 @@ describe('sendNotify — contact は名前・種類・本文冒頭だけを載�
     ['０９０－１２３４－５６７８', '[phone redacted]'],
     ['(03) 1234-5678', '[phone redacted]'],
     ['090・1234・5678 まで', '[phone redacted] まで'],
+    ['折り返しは09012345678です。', '折り返しは[phone redacted]です。'],
+    ['０９０１２３４５６７８', '[phone redacted]'],
     ['折り返しは090の1234の5678へお願いします。', '折り返しは[phone redacted]へお願いします。'],
     ['電話 090 1234 5678/foo@gmail.com', '電話 [phone redacted]'],
     ['alice@例え.テストまたはbob@gmail.com', '[email redacted][email redacted]'],
@@ -270,6 +272,7 @@ describe('sendNotify — contact は名前・種類・本文冒頭だけを載�
     ['あ'.repeat(94) + ' alice@gmail.com', 'あ'.repeat(94) + ' [email redacted]…'],
     ['あ'.repeat(97) + ' 12回目です', 'あ'.repeat(97) + ' 12…'],
     ['あ'.repeat(100) + ' taro@example.jp 090-1234-5678', 'あ'.repeat(100) + '…'],
+    ['あ'.repeat(95) + '09012345678', 'あ'.repeat(95) + '[phone redacted]…'],
     ['あ'.repeat(90) + '\n'.repeat(12) + '後続', 'あ'.repeat(90) + '…'],
   ])('contactPreview は原文の冒頭100文字だけを使い、切れ端のメール・電話を落とす (%#)', (input, expected) => {
     expect(contactPreview(input)).toBe(expected);
