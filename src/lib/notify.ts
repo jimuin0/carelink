@@ -164,10 +164,10 @@ function redactEmail(candidate: string): string {
   for (; i < parts.length; i += 2) {
     if (parts[i] === '。' && hasDot && !/^[A-Z0-9-]+$/i.test(parts[i + 1])) break;
   }
-  // 区切りの後のラベルが英数字で始まり途中から英数字以外に変わるときは、変わる所でドメインが終わったとみなす
-  // （taro@gmail.comまで資料.pdf… の「まで資料.pdf…」を残すため。英数字と他の文字が混ざったラベルは実在しない）
+  // 区切りの後のラベルの途中で英数字とそれ以外（日本語など）が入れ替わるときは、入れ替わる所でドメインが終わったとみなす
+  // （taro@gmail.comまで資料.pdf… の後続文を残し、alice@例え.テストまたはbob@… の2件目を照合し直すため。両方が混ざったラベルは実在しない）
   for (let j = 2; j < i; j += 2) {
-    const mixed = /^[A-Z0-9-]+([^\x00-\x7F][\s\S]*)$/iu.exec(parts[j]);
+    const mixed = /^(?:[A-Z0-9-]+(?=[^\x00-\x7F])|[^\x00-\x7F]+(?=[A-Z0-9-]))([\s\S]+)$/iu.exec(parts[j]);
     if (mixed) return `[email redacted]${mixed[1]}${parts.slice(j + 1).join('')}`;
   }
   return `[email redacted]${parts.slice(i).join('')}`;
