@@ -81,6 +81,12 @@ export async function postInquiryResolveButtons(lines: ResolvableLine[], adminUr
           break;
         }
         await new Promise((resolve) => setTimeout(resolve, waitMs));
+        // タイマーの起床が遅れることがあるので、送り直す直前にも締め切りを確かめる（Codex 指摘 PR996-05 7回目）
+        if (!fits(0)) {
+          allOk = false;
+          console.error('[inquiry-slack] button post failed:', 'time_budget_exhausted');
+          break;
+        }
         result = await send();
       }
       if (!result.ok) {

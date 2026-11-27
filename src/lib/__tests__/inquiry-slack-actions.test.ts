@@ -124,6 +124,24 @@ describe('postInquiryResolveButtons', () => {
     jest.useRealTimers();
   });
 
+  test('待ったあと起床が遅れて締め切りに足りなければ、送り直さない', async () => {
+    jest.useFakeTimers();
+    (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: false, error: 'http_429', retryAfterSec: 19 });
+    const realNow = Date.now;
+    const start = realNow();
+    let skew = 0;
+    jest.spyOn(Date, 'now').mockImplementation(() => realNow() + skew);
+    const sending = postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN);
+    await Promise.resolve();
+    skew = 2_000; // 起床が 2 秒遅れた
+    await jest.advanceTimersByTimeAsync(19_000);
+    await expect(sending).resolves.toBe(false);
+    expect(postToSlack).toHaveBeenCalledTimes(1);
+    expect(start).toBeGreaterThan(0);
+    (Date.now as jest.Mock).mockRestore();
+    jest.useRealTimers();
+  });
+
   test('待ちは通をまたいで締め切りで数え、届かないならそこで終える', async () => {
     jest.useFakeTimers();
     (postToSlack as jest.Mock)
