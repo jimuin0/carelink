@@ -116,7 +116,7 @@ function claimChain(result: jest.Mock) {
  *      .eq('status','processing').or('claimed_at.lt....,and(claimed_at.is.null,scheduled_at.lt....)')
  *      へ変更＝claim 時刻基準・null フォールバック付き）
  */
-const jobsQueryArgs: { eq: unknown[][]; lte: unknown[][]; order: unknown[][]; limit: unknown[][] } = { eq: [], lte: [], order: [], limit: [] };
+const jobsQueryArgs: { eq: unknown[][]; neq: unknown[][]; lte: unknown[][]; order: unknown[][]; limit: unknown[][] } = { eq: [], neq: [], lte: [], order: [], limit: [] };
 beforeEach(() => { for (const k of Object.keys(jobsQueryArgs) as Array<keyof typeof jobsQueryArgs>) jobsQueryArgs[k] = []; });
 
 function makeWebhookRetryQueueTable(overrides: {
@@ -168,7 +168,8 @@ function makeWebhookRetryQueueTable(overrides: {
       return {
         eq: jest.fn((...eqArgs: unknown[]) => {
           jobsQueryArgs.eq.push(eqArgs);
-          return {
+          const afterEq = {
+            neq: jest.fn((...neqArgs: unknown[]) => { jobsQueryArgs.neq.push(neqArgs); return afterEq; }),
             lte: jest.fn((...lteArgs: unknown[]) => {
               jobsQueryArgs.lte.push(lteArgs);
               return {
@@ -184,6 +185,7 @@ function makeWebhookRetryQueueTable(overrides: {
               };
             }),
           };
+          return afterEq;
         }),
       };
     }),
@@ -1188,6 +1190,18 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(mockJobsSelect).toHaveBeenCalled();
     expect(jobsQueryArgs.eq).toEqual([['status', 'pending']]);
     expect(jobsQueryArgs.limit).toEqual([[50]]);
+  });
+
+  // PR #1001：来院者向け LINE のトークンが未設定なら LINE ジョブは取り出さない（claim 後に失敗させず pending のまま残す）
+  test('来院者向け LINE のトークン未設定 → LINE ジョブを取り出さない／設定済みなら絞らない', async () => {
+    setupDefaultMocks(1);
+    await GET(makeRequest() as any);
+    expect(jobsQueryArgs.neq).toEqual([]);
+    delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
+    for (const k of Object.keys(jobsQueryArgs) as Array<keyof typeof jobsQueryArgs>) jobsQueryArgs[k] = [];
+    setupDefaultMocks(1);
+    await GET(makeRequest() as any);
+    expect(jobsQueryArgs.neq).toEqual([['webhook_type', 'line_push']]);
   });
 
   test('orders by scheduled_at ascending（期限到来分＝scheduled_at <= 現在 のみ）', async () => {
