@@ -19,6 +19,7 @@
 | 8 | 8c0e8b13 | 不合格 | CN-09 `col·legi.cat` |
 | 9 | a746e63f | 不合格 | CN-10 `mary.o'connor` |
 | 10 | 60dea050 | 不合格 | CN-11（中）`taro@sub.例え。テスト` が `[email redacted]。テスト` になる |
+| 11 | 6f15b753 | 不合格 | CN-12（中）日本語のローカル部 `山田@example.invalid`・引用符付き `"first last"@example.invalid` が伏せられない（CN-11 は受容済み） |
 
 CN-01〜CN-10 は解消済み（各回の Codex 再現で確認）。
 
