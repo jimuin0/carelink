@@ -175,8 +175,9 @@ function redactEmail(candidate: string): string {
 
 const EMAIL_MASK = '[email redacted]';
 const PHONE_MASK = '[phone redacted]';
-// 区切りは列挙せず、空白・句読点・記号を全て許す（／・〜 など区切りの書き方を1つずつ追いかけないため。日時が電話とみなされる伏せすぎは許容）
-const PHONE_CANDIDATE = /\+?\(?\d[\d\s\p{P}\p{S}ーｰ]{7,}\d/gu;
+// 数字の塊の間は、改行以外の任意の文字3字までを区切りとみなす（／・〜・「の」など区切りの書き方を1つずつ追いかけないため）。
+// 塊をつないだ数字が10桁以上なら電話とみなす。日時や数量が電話とみなされる伏せすぎは許容する
+const PHONE_CANDIDATE = /\+?\(?\d+(?:[^\d\n]{1,3}\d+)+/gu;
 
 /**
  * 正規化した文字列の先頭 limit 文字（コードポイント）までを、メール・電話を伏せて返す。
@@ -187,7 +188,6 @@ function redactPrefix(text: string, limit: number): string {
   const cut = Array.from(text).slice(0, limit).join('').length;
   const ranges: Array<[number, number, string]> = [];
   // メールの前半は RFC 5322 の英数字と記号（mary.o'connor など）に限る（空白の無い日本語の文を巻き込まないため）。ドメインの区切りの判定は redactEmail
-  let masked = text;
   // 候補が後続の文まで取り込んでも、次の照合は伏せた範囲の直後から始める（alice@gmail.comまたはbob@… の2件目を拾うため）
   const re = new RegExp(EMAIL_CANDIDATE.source, 'giu');
   for (let m = re.exec(text); m; m = re.exec(text)) {
@@ -195,10 +195,9 @@ function redactPrefix(text: string, limit: number): string {
     const end = start + m[0].length - (redactEmail(m[0]).length - EMAIL_MASK.length);
     re.lastIndex = end;
     ranges.push([start, end, EMAIL_MASK]);
-    // 電話の判定がメールの範囲にまたがらないよう、照合用の写しでは伏せた範囲を数字以外で埋める
-    masked = masked.slice(0, start) + '\u0000'.repeat(end - start) + masked.slice(end);
   }
-  for (const m of masked.matchAll(PHONE_CANDIDATE)) {
+  // 電話はメールと別に全文で照合し、重なった範囲はまとめて伏せる（090 1234 5678/foo@… のように隣り合っても桁を取りこぼさないため）
+  for (const m of text.matchAll(PHONE_CANDIDATE)) {
     if (m[0].replace(/\D/g, '').length >= 10) ranges.push([m.index as number, (m.index as number) + m[0].length, PHONE_MASK]);
   }
   ranges.sort((x, y) => x[0] - y[0]);
@@ -206,8 +205,8 @@ function redactPrefix(text: string, limit: number): string {
   let pos = 0;
   for (const [start, end, mask] of ranges) {
     if (start >= cut) break;
-    out += text.slice(pos, start) + mask;
-    pos = end;
+    if (start >= pos) out += text.slice(pos, start) + mask;
+    pos = Math.max(pos, end);
   }
   return out + text.slice(pos, Math.max(pos, cut));
 }
