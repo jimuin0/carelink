@@ -186,11 +186,25 @@ export function sanitizeContactField(value: string): string {
     .replace(/[*_~`]/g, (c) => ({ '*': '＊', _: '＿', '~': '～', '`': '｀' })[c] as string);
 }
 
-/** 本文の冒頭だけを、改行を詰め、メール・電話を伏せて返す */
+/**
+ * 本文の冒頭だけを、改行を詰め、メール・電話を伏せて返す。
+ * 先に原文を100文字で切ってから伏せる（伏せ字で短くなった分、101文字目以降が載らないように）。
+ * 切れ目がメール・電話の途中なら、その切れ端は落とす（伏せ字の判定にかからない断片を残さないため）。
+ */
 export function contactPreview(message: string): string {
-  const flat = sanitizeContactField(message).replace(/\s+/g, ' ').trim();
+  const flat = message
+    .normalize('NFKC')
+    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   const chars = Array.from(flat);
-  return chars.length > CONTACT_PREVIEW_MAX ? `${chars.slice(0, CONTACT_PREVIEW_MAX).join('')}…` : flat;
+  if (chars.length <= CONTACT_PREVIEW_MAX) return sanitizeContactField(flat);
+  const head = chars
+    .slice(0, CONTACT_PREVIEW_MAX)
+    .join('')
+    .replace(/[A-Z0-9.!#$%&'*+/=?^_\u0060{|}~-]+@\S*$/iu, '')
+    .replace(/\+?\(?\d[\d\s().\-‐-‒–—―ーｰ−・]*$/u, '');
+  return `${sanitizeContactField(head)}…`;
 }
 
 export const notifyPayloadSchema = z.discriminatedUnion('type', [

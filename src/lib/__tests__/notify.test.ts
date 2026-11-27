@@ -253,6 +253,14 @@ describe('sendNotify — contact は名前・種類・本文冒頭だけを載�
     expect(sanitizeContactField(input)).toBe(expected);
   });
 
+  test.each([
+    ['あ'.repeat(70) + ' long-test-mailbox@example.invalid 管理画面限定', 'あ'.repeat(70) + ' …'],
+    ['あ'.repeat(90) + ' taro@example.jp', 'あ'.repeat(90) + ' …'],
+    ['あ'.repeat(90) + ' 090-1234-5678', 'あ'.repeat(90) + ' …'],
+  ])('contactPreview は原文の冒頭100文字だけを使い、切れ端のメール・電話を落とす (%#)', (input, expected) => {
+    expect(contactPreview(input)).toBe(expected);
+  });
+
   test('名前・種類の欄に書かれたメール・電話も伏せる', async () => {
     await sendNotify({ type: 'contact', data: { contact_id: CONTACT_ID, name: 'a@example.invalid', inquiry_type: '03-1234-5678' } });
     const text = mockPostToSlack.mock.calls[0][0].text as string;
