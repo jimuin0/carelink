@@ -175,7 +175,8 @@ function redactEmail(candidate: string): string {
 
 const EMAIL_MASK = '[email redacted]';
 const PHONE_MASK = '[phone redacted]';
-const PHONE_CANDIDATE = /\+?\(?\d[\d\s().\-‐-‒–—―ーｰ−・]{7,}\d/g;
+// 区切りは列挙せず、空白・句読点・記号を全て許す（／・〜 など区切りの書き方を1つずつ追いかけないため。日時が電話とみなされる伏せすぎは許容）
+const PHONE_CANDIDATE = /\+?\(?\d[\d\s\p{P}\p{S}ーｰ]{7,}\d/gu;
 
 /**
  * 正規化した文字列の先頭 limit 文字（コードポイント）までを、メール・電話を伏せて返す。
