@@ -70,22 +70,22 @@ test('Slack に送れなければ 502（監査ログは残さない）', async (
   expect(writeAuditLog).not.toHaveBeenCalled();
 });
 
-test('別のサイトからの POST は 403（CSRF）・入口の制限中は 429', async () => {
+test('別のサイトからの POST は 403（CSRF・送らない）', async () => {
   expect((await POST(request('https://evil.example'))).status).toBe(403);
-  jest.mocked(checkRateLimit).mockResolvedValueOnce(true);
-  expect((await POST(request())).status).toBe(429);
   expect(postInquiryResolveTestButton).not.toHaveBeenCalled();
 });
 
 test('送信回数は管理者確認の後に管理者ごとに数え、上限なら 429（送らない）', async () => {
-  jest.mocked(checkRateLimit).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  jest.mocked(checkRateLimit).mockResolvedValueOnce(true);
   expect((await POST(request())).status).toBe(429);
   expect(postInquiryResolveTestButton).not.toHaveBeenCalled();
   expect(checkRateLimit).toHaveBeenLastCalledWith(null, `user:${userId}`, 3, 600_000, 'admin-inquiries-slack-test-send');
 });
 
-test('管理者以外の要求は管理者ごとの枠を数えない（Codex 指摘 SLACK-TEST-01）', async () => {
+test('未ログイン・管理者以外の要求は回数を数えない＝管理者の送信を妨げない（Codex 指摘 SLACK-TEST-01）', async () => {
+  mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null });
+  expect((await POST(request())).status).toBe(401);
   maybeSingle.mockResolvedValueOnce({ data: { is_platform_admin: false }, error: null });
   expect((await POST(request())).status).toBe(403);
-  expect(jest.mocked(checkRateLimit).mock.calls.map((c) => c[4])).toEqual(['admin-inquiries-slack-test']);
+  expect(checkRateLimit).not.toHaveBeenCalled();
 });

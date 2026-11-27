@@ -34,7 +34,5 @@ async function send(_request: Request, ctx: RouteContext) {
 
 export const POST = withRoute(send, {
   requireAuth: true,
-  // 入口の IP 単位の制限は乱用よけの緩いもの。実際の送信回数は上の管理者ごとの制限で抑える
-  rateLimit: { limiter: null, limit: 30, windowMs: 10 * 60_000, prefix: 'admin-inquiries-slack-test' },
   sentryTag: 'admin-inquiries-slack-test',
 });
