@@ -104,7 +104,9 @@ export function classifyInquiryBacklog(contacts: BacklogContact[], evidence: Evi
     if (!summary.replied && ageDays >= UNREPLIED_DAYS) items.push({ id: contact.id, ageDays, reason: 'unreplied', ...detail });
     else if (summary.replied && ageDays >= REPLIED_OPEN_DAYS) items.push({ id: contact.id, ageDays, reason: 'repliedOpen', ...detail });
   }
-  return items.sort((a, b) => b.ageDays - a.ageDays);
+  // 同じ経過日数の中でも受付の古い順にする（ボタンの上限で古い件が外れないように・Codex 指摘 PR996-06）
+  const receivedAt = (item: BacklogItem) => (item.createdAt ? new Date(item.createdAt).getTime() : Number.NEGATIVE_INFINITY);
+  return items.sort((a, b) => b.ageDays - a.ageDays || receivedAt(a) - receivedAt(b));
 }
 
 /** 受付日を日本時間の「M/D」で返す。 */

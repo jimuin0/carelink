@@ -175,6 +175,15 @@ describe('reportInquiryBacklog', () => {
     for (const secret of ['a@example.invalid', '090-1234-5678', '本文', '佐藤花子', '腰の痛み']) expect(buttonText).not.toContain(secret);
   });
 
+  test('同じ経過日数なら受付の古い順に並べる（ボタンの上限で古い件が外れない）', () => {
+    const items = classifyInquiryBacklog([
+      { id: uuid(1), created_at: '2026-11-10T10:00:00Z' },
+      { id: uuid(2), created_at: '2026-11-10T09:00:00Z' },
+      { id: uuid(3), created_at: null },
+    ], { messages: [], replies: [] }, new Date('2026-11-17T12:00:00Z'));
+    expect(items.map((i) => i.id)).toEqual([uuid(3), uuid(2), uuid(1)]);
+  });
+
   test('知らせるものが無ければ Slack に出さない', async () => {
     const { db } = fakeDb([{ data: [], error: null }]);
     await expect(reportInquiryBacklog(db, now)).resolves.toEqual({ unreplied: 0, repliedOpen: 0 });
