@@ -46,6 +46,7 @@ const PRIORITY_CONFIG = {
 export default function AdminInquiriesPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sendingSlackTest, setSendingSlackTest] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<InquiryLoadError | null>(null);
   const [nextCursor, setNextCursor] = useState<InquiryCursor | null>(null);
@@ -363,6 +364,23 @@ export default function AdminInquiriesPage() {
     }
   };
 
+  // 「解決済みにする」ボタンの動作確認用。押しても問い合わせは変わらないテスト用のボタンを Slack に送る
+  const sendSlackTest = async () => {
+    if (sendingSlackTest) return;
+    setSendingSlackTest(true);
+    try {
+      const res = await fetch('/api/admin/inquiries/slack-test', { method: 'POST', cache: 'no-store' });
+      if (!pageMounted.current) return;
+      setToast(res.ok
+        ? { type: 'success', message: 'Slack にテスト通知を送りました。ボタンを押して動作を確認してください' }
+        : { type: 'error', message: res.status === 429 ? 'テスト通知は10分に3回までです。少し待ってから送ってください' : 'テスト通知を送れませんでした' });
+    } catch {
+      if (pageMounted.current) setToast({ type: 'error', message: 'テスト通知を送れませんでした。通信状況を確認してください' });
+    } finally {
+      if (pageMounted.current) setSendingSlackTest(false);
+    }
+  };
+
   const openCount = contacts.filter(c => c.ticket_status === 'open').length;
 
   return (
@@ -376,7 +394,10 @@ export default function AdminInquiriesPage() {
             <p className="text-sm text-sky-600 mt-0.5">このページに{openCount}件の新着問い合わせ</p>
           )}
         </div>
-        <button type="button" onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
+        <div className="flex gap-2">
+          <button type="button" onClick={sendSlackTest} disabled={sendingSlackTest} className="text-sm px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50">Slackにテスト通知</button>
+          <button type="button" onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
+        </div>
       </div>
 
       <NotificationReconciliation />

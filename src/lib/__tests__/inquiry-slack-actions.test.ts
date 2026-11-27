@@ -5,7 +5,7 @@ jest.mock('../slack', () => ({ ...jest.requireActual('../slack'), postToSlack: j
 jest.mock('../audit-logger', () => ({ writeAuditLog: jest.fn() }));
 import { postToSlack } from '../slack';
 import { writeAuditLog } from '../audit-logger';
-import { buildInquiryResolveBlocks, postInquiryResolveButtons, resolveInquiryFromSlack, INQUIRY_RESOLVE_ACTION_ID, MAX_BUTTON_ITEMS, RETRY_WAIT_MS, BUTTON_POST_BUDGET_MS } from '../inquiry-slack-actions';
+import { buildInquiryResolveBlocks, postInquiryResolveButtons, postInquiryResolveTestButton, resolveInquiryFromSlack, TEST_INQUIRY_ID, INQUIRY_RESOLVE_ACTION_ID, MAX_BUTTON_ITEMS, RETRY_WAIT_MS, BUTTON_POST_BUDGET_MS } from '../inquiry-slack-actions';
 
 const ID = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '00000000-0000-4000-8000-0000000000aa';
@@ -191,8 +191,38 @@ describe('postInquiryResolveButtons', () => {
   });
 });
 
+describe('postInquiryResolveTestButton', () => {
+  test('テスト用 ID のボタン 1 つだけを送り、送信結果を返す（失敗・例外でも throw しない）', async () => {
+    (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: true });
+    await expect(postInquiryResolveTestButton(URL_ADMIN)).resolves.toBe(true);
+    const blocks = (postToSlack as jest.Mock).mock.calls[0][0].blocks as { elements?: { value?: string; action_id?: string }[] }[];
+    const values = blocks.flatMap((b) => b.elements ?? []).filter((e) => e.action_id === INQUIRY_RESOLVE_ACTION_ID).map((e) => e.value);
+    expect(values).toEqual([TEST_INQUIRY_ID]);
+    expect(JSON.stringify(blocks)).toContain('【テスト】');
+    (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: false, error: 'x' });
+    await expect(postInquiryResolveTestButton(URL_ADMIN)).resolves.toBe(false);
+    (postToSlack as jest.Mock).mockRejectedValueOnce(new Error('boom'));
+    await expect(postInquiryResolveTestButton(URL_ADMIN)).resolves.toBe(false);
+  });
+});
+
 describe('resolveInquiryFromSlack', () => {
   const payload = { user: { id: 'U1' }, response_url: RESPONSE_URL };
+
+  test('テスト用 ID は押した人の確認までを行い、問い合わせを変えずに test_ok を返す', async () => {
+    slackUser({ profile: { email: 'admin@example.invalid' } });
+    const { db, raw } = fakeDb({ data: [{ id: ACTOR }], error: null });
+    await expect(resolveInquiryFromSlack(db, payload, TEST_INQUIRY_ID)).resolves.toBe('test_ok');
+    expect(raw.rpc).not.toHaveBeenCalled();
+    expect(writeAuditLog).not.toHaveBeenCalled();
+    expect(respondedText()).toContain('テスト成功');
+  });
+
+  test('テスト用 ID でも管理者でなければ not_admin', async () => {
+    slackUser({ profile: { email: 'someone@example.invalid' } });
+    const { db } = fakeDb({ data: [], error: null });
+    await expect(resolveInquiryFromSlack(db, payload, TEST_INQUIRY_ID)).resolves.toBe('not_admin');
+  });
 
   test('Slack のメールが運営管理者1人に一致すれば、管理画面と同じ RPC で解決済みにし、監査ログを残す', async () => {
     slackUser({ profile: { email: ' Admin@Example.invalid ' } });
