@@ -107,7 +107,8 @@ test('legacy profile LINE ID alone shows reconfirmation rather than a verified b
  const button=await screen.findByRole('button',{name:'LINE連携を再確認'});const form=button.closest('form')!;
  expect(form).toHaveAttribute('action','/api/auth/line');expect(form).toHaveAttribute('method','get');
  expect(form.querySelector('input[name="mode"]')).toHaveAttribute('value','link');expect(form.querySelector('input[name="redirect"]')).toHaveAttribute('value','/mypage/profile');
- expect(screen.queryByText('LINE連携済み')).not.toBeInTheDocument();expect(screen.getByText('友だち追加だけではアカウント連携は完了しません。')).toBeInTheDocument();
+ expect(screen.queryByText('LINE連携済み')).not.toBeInTheDocument();// 2026-11-27 本人決定：今の LINE 公式アカウントは店舗用。来院者のマイページからは友だち追加へ案内しない
+ expect(screen.queryByRole('link',{name:/友だち追加/})).not.toBeInTheDocument();
 });
 test('current profile and server-verified owner show the same verified badge',async()=>{
  mockMaybeSingle.mockResolvedValueOnce({data:{...profile,line_user_id:'U_owned'},error:null}).mockResolvedValueOnce({data:{line_user_id:'U_owned'},error:null}).mockResolvedValueOnce({data:{user_id:'synthetic-user',line_user_id:'U_owned',proof_version:1,verified_at:'2026-10-09T00:00:00Z'},error:null});

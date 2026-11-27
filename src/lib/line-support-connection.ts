@@ -1,6 +1,7 @@
+import { SHOP_LINE_BASIC_ID } from './line-official';
 import { z } from 'zod';
 
-const botSchema=z.object({userId:z.string().regex(/^U[0-9a-f]{32}$/),basicId:z.literal('@549rbbyi'),displayName:z.string().min(1).max(100)});
+const botSchema=z.object({userId:z.string().regex(/^U[0-9a-f]{32}$/),basicId:z.literal(SHOP_LINE_BASIC_ID),displayName:z.string().min(1).max(100)});
 
 /** Read-only provider check. Never return credentials or trust an unrelated bot. */
 export async function readLineSupportConnection(){
