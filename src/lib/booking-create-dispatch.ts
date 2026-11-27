@@ -50,7 +50,7 @@ export async function dispatchBookingCreationNotifications(operationId: string):
           };
         } else if (job.webhook_type === 'line_push') {
           const payload = job.payload;
-          if (!process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK || typeof payload !== 'object' || payload === null || Array.isArray(payload)
+          if (!process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN || typeof payload !== 'object' || payload === null || Array.isArray(payload)
             || typeof payload.message !== 'string') throw new Error('booking LINE preparation unconfirmed');
           const message = payload.message;
           send = async () => { if (!await sendBookingCreationLine(job.target_id,message)) throw new Error('booking LINE acceptance unconfirmed'); };

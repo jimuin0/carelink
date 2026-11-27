@@ -1,5 +1,6 @@
 'use client';
 
+import { CUSTOMER_LINE_ADD_FRIEND_URL } from '@/lib/line-official';
 import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { ACCOUNT_DELETION_NOTICE, FACILITY_RETIREMENT_NOTICE, ACCOUNT_DELETION_BOOKING_GUARD_NOTICE } from '@/lib/account-deletion-policy';
 import { useEffect, useState } from 'react';
@@ -307,6 +308,15 @@ export default function ProfileEditPage() {
         ) : (
           <div>
             <p className="text-sm text-gray-600 mb-4">LINEアカウントを連携すると、予約確認・リマインド通知がLINEに届きます。</p>
+            <a
+              href={CUSTOMER_LINE_ADD_FRIEND_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-[#06C755] text-white font-bold rounded-lg hover:bg-[#05b04c] transition-colors"
+            >
+              LINEで友だち追加
+            </a>
+            <p className="text-xs text-gray-500 mt-2">友だち追加だけではアカウント連携は完了しません。</p>
             {isLineLoginEnabled() && <form action="/api/auth/line" method="get" className="mt-3">
               <input type="hidden" name="mode" value="link" /><input type="hidden" name="redirect" value="/mypage/profile" />
               <button type="submit" className="text-sm font-medium text-green-700 underline">LINE連携を再確認</button>

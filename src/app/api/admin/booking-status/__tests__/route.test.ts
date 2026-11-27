@@ -662,8 +662,8 @@ describe('POST /api/admin/booking-status - notifications', () => {
   // 同時に、メール未送信が LINE・Push という別チャネルへ影響しないこと（巻き込み無し）も
   // 同じテストで押さえる。
   test('booking.email が null → メール送信をスキップ（LINE・Push は通常どおり実行される）', async () => {
-    const origToken = process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
-    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token';
+    const origToken = process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
+    process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN = 'line-token';
     try {
       (sendBookingCancellation as jest.Mock).mockResolvedValue(true);
       (require('@/lib/line-link').resolveLineUserIdForUser as jest.Mock).mockResolvedValue('U-null-email');
@@ -700,18 +700,18 @@ describe('POST /api/admin/booking-status - notifications', () => {
         expect.objectContaining({ title: expect.any(String) }),
       );
     } finally {
-      if (origToken === undefined) delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
-      else process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = origToken;
+      if (origToken === undefined) delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
+      else process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN = origToken;
     }
   });
 
   // ─── E-7: cancelled 時の顧客 LINE キャンセル通知（顧客側 cancel と対称） ───────────
   describe('cancelled → 顧客 LINE キャンセル通知（E-7）', () => {
-    const ORIG_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
-    beforeEach(() => { process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token'; });
+    const ORIG_TOKEN = process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
+    beforeEach(() => { process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN = 'line-token'; });
     afterEach(() => {
-      if (ORIG_TOKEN === undefined) delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
-      else process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = ORIG_TOKEN;
+      if (ORIG_TOKEN === undefined) delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
+      else process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN = ORIG_TOKEN;
     });
 
     /** confirmed→cancelled 成功パス。line_user_links は maybeSingle で lineLink を返す。 */

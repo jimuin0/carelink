@@ -315,7 +315,7 @@ beforeEach(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
   process.env.CRON_SECRET = 'cron-secret';
   process.env.RESEND_API_KEY = 'resend-key';
-  process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token';
+  process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN = 'line-token';
 });
 
 function makeRequest(cronSecret: string = 'cron-secret') {
@@ -1246,7 +1246,7 @@ describe('GET /api/cron/webhook-retry', () => {
   });
 
   test('skips LINE if no token', async () => {
-    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+    delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
     setupDefaultMocks(1);
 
     const res = await GET(makeRequest() as any);

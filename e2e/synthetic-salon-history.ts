@@ -10,7 +10,7 @@ export function seedSyntheticSalonHistory(rows: Readonly<Record<string, unknown>
   if (process.env.CI !== 'true' || process.env.GITHUB_ACTIONS !== 'true'
     || process.env.NEXT_PUBLIC_SUPABASE_URL !== 'https://localhost:54330'
     || process.env.PLAYWRIGHT_BASE_URL !== 'https://localhost:3000'
-    || process.env.RESEND_API_KEY || process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
+    || process.env.RESEND_API_KEY || process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK || process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN) {
     throw new Error('Synthetic history requires the managed disposable CI lifecycle');
   }
   if (!Array.isArray(rows) || !rows.length || rows.length>500 || rows.some(row=>typeof row.id!=='string' || !UUID_REGEX.test(row.id)

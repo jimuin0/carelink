@@ -4,7 +4,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { SHOP_LINE_ADD_FRIEND_URL, SHOP_LINE_BASIC_ID } from '@/lib/line-official';
+import { SHOP_LINE_ADD_FRIEND_URL, SHOP_LINE_BASIC_ID, CUSTOMER_LINE_ADD_FRIEND_URL, CUSTOMER_LINE_BASIC_ID } from '@/lib/line-official';
 
 const root = path.join(__dirname, '..');
 const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf8');
@@ -27,14 +27,24 @@ test('店舗向けの画面（/register・管理画面のヘルプ）に LINE �
   }
 });
 
-test('公式アカウントの ID を直書きしてよいのは line-official.ts だけ（来院者向けの画面に入口を戻さない）', () => {
+test('公式アカウントの ID を直書きしてよいのは line-official.ts だけ（入口を取り違えない）', () => {
   const offenders = walk(root)
     .filter((f) => !f.endsWith(path.join('lib', 'line-official.ts')))
-    .filter((f) => fs.readFileSync(f, 'utf8').includes(SHOP_LINE_BASIC_ID))
+    .filter((f) => { const s = fs.readFileSync(f, 'utf8'); return s.includes(SHOP_LINE_BASIC_ID) || s.includes(CUSTOMER_LINE_BASIC_ID) || /line\.me\/R\/ti\/p/.test(s); })
     .map((f) => path.relative(root, f));
   expect(offenders).toEqual([]);
 });
 
-test('来院者のマイページは店舗用アカウントの友だち追加へ案内しない', () => {
-  expect(read('app/mypage/profile/page.tsx')).not.toMatch(/SHOP_LINE_ADD_FRIEND_URL|line\.me\/R\/ti\/p/);
+test('来院者のマイページは来院者向けアカウントへ案内し、店舗用アカウントへは案内しない', () => {
+  const page = read('app/mypage/profile/page.tsx');
+  expect(page).toContain('CUSTOMER_LINE_ADD_FRIEND_URL');
+  expect(page).not.toContain('SHOP_LINE_ADD_FRIEND_URL');
+  expect(CUSTOMER_LINE_ADD_FRIEND_URL).toBe(`https://line.me/R/ti/p/${CUSTOMER_LINE_BASIC_ID}`);
+  expect(CUSTOMER_LINE_BASIC_ID).not.toBe(SHOP_LINE_BASIC_ID);
+});
+
+test('店舗向けの画面は来院者向けアカウントへ案内しない', () => {
+  for (const rel of ['components/register/RegisterLanding.tsx', 'app/admin/help/page.tsx']) {
+    expect(read(rel)).not.toContain('CUSTOMER_LINE_ADD_FRIEND_URL');
+  }
 });

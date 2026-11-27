@@ -175,7 +175,7 @@ export async function POST(request: Request) {
     // 旧実装はメール＋Push のみで顧客 LINE 通知が欠落しており、LINE 連携済み顧客は管理者による
     // キャンセルを LINE で受け取れない非対称があった。sendLineCancellation は throw せず false を
     // 返す契約のため、戻り値を確認して未送達をログに残す（可観測性の確保・非ブロッキング）。
-    if (status === 'cancelled' && booking.user_id && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
+    if (status === 'cancelled' && booking.user_id && process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN) {
       try {
         // 【監査C2】連携の単一ソース profiles.line_user_id で解決（line_user_links.user_id は常にNULL）。
         const customerLineUserId = await resolveLineUserIdForUser(supabase, booking.user_id);
