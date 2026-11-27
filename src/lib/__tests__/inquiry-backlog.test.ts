@@ -1,6 +1,8 @@
 jest.mock('../alert', () => ({ alertWarning: jest.fn(), redactAlertText: jest.requireActual('../alert').redactAlertText }));
 jest.mock('../platform-mail-read', () => ({ readMailReplyEvidence: jest.fn() }));
-jest.mock('../inquiry-slack-actions', () => ({ postInquiryResolveButtons: jest.fn().mockResolvedValue(true) }));
+jest.mock('../inquiry-slack-actions', () => ({ postInquiryResolveButtons: jest.fn().mockResolvedValue(true), MAX_TOTAL_BUTTON_ITEMS: 3 }));
+const mockRunAfter = jest.fn((task: () => unknown) => task());
+jest.mock('../after-response', () => ({ runAfterResponse: (task: () => unknown) => mockRunAfter(task) }));
 
 import { alertWarning } from '../alert';
 import { postInquiryResolveButtons } from '../inquiry-slack-actions';
@@ -152,6 +154,7 @@ describe('reportInquiryBacklog', () => {
       ],
       repliedOpen: [`${'あ'.repeat(20)}…様・10/28受付・種類不明・対応中タブ（20日）`],
       omitted: 0,
+      buttons: 'ボタンは古い順に3件まで。ほか1件は問い合わせ管理で閉じてください',
     });
     // 案内が一覧より先（1500 文字の切り詰めで消えない）
     expect(Object.keys(opts.extra).slice(0, 2)).toEqual(['adminUrl', 'howToClose']);
@@ -162,9 +165,12 @@ describe('reportInquiryBacklog', () => {
     expect(postInquiryResolveButtons).toHaveBeenCalledTimes(1);
     const [lines, adminUrl] = (postInquiryResolveButtons as jest.Mock).mock.calls[0];
     expect(adminUrl).toBe('https://carelink-jp.com/admin/inquiries');
-    expect(lines.map((l: { id: string }) => l.id).sort()).toEqual([uuid(1), uuid(2), uuid(3), '01234567-0000-4000-8000-000000000004'].sort());
+    expect(lines.map((l: { id: string }) => l.id)).toEqual([uuid(3), uuid(1), uuid(2)]);
     expect(lines).toContainEqual({ id: uuid(1), label: '山田 太郎様・9/19受付・施設掲載について（オーナー向け）・新着タブ（59日）' });
-    expect(lines).toHaveLength(4);
+    // 応答後に送る（死活監視の記録を待たせない）・上限（テストでは3件）まで
+    expect(mockRunAfter).toHaveBeenCalledTimes(1);
+    expect(lines).toHaveLength(3);
+    expect(opts.extra.buttons).toBe('ボタンは古い順に3件まで。ほか1件は問い合わせ管理で閉じてください');
     const buttonText = JSON.stringify(lines.map((l: { label: string }) => l.label));
     for (const secret of ['a@example.invalid', '090-1234-5678', '本文', '佐藤花子', '腰の痛み']) expect(buttonText).not.toContain(secret);
   });

@@ -22,6 +22,8 @@ export const INQUIRY_RESOLVE_ACTION_ID = 'inquiry_resolve';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** 1通に載せる件数（Slack は 1 メッセージ 50 ブロックまで。1件 2 ブロック＋見出し・リンク）。超えた分は次の1通に続ける。 */
 export const MAX_BUTTON_ITEMS = 20;
+/** 1回の通知でボタンを付ける件数の上限（3通分。締め切り内に送り切れる量に抑える・Codex 指摘 PR996-06）。 */
+export const MAX_TOTAL_BUTTON_ITEMS = 60;
 /** 送り直すまでの待ち時間（Slack の chat.postMessage はチャンネルあたり毎秒1通程度まで）。 */
 export const RETRY_WAIT_MS = 1500;
 /**

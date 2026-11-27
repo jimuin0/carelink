@@ -23,7 +23,8 @@ import { alertWarning, redactAlertText } from './alert';
 import { fetchAllPaged } from './paginate';
 import { readMailReplyEvidence } from './platform-mail-read';
 import { summarizeMailReplies, type LegacyMailReply } from './platform-mail-contract';
-import { postInquiryResolveButtons } from './inquiry-slack-actions';
+import { postInquiryResolveButtons, MAX_TOTAL_BUTTON_ITEMS } from './inquiry-slack-actions';
+import { runAfterResponse } from './after-response';
 
 type DB = ReturnType<typeof createServiceRoleClient>;
 type Evidence = Awaited<ReturnType<typeof readMailReplyEvidence>>;
@@ -204,11 +205,15 @@ export async function reportInquiryBacklog(
         unreplied: shownUnreplied.length ? shownUnreplied : 'なし',
         repliedOpen: shownRepliedOpen.length ? shownRepliedOpen : 'なし',
         omitted: items.length - shownUnreplied.length - shownRepliedOpen.length,
+        // ボタンは古い順に上限件数まで（送信時間を抑えるため）。超えた分は管理画面で閉じる（Codex 指摘 PR996-06）
+        ...(items.length > MAX_TOTAL_BUTTON_ITEMS ? { buttons: `ボタンは古い順に${MAX_TOTAL_BUTTON_ITEMS}件まで。ほか${items.length - MAX_TOTAL_BUTTON_ITEMS}件は問い合わせ管理で閉じてください` } : {}),
       },
     });
     // 1件ごとに「解決済みにする」ボタンを付けたメッセージを続けて出す（2026年11月27日 神原さん指示）。
     // 解決済みにするまで毎朝出し続ける（自動では閉じない）。
-    await postInquiryResolveButtons(items.map((item) => ({ id: item.id, label: redactAlertText(formatItem(item)) })), `${base}/admin/inquiries`);
+    // 死活監視の cron の結果記録・応答を待たせないよう、応答後に送る（Codex 指摘 PR996-05）。
+    const buttonLines = items.slice(0, MAX_TOTAL_BUTTON_ITEMS).map((item) => ({ id: item.id, label: redactAlertText(formatItem(item)) }));
+    runAfterResponse(() => postInquiryResolveButtons(buttonLines, `${base}/admin/inquiries`));
   }
   return { unreplied: unreplied.length, repliedOpen: repliedOpen.length };
 }
