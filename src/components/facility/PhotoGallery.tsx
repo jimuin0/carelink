@@ -1,5 +1,6 @@
 'use client';
 
+import { lockBodyScroll } from '@/lib/body-scroll-lock';
 import Image from 'next/image';
 import { useState, useCallback, useEffect } from 'react';
 import type { FacilityPhoto } from '@/types';
@@ -34,10 +35,10 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
       else if (e.key === 'ArrowLeft') goPrev();
     };
     window.addEventListener('keydown', handler);
-    document.body.style.overflow = 'hidden';
+    const unlockScroll = lockBodyScroll();
     return () => {
       window.removeEventListener('keydown', handler);
-      document.body.style.overflow = '';
+      unlockScroll();
     };
   }, [lightboxOpen, goNext, goPrev]);
 

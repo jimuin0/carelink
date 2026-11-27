@@ -86,3 +86,24 @@ test('スマホのメニューは業種を一覧のまま出し、開閉ボタ�
   fireEvent.click(within(mobileNav()).getByRole('link', { name: '掲載をお考えの方', hidden: true }));
   expect(menu).toHaveAttribute('aria-expanded', 'false');
 });
+
+test('スマホのメニューを開いている間は後ろのページをスクロールさせない（閉じたら戻す）', () => {
+  render(<SearchHeader />);
+  const toggle = screen.getByRole('button', { name: 'メニュー' });
+  expect(document.body.style.overflow).toBe('');
+  fireEvent.click(toggle);
+  expect(document.body.style.overflow).toBe('hidden');
+  expect(document.getElementById('mobile-nav')!.className).toContain('overscroll-contain');
+  fireEvent.click(toggle);
+  expect(document.body.style.overflow).toBe('');
+});
+
+test('メニューの中や上部のリンクを押したら、移動先が同じページでもメニューを閉じる（後ろが固定されたままにならない）', () => {
+  render(<SearchHeader />);
+  const toggle = screen.getByRole('button', { name: 'メニュー' });
+  fireEvent.click(toggle);
+  expect(document.body.style.overflow).toBe('hidden');
+  fireEvent.click(within(mobileNav()).getAllByRole('link')[0]!);
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(document.body.style.overflow).toBe('');
+});
