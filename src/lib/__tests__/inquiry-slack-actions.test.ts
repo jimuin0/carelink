@@ -5,7 +5,7 @@ jest.mock('../slack', () => ({ ...jest.requireActual('../slack'), postToSlack: j
 jest.mock('../audit-logger', () => ({ writeAuditLog: jest.fn() }));
 import { postToSlack } from '../slack';
 import { writeAuditLog } from '../audit-logger';
-import { buildInquiryResolveBlocks, postInquiryResolveButtons, resolveInquiryFromSlack, INQUIRY_RESOLVE_ACTION_ID, MAX_BUTTON_ITEMS, RETRY_WAIT_MS, MAX_RETRY_WAIT_MS } from '../inquiry-slack-actions';
+import { buildInquiryResolveBlocks, postInquiryResolveButtons, resolveInquiryFromSlack, INQUIRY_RESOLVE_ACTION_ID, MAX_BUTTON_ITEMS, RETRY_WAIT_MS, BUTTON_POST_BUDGET_MS } from '../inquiry-slack-actions';
 
 const ID = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '00000000-0000-4000-8000-0000000000aa';
@@ -91,7 +91,7 @@ describe('postInquiryResolveButtons', () => {
     jest.useRealTimers();
   });
 
-  test.each([[3, 3000], [20, MAX_RETRY_WAIT_MS]])('429 で Retry-After=%i 秒なら %i ms 待ってから送り直す', async (sec, waitMs) => {
+  test.each([[3, 3000], [20, 20_000]])('429 で Retry-After=%i 秒なら %i ms 待ってから送り直す', async (sec, waitMs) => {
     jest.useFakeTimers();
     (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: false, error: 'http_429', retryAfterSec: sec }).mockResolvedValueOnce({ ok: true });
     const sending = postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN);
@@ -103,7 +103,7 @@ describe('postInquiryResolveButtons', () => {
     jest.useRealTimers();
   });
 
-  test('待ち指定が合計の上限を超えるなら、送り直さずに終える（cron の実行上限内に収める・Codex 指摘 PR996-05）', async () => {
+  test('待ち指定が締め切りを超えるなら、送り直さずに終える（cron の実行上限内に収める・Codex 指摘 PR996-05）', async () => {
     (postToSlack as jest.Mock).mockResolvedValue({ ok: false, error: 'http_429', retryAfterSec: 120 });
     const lines = Array.from({ length: MAX_BUTTON_ITEMS * 2 + 1 }, (_, i) => ({ id: ID, label: `件${i}` }));
     await expect(postInquiryResolveButtons(lines, URL_ADMIN)).resolves.toBe(false);
@@ -111,7 +111,20 @@ describe('postInquiryResolveButtons', () => {
     (postToSlack as jest.Mock).mockReset();
   });
 
-  test('待ちは通をまたいで合計で数え、上限に届いたらそこで終える', async () => {
+  test('送信の通信時間も締め切りに数え、締め切りまでに送れない通は送らない（Codex 指摘 PR996-05 6回目）', async () => {
+    jest.useFakeTimers();
+    (postToSlack as jest.Mock).mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve({ ok: true }), 9_000)));
+    const lines = Array.from({ length: MAX_BUTTON_ITEMS * 4 }, (_, i) => ({ id: ID, label: `件${i}` }));
+    const sending = postInquiryResolveButtons(lines, URL_ADMIN);
+    await jest.advanceTimersByTimeAsync(BUTTON_POST_BUDGET_MS * 2);
+    await expect(sending).resolves.toBe(false);
+    // 0s・9s・18s に送り始める（3通目は 18+10=28s ≤ 30s）。4通目は 27+10 > 30 なので送らない
+    expect(postToSlack).toHaveBeenCalledTimes(3);
+    (postToSlack as jest.Mock).mockReset();
+    jest.useRealTimers();
+  });
+
+  test('待ちは通をまたいで締め切りで数え、届かないならそこで終える', async () => {
     jest.useFakeTimers();
     (postToSlack as jest.Mock)
       .mockResolvedValueOnce({ ok: false, error: 'http_429', retryAfterSec: 15 }).mockResolvedValueOnce({ ok: true })
@@ -130,7 +143,7 @@ describe('postInquiryResolveButtons', () => {
     (postToSlack as jest.Mock).mockResolvedValue({ ok: false, error: 'http_429', retryAfterSec: 5 });
     const lines = Array.from({ length: MAX_BUTTON_ITEMS * 2 + 1 }, (_, i) => ({ id: ID, label: `件${i}` }));
     const sending = postInquiryResolveButtons(lines, URL_ADMIN);
-    await jest.advanceTimersByTimeAsync(MAX_RETRY_WAIT_MS * 3);
+    await jest.advanceTimersByTimeAsync(BUTTON_POST_BUDGET_MS * 2);
     await expect(sending).resolves.toBe(false);
     expect(postToSlack).toHaveBeenCalledTimes(2);
     (postToSlack as jest.Mock).mockReset();
