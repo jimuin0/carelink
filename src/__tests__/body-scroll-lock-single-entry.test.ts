@@ -10,7 +10,9 @@ import path from 'path';
 
 const SRC = path.join(__dirname, '..');
 const ENTRY = path.join(SRC, 'lib', 'body-scroll-lock.ts');
-const DIRECT = /body\.style\.overflow\s*=|body\.style\[['"]overflow['"]\]\s*=|body\.style\.setProperty\(\s*['"]overflow|body\.style\.cssText\s*=/;
+// overflow の代入に加え、body の style を書き換える API（setProperty・removeProperty・cssText）は書き方を問わず全部止める
+// （空白や引数違いで検出をすり抜けた・Codex 指摘 ML-04）。body の style を他の目的で触る正当な理由は今のところ無い。
+const DIRECT = /body\s*\.\s*style\s*(?:\.\s*overflow\s*=(?!=)|\[\s*['"]overflow['"]\s*\]\s*=(?!=)|\.\s*(?:setProperty|removeProperty)\s*\(|\.\s*cssText\s*=(?!=))/;
 
 function files(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -32,5 +34,9 @@ test('負の対照：直接書けば検出する', () => {
   expect(DIRECT.test("document.body.style['overflow'] = 'hidden';")).toBe(true);
   expect(DIRECT.test("document.body.style.setProperty('overflow', 'hidden');")).toBe(true);
   expect(DIRECT.test("document.body.style.cssText = 'overflow:hidden';")).toBe(true);
+  expect(DIRECT.test("document.body.style.setProperty ('overflow', '');")).toBe(true);
+  expect(DIRECT.test("document.body.style.removeProperty('overflow');")).toBe(true);
+  expect(DIRECT.test("document.body .style. overflow = 'hidden';")).toBe(true);
   expect(DIRECT.test('const x = document.body.style.overflow;')).toBe(false);
+  expect(DIRECT.test("if (document.body.style.overflow === 'hidden') {}")).toBe(false);
 });
