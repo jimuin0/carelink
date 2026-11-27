@@ -92,13 +92,15 @@ export async function GET(request: Request) {
     // pending かつ scheduled_at が現在時刻以前のジョブを取得。
     // 来院者向け LINE のトークンが未設定なら LINE ジョブは取り出さない（claim してから送れずに失敗すると
     // 「結果不明」で保留され、トークンを設定しても自動再送に戻らないため。pending のまま残し、設定後に送る。PR #1001）。
+    // 来院者向けアカウントのトークンで送るジョブの種類（来院者へのプッシュ・一斉送信・キャンセル通知）。
+    const CUSTOMER_LINE_JOB_TYPES = ['line_push', 'line_multicast', 'customer_booking_line'];
     const customerLineReady = !!process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
     const { data: jobs, error: jobsError } = await retryTransientSupabaseRead(() => {
       const pending = supabase
         .from('webhook_retry_queue')
         .select('*')
         .eq('status', 'pending');
-      return (customerLineReady ? pending : pending.neq('webhook_type', 'line_push'))
+      return (customerLineReady ? pending : pending.not('webhook_type', 'in', `(${CUSTOMER_LINE_JOB_TYPES.join(',')})`))
         .lte('scheduled_at', new Date().toISOString())
         .order('scheduled_at', { ascending: true })
         .limit(50);

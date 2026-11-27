@@ -116,7 +116,7 @@ function claimChain(result: jest.Mock) {
  *      .eq('status','processing').or('claimed_at.lt....,and(claimed_at.is.null,scheduled_at.lt....)')
  *      へ変更＝claim 時刻基準・null フォールバック付き）
  */
-const jobsQueryArgs: { eq: unknown[][]; neq: unknown[][]; lte: unknown[][]; order: unknown[][]; limit: unknown[][] } = { eq: [], neq: [], lte: [], order: [], limit: [] };
+const jobsQueryArgs: { eq: unknown[][]; not: unknown[][]; lte: unknown[][]; order: unknown[][]; limit: unknown[][] } = { eq: [], not: [], lte: [], order: [], limit: [] };
 beforeEach(() => { for (const k of Object.keys(jobsQueryArgs) as Array<keyof typeof jobsQueryArgs>) jobsQueryArgs[k] = []; });
 
 function makeWebhookRetryQueueTable(overrides: {
@@ -169,7 +169,7 @@ function makeWebhookRetryQueueTable(overrides: {
         eq: jest.fn((...eqArgs: unknown[]) => {
           jobsQueryArgs.eq.push(eqArgs);
           const afterEq = {
-            neq: jest.fn((...neqArgs: unknown[]) => { jobsQueryArgs.neq.push(neqArgs); return afterEq; }),
+            not: jest.fn((...notArgs: unknown[]) => { jobsQueryArgs.not.push(notArgs); return afterEq; }),
             lte: jest.fn((...lteArgs: unknown[]) => {
               jobsQueryArgs.lte.push(lteArgs);
               return {
@@ -1196,12 +1196,13 @@ describe('GET /api/cron/webhook-retry', () => {
   test('来院者向け LINE のトークン未設定 → LINE ジョブを取り出さない／設定済みなら絞らない', async () => {
     setupDefaultMocks(1);
     await GET(makeRequest() as any);
-    expect(jobsQueryArgs.neq).toEqual([]);
+    expect(jobsQueryArgs.not).toEqual([]);
     delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
     for (const k of Object.keys(jobsQueryArgs) as Array<keyof typeof jobsQueryArgs>) jobsQueryArgs[k] = [];
     setupDefaultMocks(1);
     await GET(makeRequest() as any);
-    expect(jobsQueryArgs.neq).toEqual([['webhook_type', 'line_push']]);
+    // 来院者向けの LINE（プッシュ・一斉送信・本人のキャンセル通知）をまとめて除く（LINE-1001-04）
+    expect(jobsQueryArgs.not).toEqual([['webhook_type', 'in', '(line_push,line_multicast,customer_booking_line)']]);
   });
 
   test('orders by scheduled_at ascending（期限到来分＝scheduled_at <= 現在 のみ）', async () => {
