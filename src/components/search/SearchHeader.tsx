@@ -113,7 +113,7 @@ export default function SearchHeader() {
   // メニューを開いている間は後ろのページをスクロールさせない（2026年11月27日 神原さん報告）
   useBodyScrollLock(isOpen);
   const closeMenu = useCallback(() => setIsOpen(false), []);
-  useMobileMenuAutoClose(isOpen, closeMenu, 768, usePathname());
+  useMobileMenuAutoClose(isOpen, closeMenu, '48rem', usePathname());
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100" onClickCapture={closeOnLinkClick(closeMenu)}>

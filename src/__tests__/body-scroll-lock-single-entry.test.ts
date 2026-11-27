@@ -10,7 +10,7 @@ import path from 'path';
 
 const SRC = path.join(__dirname, '..');
 const ENTRY = path.join(SRC, 'lib', 'body-scroll-lock.ts');
-const DIRECT = /body\.style\.overflow\s*=|body\.style\[['"]overflow['"]\]\s*=/;
+const DIRECT = /body\.style\.overflow\s*=|body\.style\[['"]overflow['"]\]\s*=|body\.style\.setProperty\(\s*['"]overflow|body\.style\.cssText\s*=/;
 
 function files(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -30,5 +30,7 @@ test('body.style.overflow を直接書くのは lib/body-scroll-lock.ts だけ',
 test('負の対照：直接書けば検出する', () => {
   expect(DIRECT.test("document.body.style.overflow = '';")).toBe(true);
   expect(DIRECT.test("document.body.style['overflow'] = 'hidden';")).toBe(true);
+  expect(DIRECT.test("document.body.style.setProperty('overflow', 'hidden');")).toBe(true);
+  expect(DIRECT.test("document.body.style.cssText = 'overflow:hidden';")).toBe(true);
   expect(DIRECT.test('const x = document.body.style.overflow;')).toBe(false);
 });

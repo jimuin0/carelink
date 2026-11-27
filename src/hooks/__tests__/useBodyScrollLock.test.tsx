@@ -33,7 +33,7 @@ describe('useMobileMenuAutoClose', () => {
 
   test('ページが変わったら閉じる', () => {
     const close = jest.fn();
-    const { rerender } = renderHook(({ path }) => useMobileMenuAutoClose(true, close, 768, path), { initialProps: { path: '/search' } });
+    const { rerender } = renderHook(({ path }) => useMobileMenuAutoClose(true, close, '48rem', path), { initialProps: { path: '/search' } });
     close.mockClear();
     rerender({ path: '/search' });
     expect(close).not.toHaveBeenCalled();
@@ -43,11 +43,11 @@ describe('useMobileMenuAutoClose', () => {
 
   test('画面幅が広がってメニューが隠れたら閉じ、閉じている間は見張らない', () => {
     const close = jest.fn();
-    const { rerender, unmount } = renderHook(({ open }) => useMobileMenuAutoClose(open, close, 768, '/'), { initialProps: { open: false } });
+    const { rerender, unmount } = renderHook(({ open }) => useMobileMenuAutoClose(open, close, '48rem', '/'), { initialProps: { open: false } });
     expect(listeners.size).toBe(0);
     close.mockClear();
     rerender({ open: true });
-    expect(window.matchMedia).toHaveBeenCalledWith('(min-width: 768px)');
+    expect(window.matchMedia).toHaveBeenCalledWith('(min-width: 48rem)');
     expect(close).not.toHaveBeenCalled();
     matches = true;
     listeners.forEach((fn) => fn());
@@ -59,14 +59,14 @@ describe('useMobileMenuAutoClose', () => {
   test('開いた時点ですでに広い画面なら、すぐ閉じる', () => {
     matches = true;
     const close = jest.fn();
-    renderHook(() => useMobileMenuAutoClose(true, close, 640, '/'));
+    renderHook(() => useMobileMenuAutoClose(true, close, '40rem', '/'));
     expect(close).toHaveBeenCalledTimes(2); // ページの確認で 1 回・幅の確認で 1 回
   });
 
   test('matchMedia が無い環境では幅を見張らない', () => {
     (window as { matchMedia?: unknown }).matchMedia = undefined;
     const close = jest.fn();
-    renderHook(() => useMobileMenuAutoClose(true, close, 640, '/'));
+    renderHook(() => useMobileMenuAutoClose(true, close, '40rem', '/'));
     expect(close).toHaveBeenCalledTimes(1);
   });
 });

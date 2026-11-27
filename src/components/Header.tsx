@@ -28,7 +28,7 @@ export default function Header({ shopPage = false }: { shopPage?: boolean }) {
   // メニューを開いている間は後ろのページをスクロールさせない（2026年11月27日 神原さん報告）
   useBodyScrollLock(isOpen);
   const closeMenu = useCallback(() => setIsOpen(false), []);
-  useMobileMenuAutoClose(isOpen, closeMenu, 640, pathname);
+  useMobileMenuAutoClose(isOpen, closeMenu, '40rem', pathname);
   // 🔴 店舗向けページ（/register・/register/complete）はくすみ系のテーマ（globals.css の .theme-ecru）で描く。
   // ヘッダーはそのページの器の外＝レイアウト側に在るため、ページ内で変数を上書きしても届かない。
   // ここで同じクラスを付けて、地色・罫線・hover をテーマ側の色に寄せる。色の値はここに書かない。

@@ -21,7 +21,8 @@ export function useBodyScrollLock(active: boolean): void {
  * - 画面幅が広がってメニュー自体が隠れたら閉じる（隠れたのに後ろが止まったままになっていた）
  * リンクを押したときに閉じるのは、各ヘッダーの onClickCapture（closeOnLinkClick）で行う。
  */
-export function useMobileMenuAutoClose(open: boolean, close: () => void, hiddenFromPx: number, pathname: string | null): void {
+// hiddenFrom は Tailwind の sm/md と同じ rem で渡す（px にすると既定の文字サイズを大きくした人で境目がずれる・Codex 指摘 ML-02）
+export function useMobileMenuAutoClose(open: boolean, close: () => void, hiddenFrom: '40rem' | '48rem', pathname: string | null): void {
   useEffect(() => {
     close();
     // pathname が変わったときだけ閉じる（close は毎回作り直されても気にしない）
@@ -29,12 +30,12 @@ export function useMobileMenuAutoClose(open: boolean, close: () => void, hiddenF
   }, [pathname]);
   useEffect(() => {
     if (!open || typeof window.matchMedia !== 'function') return;
-    const query = window.matchMedia(`(min-width: ${hiddenFromPx}px)`);
+    const query = window.matchMedia(`(min-width: ${hiddenFrom})`);
     const onChange = () => { if (query.matches) close(); };
     onChange();
     query.addEventListener('change', onChange);
     return () => query.removeEventListener('change', onChange);
-  }, [open, close, hiddenFromPx]);
+  }, [open, close, hiddenFrom]);
 }
 
 /** ヘッダーの中のリンクを押したら、移動先が同じページでもメニューを閉じる（メニューに隠れて画面が変わらないように見えた）。 */

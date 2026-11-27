@@ -74,3 +74,30 @@ CareLink PR #1000 の `claude/mobile-menu-scroll-lock`、対象 `ffc9626ff67965c
 
 - ML-01：根本対応。body.style.overflow を直接書いていた残り3か所（駅検索 StationSearch・写真ギャラリー PhotoGallery・管理画面の BoardScheduleGrid）も lib/body-scroll-lock.ts 経由にした。今後の再発は src/__tests__/body-scroll-lock-single-entry.test.ts が CI で止める（直接書けば落ちる・負の対照つき）。
 - 自己検証：test:coverage:ci 19,844件合格・branches 100%、tsc・lint エラー 0。
+
+## Claude経由のCodex判定（2026-11-27・3回目・対象 899c22253e4416a4e338959b950d4840174b7660）
+
+**判定：不合格。** CareLink PR #1000 の `899c22253e4416a4e338959b950d4840174b7660` を再検査しました。前回の不合格原因だった駅検索とのロック競合は解消しました。ML-02 は、ブラウザの既定フォントサイズによって、表示中のモバイルメニューを開けない条件が残っています。
+
+`1e678ecc..899c222` と `origin/main...899c222`（比較元 `19fb0745`）を確認しました。ファイルは変更していません。
+
+| ID・重要度 | 該当箇所 | 期待値 | 実際値・根拠 |
+|---|---|---|---|
+| **ML-01・高／解消** | `body-scroll-lock.ts:11–23`、`StationSearch.tsx:71`、`PhotoGallery.tsx:38`、`BoardScheduleGrid.tsx:331`、`Modal.tsx:59`、`ConfirmDialog.tsx:100` | 一つでも開いている間は背景を固定し、最後に閉じたとき元の値に戻る | 5部品それぞれを `SearchHeader` と重ね、開く順と閉じる順を変えた計20通りを React/jsdom で確認。片方を閉じても `hidden` を維持し、最後に元の `clip` に戻りました。 |
+| **ML-02・中／未解消** | `useBodyScrollLock.ts:32–36`、`Header.tsx:31,129`、`SearchHeader.tsx:116,178` | モバイルメニューが表示される幅では開ける。画面遷移や、メニューが非表示になる幅への変更で閉じる | CSS は `40rem`・`48rem`、自動閉鎖は `640px`・`768px` を使います。既定フォント20px相当では、幅750pxで `Header` のモバイルメニューが表示される条件ですが、自動閉鎖の判定はすでに成立します。生成CSSを確認し、750px相当の `matchMedia` を模擬した jsdom で、クリック直後に `aria-expanded=false`、`body.style.overflow=''` となることを確認しました。 |
+| **ML-03・低／CSS修正確認** | `Header.tsx:129–131`、`SearchHeader.tsx:176–179` | メニューを末尾までスクロールでき、端で背景へ伝播しない | 両ヘッダーの開状態に高さ上限、`overflow-y-auto`、`overscroll-contain` があり、生成CSSで `overscroll-behavior: contain` を確認しました。実ブラウザでのタッチ操作は未確認です。 |
+| **ML-04・低／再発防止テストの検出漏れ** | `body-scroll-lock-single-entry.test.ts:13,30–34` | 共通処理を経由しない `body` の `overflow` 書き込みをCIで検出する | 負の対照は代入式2形式を検査します。`document.body.style.setProperty('overflow', 'hidden')` は同じプロパティを書き換えますが、現行の正規表現では検出されないことを確認しました。現行コードでこの書き込みが残っているという指摘ではありません。 |
+
+**合格基準1〜4の確認範囲**
+
+1. **表示中の背景固定** — トップ・検索・施設ページの `SearchHeader` と `Header` のロック経路、および他部品との併用時の `overflow` 維持を確認しました。
+2. **閉鎖・離脱時の復元** — 単独の閉鎖・アンマウント、併用時の復元、パス変更時の閉鎖を確認しました。表示幅の切り替えには ML-02 が残っています。
+3. **スクロール伝播防止** — 両ヘッダーのCSS指定を確認しました。実際のスクロール伝播は未検証です。
+4. **既存動作の回帰** — 関連 Jest **9スイート・74件が合格**。追加の jsdom 検査で、駅候補のキーボード選択と検索遷移、写真送りと Escape、管理画面の新規予約モーダルの開閉、Modal の Escape、ConfirmDialog のキャンセルを確認しました。ヘッダーには ML-02 の回帰があります。
+
+読み取り専用環境のため、Jest のキャッシュ書き込みだけを実行プロセス内で抑止しました。内蔵ブラウザに接続できず、対象SHAの実ブラウザ受入は未実施です。全体CIも独立実行していません。
+
+## 3回目の指摘への対応（Claude）
+
+- ML-02：修正。画面幅の判定を CSS と同じ rem（Header 40rem・SearchHeader 48rem）にした。既定の文字サイズを変えた人でも、メニューが見える幅では閉じない。
+- ML-04：修正。再発防止テストに setProperty('overflow')・cssText の代入も加えた（負の対照つき）。
