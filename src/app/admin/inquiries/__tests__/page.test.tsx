@@ -412,3 +412,69 @@ test('対応状況は見出し付きのボタンの列で、今の状態が分�
     expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ priority: 'high' }) }),
   ));
 });
+
+describe('Slack テスト通知', () => {
+  const slackCalls = () => mockFetch.mock.calls.filter(([url]) => String(url) === '/api/admin/inquiries/slack-test');
+  function withSlack(result: () => Promise<Response>) {
+    mockFetch.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/admin/inquiries/slack-test') return result();
+      return Promise.resolve(url.endsWith('/reply') ? response({ reply: null }) : response());
+    });
+  }
+
+  test('押すと POST で送り、成功を知らせる（送信中は二重に送らない）', async () => {
+    const pending = deferred<Response>();
+    withSlack(() => pending.promise);
+    render(<Page />);
+    await screen.findByText('合成問い合わせ');
+    const button = screen.getByRole('button', { name: 'Slackにテスト通知' });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(slackCalls()).toHaveLength(1);
+    expect(slackCalls()[0][1]).toEqual({ method: 'POST', cache: 'no-store' });
+    await act(async () => { pending.resolve({ ok: true, status: 200 } as Response); });
+    expect(await screen.findByText(/テスト通知を送りました/)).toBeVisible();
+  });
+
+  test.each([
+    [429, /10分に3回まで/],
+    [502, /テスト通知を送れませんでした$/],
+  ])('HTTP %i は失敗を知らせる', async (status, message) => {
+    withSlack(async () => ({ ok: false, status }) as Response);
+    render(<Page />);
+    await screen.findByText('合成問い合わせ');
+    fireEvent.click(screen.getByRole('button', { name: 'Slackにテスト通知' }));
+    expect(await screen.findByText(message)).toBeVisible();
+  });
+
+  test('通信エラーも知らせる', async () => {
+    withSlack(async () => { throw new Error('offline'); });
+    render(<Page />);
+    await screen.findByText('合成問い合わせ');
+    fireEvent.click(screen.getByRole('button', { name: 'Slackにテスト通知' }));
+    expect(await screen.findByText(/通信状況を確認してください/)).toBeVisible();
+  });
+
+  test('結果が届く前に画面を離れたら何もしない', async () => {
+    const pending = deferred<Response>();
+    withSlack(() => pending.promise);
+    const { unmount } = render(<Page />);
+    await screen.findByText('合成問い合わせ');
+    fireEvent.click(screen.getByRole('button', { name: 'Slackにテスト通知' }));
+    unmount();
+    await act(async () => { pending.resolve({ ok: true, status: 200 } as Response); });
+    expect(slackCalls()).toHaveLength(1);
+  });
+
+  test('通信エラーが画面を離れた後に届いても何もしない', async () => {
+    const pending = deferred<Response>();
+    withSlack(() => pending.promise.then(() => { throw new Error('offline'); }));
+    const { unmount } = render(<Page />);
+    await screen.findByText('合成問い合わせ');
+    fireEvent.click(screen.getByRole('button', { name: 'Slackにテスト通知' }));
+    unmount();
+    await act(async () => { pending.resolve({ ok: true, status: 200 } as Response); });
+    expect(slackCalls()).toHaveLength(1);
+  });
+});

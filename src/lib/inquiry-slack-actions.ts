@@ -19,6 +19,11 @@ import { canonicalizeEmail } from './email-canonical';
 type DB = ReturnType<typeof createServiceRoleClient>;
 
 export const INQUIRY_RESOLVE_ACTION_ID = 'inquiry_resolve';
+/**
+ * テスト通知のボタンに入れる値（実在しない問い合わせ ID）。押されたら、押した人の確認までを行い、
+ * 問い合わせは一切変えずに結果だけ返す（2026年11月27日 神原さん指示「テスト送信機能」）。
+ */
+export const TEST_INQUIRY_ID = '00000000-0000-4000-8000-000000000000';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** 1通に載せる件数（Slack は 1 メッセージ 50 ブロックまで。1件 2 ブロック＋見出し・リンク）。超えた分は次の1通に続ける。 */
 export const MAX_BUTTON_ITEMS = 20;
@@ -107,14 +112,31 @@ export async function postInquiryResolveButtons(lines: ResolvableLine[], adminUr
   return allOk;
 }
 
+/** テスト用のボタンを 1 つだけ付けたメッセージを送る（運営管理者が管理画面から送る）。送れたら true。throw しない。 */
+export async function postInquiryResolveTestButton(adminUrl: string): Promise<boolean> {
+  try {
+    const result = await postToSlack({
+      text: '【テスト】問い合わせの「解決済みにする」ボタンの動作確認',
+      blocks: buildInquiryResolveBlocks([{ id: TEST_INQUIRY_ID, label: '【テスト】ボタンの動作確認用です。押しても問い合わせは変わりません。' }], adminUrl),
+      unfurl_links: false,
+    });
+    if (!result.ok) console.error('[inquiry-slack] test post failed:', result.error);
+    return result.ok;
+  } catch {
+    console.error('[inquiry-slack] test post failed:', 'notification_failure');
+    return false;
+  }
+}
+
 export interface ResolvePayload {
   user?: { id?: string };
   response_url?: string;
 }
 
-export type ResolveOutcome = 'resolved' | 'invalid' | 'no_email' | 'not_admin' | 'not_found' | 'failed';
+export type ResolveOutcome = 'resolved' | 'test_ok' | 'invalid' | 'no_email' | 'not_admin' | 'not_found' | 'failed';
 
 const OUTCOME_TEXT: Record<Exclude<ResolveOutcome, 'resolved'>, string> = {
+  test_ok: '✅ テスト成功：運営管理者として確認できました。本番の通知でも「解決済みにする」が使えます（問い合わせは変更していません）。',
   invalid: '操作の内容を読み取れませんでした。問い合わせ管理の画面から処理してください。',
   no_email: 'Slack のメールアドレスを確認できませんでした。問い合わせ管理の画面から処理してください。',
   not_admin: 'この操作は CareLink の運営管理者だけができます（Slack のメールアドレスが運営管理者のアカウントと一致しません）。',
@@ -138,6 +160,7 @@ async function decide(db: DB, payload: ResolvePayload, contactId: string | undef
   if (lookupError) return 'failed';
   if (!admins || admins.length !== 1) return 'not_admin';
   const actorId = (admins[0] as { id: string }).id;
+  if (contactId === TEST_INQUIRY_ID) return 'test_ok';
   const { data, error } = await db.rpc('manage_platform_control_atomic', { p_actor_id: actorId, p_record_id: contactId, p_kind: 'ticket:update', p_values: { ticket_status: 'resolved' } });
   if (error) {
     const code = (error as { code?: string }).code;
