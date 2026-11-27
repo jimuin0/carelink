@@ -16,13 +16,14 @@ function escSlack(s: string): string {
 /**
  * 運営 Slack への受付通知（2026年10月22日 改訂）。
  *
- * 🔴 Slack には【個人情報を一切載せない】。載せてよいのは「何の受付か」「施設名」「受付番号（レコードの id）」
- * 「管理画面へのリンク」だけ。お名前・メール・電話・本文は管理画面（ログイン必須）で見る。
+ * 🔴 Slack にはメールアドレス・電話番号を載せない。運営宛のお問い合わせ（contact）だけは、2026年11月27日の
+ * 本人決定で「お名前・種類・本文の冒頭（100文字・メールと電話は伏せ字）」を載せる（プライバシーポリシー第5条に記載）。
+ * それ以外の種別は「何の受付か」「施設名」「受付番号」「管理画面へのリンク」だけ。
  *
  * 【なぜ】以前は施設への問い合わせ（facility_inquiry）と運営へのお問い合わせ（contact）の
  * 氏名・メール・電話・本文（症状が書かれやすい）を全文そのまま Slack へ転記していたが、
  * 当時 Slack はプライバシーポリシー第5条の委託先に載っていなかった（2026年11月26日に、問い合わせの
- * 対応状況の通知に限りお名前・受付日・種類を載せる形で追記した。この受付通知は対象外のまま）。
+ * 対応状況の通知に限りお名前・受付日・種類を載せる形で追記し、11月27日に受付通知の本文冒頭まで広げた）。
  * 転記された写しは退会時の削除や開示等の請求の対象からも外れる。施設掲載申込（src/lib/salon-outbox-delivery.ts）は既に
  * 「受付番号と管理画面 URL だけ」に作り直してあり、同じ方針にそろえた。
  *
@@ -46,6 +47,12 @@ export type NotifyPayload =
       data: {
         /** contacts.id（運営宛のお問い合わせの受付番号） */
         contact_id: string;
+        /** お名前（2026年11月27日 本人決定で載せる。メール・電話は載せない） */
+        name?: string;
+        /** お問い合わせの種類 */
+        inquiry_type?: string;
+        /** 本文。冒頭 CONTACT_PREVIEW_MAX 文字だけを、メール・電話を伏せて載せる */
+        message?: string;
       };
     }
   | {
@@ -110,12 +117,16 @@ function buildSlackMessage(payload: NotifyPayload): string {
         `> *受付番号:* ${payload.data.mail_id.slice(0, 8)}`,
         '> 内容と送信状況は管理画面で確認してください。',
       ].join('\n');
-    case 'contact':
-      return [
-        ':envelope: *お問い合わせ（運営宛）を受け付けました*',
-        `> *受付番号:* ${payload.data.contact_id}`,
-        '> 内容は管理画面で確認してください。',
-      ].join('\n');
+    case 'contact': {
+      const { name, inquiry_type, message } = payload.data;
+      const lines = [':envelope: *お問い合わせ（運営宛）を受け付けました*'];
+      if (name) lines.push(`> *お名前:* ${escSlack(sanitizeContactField(name))}`);
+      if (inquiry_type) lines.push(`> *種類:* ${escSlack(sanitizeContactField(inquiry_type))}`);
+      if (message) lines.push(`> *内容（冒頭）:* ${escSlack(contactPreview(message))}`);
+      lines.push(`> *受付番号:* ${payload.data.contact_id}`);
+      lines.push('> 全文と連絡先は管理画面で確認してください。');
+      return lines.join('\n');
+    }
 
     case 'facility_inquiry':
       return [
@@ -129,12 +140,117 @@ function buildSlackMessage(payload: NotifyPayload): string {
 
 const recordId = z.string().regex(UUID_REGEX);
 
+/** 受信通知に載せる本文の最大文字数（2026年11月27日 本人決定「名前・種類・本文冒頭」） */
+export const CONTACT_PREVIEW_MAX = 100;
+
+// ドメインのラベルは、ASCII の範囲では英数字とハイフンだけ（DNS の規則。/ などで区切った次のアドレスを巻き込まないため）、
+// ASCII の外では空白・区切り・括弧・句読点以外を全て含める（col·legi.cat の「·」のように国際化ドメインが許す文字を取りこぼさないため）
+const DOMAIN_LABEL = String.raw`(?:[A-Z0-9-]|[^\x00-\x7F\s。、，「」『』【】：；！？])+`;
+const EMAIL_CANDIDATE = new RegExp(`[A-Z0-9.!#$%&'*+/=?^_\u0060{|}~-]+@${DOMAIN_LABEL}(?:[.。]${DOMAIN_LABEL})+`, 'giu');
+
+/**
+ * メールアドレスの候補のうち、ドメインとして読める範囲だけを伏せ、後ろに続く文は残す。
+ * 「。」はブラウザ・Node ではドメインの区切りだが、日本語では文の句点でもある。区切りとみなすのは
+ * 後ろが英数字のラベルのとき（example。jp）と、ドメインに「.」が1つも無い全角表記のとき（例え。テスト）だけ。
+ * それ以外の「。」（example.com。折り返し…／例え.テスト。折り返し…）は文の句点として残す。
+ * ただし最初の区切りは常に採り、迷う場合は伏せる側に倒す。
+ */
+function redactEmail(candidate: string): string {
+  const at = candidate.indexOf('@');
+  const parts = candidate.slice(at + 1).split(/([.。])/);
+  const hasDot = parts.includes('.');
+  // 最初の区切りは必ず採る（メールを丸ごと残さないため。漏らさない側に倒す）
+  let i = 3;
+  for (; i < parts.length; i += 2) {
+    if (parts[i] === '。' && hasDot && !/^[A-Z0-9-]+$/i.test(parts[i + 1])) break;
+  }
+  // 区切りの後のラベルの途中で英数字とそれ以外（日本語など）が入れ替わるときは、入れ替わる所でドメインが終わったとみなす
+  // （taro@gmail.comまで資料.pdf… の後続文を残し、alice@例え.テストまたはbob@… の2件目を照合し直すため。両方が混ざったラベルは実在しない）
+  for (let j = 2; j < i; j += 2) {
+    const mixed = /^(?:[A-Z0-9-]+(?=[^\x00-\x7F])|[^\x00-\x7F]+(?=[A-Z0-9-]))([\s\S]+)$/iu.exec(parts[j]);
+    if (mixed) return `[email redacted]${mixed[1]}${parts.slice(j + 1).join('')}`;
+  }
+  return `[email redacted]${parts.slice(i).join('')}`;
+}
+
+const EMAIL_MASK = '[email redacted]';
+const PHONE_MASK = '[phone redacted]';
+// 数字の塊の間は、空白・改行（字下げを含め何文字でも）と、それ以外の文字3字までを区切りとみなす（／・〜・「の」など区切りの書き方を1つずつ追いかけないため）。
+// 塊をつないだ数字が10桁以上なら電話とみなす。日時や数量が電話とみなされる伏せすぎは許容する
+const PHONE_CANDIDATE = /\+?\(?\d+(?:(?=\D)\s*(?:[^\d\s]\s*){0,3}\d+)*/gu;
+
+/**
+ * 正規化した文字列の先頭 limit 文字（コードポイント）までを、メール・電話を伏せて返す。
+ * 伏せる範囲は全文で判定してから切る。範囲が切れ目をまたぐときは伏せ字だけを置き、
+ * 切れ目より後ろの文字は一切載せない（切れ端の断片も、101文字目以降の文も残さないため）。
+ */
+function redactPrefix(text: string, limit: number): string {
+  const cut = Array.from(text).slice(0, limit).join('').length;
+  const ranges: Array<[number, number, string]> = [];
+  // メールの前半は RFC 5322 の英数字と記号（mary.o'connor など）に限る（空白の無い日本語の文を巻き込まないため）。ドメインの区切りの判定は redactEmail
+  // 候補が後続の文まで取り込んでも、次の照合は伏せた範囲の直後から始める（alice@gmail.comまたはbob@… の2件目を拾うため）
+  const re = new RegExp(EMAIL_CANDIDATE.source, 'giu');
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const start = m.index;
+    const end = start + m[0].length - (redactEmail(m[0]).length - EMAIL_MASK.length);
+    re.lastIndex = end;
+    ranges.push([start, end, EMAIL_MASK]);
+  }
+  // 電話はメールと別に全文で照合し、重なった範囲はまとめて伏せる（090 1234 5678/foo@… のように隣り合っても桁を取りこぼさないため）
+  for (const m of text.matchAll(PHONE_CANDIDATE)) {
+    if (m[0].replace(/\D/g, '').length >= 10) ranges.push([m.index as number, (m.index as number) + m[0].length, PHONE_MASK]);
+  }
+  ranges.sort((x, y) => x[0] - y[0]);
+  let out = '';
+  let pos = 0;
+  for (const [start, end, mask] of ranges) {
+    if (start >= cut) break;
+    if (start >= pos) out += text.slice(pos, start) + mask;
+    pos = Math.max(pos, end);
+  }
+  return out + text.slice(pos, Math.max(pos, cut));
+}
+
+/** NFKC で全角を半角へ寄せ、ゼロ幅スペース・異体字セレクタ・U+034F など見えない文字（照合を途切れさせる）を除く */
+function normalizeContactText(value: string): string {
+  return value.normalize('NFKC').replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '');
+}
+
+function neutralizeMrkdwn(value: string): string {
+  return value.replace(/[*_~`]/g, (c) => ({ '*': '＊', _: '＿', '~': '～', '`': '｀' })[c] as string);
+}
+
+/**
+ * 受信通知の欄からメール・電話を伏せ、Slack の装飾記号を無効にする。
+ * 全角数字・全角記号は NFKC で半角へ寄せてから判定し、括弧・空白・ハイフン・点で区切った
+ * 数字が合計10桁以上続くもの（区切りは電話番号欄の normalizePhone と同じダッシュ類も含む）を電話番号とみなす（郵便番号の7桁は残る）。
+ */
+export function sanitizeContactField(value: string): string {
+  return neutralizeMrkdwn(redactPrefix(normalizeContactText(value), Infinity));
+}
+
+/**
+ * 本文の冒頭100文字（正規化後の文字数。改行・空白も1文字と数える）だけを、メール・電話を伏せ、改行を詰めて返す。
+ */
+export function contactPreview(message: string): string {
+  const text = normalizeContactText(message);
+  const truncated = Array.from(text).length > CONTACT_PREVIEW_MAX;
+  const head = neutralizeMrkdwn(redactPrefix(text, CONTACT_PREVIEW_MAX)).replace(/\s+/g, ' ').trim();
+  return truncated ? `${head}…` : head;
+}
+
 export const notifyPayloadSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('contact_reply_sent'), data: z.object({ contact_id: recordId }) }),
   z.object({ type: z.literal('platform_mail_sent'), data: z.object({ mail_id: recordId, scheduled: z.boolean() }) }),
   z.object({
     type: z.literal('contact'),
-    data: z.object({ contact_id: recordId }),
+    data: z.object({
+      contact_id: recordId,
+      // 内容の欄は不正でも通知全体を落とさない（値だけ捨てる）
+      name: z.string().max(100).optional().catch(undefined),
+      inquiry_type: z.string().max(100).optional().catch(undefined),
+      message: z.string().optional().catch(undefined),
+    }),
   }),
 
   z.object({

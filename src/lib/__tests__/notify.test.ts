@@ -37,7 +37,7 @@ jest.mock('@/lib/slack', () => ({
   }),
 }));
 
-import { sendNotify, type NotifyPayload } from '../notify';
+import { sendNotify, contactPreview, sanitizeContactField, CONTACT_PREVIEW_MAX, type NotifyPayload } from '../notify';
 
 const CONTACT_ID = '71000000-0000-4000-8000-0000000000c1';
 const INQUIRY_ID = '71000000-0000-4000-8000-0000000000a1';
@@ -145,7 +145,7 @@ describe('sendNotify — type ごとの Slack メッセージ送信', () => {
 
     expect(args[0].text).toContain('お問い合わせ（運営宛）を受け付けました');
     expect(args[0].text).toContain(CONTACT_ID);
-    expect(args[0].text).toContain('内容は管理画面で確認してください');
+    expect(args[0].text).toContain('全文と連絡先は管理画面で確認してください');
   });
 
   test('facility_inquiry type → 施設名と受付番号を載せて送信し ok=true', async () => {
@@ -176,7 +176,6 @@ describe('sendNotify — Slack に個人情報を載せない', () => {
 
   test.each([
     ['facility_inquiry', { inquiry_id: INQUIRY_ID, facility_id: '71000000-0000-4000-8000-000000000002', facility_name: 'テスト施設', ...pii }],
-    ['contact', { contact_id: CONTACT_ID, ...pii }],
   ])('%s: 入力した氏名・メール・電話・本文が Slack の本文にもブロックにも含まれない', async (type, data) => {
     const result = await sendNotify(untyped({ type, data }));
 
@@ -186,6 +185,120 @@ describe('sendNotify — Slack に個人情報を載せない', () => {
       expect(posted).not.toContain(value);
     }
     expect(posted).not.toMatch(/お名前|メール:|電話:|内容:|流入元/);
+  });
+});
+
+// 2026年11月27日 本人決定: 運営宛のお問い合わせだけは、お名前・種類・本文冒頭を載せる。
+// メール・電話・流入元は載せず、本文中のメール・電話は伏せ字にし、冒頭100文字で切る。
+describe('sendNotify — contact は名前・種類・本文冒頭だけを載せる', () => {
+  const pii = {
+    name: '山田花子',
+    email: 'hanako.yamada@example.invalid',
+    phone: '090-1234-5678',
+    message: '先週から腰痛がひどく、相談したいです。連絡は 090-8765-4321 か taro@example.invalid へ',
+    inquiry_type: '個人的なご相談',
+    traffic_source: { source: 'threads', medium: 'social', referrerHost: 'www.threads.net', landingPath: '/lp/secret', capturedAt: '2026-10-22T00:00:00.000Z' },
+  };
+
+  test('名前・種類・本文を載せ、メール・電話・流入元は載せない', async () => {
+    const result = await sendNotify(untyped({ type: 'contact', data: { contact_id: CONTACT_ID, ...pii } }));
+    expect(result.ok).toBe(true);
+    const posted = postedToSlack();
+    for (const value of [pii.name, pii.inquiry_type, '腰痛', CONTACT_ID]) expect(posted).toContain(value);
+    for (const value of [pii.email, pii.phone, '8765-4321', 'taro@example', pii.traffic_source.landingPath, pii.traffic_source.referrerHost]) {
+      expect(posted).not.toContain(value);
+    }
+    expect(posted).toContain('[phone redacted]');
+    expect(posted).toContain('[email redacted]');
+  });
+
+  test('本文は改行を詰めて冒頭 CONTACT_PREVIEW_MAX 文字で切る', () => {
+    expect(contactPreview('あ\n\nい')).toBe('あ い');
+    expect(contactPreview('字'.repeat(CONTACT_PREVIEW_MAX))).toBe('字'.repeat(CONTACT_PREVIEW_MAX));
+    expect(contactPreview('字'.repeat(CONTACT_PREVIEW_MAX + 1))).toBe(`${'字'.repeat(CONTACT_PREVIEW_MAX)}…`);
+  });
+
+  test.each([
+    ['０９０－１２３４－５６７８', '[phone redacted]'],
+    ['(03) 1234-5678', '[phone redacted]'],
+    ['090・1234・5678 まで', '[phone redacted] まで'],
+    ['折り返しは090-1234-\n   5678へ', '折り返しは[phone redacted]へ'],
+    ['折り返しは090-1234-\n5678へお願いします。', '折り返しは[phone redacted]へお願いします。'],
+    ['折り返しは09012345678です。', '折り返しは[phone redacted]です。'],
+    ['０９０１２３４５６７８', '[phone redacted]'],
+    ['折り返しは090の1234の5678へお願いします。', '折り返しは[phone redacted]へお願いします。'],
+    ['電話 090 1234 5678/foo@gmail.com', '電話 [phone redacted]'],
+    ['alice@例え.テストまたはbob@gmail.com', '[email redacted][email redacted]'],
+    ['alice@例え.テストまたは090 1234 5678', '[email redacted][phone redacted]'],
+    ['連絡先 alice@gmail.com/bob@gmail.com', '連絡先 [email redacted][email redacted]'],
+    ['a@x.jp,b@y.jp;c@z.jp', '[email redacted],[email redacted];[email redacted]'],
+    ['折り返しは03／1234／5678へ', '折り返しは[phone redacted]へ'],
+    ['03〜1234〜5678', '[phone redacted]'],
+    ['taro@gmail.comまで資料.pdfをお送りください。', '[email redacted]まで資料.pdfをお送りください。'],
+    ['連絡先はalice@gmail.comまたはbob@gmail.comです。', '連絡先は[email redacted]または[email redacted]です。'],
+    ['連絡先はtaro@gmail.comまでご連絡ください。', '連絡先は[email redacted]までご連絡ください。'],
+    ['taro@example。jpへ', '[email redacted]へ'],
+    ['０９０･１２３４･５６７８', '[phone redacted]'],
+    ['連絡先 090−1234−5678', '連絡先 [phone redacted]'],
+    ['090ー1234ー5678', '[phone redacted]'],
+    ['+81 90 1234 5678', '[phone redacted]'],
+    ['ｔａｒｏ＠ｅｘａｍｐｌｅ．ｊｐ', '[email redacted]'],
+    ['連絡先 taro@例え.テスト まで', '連絡先 [email redacted] まで'],
+    ['090−1234−\u200b5678', '[phone redacted]'],
+    ['090−1234−\ufe0f5678', '[phone redacted]'],
+    ['090-1234-\u034f5678', '[phone redacted]'],
+    ['taro\u034f@example.jp', '[email redacted]'],
+    ['taro@例え。テスト', '[email redacted]'],
+    ['連絡先はtaro@example.com。折り返しをお願いします。', '連絡先は[email redacted]。折り返しをお願いします。'],
+    ['taro@भारत.example', '[email redacted]'],
+    ['taro@example。jp', '[email redacted]'],
+    ['taro@col·legi.cat', '[email redacted]'],
+    ["mary.o'connor@example.com", '[email redacted]'],
+    ['a!b#c$d%e&f*g+h/i=j?k^l_m`n{o|p}q~r@example.com', '[email redacted]'],
+    ['連絡は taro@example.jp、または電話で', '連絡は [email redacted]、または電話で'],
+    ['taro@例え.テスト。折り返しをお願いします。', '[email redacted]。折り返しをお願いします。'],
+    ['taro@example。折り返し', '[email redacted]'],
+    ['taro@例え。テスト.com', '[email redacted]'],
+    ['予約の変更を希望します。連絡先はtaro@example.invalid です。', '予約の変更を希望します。連絡先は[email redacted] です。'],
+    ['〒150-0001 です', '〒150-0001 です'],
+    ['注文番号 123-456-789', '注文番号 123-456-789'],
+    ['*強調* _斜体_ ~消~ `コード`', '＊強調＊ ＿斜体＿ ～消～ ｀コード｀'],
+  ])('sanitizeContactField(%s)', (input, expected) => {
+    expect(sanitizeContactField(input)).toBe(expected);
+  });
+
+  test.each([
+    ['あ'.repeat(70) + ' long-test-mailbox@example.invalid 管理画面限定', 'あ'.repeat(70) + ' [email redacted]…'],
+    ['あ'.repeat(90) + ' taro@example.jp', 'あ'.repeat(90) + ' [email redacted]…'],
+    ['あ'.repeat(90) + ' 090-1234-5678', 'あ'.repeat(90) + ' [phone redacted]…'],
+    ['あ'.repeat(94) + ' alice@gmail.com', 'あ'.repeat(94) + ' [email redacted]…'],
+    ['あ'.repeat(97) + ' 12回目です', 'あ'.repeat(97) + ' 12…'],
+    ['あ'.repeat(100) + ' taro@example.jp 090-1234-5678', 'あ'.repeat(100) + '…'],
+    ['あ'.repeat(95) + '09012345678', 'あ'.repeat(95) + '[phone redacted]…'],
+    ['あ'.repeat(90) + '\n'.repeat(12) + '後続', 'あ'.repeat(90) + '…'],
+  ])('contactPreview は原文の冒頭100文字だけを使い、切れ端のメール・電話を落とす (%#)', (input, expected) => {
+    expect(contactPreview(input)).toBe(expected);
+  });
+
+  test('名前・種類の欄に書かれたメール・電話も伏せる', async () => {
+    await sendNotify({ type: 'contact', data: { contact_id: CONTACT_ID, name: 'a@example.invalid', inquiry_type: '03-1234-5678' } });
+    const text = mockPostToSlack.mock.calls[0][0].text as string;
+    expect(text).not.toContain('a@example.invalid');
+    expect(text).not.toContain('1234-5678');
+  });
+
+  test('内容の欄が無くても受付番号で通知し、不正な欄は捨てる', async () => {
+    await sendNotify(untyped({ type: 'contact', data: { contact_id: CONTACT_ID, name: 123, inquiry_type: 'x'.repeat(101) } }));
+    const text = mockPostToSlack.mock.calls[0][0].text as string;
+    expect(text).toContain(CONTACT_ID);
+    expect(text).not.toMatch(/お名前|種類|内容（冒頭）/);
+  });
+
+  test('名前・本文の HTML 特殊文字はエスケープされる', async () => {
+    await sendNotify({ type: 'contact', data: { contact_id: CONTACT_ID, name: '<b>&', inquiry_type: '<i>', message: '<script>' } });
+    const text = mockPostToSlack.mock.calls[0][0].text as string;
+    expect(text).toContain('&lt;b&gt;&amp;');
+    expect(text).not.toContain('<script>');
   });
 });
 
