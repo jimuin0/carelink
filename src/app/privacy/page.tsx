@@ -89,7 +89,7 @@ export default function PrivacyPage() {
             <li>Microsoft Corporation（米国）：ユーザー行動分析（Microsoft Clarity）</li>
             <li>LINEヤフー株式会社（日本）：認証連携およびメッセージ配信</li>
             <li>Resend, Inc.（米国）：メール配信（予約確認・リマインド・お問い合わせ返信等。宛先メールアドレス・氏名・予約内容を含みます）</li>
-            <li>Slack Technologies, LLC（米国）：運営内の業務連絡（お問い合わせの受付と対応状況の通知。お名前・受付日・お問い合わせの種類と、受付時は本文の冒頭100文字（メールアドレス・電話番号は伏せます）を含みます）</li>
+            <li>Slack Technologies, LLC（米国）：運営内の業務連絡（お問い合わせの受付と対応状況の通知。お名前・受付日・お問い合わせの種類と、受付時は本文の冒頭100文字（メールアドレス・電話番号は原則として伏せます）を含みます）</li>
             <li>Anthropic PBC（米国）：AI機能（チャットサポート・症状の絞り込み提案・口コミ要約）。利用者が入力した文章および公開済みの口コミ本文を送信します</li>
           </ul>
           <p className="text-gray-600 mt-2 text-sm">
