@@ -1,5 +1,6 @@
 'use client';
 
+import { lockBodyScroll } from '@/lib/body-scroll-lock';
 import { useEffect, useRef, useId } from 'react';
 
 interface ModalProps {
@@ -55,7 +56,7 @@ export default function Modal({ open, onClose, title, children, footer, maxWidth
     };
     previousFocusRef.current = document.activeElement as HTMLElement;
     document.addEventListener('keydown', handleKeyDown);
-    document.body.style.overflow = 'hidden';
+    const unlockScroll = lockBodyScroll();
     const focusFrame = requestAnimationFrame(() => {
       // 初期フォーカス前に利用者が入力を始めた場合、その入力先を奪わない。
       if (dialogRef.current?.contains(document.activeElement)) return;
@@ -67,7 +68,7 @@ export default function Modal({ open, onClose, title, children, footer, maxWidth
     return () => {
       cancelAnimationFrame(focusFrame);
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
+      unlockScroll();
       previousFocusRef.current?.focus();
     };
   }, [open]);

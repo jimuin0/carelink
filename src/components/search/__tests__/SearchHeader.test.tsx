@@ -97,3 +97,13 @@ test('スマホのメニューを開いている間は後ろのページをス�
   fireEvent.click(toggle);
   expect(document.body.style.overflow).toBe('');
 });
+
+test('メニューの中や上部のリンクを押したら、移動先が同じページでもメニューを閉じる（後ろが固定されたままにならない）', () => {
+  render(<SearchHeader />);
+  const toggle = screen.getByRole('button', { name: 'メニュー' });
+  fireEvent.click(toggle);
+  expect(document.body.style.overflow).toBe('hidden');
+  fireEvent.click(within(mobileNav()).getAllByRole('link')[0]!);
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(document.body.style.overflow).toBe('');
+});

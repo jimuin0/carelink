@@ -1,5 +1,6 @@
 'use client';
 
+import { lockBodyScroll } from '@/lib/body-scroll-lock';
 import { useEffect, useCallback, useRef, useId } from 'react';
 import Button from '@/components/ui/Button';
 
@@ -96,7 +97,7 @@ export default function ConfirmDialog({
     if (open) {
       previousFocusRef.current = document.activeElement as HTMLElement;
       document.addEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'hidden';
+      const unlockScroll = lockBodyScroll();
       // 開いている間は背後のページを操作・読み上げの対象から外す（aria-modal だけでは
       // スクリーンリーダーの仮想カーソルやクリックで背後へ抜けられた）。
       const restoreBackground = inertBackground(rootRef.current);
@@ -107,7 +108,7 @@ export default function ConfirmDialog({
       });
       return () => {
         document.removeEventListener('keydown', handleKeyDown);
-        document.body.style.overflow = '';
+        unlockScroll();
         // inert を外してからフォーカスを戻す（inert の要素にはフォーカスできない）。
         restoreBackground();
         previousFocusRef.current?.focus();

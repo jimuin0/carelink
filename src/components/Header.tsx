@@ -1,8 +1,8 @@
 'use client';
 
-import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
+import { closeOnLinkClick, useBodyScrollLock, useMobileMenuAutoClose } from '@/hooks/useBodyScrollLock';
 import Link from '@/components/BrowseLink';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { isEcruShopPath } from '@/lib/shop-theme';
@@ -27,6 +27,8 @@ export default function Header({ shopPage = false }: { shopPage?: boolean }) {
   const pathname = usePathname();
   // メニューを開いている間は後ろのページをスクロールさせない（2026年11月27日 神原さん報告）
   useBodyScrollLock(isOpen);
+  const closeMenu = useCallback(() => setIsOpen(false), []);
+  useMobileMenuAutoClose(isOpen, closeMenu, 640, pathname);
   // 🔴 店舗向けページ（/register・/register/complete）はくすみ系のテーマ（globals.css の .theme-ecru）で描く。
   // ヘッダーはそのページの器の外＝レイアウト側に在るため、ページ内で変数を上書きしても届かない。
   // ここで同じクラスを付けて、地色・罫線・hover をテーマ側の色に寄せる。色の値はここに書かない。
@@ -64,7 +66,7 @@ export default function Header({ shopPage = false }: { shopPage?: boolean }) {
   }
 
   return (
-    <header className="sticky top-0 z-50 backdrop-blur-sm border-b bg-white/95 border-gray-100">
+    <header className="sticky top-0 z-50 backdrop-blur-sm border-b bg-white/95 border-gray-100" onClickCapture={closeOnLinkClick(closeMenu)}>
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className={HEADER_BAR}>
           <Link href="/" className="text-xl font-bold text-(--logo) shrink-0">
@@ -125,8 +127,8 @@ export default function Header({ shopPage = false }: { shopPage?: boolean }) {
 
         {/* Mobile menu */}
         <div
-          className={`sm:hidden overflow-hidden transition-all duration-300 ease-in-out ${
-            isOpen ? 'max-h-80 opacity-100' : 'max-h-0 opacity-0'
+          className={`sm:hidden transition-all duration-300 ease-in-out ${
+            isOpen ? 'max-h-[calc(100dvh-4rem)] overflow-y-auto overscroll-contain opacity-100' : 'max-h-0 overflow-hidden opacity-0'
           }`}
         >
           <nav className="pb-4 border-t border-gray-100 pt-3 flex flex-col gap-1" aria-label="モバイルナビゲーション">

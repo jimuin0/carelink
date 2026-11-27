@@ -2,9 +2,10 @@
 
 // ヘッダーは全ページに出るうえ、業種一覧をデスクトップ/モバイルの2箇所で描画するため
 // 先読み対象が最も多い。既定で先読みしない（理由と実測は components/BrowseLink.tsx）。
-import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
+import { closeOnLinkClick, useBodyScrollLock, useMobileMenuAutoClose } from '@/hooks/useBodyScrollLock';
+import { usePathname } from 'next/navigation';
 import Link from '@/components/BrowseLink';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { businessTypeMenuGroups } from '@/lib/business-type-menu';
 import AuthButton from '@/components/auth/AuthButton';
 import dynamic from 'next/dynamic';
@@ -111,9 +112,11 @@ export default function SearchHeader() {
   const [isOpen, setIsOpen] = useState(false);
   // メニューを開いている間は後ろのページをスクロールさせない（2026年11月27日 神原さん報告）
   useBodyScrollLock(isOpen);
+  const closeMenu = useCallback(() => setIsOpen(false), []);
+  useMobileMenuAutoClose(isOpen, closeMenu, 768, usePathname());
 
   return (
-    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100">
+    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100" onClickCapture={closeOnLinkClick(closeMenu)}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className={HEADER_BAR}>
           {/* ロゴの class は Header.tsx と同じ文字列（src/components/header-styles.ts の説明参照）。 */}
