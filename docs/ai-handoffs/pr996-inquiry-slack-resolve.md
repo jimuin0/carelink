@@ -42,3 +42,7 @@ tokens used
 
 - PR996-04：修正。一時的な失敗（http_429 等）は 1.5 秒待って 1 回だけ送り直す。設定不足・Preview は送り直さない。それでも欠けた件は解決済みになるまで翌朝も出る。
 - PR996-01：コードは変えず、本人に判断を仰ぐ。検査基準 (3)「Preview では送らない」は Claude が書いたもので、既存の Slack 送信の出口（postToSlack）の止め方は「service-role の無い Preview」。Codex も現行運用には妥当と判定。基準を既存どおりに改めるか、Slack 送信全体の Preview 判定を広げる別作業にするかは本人が決める。
+
+## 本人の判断（2026-11-27）
+
+- PR996-01：「既存と同じでいい」。検査基準 (3) を「Slack 送信は slack.ts の出口だけを通し、Preview の止め方は既存の postToSlack（isPublicReadOnlyPreview）と同じ」に改める。
