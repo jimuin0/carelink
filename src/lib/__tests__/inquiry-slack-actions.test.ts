@@ -91,7 +91,7 @@ describe('postInquiryResolveButtons', () => {
     jest.useRealTimers();
   });
 
-  test.each([[3, 3000], [120, MAX_RETRY_WAIT_MS]])('429 で Retry-After=%i 秒なら %i ms 待ってから送り直す', async (sec, waitMs) => {
+  test.each([[3, 3000], [20, MAX_RETRY_WAIT_MS]])('429 で Retry-After=%i 秒なら %i ms 待ってから送り直す', async (sec, waitMs) => {
     jest.useFakeTimers();
     (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: false, error: 'http_429', retryAfterSec: sec }).mockResolvedValueOnce({ ok: true });
     const sending = postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN);
@@ -103,9 +103,31 @@ describe('postInquiryResolveButtons', () => {
     jest.useRealTimers();
   });
 
+  test('待ち指定が合計の上限を超えるなら、送り直さずに終える（cron の実行上限内に収める・Codex 指摘 PR996-05）', async () => {
+    (postToSlack as jest.Mock).mockResolvedValue({ ok: false, error: 'http_429', retryAfterSec: 120 });
+    const lines = Array.from({ length: MAX_BUTTON_ITEMS * 2 + 1 }, (_, i) => ({ id: ID, label: `件${i}` }));
+    await expect(postInquiryResolveButtons(lines, URL_ADMIN)).resolves.toBe(false);
+    expect(postToSlack).toHaveBeenCalledTimes(1);
+    (postToSlack as jest.Mock).mockReset();
+  });
+
+  test('待ちは通をまたいで合計で数え、上限に届いたらそこで終える', async () => {
+    jest.useFakeTimers();
+    (postToSlack as jest.Mock)
+      .mockResolvedValueOnce({ ok: false, error: 'http_429', retryAfterSec: 15 }).mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: false, error: 'http_429', retryAfterSec: 15 });
+    const lines = Array.from({ length: MAX_BUTTON_ITEMS * 2 + 1 }, (_, i) => ({ id: ID, label: `件${i}` }));
+    const sending = postInquiryResolveButtons(lines, URL_ADMIN);
+    await jest.advanceTimersByTimeAsync(15_000);
+    await expect(sending).resolves.toBe(false);
+    expect(postToSlack).toHaveBeenCalledTimes(3);
+    (postToSlack as jest.Mock).mockReset();
+    jest.useRealTimers();
+  });
+
   test('送り直しても 429 なら、残りの通は送らずに終える（翌朝の通知に残る）', async () => {
     jest.useFakeTimers();
-    (postToSlack as jest.Mock).mockResolvedValue({ ok: false, error: 'http_429', retryAfterSec: 120 });
+    (postToSlack as jest.Mock).mockResolvedValue({ ok: false, error: 'http_429', retryAfterSec: 5 });
     const lines = Array.from({ length: MAX_BUTTON_ITEMS * 2 + 1 }, (_, i) => ({ id: ID, label: `件${i}` }));
     const sending = postInquiryResolveButtons(lines, URL_ADMIN);
     await jest.advanceTimersByTimeAsync(MAX_RETRY_WAIT_MS * 3);

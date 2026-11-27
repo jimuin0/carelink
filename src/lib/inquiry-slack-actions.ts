@@ -24,8 +24,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export const MAX_BUTTON_ITEMS = 20;
 /** 送り直すまでの待ち時間（Slack の chat.postMessage はチャンネルあたり毎秒1通程度まで）。 */
 export const RETRY_WAIT_MS = 1500;
-/** 待ちの上限（cron の実行時間を延ばしすぎない。超える指定でも欠けた件は翌朝の通知に出る）。 */
-export const MAX_RETRY_WAIT_MS = 30_000;
+/**
+ * 1回の通知で待ってよい合計の上限。死活監視の cron（実行上限 60 秒）に相乗りしているため、
+ * 待ちが重なっても結果の記録と応答が間に合うよう合計で抑える（Codex 指摘 PR996-05）。
+ * 上限を超える待ちが要るときは送り直さずに終え、残りは解決済みになるまで翌朝の通知に回す。
+ */
+export const MAX_RETRY_WAIT_MS = 20_000;
 
 export interface ResolvableLine { id: string; label: string }
 
@@ -52,6 +56,7 @@ export async function postInquiryResolveButtons(lines: ResolvableLine[], adminUr
   if (lines.length === 0) return false;
   const total = Math.ceil(lines.length / MAX_BUTTON_ITEMS);
   let allOk = true;
+  let waitedMs = 0;
   for (let index = 0; index < total; index += 1) {
     const chunk = lines.slice(index * MAX_BUTTON_ITEMS, (index + 1) * MAX_BUTTON_ITEMS);
     const send = () => postToSlack({ text: `未完了のお問い合わせ ${lines.length}件（ボタンで解決済みにできます）`, blocks: buildInquiryResolveBlocks(chunk, adminUrl, { index: index + 1, total }), unfurl_links: false });
@@ -60,8 +65,14 @@ export async function postInquiryResolveButtons(lines: ResolvableLine[], adminUr
       // 一時的な失敗（Slack のレート制限 http_429 等）で一部の通だけ欠けないよう、少し待って 1 回だけ送り直す（Codex 指摘 PR996-04）。
       // 送り直しても欠けた件は、解決済みになるまで翌朝も通知に出る。
       if (!result.ok && result.error !== 'preview_read_only' && result.error !== 'not_configured' && result.error !== 'no_channel') {
-        // Slack が待ち秒数（Retry-After）を示したらそれに従う（上限 MAX_RETRY_WAIT_MS・Codex 指摘 PR996-04 再検査）
-        const waitMs = Math.min(Math.max(RETRY_WAIT_MS, (result.retryAfterSec ?? 0) * 1000), MAX_RETRY_WAIT_MS);
+        // Slack が待ち秒数（Retry-After）を示したらそれに従う（合計の上限 MAX_RETRY_WAIT_MS・Codex 指摘 PR996-04/05）
+        const waitMs = Math.max(RETRY_WAIT_MS, (result.retryAfterSec ?? 0) * 1000);
+        if (waitedMs + waitMs > MAX_RETRY_WAIT_MS) {
+          allOk = false;
+          console.error('[inquiry-slack] button post failed:', result.error);
+          break;
+        }
+        waitedMs += waitMs;
         await new Promise((resolve) => setTimeout(resolve, waitMs));
         result = await send();
       }
