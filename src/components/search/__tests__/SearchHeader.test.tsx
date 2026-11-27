@@ -86,3 +86,14 @@ test('スマホのメニューは業種を一覧のまま出し、開閉ボタ�
   fireEvent.click(within(mobileNav()).getByRole('link', { name: '掲載をお考えの方', hidden: true }));
   expect(menu).toHaveAttribute('aria-expanded', 'false');
 });
+
+test('スマホのメニューを開いている間は後ろのページをスクロールさせない（閉じたら戻す）', () => {
+  render(<SearchHeader />);
+  const toggle = screen.getByRole('button', { name: 'メニュー' });
+  expect(document.body.style.overflow).toBe('');
+  fireEvent.click(toggle);
+  expect(document.body.style.overflow).toBe('hidden');
+  expect(document.getElementById('mobile-nav')!.className).toContain('overscroll-contain');
+  fireEvent.click(toggle);
+  expect(document.body.style.overflow).toBe('');
+});

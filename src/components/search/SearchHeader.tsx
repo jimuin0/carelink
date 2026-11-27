@@ -2,6 +2,7 @@
 
 // ヘッダーは全ページに出るうえ、業種一覧をデスクトップ/モバイルの2箇所で描画するため
 // 先読み対象が最も多い。既定で先読みしない（理由と実測は components/BrowseLink.tsx）。
+import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
 import Link from '@/components/BrowseLink';
 import { useEffect, useId, useRef, useState } from 'react';
 import { businessTypeMenuGroups } from '@/lib/business-type-menu';
@@ -108,6 +109,8 @@ function BusinessTypeMenu() {
 
 export default function SearchHeader() {
   const [isOpen, setIsOpen] = useState(false);
+  // メニューを開いている間は後ろのページをスクロールさせない（2026年11月27日 神原さん報告）
+  useBodyScrollLock(isOpen);
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100">
@@ -170,7 +173,7 @@ export default function SearchHeader() {
         <div
           id="mobile-nav"
           className={`md:hidden transition-all duration-300 ease-in-out ${
-            isOpen ? 'max-h-[calc(100dvh-7.5rem)] overflow-y-auto opacity-100' : 'max-h-0 overflow-hidden opacity-0'
+            isOpen ? 'max-h-[calc(100dvh-7.5rem)] overflow-y-auto overscroll-contain opacity-100' : 'max-h-0 overflow-hidden opacity-0'
           }`}
         >
           <nav aria-label="モバイルメニュー" className="pb-4 border-t border-gray-100 pt-3 flex flex-col gap-1">
