@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { SbPageHeader } from '@/components/admin/SbUi';
+import { SHOP_LINE_ADD_FRIEND_URL } from '@/lib/line-official';
 import { ACCOUNT_DELETION_NOTICE, FACILITY_RETIREMENT_NOTICE, ACCOUNT_DELETION_BOOKING_GUARD_NOTICE } from '@/lib/account-deletion-policy';
 import { LISTING_PUBLISH_REQUIREMENT } from '@/lib/register-photo-policy';
 
@@ -47,6 +48,7 @@ export default function AdminHelpPage() {
         <p className="text-sm text-sky-800">
           お困りのことがありましたら、下記FAQをご確認ください。
           解決しない場合は <Link href="/contact" className="text-sky-600 underline">お問い合わせフォーム</Link> からご連絡ください。
+          LINEでも相談を受け付けています（<a href={SHOP_LINE_ADD_FRIEND_URL} target="_blank" rel="noopener noreferrer" className="text-sky-600 underline">LINEで友だち追加</a>）。
         </p>
       </div>
 

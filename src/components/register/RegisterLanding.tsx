@@ -5,6 +5,7 @@ import RegisterForm from '@/components/register/RegisterForm';
 import ListingPreviewIllustration from '@/components/register/ListingPreviewIllustration';
 import RegistrationFlow from '@/components/register/RegistrationFlow';
 import { SHOW_JOBS } from '@/lib/feature-toggles';
+import { SHOP_LINE_ADD_FRIEND_URL } from '@/lib/line-official';
 import { LISTING_PUBLISH_REQUIREMENT, REGISTER_PHOTO_REQUIREMENT } from '@/lib/register-photo-policy';
 
 /**
@@ -296,7 +297,10 @@ export default function RegisterLanding() {
                 <dd className="mt-2 leading-relaxed">続けて送信せず、画面の案内に従ってください。</dd>
               </div>
             </dl>
-            <Link href="/contact" className="mt-5 inline-block underline underline-offset-4">運営に問い合わせる</Link>
+            <p className="mt-5 flex flex-wrap gap-x-6 gap-y-2">
+              <Link href="/contact" className="underline underline-offset-4">運営に問い合わせる</Link>
+              <a href={SHOP_LINE_ADD_FRIEND_URL} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">LINEで相談する（店舗の方向け）</a>
+            </p>
           </div>
         </section>
       </div>
