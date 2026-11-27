@@ -222,6 +222,7 @@ describe('sendNotify — contact は名前・種類・本文冒頭だけを載�
     ['０９０－１２３４－５６７８', '[phone redacted]'],
     ['(03) 1234-5678', '[phone redacted]'],
     ['090・1234・5678 まで', '[phone redacted] まで'],
+    ['折り返しは090-1234-\n5678へお願いします。', '折り返しは[phone redacted]へお願いします。'],
     ['折り返しは09012345678です。', '折り返しは[phone redacted]です。'],
     ['０９０１２３４５６７８', '[phone redacted]'],
     ['折り返しは090の1234の5678へお願いします。', '折り返しは[phone redacted]へお願いします。'],
