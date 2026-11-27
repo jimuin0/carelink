@@ -174,6 +174,16 @@ describe('postToSlack', () => {
     expect(res.error).toBe('http_500');
   });
 
+  test.each([
+    ['3', { ok: false, error: 'http_429', retryAfterSec: 3 }],
+    [null, { ok: false, error: 'http_429' }],
+    ['abc', { ok: false, error: 'http_429' }],
+    ['0', { ok: false, error: 'http_429' }],
+  ])('HTTP 429（Retry-After=%s）→ 待ち秒数が読めるときだけ retryAfterSec を返す', async (retryAfter, expected) => {
+    mockFetch.mockResolvedValueOnce(new Response('', { status: 429, headers: retryAfter === null ? {} : { 'Retry-After': retryAfter } }));
+    expect(await postToSlack({ text: 'x' })).toEqual(expected);
+  });
+
   test('fetch 自体が throw → result.ok:false で吸収（throw しない）', async () => {
     mockFetch.mockRejectedValueOnce(new Error('network down'));
     const res = await postToSlack({ text: 'x' });

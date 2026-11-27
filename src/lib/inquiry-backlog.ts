@@ -23,6 +23,8 @@ import { alertWarning, redactAlertText } from './alert';
 import { fetchAllPaged } from './paginate';
 import { readMailReplyEvidence } from './platform-mail-read';
 import { summarizeMailReplies, type LegacyMailReply } from './platform-mail-contract';
+import { postInquiryResolveButtons, MAX_TOTAL_BUTTON_ITEMS } from './inquiry-slack-actions';
+import { runAfterResponse } from './after-response';
 
 type DB = ReturnType<typeof createServiceRoleClient>;
 type Evidence = Awaited<ReturnType<typeof readMailReplyEvidence>>;
@@ -89,6 +91,16 @@ function ageInDays(createdAt: string | null, now: Date): number {
   return Math.floor((now.getTime() - new Date(createdAt).getTime()) / DAY_MS);
 }
 
+/**
+ * 受付日時をマイクロ秒の数で返す（並べ替え用）。Date はミリ秒までなので、DB の timestamptz が持つ
+ * マイクロ秒（小数点以下 4〜6 桁目）を足す（Codex 指摘 PR996-06 10回目）。日時が無いものは最も古く扱う。
+ */
+function receivedMicros(createdAt: string | null | undefined): number {
+  if (!createdAt) return Number.NEGATIVE_INFINITY;
+  const micro = /\.\d{3}(\d{1,3})/.exec(createdAt)?.[1] ?? '';
+  return new Date(createdAt).getTime() * 1000 + Number(micro.padEnd(3, '0'));
+}
+
 /** 純粋関数：未完了の問い合わせと返信の記録から、知らせるべきものを古い順に返す。 */
 export function classifyInquiryBacklog(contacts: BacklogContact[], evidence: Evidence, now: Date): BacklogItem[] {
   const items: BacklogItem[] = [];
@@ -102,7 +114,13 @@ export function classifyInquiryBacklog(contacts: BacklogContact[], evidence: Evi
     if (!summary.replied && ageDays >= UNREPLIED_DAYS) items.push({ id: contact.id, ageDays, reason: 'unreplied', ...detail });
     else if (summary.replied && ageDays >= REPLIED_OPEN_DAYS) items.push({ id: contact.id, ageDays, reason: 'repliedOpen', ...detail });
   }
-  return items.sort((a, b) => b.ageDays - a.ageDays);
+  // 同じ経過日数の中でも受付の古い順にする（ボタンの上限で古い件が外れないように・Codex 指摘 PR996-06）
+  return items.sort((a, b) => {
+    if (a.ageDays !== b.ageDays) return b.ageDays - a.ageDays;
+    const x = receivedMicros(a.createdAt);
+    const y = receivedMicros(b.createdAt);
+    return x === y ? 0 : x < y ? -1 : 1;
+  });
 }
 
 /** 受付日を日本時間の「M/D」で返す。 */
@@ -203,8 +221,15 @@ export async function reportInquiryBacklog(
         unreplied: shownUnreplied.length ? shownUnreplied : 'なし',
         repliedOpen: shownRepliedOpen.length ? shownRepliedOpen : 'なし',
         omitted: items.length - shownUnreplied.length - shownRepliedOpen.length,
+        // ボタンは古い順に上限件数まで（送信時間を抑えるため）。超えた分は管理画面で閉じる（Codex 指摘 PR996-06）
+        ...(items.length > MAX_TOTAL_BUTTON_ITEMS ? { buttons: `ボタンは古い順に${MAX_TOTAL_BUTTON_ITEMS}件まで。ほか${items.length - MAX_TOTAL_BUTTON_ITEMS}件は問い合わせ管理で閉じてください` } : {}),
       },
     });
+    // 1件ごとに「解決済みにする」ボタンを付けたメッセージを続けて出す（2026年11月27日 神原さん指示）。
+    // 解決済みにするまで毎朝出し続ける（自動では閉じない）。
+    // 死活監視の cron の結果記録・応答を待たせないよう、応答後に送る（Codex 指摘 PR996-05）。
+    const buttonLines = items.slice(0, MAX_TOTAL_BUTTON_ITEMS).map((item) => ({ id: item.id, label: redactAlertText(formatItem(item)) }));
+    runAfterResponse(() => postInquiryResolveButtons(buttonLines, `${base}/admin/inquiries`));
   }
   return { unreplied: unreplied.length, repliedOpen: repliedOpen.length };
 }

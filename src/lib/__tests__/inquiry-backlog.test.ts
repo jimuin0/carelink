@@ -1,7 +1,11 @@
 jest.mock('../alert', () => ({ alertWarning: jest.fn(), redactAlertText: jest.requireActual('../alert').redactAlertText }));
 jest.mock('../platform-mail-read', () => ({ readMailReplyEvidence: jest.fn() }));
+jest.mock('../inquiry-slack-actions', () => ({ postInquiryResolveButtons: jest.fn().mockResolvedValue(true), MAX_TOTAL_BUTTON_ITEMS: 3 }));
+const mockRunAfter = jest.fn((task: () => unknown) => task());
+jest.mock('../after-response', () => ({ runAfterResponse: (task: () => unknown) => mockRunAfter(task) }));
 
 import { alertWarning } from '../alert';
+import { postInquiryResolveButtons } from '../inquiry-slack-actions';
 import { readMailReplyEvidence } from '../platform-mail-read';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -150,12 +154,38 @@ describe('reportInquiryBacklog', () => {
       ],
       repliedOpen: [`${'あ'.repeat(20)}…様・10/28受付・種類不明・対応中タブ（20日）`],
       omitted: 0,
+      buttons: 'ボタンは古い順に3件まで。ほか1件は問い合わせ管理で閉じてください',
     });
     // 案内が一覧より先（1500 文字の切り詰めで消えない）
     expect(Object.keys(opts.extra).slice(0, 2)).toEqual(['adminUrl', 'howToClose']);
     // メール・電話・本文も、種類欄に書かれた自由記述も、受付番号も載らない
     const sent = JSON.stringify([message, opts]);
     for (const secret of ['a@example.invalid', '090-1234-5678', '本文', '佐藤花子', '腰の痛み', '01234567', '00000000']) expect(sent).not.toContain(secret);
+    // 1件ごとに「解決済みにする」ボタンを付けたメッセージも出す（ボタンの値は問い合わせの id・表示は同じ1行）
+    expect(postInquiryResolveButtons).toHaveBeenCalledTimes(1);
+    const [lines, adminUrl] = (postInquiryResolveButtons as jest.Mock).mock.calls[0];
+    expect(adminUrl).toBe('https://carelink-jp.com/admin/inquiries');
+    expect(lines.map((l: { id: string }) => l.id)).toEqual([uuid(3), uuid(1), uuid(2)]);
+    expect(lines).toContainEqual({ id: uuid(1), label: '山田 太郎様・9/19受付・施設掲載について（オーナー向け）・新着タブ（59日）' });
+    // 応答後に送る（死活監視の記録を待たせない）・上限（テストでは3件）まで
+    expect(mockRunAfter).toHaveBeenCalledTimes(1);
+    expect(lines).toHaveLength(3);
+    expect(opts.extra.buttons).toBe('ボタンは古い順に3件まで。ほか1件は問い合わせ管理で閉じてください');
+    const buttonText = JSON.stringify(lines.map((l: { label: string }) => l.label));
+    for (const secret of ['a@example.invalid', '090-1234-5678', '本文', '佐藤花子', '腰の痛み']) expect(buttonText).not.toContain(secret);
+  });
+
+  test('同じ経過日数なら受付の古い順に並べる（ボタンの上限で古い件が外れない）', () => {
+    const items = classifyInquiryBacklog([
+      { id: uuid(1), created_at: '2026-11-10T10:00:00Z' },
+      { id: uuid(2), created_at: '2026-11-10T09:00:00Z' },
+      { id: uuid(3), created_at: null },
+      { id: uuid(4), created_at: null },
+      { id: uuid(5), created_at: '2026-11-10T09:00:00.123999+00:00' },
+      { id: uuid(6), created_at: '2026-11-10T09:00:00.123001+00:00' },
+    ], { messages: [], replies: [] }, new Date('2026-11-17T12:00:00Z'));
+    // マイクロ秒の差（Date では同じミリ秒になる）でも古い方を先にする
+    expect(items.map((i) => i.id)).toEqual([uuid(3), uuid(4), uuid(2), uuid(6), uuid(5), uuid(1)]);
   });
 
   test('知らせるものが無ければ Slack に出さない', async () => {
@@ -163,6 +193,7 @@ describe('reportInquiryBacklog', () => {
     await expect(reportInquiryBacklog(db, now)).resolves.toEqual({ unreplied: 0, repliedOpen: 0 });
     expect(readMailReplyEvidence).not.toHaveBeenCalled();
     expect(alertWarning).not.toHaveBeenCalled();
+    expect(postInquiryResolveButtons).not.toHaveBeenCalled();
   });
 
   test('片方の区分が空なら「なし」と出し、上限を超えた分は省略件数に数え、設定済みの URL を使う', async () => {
