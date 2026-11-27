@@ -5,7 +5,7 @@ jest.mock('../slack', () => ({ ...jest.requireActual('../slack'), postToSlack: j
 jest.mock('../audit-logger', () => ({ writeAuditLog: jest.fn() }));
 import { postToSlack } from '../slack';
 import { writeAuditLog } from '../audit-logger';
-import { buildInquiryResolveBlocks, postInquiryResolveButtons, resolveInquiryFromSlack, INQUIRY_RESOLVE_ACTION_ID, MAX_BUTTON_ITEMS, RETRY_WAIT_MS } from '../inquiry-slack-actions';
+import { buildInquiryResolveBlocks, postInquiryResolveButtons, resolveInquiryFromSlack, INQUIRY_RESOLVE_ACTION_ID, MAX_BUTTON_ITEMS, RETRY_WAIT_MS, MAX_RETRY_WAIT_MS } from '../inquiry-slack-actions';
 
 const ID = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '00000000-0000-4000-8000-0000000000aa';
@@ -88,6 +88,18 @@ describe('postInquiryResolveButtons', () => {
     await expect(sending).resolves.toBe(true);
     expect(postToSlack).toHaveBeenCalledTimes(2);
     expect((postToSlack as jest.Mock).mock.calls[1][0].blocks).toEqual((postToSlack as jest.Mock).mock.calls[0][0].blocks);
+    jest.useRealTimers();
+  });
+
+  test.each([[3, 3000], [120, MAX_RETRY_WAIT_MS]])('429 で Retry-After=%i 秒なら %i ms 待ってから送り直す', async (sec, waitMs) => {
+    jest.useFakeTimers();
+    (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: false, error: 'http_429', retryAfterSec: sec }).mockResolvedValueOnce({ ok: true });
+    const sending = postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN);
+    await jest.advanceTimersByTimeAsync(waitMs - 1);
+    expect(postToSlack).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    await expect(sending).resolves.toBe(true);
+    expect(postToSlack).toHaveBeenCalledTimes(2);
     jest.useRealTimers();
   });
 

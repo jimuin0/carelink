@@ -24,6 +24,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export const MAX_BUTTON_ITEMS = 20;
 /** 送り直すまでの待ち時間（Slack の chat.postMessage はチャンネルあたり毎秒1通程度まで）。 */
 export const RETRY_WAIT_MS = 1500;
+/** 待ちの上限（cron の実行時間を延ばしすぎない。超える指定でも欠けた件は翌朝の通知に出る）。 */
+export const MAX_RETRY_WAIT_MS = 30_000;
 
 export interface ResolvableLine { id: string; label: string }
 
@@ -58,7 +60,9 @@ export async function postInquiryResolveButtons(lines: ResolvableLine[], adminUr
       // 一時的な失敗（Slack のレート制限 http_429 等）で一部の通だけ欠けないよう、少し待って 1 回だけ送り直す（Codex 指摘 PR996-04）。
       // 送り直しても欠けた件は、解決済みになるまで翌朝も通知に出る。
       if (!result.ok && result.error !== 'preview_read_only' && result.error !== 'not_configured' && result.error !== 'no_channel') {
-        await new Promise((resolve) => setTimeout(resolve, RETRY_WAIT_MS));
+        // Slack が待ち秒数（Retry-After）を示したらそれに従う（上限 MAX_RETRY_WAIT_MS・Codex 指摘 PR996-04 再検査）
+        const waitMs = Math.min(Math.max(RETRY_WAIT_MS, (result.retryAfterSec ?? 0) * 1000), MAX_RETRY_WAIT_MS);
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
         result = await send();
       }
       if (!result.ok) { allOk = false; console.error('[inquiry-slack] button post failed:', result.error); }

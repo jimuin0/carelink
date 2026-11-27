@@ -65,6 +65,8 @@ export interface SlackPostResult {
   channel?: string;
   /** Slack 側のエラーコード（ok=false 時のみ） */
   error?: string;
+  /** HTTP 429 のとき Slack が指定した待ち秒数（Retry-After）。読めなければ無し */
+  retryAfterSec?: number;
 }
 
 /**
@@ -109,7 +111,10 @@ export async function postToSlack(opts: SlackPostOptions): Promise<SlackPostResu
     });
 
     if (!res.ok) {
-      return { ok: false, error: `http_${res.status}` };
+      const retryAfter = Number(res.headers.get('retry-after'));
+      return res.status === 429 && Number.isFinite(retryAfter) && retryAfter > 0
+        ? { ok: false, error: 'http_429', retryAfterSec: retryAfter }
+        : { ok: false, error: `http_${res.status}` };
     }
 
     const json = (await res.json()) as { ok: boolean; ts?: string; channel?: string; error?: unknown };
