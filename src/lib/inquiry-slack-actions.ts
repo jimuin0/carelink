@@ -14,42 +14,51 @@
 import type { createServiceRoleClient } from './supabase-server';
 import { actionsBlock, buttonElement, getSlackUserEmail, linkButtonElement, postToSlack, respondToSlackAction, sectionBlock } from './slack';
 import { writeAuditLog } from './audit-logger';
+import { canonicalizeEmail } from './email-canonical';
 
 type DB = ReturnType<typeof createServiceRoleClient>;
 
 export const INQUIRY_RESOLVE_ACTION_ID = 'inquiry_resolve';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** 1通に載せるボタンの上限（Slack は 1 メッセージ 50 ブロックまで。1件 2 ブロック＋見出し・案内）。 */
+/** 1通に載せる件数（Slack は 1 メッセージ 50 ブロックまで。1件 2 ブロック＋見出し・リンク）。超えた分は次の1通に続ける。 */
 export const MAX_BUTTON_ITEMS = 20;
 
 export interface ResolvableLine { id: string; label: string }
 
-/** ボタン付きメッセージの blocks を作る（純粋関数）。label は送る前の伏せ字処理を通したもの。 */
-export function buildInquiryResolveBlocks(lines: ResolvableLine[], adminUrl: string): Record<string, unknown>[] {
-  const shown = lines.slice(0, MAX_BUTTON_ITEMS);
+/** ボタン付きメッセージ1通分の blocks を作る（純粋関数）。label は送る前の伏せ字処理を通したもの。 */
+export function buildInquiryResolveBlocks(lines: ResolvableLine[], adminUrl: string, page = { index: 1, total: 1 }): Record<string, unknown>[] {
+  const heading = page.total > 1 ? `*未完了のお問い合わせ（${page.index}/${page.total}）*` : '*未完了のお問い合わせ*';
   const blocks: Record<string, unknown>[] = [
-    sectionBlock('*未完了のお問い合わせ*（対応が済んだものは「解決済みにする」を押してください。解決済みにするまで毎朝お知らせします）'),
+    sectionBlock(`${heading}（対応が済んだものは「解決済みにする」を押してください。解決済みにするまで毎朝お知らせします）`),
   ];
-  for (const line of shown) {
+  for (const line of lines.slice(0, MAX_BUTTON_ITEMS)) {
     blocks.push(sectionBlock(line.label));
     blocks.push(actionsBlock([buttonElement('解決済みにする', INQUIRY_RESOLVE_ACTION_ID, line.id, 'primary')]));
   }
-  const rest = lines.length - shown.length;
-  blocks.push(actionsBlock([linkButtonElement(rest > 0 ? `問い合わせ管理を開く（ほか${rest}件）` : '問い合わせ管理を開く', adminUrl)]));
+  blocks.push(actionsBlock([linkButtonElement('問い合わせ管理を開く', adminUrl)]));
   return blocks;
 }
 
-/** ボタン付きメッセージを送る。失敗しても throw しない（文章の通知は別に出ている）。 */
+/**
+ * ボタン付きメッセージを送る。全件にボタンが付くよう、MAX_BUTTON_ITEMS 件ごとに分けて送る
+ * （上限で切ると、古い件が残り続ける間は新しい件に毎日ボタンが付かない・Codex 指摘 PR996-03）。
+ * 失敗しても throw しない（文章の通知は別に出ている）。全通送れたら true。
+ */
 export async function postInquiryResolveButtons(lines: ResolvableLine[], adminUrl: string): Promise<boolean> {
   if (lines.length === 0) return false;
-  try {
-    const result = await postToSlack({ text: `未完了のお問い合わせ ${lines.length}件（ボタンで解決済みにできます）`, blocks: buildInquiryResolveBlocks(lines, adminUrl), unfurl_links: false });
-    if (!result.ok) console.error('[inquiry-slack] button post failed:', result.error);
-    return result.ok;
-  } catch {
-    console.error('[inquiry-slack] button post failed:', 'notification_failure');
-    return false;
+  const total = Math.ceil(lines.length / MAX_BUTTON_ITEMS);
+  let allOk = true;
+  for (let index = 0; index < total; index += 1) {
+    const chunk = lines.slice(index * MAX_BUTTON_ITEMS, (index + 1) * MAX_BUTTON_ITEMS);
+    try {
+      const result = await postToSlack({ text: `未完了のお問い合わせ ${lines.length}件（ボタンで解決済みにできます）`, blocks: buildInquiryResolveBlocks(chunk, adminUrl, { index: index + 1, total }), unfurl_links: false });
+      if (!result.ok) { allOk = false; console.error('[inquiry-slack] button post failed:', result.error); }
+    } catch {
+      allOk = false;
+      console.error('[inquiry-slack] button post failed:', 'notification_failure');
+    }
   }
+  return allOk;
 }
 
 export interface ResolvePayload {
@@ -79,7 +88,7 @@ async function decide(db: DB, payload: ResolvePayload, contactId: string | undef
   if (!contactId || !UUID_RE.test(contactId) || !slackUserId) return 'invalid';
   const email = await getSlackUserEmail(slackUserId);
   if (!email) return 'no_email';
-  const { data: admins, error: lookupError } = await db.from('profiles').select('id').eq('email_canonical', email).eq('is_platform_admin', true).limit(2);
+  const { data: admins, error: lookupError } = await db.from('profiles').select('id').eq('email_canonical', canonicalizeEmail(email)).eq('is_platform_admin', true).limit(2);
   if (lookupError) return 'failed';
   if (!admins || admins.length !== 1) return 'not_admin';
   const actorId = (admins[0] as { id: string }).id;

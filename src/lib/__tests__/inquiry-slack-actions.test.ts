@@ -49,15 +49,15 @@ describe('buildInquiryResolveBlocks', () => {
     expect(JSON.stringify(blocks[1])).toContain('山田様・9/19受付');
     expect(blocks[2]).toEqual({ type: 'actions', elements: [expect.objectContaining({ action_id: INQUIRY_RESOLVE_ACTION_ID, value: ID, style: 'primary' })] });
     expect(JSON.stringify(blocks[3])).toContain(URL_ADMIN);
-    expect(JSON.stringify(blocks[3])).not.toContain('ほか');
+    expect(JSON.stringify(blocks[0])).not.toContain('1/1');
   });
 
-  test('上限を超えた分はボタンを出さず、リンクに残りの件数を書く（Slack の 50 ブロック上限内）', () => {
+  test('1通は上限件数まで（Slack の 50 ブロック上限内）で、複数通のときは見出しに通し番号を付ける', () => {
     const lines = Array.from({ length: MAX_BUTTON_ITEMS + 3 }, (_, i) => ({ id: ID, label: `件${i}` }));
-    const blocks = buildInquiryResolveBlocks(lines, URL_ADMIN);
+    const blocks = buildInquiryResolveBlocks(lines, URL_ADMIN, { index: 2, total: 3 });
     expect(blocks.length).toBeLessThanOrEqual(50);
     expect(blocks).toHaveLength(MAX_BUTTON_ITEMS * 2 + 2);
-    expect(JSON.stringify(blocks.at(-1))).toContain('ほか3件');
+    expect(JSON.stringify(blocks[0])).toContain('2/3');
   });
 });
 
@@ -75,6 +75,16 @@ describe('postInquiryResolveButtons', () => {
     (postToSlack as jest.Mock).mockRejectedValueOnce(new Error('boom'));
     await expect(postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN)).resolves.toBe(false);
   });
+
+  test('上限を超えたら分けて送り、全件にボタンが付く（Codex 指摘 PR996-03）', async () => {
+    (postToSlack as jest.Mock).mockResolvedValue({ ok: true });
+    const lines = Array.from({ length: MAX_BUTTON_ITEMS * 2 + 1 }, (_, i) => ({ id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`, label: `件${i}` }));
+    await expect(postInquiryResolveButtons(lines, URL_ADMIN)).resolves.toBe(true);
+    expect(postToSlack).toHaveBeenCalledTimes(3);
+    const values = (postToSlack as jest.Mock).mock.calls.flatMap(([opts]) => (opts.blocks as { elements?: { value?: string; action_id?: string }[] }[]).flatMap((b) => b.elements ?? []).filter((e) => e.action_id === INQUIRY_RESOLVE_ACTION_ID).map((e) => e.value));
+    expect(values).toEqual(lines.map((l) => l.id));
+    (postToSlack as jest.Mock).mockReset();
+  });
 });
 
 describe('resolveInquiryFromSlack', () => {
@@ -90,6 +100,13 @@ describe('resolveInquiryFromSlack', () => {
     expect(respondedText()).toContain('解決済みにしました');
     const usersInfo = fetchMock.mock.calls.find(([url]) => String(url).includes('users.info'));
     expect(usersInfo[1].headers.Authorization).toBe('Bearer xoxb-test');
+  });
+
+  test('Gmail のドット・+タグは DB の email_canonical と同じ規則で揃えて照合する（Codex 指摘 PR996-02）', async () => {
+    slackUser({ profile: { email: 'Admin.Example+tag@gmail.com' } });
+    const { db, calls } = fakeDb({ data: [{ id: ACTOR }], error: null });
+    await expect(resolveInquiryFromSlack(db, payload, ID)).resolves.toBe('resolved');
+    expect(calls.eq[0]).toEqual(['email_canonical', 'adminexample@gmail.com']);
   });
 
   test('RPC が resolved_at を返さなくても解決扱いにする', async () => {
