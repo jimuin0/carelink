@@ -12,7 +12,7 @@
  *   メールが取れない（users:read.email の権限が無い等）・一致しない・複数一致は、何も変えずに理由だけ返す。
  */
 import type { createServiceRoleClient } from './supabase-server';
-import { actionsBlock, buttonElement, getSlackUserEmail, linkButtonElement, postToSlack, respondToSlackAction, sectionBlock } from './slack';
+import { actionsBlock, buttonElement, getSlackUserEmail, headerBlock, linkButtonElement, plainTextBlock, postToSlack, respondToSlackAction } from './slack';
 import { writeAuditLog } from './audit-logger';
 import { canonicalizeEmail } from './email-canonical';
 
@@ -44,13 +44,16 @@ export interface ResolvableLine { id: string; label: string }
 
 /** ボタン付きメッセージ1通分の blocks を作る（純粋関数）。label は送る前の伏せ字処理を通したもの。 */
 export function buildInquiryResolveBlocks(lines: ResolvableLine[], adminUrl: string, page = { index: 1, total: 1 }): Record<string, unknown>[] {
-  const heading = page.total > 1 ? `*未完了のお問い合わせ（${page.index}/${page.total}）*` : '*未完了のお問い合わせ*';
+  // 見出しは Slack の見出し部品で出す（「*太字*」は日本語と隣り合うと記号のまま出る・2026年11月27日 神原さん指示）
+  const heading = page.total > 1 ? `未完了のお問い合わせ（${page.index}/${page.total}）` : '未完了のお問い合わせ';
   const blocks: Record<string, unknown>[] = [
-    sectionBlock(`${heading}（対応が済んだものは「解決済みにする」を押してください。解決済みにするまで毎朝お知らせします）`),
+    headerBlock(heading),
+    plainTextBlock('対応が済んだものは「解決済みにする」を押してください。解決済みにするまで毎朝お知らせします。'),
   ];
+
   for (const line of lines.slice(0, MAX_BUTTON_ITEMS)) {
     // 名前は利用者の入力なので、Slack の書式・リンク・メンションとして解釈させない plain_text で出す（Codex 指摘 PR996-07）
-    blocks.push({ type: 'section', text: { type: 'plain_text', text: line.label, emoji: false } });
+    blocks.push(plainTextBlock(line.label));
     blocks.push(actionsBlock([buttonElement('解決済みにする', INQUIRY_RESOLVE_ACTION_ID, line.id, 'primary')]));
   }
   blocks.push(actionsBlock([linkButtonElement('問い合わせ管理を開く', adminUrl)]));
