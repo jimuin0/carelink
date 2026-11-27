@@ -239,6 +239,7 @@ function setup(cfg: Cfg = {}) {
 }
 
 beforeEach(() => {
+  process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN = 'customer-token';
   jest.clearAllMocks();
   setup();
   jest.useFakeTimers();
@@ -537,6 +538,18 @@ describe('GET /api/cron/booking-reminder', () => {
     expect(mockLineReminder).toHaveBeenCalledWith('LINE-1', expect.objectContaining({
       facilityName: 'Salon A', menuName: 'カット', date: D7, daysBefore: 7,
     }));
+  });
+
+  test('来院者向けアカウントのトークン未設定 → LINE 連携があっても LINE は送らない（PR #1001）', async () => {
+    delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
+    });
+    await GET(makeRequest() as any);
+    expect(mockLineReminder).not.toHaveBeenCalled();
   });
 
   test('3d LINE: 設定＋購入＋連携 → LINE送信（daysBefore 3）', async () => {

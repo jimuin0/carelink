@@ -6,3 +6,11 @@
  */
 export const SHOP_LINE_BASIC_ID = '@549rbbyi';
 export const SHOP_LINE_ADD_FRIEND_URL = `https://line.me/R/ti/p/${SHOP_LINE_BASIC_ID}`;
+
+/**
+ * 来院者向けの LINE 公式アカウント「CareLink｜ご利用者向け」（2026年11月27日 作成・店舗用と同じプロバイダー）。
+ * 予約の確認・リマインドを届け、相談は受けない（/api/line/webhook が店舗とお問い合わせフォームへ案内する）。
+ * 友だち追加の入口は来院者向けの画面（マイページ）にだけ置く。
+ */
+export const CUSTOMER_LINE_BASIC_ID = '@927zbsut';
+export const CUSTOMER_LINE_ADD_FRIEND_URL = `https://line.me/R/ti/p/${CUSTOMER_LINE_BASIC_ID}`;

@@ -8,7 +8,7 @@ test.beforeAll(()=>{
    ||process.env.NEXT_PUBLIC_SUPABASE_URL!=='https://localhost:54330'
    ||process.env.PLAYWRIGHT_BASE_URL!=='https://localhost:3000'
    ||!process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.RESEND_API_KEY
-   ||process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK)throw new Error('Review moderation requires isolated CI without sending credentials');
+   ||process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK || process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN)throw new Error('Review moderation requires isolated CI without sending credentials');
 });
 test('displayed content -> stale edit rejected -> refreshed approval -> lost response replays same decision',async({page},info)=>{
  const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});

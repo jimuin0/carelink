@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 test.use({trace:'off',screenshot:'off',video:'off',serviceWorkers:'block'});
 test.beforeAll(()=>{
- if(process.env.CI!=='true'||process.env.GITHUB_ACTIONS!=='true'||process.env.NEXT_PUBLIC_SUPABASE_URL!=='https://localhost:54330'||process.env.PLAYWRIGHT_BASE_URL!=='https://localhost:3000'||!process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.RESEND_API_KEY||process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK)throw new Error('Editor fixture requires isolated CI without provider credentials');
+ if(process.env.CI!=='true'||process.env.GITHUB_ACTIONS!=='true'||process.env.NEXT_PUBLIC_SUPABASE_URL!=='https://localhost:54330'||process.env.PLAYWRIGHT_BASE_URL!=='https://localhost:3000'||!process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.RESEND_API_KEY||process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK || process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN)throw new Error('Editor fixture requires isolated CI without provider credentials');
 });
 test('platform drafts, guide failures and revoked writes stay scoped to owned fixtures',async({page})=>{
  const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});

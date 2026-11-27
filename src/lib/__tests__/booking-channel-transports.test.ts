@@ -9,7 +9,7 @@ const subscription={endpoint:'https://push.example.invalid/captured',p256dh:'syn
 beforeEach(()=>{
   jest.clearAllMocks();jest.restoreAllMocks();__resetLineWorksTokenCacheForTest();
   process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY='synthetic-public';process.env.VAPID_PRIVATE_KEY='synthetic-private';
-  process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK='synthetic-line-token';
+  process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN='synthetic-line-token';
   for(const key of ['LINE_WORKS_BOT_ID','LINE_WORKS_CLIENT_ID','LINE_WORKS_CLIENT_SECRET','LINE_WORKS_SERVICE_ACCOUNT','LINE_WORKS_PRIVATE_KEY'])delete process.env[key];
   mockPushPrepare.mockReturnValue({});mockPushSend.mockResolvedValue({statusCode:201});
   global.fetch=jest.fn();
@@ -50,7 +50,7 @@ test('LINE timeout stays unknown and is not retried',async()=>{
  (fetch as jest.Mock).mockRejectedValue(new Error('private credential'));expect((await prepareSingleLineDelivery('captured','text')()).outcome).toBe('uncertain');expect(fetch).toHaveBeenCalledTimes(1);
 });
 test('missing LINE config blocks preparation',()=>{
- delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;expect(()=>prepareSingleLineDelivery('x','x')).toThrow();expect(fetch).not.toHaveBeenCalled();
+ delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;expect(()=>prepareSingleLineDelivery('x','x')).toThrow();expect(fetch).not.toHaveBeenCalled();
 });
 test('LINE Works missing bot or auth blocks before any message request',async()=>{
  await expect(prepareSingleLineWorksDelivery('x','x')).rejects.toThrow('LINE_WORKS_PREPARATION_UNAVAILABLE');expect(fetch).not.toHaveBeenCalled();

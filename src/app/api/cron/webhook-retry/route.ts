@@ -89,16 +89,22 @@ export async function GET(request: Request) {
     }
     let deliveryUncertain = heldDeliveryCount;
 
-    // pending かつ scheduled_at が現在時刻以前のジョブを取得
-    const { data: jobs, error: jobsError } = await retryTransientSupabaseRead(() =>
-      supabase
+    // pending かつ scheduled_at が現在時刻以前のジョブを取得。
+    // 来院者向け LINE のトークンが未設定なら LINE ジョブは取り出さない（claim してから送れずに失敗すると
+    // 「結果不明」で保留され、トークンを設定しても自動再送に戻らないため。pending のまま残し、設定後に送る。PR #1001）。
+    // 来院者向けアカウントのトークンで送るジョブの種類（来院者へのプッシュ・一斉送信・キャンセル通知）。
+    const CUSTOMER_LINE_JOB_TYPES = ['line_push', 'line_multicast', 'customer_booking_line'];
+    const customerLineReady = !!process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
+    const { data: jobs, error: jobsError } = await retryTransientSupabaseRead(() => {
+      const pending = supabase
         .from('webhook_retry_queue')
         .select('*')
-        .eq('status', 'pending')
+        .eq('status', 'pending');
+      return (customerLineReady ? pending : pending.not('webhook_type', 'in', `(${CUSTOMER_LINE_JOB_TYPES.join(',')})`))
         .lte('scheduled_at', new Date().toISOString())
         .order('scheduled_at', { ascending: true })
-        .limit(50),
-    );
+        .limit(50);
+    });
 
     // DB エラーを握り潰すと「0 件＝skipped 成功」に化け、その run が無音でスキップされ Slack 通報も
     // されない。error を error ログ＋500 で可視化する（発症前検知）。

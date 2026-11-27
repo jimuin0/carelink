@@ -8,11 +8,17 @@
  */
 
 import { NextResponse } from 'next/server';
-import { verifyLineSignature, sendLineReply } from '@/lib/line';
+import { verifyCustomerLineSignature, sendLineReply, customerLineAccessToken } from '@/lib/line';
 import { createClient } from '@supabase/supabase-js';
 import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
+
+// 来院者向けアカウント（2026年11月27日 本人決定）。このアカウントでは相談を受けず、決まった案内だけを返す
+// （予約・施術のことは各店舗、サイトのことはお問い合わせフォーム。店舗の相談窓口は別アカウント）。
+const CUSTOMER_LINE_GUIDE = '予約・施術についてのご相談は、ご予約の店舗へ直接お問い合わせください。\nサイトについてのご質問は、お問い合わせフォームからお送りください👇\nhttps://carelink-jp.com/contact\n\nこのアカウントでは個別のご相談はお受けしていません。';
+const CUSTOMER_LINE_FOLLOW_TEXT = `CareLink をフォローいただきありがとうございます！\nご予約の確認・リマインドをこのアカウントからお届けします。\n\nサロン・クリニックの検索・予約はこちら👇\nhttps://carelink-jp.com\n\n${CUSTOMER_LINE_GUIDE}`;
+const CUSTOMER_LINE_GUIDE_TEXT = `お問い合わせありがとうございます。\n\n${CUSTOMER_LINE_GUIDE}`;
 
 interface LineEvent {
   type: string;
@@ -30,7 +36,7 @@ export async function POST(request: Request) {
   // 再送機会を残す（M-7）。署名不正(false)は正常な拒否として 401。
   let signatureValid: boolean;
   try {
-    signatureValid = !!signature && verifyLineSignature(body, signature);
+    signatureValid = !!signature && verifyCustomerLineSignature(body, signature);
   } catch (e) {
     return serverError('line-webhook-signature', e, '/api/line/webhook', 'Webhook configuration error');
   }
@@ -67,7 +73,7 @@ export async function POST(request: Request) {
       switch (event.type) {
         case 'follow':
           if (event.replyToken) {
-            await reply(event.replyToken, 'CareLink をフォローいただきありがとうございます！\n\nサロン・クリニックの検索・予約はこちら👇\nhttps://carelink-jp.com');
+            await reply(event.replyToken, CUSTOMER_LINE_FOLLOW_TEXT);
           }
           break;
 
@@ -76,7 +82,7 @@ export async function POST(request: Request) {
 
         case 'message':
           if (event.replyToken && event.message?.type === 'text') {
-            await reply(event.replyToken, 'お問い合わせありがとうございます。\n\nサロン検索・予約はこちら👇\nhttps://carelink-jp.com/search');
+            await reply(event.replyToken, CUSTOMER_LINE_GUIDE_TEXT);
           }
           break;
       }
@@ -94,7 +100,7 @@ export async function POST(request: Request) {
 async function handleFollow(lineUserId: string) {
   // LINEプロフィール取得
   try {
-    const token = process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+    const token = customerLineAccessToken();
     if (!token) throw new Error('LINE follow configuration unavailable');
 
     const res = await fetch(`https://api.line.me/v2/bot/profile/${lineUserId}`, {

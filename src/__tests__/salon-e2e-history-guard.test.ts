@@ -7,11 +7,11 @@ const row={id:'11111111-1111-4111-8111-111111111111',email:'synthetic@example.in
 beforeEach(()=>{
  jest.clearAllMocks();process.env.CI='true';process.env.GITHUB_ACTIONS='true';
  process.env.NEXT_PUBLIC_SUPABASE_URL='https://localhost:54330';process.env.PLAYWRIGHT_BASE_URL='https://localhost:3000';
- delete process.env.RESEND_API_KEY;delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+ delete process.env.RESEND_API_KEY;delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
 });
 afterEach(()=>{process.env={...env};});
 test.each([{CI:'false'},{GITHUB_ACTIONS:'false'},{NEXT_PUBLIC_SUPABASE_URL:'https://production.invalid'},
- {PLAYWRIGHT_BASE_URL:'https://carelink-jp.com'},{RESEND_API_KEY:'synthetic-key'},{LINE_CHANNEL_ACCESS_TOKEN_CARELINK:'synthetic-token'}])('refuses unsafe fixture environment %#',bad=>{
+ {PLAYWRIGHT_BASE_URL:'https://carelink-jp.com'},{RESEND_API_KEY:'synthetic-key'},{LINE_CHANNEL_ACCESS_TOKEN_CARELINK:'synthetic-token'},{LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN:'synthetic-token'}])('refuses unsafe fixture environment %#',bad=>{
  Object.assign(process.env,bad);expect(()=>seedSyntheticSalonHistory([row])).toThrow('managed disposable');expect(execFileSync).not.toHaveBeenCalled();
 });
 test.each([[],Array(501).fill(row),[{...row,email:'real@gmail.com'}],[{...row,id:'bad'}],[{...row,source:'other'}],[{...row,unexpected:'field'}]].map(rows=>({rows})))('refuses invalid historical fixture %#',({rows})=>{

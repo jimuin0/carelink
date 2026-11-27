@@ -14,7 +14,7 @@ test.beforeAll(() => {
     || process.env.PLAYWRIGHT_BASE_URL !== 'https://localhost:3000'
     || process.env.SALON_REGISTRATION_V2_ENABLED !== 'true'
     || !process.env.SUPABASE_SERVICE_ROLE_KEY
-    || process.env.RESEND_API_KEY || process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
+    || process.env.RESEND_API_KEY || process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK || process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN) {
     throw new Error('Legacy resume browser proof requires managed disposable CI without sending credentials');
   }
 });
