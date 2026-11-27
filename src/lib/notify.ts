@@ -143,9 +143,9 @@ const recordId = z.string().regex(UUID_REGEX);
 /** 受信通知に載せる本文の最大文字数（2026年11月27日 本人決定「名前・種類・本文冒頭」） */
 export const CONTACT_PREVIEW_MAX = 100;
 
-// ドメインのラベルは使える文字を列挙せず、空白・区切り・括弧・句読点以外を全て含める（col·legi.cat の
-// 「·」のように国際化ドメインが許す文字を取りこぼさないため。漏らさない側に倒す）
-const DOMAIN_LABEL = String.raw`[^\s@<>.。、，,()（）「」『』【】\[\]"'：:；;!?！？]+`;
+// ドメインのラベルは、ASCII の範囲では英数字とハイフンだけ（DNS の規則。/ などで区切った次のアドレスを巻き込まないため）、
+// ASCII の外では空白・区切り・括弧・句読点以外を全て含める（col·legi.cat の「·」のように国際化ドメインが許す文字を取りこぼさないため）
+const DOMAIN_LABEL = String.raw`(?:[A-Z0-9-]|[^\x00-\x7F\s。、，「」『』【】：；！？])+`;
 const EMAIL_CANDIDATE = new RegExp(`[A-Z0-9.!#$%&'*+/=?^_\u0060{|}~-]+@${DOMAIN_LABEL}(?:[.。]${DOMAIN_LABEL})+`, 'giu');
 
 /**
