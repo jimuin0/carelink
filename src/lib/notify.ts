@@ -164,7 +164,10 @@ function redactEmail(candidate: string): string {
   for (; i < parts.length; i += 2) {
     if (parts[i] === '。' && hasDot && !/^[A-Z0-9-]+$/i.test(parts[i + 1])) break;
   }
-  return `[email redacted]${parts.slice(i).join('')}`;
+  // 末尾のラベルが英数字で始まり途中から英数字以外に変わるときは、変わる所でドメインが終わったとみなす
+  // （taro@gmail.comまで… の「まで…」を残すため。TLD が英数字と他の文字の混ざった形になることは無い）
+  const tail = /^([A-Z0-9-]+)([^\x00-\x7F][\s\S]*)$/iu.exec(parts[i - 1]);
+  return `[email redacted]${tail ? tail[2] : ''}${parts.slice(i).join('')}`;
 }
 
 /**

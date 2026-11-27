@@ -222,6 +222,8 @@ describe('sendNotify — contact は名前・種類・本文冒頭だけを載�
     ['０９０－１２３４－５６７８', '[phone redacted]'],
     ['(03) 1234-5678', '[phone redacted]'],
     ['090・1234・5678 まで', '[phone redacted] まで'],
+    ['連絡先はtaro@gmail.comまでご連絡ください。', '連絡先は[email redacted]までご連絡ください。'],
+    ['taro@example。jpへ', '[email redacted]へ'],
     ['０９０･１２３４･５６７８', '[phone redacted]'],
     ['連絡先 090−1234−5678', '連絡先 [phone redacted]'],
     ['090ー1234ー5678', '[phone redacted]'],
