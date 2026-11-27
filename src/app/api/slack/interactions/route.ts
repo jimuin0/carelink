@@ -22,6 +22,8 @@ import { safeCaptureException } from '@/lib/safe';
 import { runAfterResponse } from '@/lib/after-response';
 import { alertCaughtError } from '@/lib/alert';
 import { serverError } from '@/lib/with-route';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { INQUIRY_RESOLVE_ACTION_ID, resolveInquiryFromSlack } from '@/lib/inquiry-slack-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,8 +51,10 @@ type ActionHandler = (payload: SlackInteractionPayload, action: SlackAction) => 
 // 新しいボタンを追加する時は buttonElement(text, 'action_id_here', ...) と
 // ここに 'action_id_here': async (payload, action) => {...} を追加するだけ
 const ACTION_HANDLERS: Record<string, ActionHandler> = {
-  // 例: 'mark_resolved': async (payload, action) => { ... },
-  // 例: 'approve_salon': async (payload, action) => { ... },
+  // 未完了の問い合わせを解決済みにする（押した人が運営管理者か inquiry-slack-actions.ts で確かめる）
+  [INQUIRY_RESOLVE_ACTION_ID]: async (payload, action) => {
+    await resolveInquiryFromSlack(createServiceRoleClient(), payload, action.value);
+  },
 };
 
 export async function POST(request: Request) {
@@ -86,9 +90,7 @@ export async function POST(request: Request) {
     if (payload.actions && payload.actions.length > 0) {
       const action = payload.actions[0];
       // 自前のキーだけを引く（'constructor' 等で Object.prototype のメソッドを呼ばないため）。
-      /* istanbul ignore next -- ACTION_HANDLERS は現在空のため true 側は到達不能 */
       const handler = Object.hasOwn(ACTION_HANDLERS, action.action_id) ? ACTION_HANDLERS[action.action_id] : undefined;
-      /* istanbul ignore next -- ACTION_HANDLERS は現在空のため true 分岐は到達不能 */
       if (handler) {
         // 結果は気にせず即 ack 返却
         runAfterResponse(async () => {
