@@ -143,6 +143,11 @@ export async function POST(request: Request) {
       if (!booking.user_id) {
         return NextResponse.json({ error: 'この予約の顧客はLINE連携していません' }, { status: 400 });
       }
+      // 来院者向けアカウントのトークンが未設定なら、操作番号を記録する前に断る（記録してから失敗すると、
+      // 再送しても「受付済み」になり何も送られないため。PR #1001 レビュー）。
+      if (!process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN) {
+        return NextResponse.json({ error: 'LINE送信の準備ができていません。メールでお送りください' }, { status: 503 });
+      }
       // 【監査C2】連携の単一ソース profiles.line_user_id で解決（line_user_links.user_id は常にNULL）。
       const customerLineUserId = await resolveLineUserIdForUser(supabase, booking.user_id);
       if (!customerLineUserId) {

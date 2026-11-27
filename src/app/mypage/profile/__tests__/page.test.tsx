@@ -113,6 +113,8 @@ test('legacy profile LINE ID alone shows reconfirmation rather than a verified b
 test('current profile and server-verified owner show the same verified badge',async()=>{
  mockMaybeSingle.mockResolvedValueOnce({data:{...profile,line_user_id:'U_owned'},error:null}).mockResolvedValueOnce({data:{line_user_id:'U_owned'},error:null}).mockResolvedValueOnce({data:{user_id:'synthetic-user',line_user_id:'U_owned',proof_version:1,verified_at:'2026-10-09T00:00:00Z'},error:null});
  render(<ProfileEditPage/>);expect(await screen.findByText('LINE連携済み')).toBeInTheDocument();
+ // 連携済みの人にも来院者向けアカウントの友だち追加を案内する（通知は新しいアカウントから届くため・PR #1001）
+ expect(screen.getByRole('link',{name:/友だち追加/})).toHaveAttribute('href','https://line.me/R/ti/p/@927zbsut');
 });
 
 // ==========================================================================

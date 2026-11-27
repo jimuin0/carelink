@@ -296,6 +296,11 @@ export default function ProfileEditPage() {
               </div>
             </div>
             <p className="text-xs text-gray-500 mb-3">予約確認・リマインド・キャンセル通知がLINEに届きます。</p>
+            <p className="text-xs text-gray-500 mb-3">
+              通知は「CareLink｜ご利用者向け」から届きます。まだ友だち追加していない場合は
+              <a href={CUSTOMER_LINE_ADD_FRIEND_URL} target="_blank" rel="noopener noreferrer" className="text-green-700 underline">こちらから友だち追加</a>
+              してください。
+            </p>
             <button
               type="button"
               onClick={() => setShowLineUnlinkConfirm(true)}
