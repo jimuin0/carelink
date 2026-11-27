@@ -221,6 +221,8 @@ describe('sendNotify — contact は名前・種類・本文冒頭だけを載�
   test.each([
     ['０９０－１２３４－５６７８', '[phone redacted]'],
     ['(03) 1234-5678', '[phone redacted]'],
+    ['090・1234・5678 まで', '[phone redacted] まで'],
+    ['０９０･１２３４･５６７８', '[phone redacted]'],
     ['連絡先 090−1234−5678', '連絡先 [phone redacted]'],
     ['090ー1234ー5678', '[phone redacted]'],
     ['+81 90 1234 5678', '[phone redacted]'],

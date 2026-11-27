@@ -179,7 +179,7 @@ export function sanitizeContactField(value: string): string {
     .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '')
     // 前半は RFC 5322 の英数字と記号（mary.o'connor など）に限る（空白の無い日本語の文を巻き込まないため）。ドメインの区切りの判定は redactEmail
     .replace(EMAIL_CANDIDATE, redactEmail)
-    .replace(/\+?\(?\d[\d\s().\-‐-‒–—―ーｰ−]{7,}\d/g, (m) => (m.replace(/\D/g, '').length >= 10 ? '[phone redacted]' : m))
+    .replace(/\+?\(?\d[\d\s().\-‐-‒–—―ーｰ−・]{7,}\d/g, (m) => (m.replace(/\D/g, '').length >= 10 ? '[phone redacted]' : m))
     .replace(/[*_~`]/g, (c) => ({ '*': '＊', _: '＿', '~': '～', '`': '｀' })[c] as string);
 }
 
