@@ -106,7 +106,7 @@ function buildSlackMessage(payload: NotifyPayload): string {
     case 'contact_reply_sent':
       return [
         ':outbox_tray: *お問い合わせへの返信を送信サービスが受理しました*',
-        `> *受付番号:* ${payload.data.contact_id}`,
+        `> *受付番号：* ${payload.data.contact_id}`,
         '> 内容と送信状況は管理画面で確認してください。',
       ].join('\n');
     case 'platform_mail_sent':
@@ -114,16 +114,16 @@ function buildSlackMessage(payload: NotifyPayload): string {
         payload.data.scheduled
           ? ':outbox_tray: *運営メール（問い合わせ以外）の送信予約を送信サービスが受理しました*'
           : ':outbox_tray: *運営メール（問い合わせ以外）を送信サービスが受理しました*',
-        `> *受付番号:* ${payload.data.mail_id.slice(0, 8)}`,
+        `> *受付番号：* ${payload.data.mail_id.slice(0, 8)}`,
         '> 内容と送信状況は管理画面で確認してください。',
       ].join('\n');
     case 'contact': {
       const { name, inquiry_type, message } = payload.data;
       const lines = [':envelope: *お問い合わせ（運営宛）を受け付けました*'];
-      if (name) lines.push(`> *お名前:* ${escSlack(sanitizeContactField(name))}`);
-      if (inquiry_type) lines.push(`> *種類:* ${escSlack(sanitizeContactField(inquiry_type))}`);
-      if (message) lines.push(`> *内容（冒頭）:* ${escSlack(contactPreview(message))}`);
-      lines.push(`> *受付番号:* ${payload.data.contact_id}`);
+      if (name) lines.push(`> *お名前：* ${escSlack(sanitizeContactField(name))}`);
+      if (inquiry_type) lines.push(`> *種類：* ${escSlack(sanitizeContactField(inquiry_type))}`);
+      if (message) lines.push(`> *内容（冒頭）：* ${escSlack(contactPreview(message))}`);
+      lines.push(`> *受付番号：* ${payload.data.contact_id}`);
       lines.push('> 全文と連絡先は管理画面で確認してください。');
       return lines.join('\n');
     }
@@ -131,8 +131,8 @@ function buildSlackMessage(payload: NotifyPayload): string {
     case 'facility_inquiry':
       return [
         ':hospital: *施設へのお問い合わせを受け付けました*',
-        `> *施設名:* ${escSlack(payload.data.facility_name)}`,
-        `> *受付番号:* ${payload.data.inquiry_id}`,
+        `> *施設名：* ${escSlack(payload.data.facility_name)}`,
+        `> *受付番号：* ${payload.data.inquiry_id}`,
         '> 内容は管理画面で確認してください。',
       ].join('\n');
   }
