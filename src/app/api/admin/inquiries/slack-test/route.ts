@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 import { withRoute, serverError, type RouteContext } from '@/lib/with-route';
 import { postInquiryResolveTestButton } from '@/lib/inquiry-slack-actions';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'no-store' };
@@ -19,6 +20,10 @@ async function send(_request: Request, ctx: RouteContext) {
       '/api/admin/inquiries/slack-test', 'テスト通知を送れませんでした。');
   }
   if (profile.data?.is_platform_admin !== true) return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers });
+  // 送信回数は管理者確認の後に、管理者ごとに数える（未ログイン・管理者以外の要求で管理者の枠が減らないように・Codex 指摘 SLACK-TEST-01）
+  if (await checkRateLimit(null, `user:${ctx.user!.id}`, 3, 10 * 60_000, 'admin-inquiries-slack-test-send')) {
+    return NextResponse.json({ error: 'テスト通知は10分に3回までです' }, { status: 429, headers });
+  }
 
   const base = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-jp.com';
   const ok = await postInquiryResolveTestButton(`${base}/admin/inquiries`);
@@ -29,6 +34,7 @@ async function send(_request: Request, ctx: RouteContext) {
 
 export const POST = withRoute(send, {
   requireAuth: true,
-  rateLimit: { limiter: null, limit: 3, windowMs: 10 * 60_000, prefix: 'admin-inquiries-slack-test' },
+  // 入口の IP 単位の制限は乱用よけの緩いもの。実際の送信回数は上の管理者ごとの制限で抑える
+  rateLimit: { limiter: null, limit: 30, windowMs: 10 * 60_000, prefix: 'admin-inquiries-slack-test' },
   sentryTag: 'admin-inquiries-slack-test',
 });
