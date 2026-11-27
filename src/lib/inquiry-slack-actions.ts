@@ -65,7 +65,13 @@ export async function postInquiryResolveButtons(lines: ResolvableLine[], adminUr
         await new Promise((resolve) => setTimeout(resolve, waitMs));
         result = await send();
       }
-      if (!result.ok) { allOk = false; console.error('[inquiry-slack] button post failed:', result.error); }
+      if (!result.ok) {
+        allOk = false;
+        console.error('[inquiry-slack] button post failed:', result.error);
+        // 送り直しても 429 なら、Slack の待ち指定は後続の投稿にも効くので残りの通は送らない（Codex 指摘 PR996-04 4回目）。
+        // 送らなかった件も解決済みになるまで翌朝の通知に出る。
+        if (result.error === 'http_429') break;
+      }
     } catch {
       allOk = false;
       console.error('[inquiry-slack] button post failed:', 'notification_failure');

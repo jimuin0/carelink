@@ -103,6 +103,18 @@ describe('postInquiryResolveButtons', () => {
     jest.useRealTimers();
   });
 
+  test('送り直しても 429 なら、残りの通は送らずに終える（翌朝の通知に残る）', async () => {
+    jest.useFakeTimers();
+    (postToSlack as jest.Mock).mockResolvedValue({ ok: false, error: 'http_429', retryAfterSec: 120 });
+    const lines = Array.from({ length: MAX_BUTTON_ITEMS * 2 + 1 }, (_, i) => ({ id: ID, label: `件${i}` }));
+    const sending = postInquiryResolveButtons(lines, URL_ADMIN);
+    await jest.advanceTimersByTimeAsync(MAX_RETRY_WAIT_MS * 3);
+    await expect(sending).resolves.toBe(false);
+    expect(postToSlack).toHaveBeenCalledTimes(2);
+    (postToSlack as jest.Mock).mockReset();
+    jest.useRealTimers();
+  });
+
   test.each(['preview_read_only', 'not_configured', 'no_channel'])('送り直しても変わらない失敗（%s）は送り直さない', async (error) => {
     (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: false, error });
     await expect(postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN)).resolves.toBe(false);
