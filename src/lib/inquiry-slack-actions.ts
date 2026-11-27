@@ -22,6 +22,8 @@ export const INQUIRY_RESOLVE_ACTION_ID = 'inquiry_resolve';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** 1通に載せる件数（Slack は 1 メッセージ 50 ブロックまで。1件 2 ブロック＋見出し・リンク）。超えた分は次の1通に続ける。 */
 export const MAX_BUTTON_ITEMS = 20;
+/** 送り直すまでの待ち時間（Slack の chat.postMessage はチャンネルあたり毎秒1通程度まで）。 */
+export const RETRY_WAIT_MS = 1500;
 
 export interface ResolvableLine { id: string; label: string }
 
@@ -50,8 +52,15 @@ export async function postInquiryResolveButtons(lines: ResolvableLine[], adminUr
   let allOk = true;
   for (let index = 0; index < total; index += 1) {
     const chunk = lines.slice(index * MAX_BUTTON_ITEMS, (index + 1) * MAX_BUTTON_ITEMS);
+    const send = () => postToSlack({ text: `未完了のお問い合わせ ${lines.length}件（ボタンで解決済みにできます）`, blocks: buildInquiryResolveBlocks(chunk, adminUrl, { index: index + 1, total }), unfurl_links: false });
     try {
-      const result = await postToSlack({ text: `未完了のお問い合わせ ${lines.length}件（ボタンで解決済みにできます）`, blocks: buildInquiryResolveBlocks(chunk, adminUrl, { index: index + 1, total }), unfurl_links: false });
+      let result = await send();
+      // 一時的な失敗（Slack のレート制限 http_429 等）で一部の通だけ欠けないよう、少し待って 1 回だけ送り直す（Codex 指摘 PR996-04）。
+      // 送り直しても欠けた件は、解決済みになるまで翌朝も通知に出る。
+      if (!result.ok && result.error !== 'preview_read_only' && result.error !== 'not_configured' && result.error !== 'no_channel') {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_WAIT_MS));
+        result = await send();
+      }
       if (!result.ok) { allOk = false; console.error('[inquiry-slack] button post failed:', result.error); }
     } catch {
       allOk = false;

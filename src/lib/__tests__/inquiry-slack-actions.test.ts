@@ -5,7 +5,7 @@ jest.mock('../slack', () => ({ ...jest.requireActual('../slack'), postToSlack: j
 jest.mock('../audit-logger', () => ({ writeAuditLog: jest.fn() }));
 import { postToSlack } from '../slack';
 import { writeAuditLog } from '../audit-logger';
-import { buildInquiryResolveBlocks, postInquiryResolveButtons, resolveInquiryFromSlack, INQUIRY_RESOLVE_ACTION_ID, MAX_BUTTON_ITEMS } from '../inquiry-slack-actions';
+import { buildInquiryResolveBlocks, postInquiryResolveButtons, resolveInquiryFromSlack, INQUIRY_RESOLVE_ACTION_ID, MAX_BUTTON_ITEMS, RETRY_WAIT_MS } from '../inquiry-slack-actions';
 
 const ID = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '00000000-0000-4000-8000-0000000000aa';
@@ -67,13 +67,34 @@ describe('postInquiryResolveButtons', () => {
     expect(postToSlack).not.toHaveBeenCalled();
   });
   test('送信結果を返し、失敗・例外でも throw しない', async () => {
+    jest.useFakeTimers();
     (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: true });
     await expect(postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN)).resolves.toBe(true);
     expect((postToSlack as jest.Mock).mock.calls[0][0].blocks).toHaveLength(4);
-    (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: false, error: 'x' });
-    await expect(postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN)).resolves.toBe(false);
+    (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: false, error: 'x' }).mockResolvedValueOnce({ ok: false, error: 'x' });
+    const failing = postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN);
+    await jest.advanceTimersByTimeAsync(RETRY_WAIT_MS);
+    await expect(failing).resolves.toBe(false);
+    jest.useRealTimers();
     (postToSlack as jest.Mock).mockRejectedValueOnce(new Error('boom'));
     await expect(postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN)).resolves.toBe(false);
+  });
+
+  test('一時的な失敗（429）は待って 1 回だけ送り直し、欠けずに送れる（Codex 指摘 PR996-04）', async () => {
+    jest.useFakeTimers();
+    (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: false, error: 'http_429' }).mockResolvedValueOnce({ ok: true });
+    const sending = postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN);
+    await jest.advanceTimersByTimeAsync(RETRY_WAIT_MS);
+    await expect(sending).resolves.toBe(true);
+    expect(postToSlack).toHaveBeenCalledTimes(2);
+    expect((postToSlack as jest.Mock).mock.calls[1][0].blocks).toEqual((postToSlack as jest.Mock).mock.calls[0][0].blocks);
+    jest.useRealTimers();
+  });
+
+  test.each(['preview_read_only', 'not_configured', 'no_channel'])('送り直しても変わらない失敗（%s）は送り直さない', async (error) => {
+    (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: false, error });
+    await expect(postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN)).resolves.toBe(false);
+    expect(postToSlack).toHaveBeenCalledTimes(1);
   });
 
   test('上限を超えたら分けて送り、全件にボタンが付く（Codex 指摘 PR996-03）', async () => {
