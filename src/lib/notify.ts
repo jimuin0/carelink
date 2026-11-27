@@ -170,41 +170,67 @@ function redactEmail(candidate: string): string {
   return `[email redacted]${tail ? tail[2] : ''}${parts.slice(i).join('')}`;
 }
 
+const EMAIL_MASK = '[email redacted]';
+const PHONE_MASK = '[phone redacted]';
+const PHONE_CANDIDATE = /\+?\(?\d[\d\s().\-‐-‒–—―ーｰ−・]{7,}\d/g;
+
+/**
+ * 正規化した文字列の先頭 limit 文字（コードポイント）までを、メール・電話を伏せて返す。
+ * 伏せる範囲は全文で判定してから切る。範囲が切れ目をまたぐときは伏せ字だけを置き、
+ * 切れ目より後ろの文字は一切載せない（切れ端の断片も、101文字目以降の文も残さないため）。
+ */
+function redactPrefix(text: string, limit: number): string {
+  const cut = Array.from(text).slice(0, limit).join('').length;
+  const ranges: Array<[number, number, string]> = [];
+  // メールの前半は RFC 5322 の英数字と記号（mary.o'connor など）に限る（空白の無い日本語の文を巻き込まないため）。ドメインの区切りの判定は redactEmail
+  let masked = text;
+  for (const m of text.matchAll(EMAIL_CANDIDATE)) {
+    const start = m.index as number;
+    const end = start + m[0].length - (redactEmail(m[0]).length - EMAIL_MASK.length);
+    ranges.push([start, end, EMAIL_MASK]);
+    // 電話の判定がメールの範囲にまたがらないよう、照合用の写しでは伏せた範囲を数字以外で埋める
+    masked = masked.slice(0, start) + '\u0000'.repeat(end - start) + masked.slice(end);
+  }
+  for (const m of masked.matchAll(PHONE_CANDIDATE)) {
+    if (m[0].replace(/\D/g, '').length >= 10) ranges.push([m.index as number, (m.index as number) + m[0].length, PHONE_MASK]);
+  }
+  ranges.sort((x, y) => x[0] - y[0]);
+  let out = '';
+  let pos = 0;
+  for (const [start, end, mask] of ranges) {
+    if (start >= cut) break;
+    out += text.slice(pos, start) + mask;
+    pos = end;
+  }
+  return out + text.slice(pos, Math.max(pos, cut));
+}
+
+/** NFKC で全角を半角へ寄せ、ゼロ幅スペース・異体字セレクタ・U+034F など見えない文字（照合を途切れさせる）を除く */
+function normalizeContactText(value: string): string {
+  return value.normalize('NFKC').replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '');
+}
+
+function neutralizeMrkdwn(value: string): string {
+  return value.replace(/[*_~`]/g, (c) => ({ '*': '＊', _: '＿', '~': '～', '`': '｀' })[c] as string);
+}
+
 /**
  * 受信通知の欄からメール・電話を伏せ、Slack の装飾記号を無効にする。
  * 全角数字・全角記号は NFKC で半角へ寄せてから判定し、括弧・空白・ハイフン・点で区切った
  * 数字が合計10桁以上続くもの（区切りは電話番号欄の normalizePhone と同じダッシュ類も含む）を電話番号とみなす（郵便番号の7桁は残る）。
  */
 export function sanitizeContactField(value: string): string {
-  return value
-    .normalize('NFKC')
-    // ゼロ幅スペース・異体字セレクタ・U+034F など見えない文字（Unicode の既定で無視される文字）で照合を途切れさせないよう、先に取り除く
-    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '')
-    // 前半は RFC 5322 の英数字と記号（mary.o'connor など）に限る（空白の無い日本語の文を巻き込まないため）。ドメインの区切りの判定は redactEmail
-    .replace(EMAIL_CANDIDATE, redactEmail)
-    .replace(/\+?\(?\d[\d\s().\-‐-‒–—―ーｰ−・]{7,}\d/g, (m) => (m.replace(/\D/g, '').length >= 10 ? '[phone redacted]' : m))
-    .replace(/[*_~`]/g, (c) => ({ '*': '＊', _: '＿', '~': '～', '`': '｀' })[c] as string);
+  return neutralizeMrkdwn(redactPrefix(normalizeContactText(value), Infinity));
 }
 
 /**
- * 本文の冒頭だけを、改行を詰め、メール・電話を伏せて返す。
- * 先に原文を100文字で切ってから伏せる（伏せ字で短くなった分、101文字目以降が載らないように）。
- * 切れ目がメール・電話の途中なら、その切れ端は落とす（伏せ字の判定にかからない断片を残さないため）。
+ * 本文の冒頭100文字（正規化後の文字数。改行・空白も1文字と数える）だけを、メール・電話を伏せ、改行を詰めて返す。
  */
 export function contactPreview(message: string): string {
-  const flat = message
-    .normalize('NFKC')
-    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const chars = Array.from(flat);
-  if (chars.length <= CONTACT_PREVIEW_MAX) return sanitizeContactField(flat);
-  const head = chars
-    .slice(0, CONTACT_PREVIEW_MAX)
-    .join('')
-    .replace(/[A-Z0-9.!#$%&'*+/=?^_\u0060{|}~-]+@\S*$/iu, '')
-    .replace(/\+?\(?\d[\d\s().\-‐-‒–—―ーｰ−・]*$/u, '');
-  return `${sanitizeContactField(head)}…`;
+  const text = normalizeContactText(message);
+  const truncated = Array.from(text).length > CONTACT_PREVIEW_MAX;
+  const head = neutralizeMrkdwn(redactPrefix(text, CONTACT_PREVIEW_MAX)).replace(/\s+/g, ' ').trim();
+  return truncated ? `${head}…` : head;
 }
 
 export const notifyPayloadSchema = z.discriminatedUnion('type', [

@@ -254,9 +254,13 @@ describe('sendNotify — contact は名前・種類・本文冒頭だけを載�
   });
 
   test.each([
-    ['あ'.repeat(70) + ' long-test-mailbox@example.invalid 管理画面限定', 'あ'.repeat(70) + ' …'],
-    ['あ'.repeat(90) + ' taro@example.jp', 'あ'.repeat(90) + ' …'],
-    ['あ'.repeat(90) + ' 090-1234-5678', 'あ'.repeat(90) + ' …'],
+    ['あ'.repeat(70) + ' long-test-mailbox@example.invalid 管理画面限定', 'あ'.repeat(70) + ' [email redacted]…'],
+    ['あ'.repeat(90) + ' taro@example.jp', 'あ'.repeat(90) + ' [email redacted]…'],
+    ['あ'.repeat(90) + ' 090-1234-5678', 'あ'.repeat(90) + ' [phone redacted]…'],
+    ['あ'.repeat(94) + ' alice@gmail.com', 'あ'.repeat(94) + ' [email redacted]…'],
+    ['あ'.repeat(97) + ' 12回目です', 'あ'.repeat(97) + ' 12…'],
+    ['あ'.repeat(100) + ' taro@example.jp 090-1234-5678', 'あ'.repeat(100) + '…'],
+    ['あ'.repeat(90) + '\n'.repeat(12) + '後続', 'あ'.repeat(90) + '…'],
   ])('contactPreview は原文の冒頭100文字だけを使い、切れ端のメール・電話を落とす (%#)', (input, expected) => {
     expect(contactPreview(input)).toBe(expected);
   });
