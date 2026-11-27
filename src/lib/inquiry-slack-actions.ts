@@ -44,7 +44,8 @@ export function buildInquiryResolveBlocks(lines: ResolvableLine[], adminUrl: str
     sectionBlock(`${heading}（対応が済んだものは「解決済みにする」を押してください。解決済みにするまで毎朝お知らせします）`),
   ];
   for (const line of lines.slice(0, MAX_BUTTON_ITEMS)) {
-    blocks.push(sectionBlock(line.label));
+    // 名前は利用者の入力なので、Slack の書式・リンク・メンションとして解釈させない plain_text で出す（Codex 指摘 PR996-07）
+    blocks.push({ type: 'section', text: { type: 'plain_text', text: line.label, emoji: false } });
     blocks.push(actionsBlock([buttonElement('解決済みにする', INQUIRY_RESOLVE_ACTION_ID, line.id, 'primary')]));
   }
   blocks.push(actionsBlock([linkButtonElement('問い合わせ管理を開く', adminUrl)]));

@@ -46,10 +46,16 @@ describe('buildInquiryResolveBlocks', () => {
   test('1件ごとに本文とボタン（値＝問い合わせ id）を並べ、最後に管理画面へのリンクを置く', () => {
     const blocks = buildInquiryResolveBlocks([{ id: ID, label: '山田様・9/19受付' }], URL_ADMIN);
     expect(blocks).toHaveLength(4);
-    expect(JSON.stringify(blocks[1])).toContain('山田様・9/19受付');
+    expect(blocks[1]).toEqual({ type: 'section', text: { type: 'plain_text', text: '山田様・9/19受付', emoji: false } });
     expect(blocks[2]).toEqual({ type: 'actions', elements: [expect.objectContaining({ action_id: INQUIRY_RESOLVE_ACTION_ID, value: ID, style: 'primary' })] });
     expect(JSON.stringify(blocks[3])).toContain(URL_ADMIN);
     expect(JSON.stringify(blocks[0])).not.toContain('1/1');
+  });
+
+  test('名前に Slack の書式・メンションが書かれていても plain_text で文字どおり出す（Codex 指摘 PR996-07）', () => {
+    const label = '*確認用*<!channel>様';
+    const blocks = buildInquiryResolveBlocks([{ id: ID, label }], URL_ADMIN);
+    expect(blocks[1]).toEqual({ type: 'section', text: { type: 'plain_text', text: label, emoji: false } });
   });
 
   test('1通は上限件数まで（Slack の 50 ブロック上限内）で、複数通のときは見出しに通し番号を付ける', () => {
