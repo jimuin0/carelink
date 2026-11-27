@@ -180,8 +180,12 @@ describe('reportInquiryBacklog', () => {
       { id: uuid(1), created_at: '2026-11-10T10:00:00Z' },
       { id: uuid(2), created_at: '2026-11-10T09:00:00Z' },
       { id: uuid(3), created_at: null },
+      { id: uuid(4), created_at: null },
+      { id: uuid(5), created_at: '2026-11-10T09:00:00.123999+00:00' },
+      { id: uuid(6), created_at: '2026-11-10T09:00:00.123001+00:00' },
     ], { messages: [], replies: [] }, new Date('2026-11-17T12:00:00Z'));
-    expect(items.map((i) => i.id)).toEqual([uuid(3), uuid(2), uuid(1)]);
+    // マイクロ秒の差（Date では同じミリ秒になる）でも古い方を先にする
+    expect(items.map((i) => i.id)).toEqual([uuid(3), uuid(4), uuid(2), uuid(6), uuid(5), uuid(1)]);
   });
 
   test('知らせるものが無ければ Slack に出さない', async () => {
