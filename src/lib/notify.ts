@@ -184,9 +184,12 @@ function redactPrefix(text: string, limit: number): string {
   const ranges: Array<[number, number, string]> = [];
   // メールの前半は RFC 5322 の英数字と記号（mary.o'connor など）に限る（空白の無い日本語の文を巻き込まないため）。ドメインの区切りの判定は redactEmail
   let masked = text;
-  for (const m of text.matchAll(EMAIL_CANDIDATE)) {
-    const start = m.index as number;
+  // 候補が後続の文まで取り込んでも、次の照合は伏せた範囲の直後から始める（alice@gmail.comまたはbob@… の2件目を拾うため）
+  const re = new RegExp(EMAIL_CANDIDATE.source, 'giu');
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const start = m.index;
     const end = start + m[0].length - (redactEmail(m[0]).length - EMAIL_MASK.length);
+    re.lastIndex = end;
     ranges.push([start, end, EMAIL_MASK]);
     // 電話の判定がメールの範囲にまたがらないよう、照合用の写しでは伏せた範囲を数字以外で埋める
     masked = masked.slice(0, start) + '\u0000'.repeat(end - start) + masked.slice(end);
