@@ -1,5 +1,6 @@
 'use client';
 
+import { lockBodyScroll } from '@/lib/body-scroll-lock';
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -327,10 +328,10 @@ function BoardBookingModal({
       }
     }
     document.addEventListener('keydown', onKeyDown);
-    document.body.style.overflow = 'hidden';
+    const unlockScroll = lockBodyScroll();
     return () => {
       document.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = '';
+      unlockScroll();
       prevFocus?.focus?.();
     };
   }, []);

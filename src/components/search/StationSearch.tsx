@@ -1,5 +1,6 @@
 'use client';
 
+import { lockBodyScroll } from '@/lib/body-scroll-lock';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -67,10 +68,10 @@ export default function StationSearch({
 
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose(); };
     window.addEventListener('keydown', onKeyDown);
-    document.body.style.overflow = 'hidden';
+    const unlockScroll = lockBodyScroll();
     return () => {
       window.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = '';
+      unlockScroll();
     };
   }, [open, handleClose]);
 
