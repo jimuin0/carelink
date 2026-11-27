@@ -175,9 +175,9 @@ function redactEmail(candidate: string): string {
 
 const EMAIL_MASK = '[email redacted]';
 const PHONE_MASK = '[phone redacted]';
-// 数字の塊の間は、任意の文字3字まで（改行を含む）を区切りとみなす（／・〜・「の」など区切りの書き方を1つずつ追いかけないため）。
+// 数字の塊の間は、空白・改行（字下げを含め何文字でも）と、それ以外の文字3字までを区切りとみなす（／・〜・「の」など区切りの書き方を1つずつ追いかけないため）。
 // 塊をつないだ数字が10桁以上なら電話とみなす。日時や数量が電話とみなされる伏せすぎは許容する
-const PHONE_CANDIDATE = /\+?\(?\d+(?:\D{1,3}\d+)*/gu;
+const PHONE_CANDIDATE = /\+?\(?\d+(?:(?=\D)\s*(?:[^\d\s]\s*){0,3}\d+)*/gu;
 
 /**
  * 正規化した文字列の先頭 limit 文字（コードポイント）までを、メール・電話を伏せて返す。
