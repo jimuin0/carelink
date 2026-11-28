@@ -20,13 +20,14 @@ jest.mock('@supabase/supabase-js', () => ({
   })),
 }));
 
-import { verifyLineSignature, sendLineReply } from '@/lib/line';
+import { verifyCustomerLineSignature, sendLineReply, customerLineAccessToken } from '@/lib/line';
 import { POST } from '../route';
 
 let mockUpsert: jest.Mock;
 
 function setupDefaultMocks(signatureValid: boolean = true) {
-  (verifyLineSignature as jest.Mock).mockReturnValue(signatureValid);
+  (verifyCustomerLineSignature as jest.Mock).mockReturnValue(signatureValid);
+  (customerLineAccessToken as jest.Mock).mockImplementation(() => process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN);
 
   mockUpsert = jest.fn().mockResolvedValue({ error: null });
 
@@ -45,7 +46,7 @@ function setupDefaultMocks(signatureValid: boolean = true) {
 
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
-  process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'test-token';
+  process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN = 'test-token';
 }
 
 beforeEach(() => {
@@ -225,7 +226,8 @@ describe('POST /api/line/webhook', () => {
     expect(res.status).toBe(500);
   });
 
-  test('message event → sends auto-reply', async () => {
+  // 2026-11-27 本人決定：来院者向けアカウントでは相談を受けず、店舗とお問い合わせフォームへ案内する
+  test('message event → 店舗とお問い合わせフォームへの案内を返す', async () => {
     await POST(
       makeRequest({
         events: [
@@ -244,7 +246,7 @@ describe('POST /api/line/webhook', () => {
       expect.arrayContaining([
         expect.objectContaining({
           type: 'text',
-          text: expect.stringContaining('検索'),
+          text: expect.stringMatching(/ご予約の店舗へ直接[\s\S]*carelink-jp\.com\/contact[\s\S]*個別のご相談はお受けしていません/),
         }),
       ])
     );
@@ -486,8 +488,8 @@ describe('POST /api/line/webhook', () => {
     expect(mockUpsert).toHaveBeenCalled();
   });
 
-  test('LINE_CHANNEL_ACCESS_TOKEN_CARELINK undefined → handleFollow returns early', async () => {
-    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  test('LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN undefined → handleFollow returns early', async () => {
+    delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
     (global.fetch as jest.Mock).mockClear();
     mockUpsert.mockClear();
     await POST(

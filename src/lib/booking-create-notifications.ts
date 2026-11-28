@@ -40,7 +40,7 @@ export async function buildBookingCreateNotifications(db: SupabaseClient, input:
     input.staff_id ? db.from('staff_profiles').select('name').eq('id', input.staff_id).eq('facility_id', input.facility_id).single() : Promise.resolve({ data: null, error: null }),
     collection((offset,limit)=>db.from('facility_members').select('user_id').eq('facility_id', input.facility_id).in('role', ['owner', 'admin']).order('user_id').range(offset,offset+limit-1),memberSchema).then(data=>({data,error:null})),
     db.from('facility_notification_settings').select('push_on_new_booking').eq('facility_id', input.facility_id).maybeSingle(),
-    actor && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK ? db.from('profiles').select('line_user_id').eq('id', actor).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    actor && process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN ? db.from('profiles').select('line_user_id').eq('id', actor).maybeSingle() : Promise.resolve({ data: null, error: null }),
     isLineWorksConfigured() ? collection((offset,limit)=>db.from('staff_profiles').select('id,line_works_channel_id,line_works_notify_all').eq('facility_id', input.facility_id).not('line_works_channel_id', 'is', null).order('id').range(offset,offset+limit-1),worksRowSchema).then(data=>({data,error:null})) : Promise.resolve({ data: [], error: null }),
   ]);
   if ([facility, menu, staff, members, flags, line, works].some(r => r.error) || !facility.data || !menu.data) throw new BookingNotificationPlanError();
@@ -111,7 +111,7 @@ export async function buildBookingCreateNotifications(db: SupabaseClient, input:
     staff_name:data.staffName ?? null,booking_date:input.booking_date,start_time:input.start_time,end_time:input.end_time,total_price:totalPrice,status,
     ...(input.end_date && input.end_date !== input.booking_date ? { end_date: input.end_date } : {}) };
   if(plan.length>250)throw new BookingNotificationPlanError();
-  plan[0].context={owner_ids:ids,owner_push:flags.data?.push_on_new_booking !== false,works_enabled:isLineWorksConfigured(),line_enabled:!!actor && !!process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK};
+  plan[0].context={owner_ids:ids,owner_push:flags.data?.push_on_new_booking !== false,works_enabled:isLineWorksConfigured(),line_enabled:!!actor && !!process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN};
   return plan.map(item => ({ ...item, snapshot }));
 }
 

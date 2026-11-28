@@ -28,6 +28,8 @@ export async function dispatchBookingCreationNotifications(operationId: string):
       // Set only when the provider proved the destination no longer exists (see closeUndeliverableBookingCreation).
       const undeliverable: { outcome: UndeliverableBookingCreation | null; startedAt: string | null } = { outcome: null, startedAt: null };
       try {
+        // 来院者向け LINE のトークンが未設定なら claim せず pending のまま残す（claim 後に失敗させない。PR #1001）
+        if (job.webhook_type === 'line_push' && !process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN) { result.pending++; return; }
         const { data: claimed, error: claimError } = await db.rpc('claim_webhook_retry_queue_v2', { p_job_ids:[job.id],p_claimed_at:epoch });
         if (claimError) throw new Error('booking notification claim unconfirmed');
         if (claimed?.length !== 1 || claimed[0].id !== job.id) { result.pending++; return; }
@@ -50,7 +52,7 @@ export async function dispatchBookingCreationNotifications(operationId: string):
           };
         } else if (job.webhook_type === 'line_push') {
           const payload = job.payload;
-          if (!process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK || typeof payload !== 'object' || payload === null || Array.isArray(payload)
+          if (!process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN || typeof payload !== 'object' || payload === null || Array.isArray(payload)
             || typeof payload.message !== 'string') throw new Error('booking LINE preparation unconfirmed');
           const message = payload.message;
           send = async () => { if (!await sendBookingCreationLine(job.target_id,message)) throw new Error('booking LINE acceptance unconfirmed'); };

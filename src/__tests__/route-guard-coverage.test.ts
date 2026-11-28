@@ -51,7 +51,7 @@ const ALLOW: Record<string, Exemption> = {
   },
   'line/webhook/route.ts': {
     csrf: 'LINE プラットフォームからのサーバ間 POST。ブラウザ発ではないので CSRF は成立せず、'
-      + 'x-line-signature の HMAC 検証（verifyLineSignature）が本人性の根拠',
+      + 'x-line-signature の HMAC 検証（来院者向けアカウントの秘密で verifyCustomerLineSignature）が本人性の根拠',
     rateLimit: '送信元は LINE のみで、署名不一致は本体処理の前に落ちる',
   },
   'line/support-webhook/route.ts': {
@@ -187,6 +187,7 @@ const IDENTITY_PATTERNS: RegExp[] = [
   // 施設メンバーの確認は getAdminApiContext・auth.getUser 等の本人確認と組で行われ、それで検出できる。
   /\bresolveLiffUserId\s*\(/,         // LIFF
   /\bverifyLineSignature\s*\(/,       // LINE 署名（Messaging API webhook）
+  /\bverifyCustomerLineSignature\s*\(/, // LINE 署名（来院者向けアカウントの webhook）
   /\bverifyLineAccessToken\s*\(/,     // LINE アクセストークン（自社チャネル一致を検証）
   /\bfetchVerifiedLiffProfile\s*\(/,  // 同じchannel検証後、LINE自身のprofile応答からidentityを得る
   /\bverifySlackRequest\s*\(/,        // Slack 署名

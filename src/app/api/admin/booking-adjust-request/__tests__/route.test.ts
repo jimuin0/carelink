@@ -165,6 +165,7 @@ function setup() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN = 'customer-token';
   setup();
 });
 
@@ -397,6 +398,15 @@ test('line: LINE 連携なし（link なし）→ 400', async () => {
   cfg.lineLink = null;
   const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line', operationId: LINE_OP }));
   expect(res.status).toBe(400);
+});
+
+test('line: 来院者向けアカウントのトークン未設定 → 503・操作番号を記録せず送らない（PR #1001）', async () => {
+  cfg.entitlements = [{ facility_id: 'fac-1', option_key: 'time_adjust_line' }];
+  delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
+  const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line', operationId: LINE_OP }));
+  expect(res.status).toBe(503);
+  expect(mockLineClaim).not.toHaveBeenCalled();
+  expect(mockSendLineText).not.toHaveBeenCalled();
 });
 
 test('line 正常系: 購入済み＋連携あり → 施設名・日時入りで送信', async () => {

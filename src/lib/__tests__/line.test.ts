@@ -21,6 +21,8 @@ import {
   sendBookingCancellation,
   sendBookingReminder,
   verifyLineSignature,
+  verifyCustomerLineSignature,
+  customerLineAccessToken,
   sendLineReply,
   getLineLoginChannelId,
   verifyLineAccessToken,
@@ -30,7 +32,7 @@ const MOCK_TOKEN = 'test-channel-access-token';
 const MOCK_SECRET = 'test-channel-secret';
 
 beforeEach(() => {
-  process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = MOCK_TOKEN;
+  process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN = MOCK_TOKEN;
   process.env.LINE_CHANNEL_SECRET_CARELINK = MOCK_SECRET;
   jest.useFakeTimers();
   mockEnqueueWebhook.mockReset();
@@ -38,7 +40,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
   delete process.env.LINE_CHANNEL_SECRET_CARELINK;
   jest.useRealTimers();
   jest.restoreAllMocks();
@@ -124,8 +126,8 @@ describe('sendLinePush', () => {
   });
 
   test('throws if token not set', async () => {
-    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
-    await expect(sendLinePush('user-1', [])).rejects.toThrow('LINE_CHANNEL_ACCESS_TOKEN_CARELINK');
+    delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
+    await expect(sendLinePush('user-1', [])).rejects.toThrow('LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN');
   });
 
   test('returns false on fetch exception', async () => {
@@ -448,6 +450,31 @@ describe('verifyLineSignature', () => {
   });
 });
 
+// 2026-11-27 本人決定：来院者向けアカウントは店舗用（相談窓口）と別の秘密値で検証・送信する
+describe('来院者向けアカウントの秘密値', () => {
+  afterEach(() => { delete process.env.LINE_CUSTOMER_CHANNEL_SECRET; });
+
+  test('来院者向けの署名は LINE_CUSTOMER_CHANNEL_SECRET で検証し、店舗用の秘密では通らない', () => {
+    process.env.LINE_CUSTOMER_CHANNEL_SECRET = 'customer-secret';
+    const body = '{"events":[]}';
+    const sign = (secret: string) => crypto.createHmac('SHA256', secret).update(body).digest('base64');
+    expect(verifyCustomerLineSignature(body, sign('customer-secret'))).toBe(true);
+    expect(verifyCustomerLineSignature(body, sign(MOCK_SECRET))).toBe(false);
+    expect(verifyLineSignature(body, sign('customer-secret'))).toBe(false);
+  });
+
+  test('来院者向けの秘密が未設定なら投げる（店舗用の秘密で代用しない）', () => {
+    expect(() => verifyCustomerLineSignature('body', 'sig')).toThrow('LINE_CUSTOMER_CHANNEL_SECRET');
+  });
+
+  test('来院者向けのトークンは店舗用のトークンで代用しない', () => {
+    delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'shop-token';
+    expect(customerLineAccessToken()).toBeUndefined();
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+});
+
 describe('getLineLoginChannelId', () => {
   afterEach(() => {
     delete process.env.LINE_LOGIN_CHANNEL_ID;
@@ -588,7 +615,7 @@ describe('sendLineReply', () => {
   });
 
   test('throws if token not set', async () => {
-    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
-    await expect(sendLineReply('token', [])).rejects.toThrow('LINE_CHANNEL_ACCESS_TOKEN_CARELINK');
+    delete process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
+    await expect(sendLineReply('token', [])).rejects.toThrow('LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN');
   });
 });

@@ -79,9 +79,19 @@ export async function verifyLineAccessToken(
   }
 }
 
+/**
+ * 来院者向けの通知（予約確認・リマインド・キャンセル）を送る LINE 公式アカウントのトークン。
+ * 2026年11月27日 本人決定：今の公式アカウント（LINE_CHANNEL_*_CARELINK）は店舗用の相談窓口にし、
+ * 来院者向けは別のアカウント（LINE_CUSTOMER_CHANNEL_*）から送る。未設定なら来院者への LINE 通知は送らない
+ * （店舗用のトークンで来院者へ送ることはしない）。
+ */
+export function customerLineAccessToken(): string | undefined {
+  return process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN || undefined;
+}
+
 function getToken(): string {
-  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
-  if (!token) throw new Error('LINE_CHANNEL_ACCESS_TOKEN_CARELINK is not set');
+  const token = customerLineAccessToken();
+  if (!token) throw new Error('LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN is not set');
   return token;
 }
 
@@ -308,6 +318,17 @@ export async function sendBookingReminder(
 export function verifyLineSignature(body: string, signature: string): boolean {
   const secret = process.env.LINE_CHANNEL_SECRET_CARELINK;
   if (!secret) throw new Error('LINE_CHANNEL_SECRET_CARELINK is not set');
+  return verifyWithSecret(body, signature, secret);
+}
+
+/** 来院者向けアカウント（/api/line/webhook）の署名検証。店舗用の相談窓口は verifyLineSignature を使う */
+export function verifyCustomerLineSignature(body: string, signature: string): boolean {
+  const secret = process.env.LINE_CUSTOMER_CHANNEL_SECRET;
+  if (!secret) throw new Error('LINE_CUSTOMER_CHANNEL_SECRET is not set');
+  return verifyWithSecret(body, signature, secret);
+}
+
+function verifyWithSecret(body: string, signature: string, secret: string): boolean {
 
   const hash = crypto
     .createHmac('SHA256', secret)

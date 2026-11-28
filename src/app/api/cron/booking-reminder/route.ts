@@ -182,10 +182,13 @@ export async function GET(request: Request) {
     }
 
     // LINE 連携（user_id → line_user_id）。LINE 送信が有効になり得る予約の user_id のみ解決。
+    // 来院者向けアカウントのトークンが未設定なら LINE は送れないので、誰も LINE 候補にしない
+    // （送信を始めてから失敗させると「結果不明」で止まり、メールへ退避されないため。PR #1001 レビュー）。
+    const customerLineReady = !!process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN;
     const lineCandidateUserIds = Array.from(new Set(
       bookings
         .filter((b) => {
-          if (!b.user_id) return false;
+          if (!customerLineReady || !b.user_id) return false;
           const days = dateToDays.get(b.booking_date);
           const s = settingsMap.get(b.facility_id);
           const ent = entMap.get(b.facility_id);
