@@ -20,6 +20,8 @@ import {
   postToSlack,
   postToSlackWithThreadGrouping,
   sectionBlock,
+  headerBlock,
+  plainTextBlock,
   buttonElement,
   linkButtonElement,
   actionsBlock,
@@ -355,6 +357,19 @@ describe('postToSlackWithThreadGrouping (Phase 7c)', () => {
 });
 
 describe('Block Kit ヘルパー', () => {
+  test('headerBlock は見出し部品で出し、150 文字を超える分は切る（サロゲートペアを壊さない）', () => {
+    expect(headerBlock('未完了のお問い合わせ')).toEqual({ type: 'header', text: { type: 'plain_text', text: '未完了のお問い合わせ', emoji: true } });
+    const long = '😀'.repeat(151);
+    const text = (headerBlock(long).text as { text: string }).text;
+    expect(Array.from(text)).toHaveLength(150);
+    expect(text.endsWith('…')).toBe(true);
+    expect((headerBlock('あ'.repeat(150)).text as { text: string }).text).toBe('あ'.repeat(150));
+  });
+
+  test('plainTextBlock は書式を解釈させない', () => {
+    expect(plainTextBlock('*a* <!channel>')).toEqual({ type: 'section', text: { type: 'plain_text', text: '*a* <!channel>', emoji: false } });
+  });
+
   test('sectionBlock(text)', () => {
     expect(sectionBlock('hi')).toEqual({
       type: 'section',

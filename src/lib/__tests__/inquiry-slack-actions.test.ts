@@ -45,24 +45,28 @@ beforeEach(() => {
 describe('buildInquiryResolveBlocks', () => {
   test('1件ごとに本文とボタン（値＝問い合わせ id）を並べ、最後に管理画面へのリンクを置く', () => {
     const blocks = buildInquiryResolveBlocks([{ id: ID, label: '山田様・9/19受付' }], URL_ADMIN);
-    expect(blocks).toHaveLength(4);
-    expect(blocks[1]).toEqual({ type: 'section', text: { type: 'plain_text', text: '山田様・9/19受付', emoji: false } });
-    expect(blocks[2]).toEqual({ type: 'actions', elements: [expect.objectContaining({ action_id: INQUIRY_RESOLVE_ACTION_ID, value: ID, style: 'primary' })] });
-    expect(JSON.stringify(blocks[3])).toContain(URL_ADMIN);
+    expect(blocks).toHaveLength(5);
+    // 見出しは Slack の見出し部品・説明は書式を解釈させない文（「*太字*」の記号を使わない＝日本語と隣り合っても崩れない）
+    expect(blocks[0]).toEqual({ type: 'header', text: { type: 'plain_text', text: '未完了のお問い合わせ', emoji: true } });
+    expect(blocks[1]).toEqual({ type: 'section', text: { type: 'plain_text', text: expect.stringContaining('解決済みにする'), emoji: false } });
+    expect(JSON.stringify(blocks)).not.toContain('*');
+    expect(blocks[2]).toEqual({ type: 'section', text: { type: 'plain_text', text: '山田様・9/19受付', emoji: false } });
+    expect(blocks[3]).toEqual({ type: 'actions', elements: [expect.objectContaining({ action_id: INQUIRY_RESOLVE_ACTION_ID, value: ID, style: 'primary' })] });
+    expect(JSON.stringify(blocks[4])).toContain(URL_ADMIN);
     expect(JSON.stringify(blocks[0])).not.toContain('1/1');
   });
 
   test('名前に Slack の書式・メンションが書かれていても plain_text で文字どおり出す（Codex 指摘 PR996-07）', () => {
     const label = '*確認用*<!channel>様';
     const blocks = buildInquiryResolveBlocks([{ id: ID, label }], URL_ADMIN);
-    expect(blocks[1]).toEqual({ type: 'section', text: { type: 'plain_text', text: label, emoji: false } });
+    expect(blocks[2]).toEqual({ type: 'section', text: { type: 'plain_text', text: label, emoji: false } });
   });
 
   test('1通は上限件数まで（Slack の 50 ブロック上限内）で、複数通のときは見出しに通し番号を付ける', () => {
     const lines = Array.from({ length: MAX_BUTTON_ITEMS + 3 }, (_, i) => ({ id: ID, label: `件${i}` }));
     const blocks = buildInquiryResolveBlocks(lines, URL_ADMIN, { index: 2, total: 3 });
     expect(blocks.length).toBeLessThanOrEqual(50);
-    expect(blocks).toHaveLength(MAX_BUTTON_ITEMS * 2 + 2);
+    expect(blocks).toHaveLength(MAX_BUTTON_ITEMS * 2 + 3);
     expect(JSON.stringify(blocks[0])).toContain('2/3');
   });
 });
@@ -76,7 +80,7 @@ describe('postInquiryResolveButtons', () => {
     jest.useFakeTimers();
     (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: true });
     await expect(postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN)).resolves.toBe(true);
-    expect((postToSlack as jest.Mock).mock.calls[0][0].blocks).toHaveLength(4);
+    expect((postToSlack as jest.Mock).mock.calls[0][0].blocks).toHaveLength(5);
     (postToSlack as jest.Mock).mockResolvedValueOnce({ ok: false, error: 'x' }).mockResolvedValueOnce({ ok: false, error: 'x' });
     const failing = postInquiryResolveButtons([{ id: ID, label: 'a' }], URL_ADMIN);
     await jest.advanceTimersByTimeAsync(RETRY_WAIT_MS);

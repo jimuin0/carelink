@@ -260,6 +260,21 @@ export function sectionBlock(text: string, fields?: string[]): Record<string, un
 }
 
 /**
+ * 見出しブロック（大きく太い文字の見出し）。
+ * 「*太字*」の記号は、日本語の文字が隣り合うと太字にならず記号のまま出るため、見出しはこれを使う（2026年11月27日）。
+ * Slack の上限 150 文字を超える分は切る。
+ */
+export function headerBlock(text: string): Record<string, unknown> {
+  const chars = Array.from(text);
+  return { type: 'header', text: { type: 'plain_text', text: chars.length > 150 ? `${chars.slice(0, 149).join('')}…` : text, emoji: true } };
+}
+
+/** 書式を解釈させない文のブロック（利用者の入力や「*」を含む文をそのまま出す）。 */
+export function plainTextBlock(text: string): Record<string, unknown> {
+  return { type: 'section', text: { type: 'plain_text', text, emoji: false } };
+}
+
+/**
  * ボタンブロック（actions 内に入れる）
  * @param text ボタン表示テキスト
  * @param action_id Slack interactions endpoint で受け取る action 識別子
