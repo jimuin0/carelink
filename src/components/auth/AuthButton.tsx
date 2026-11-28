@@ -133,9 +133,10 @@ export default function AuthButton() {
     return (
       <div><Link
         href={`/auth/login?redirect=${encodeURIComponent(pathname)}`}
-        className="inline-flex items-center text-sm font-medium text-primary border border-sky-300 px-4 py-1.5 rounded-full hover:bg-sky-50 transition-colors"
+        className="inline-flex items-center whitespace-nowrap text-sm font-medium text-primary border border-sky-300 px-4 py-1.5 rounded-full hover:bg-sky-50 transition-colors"
       >
-        ログイン
+        {/* 店舗向けの「店舗ログイン」と区別するため、予約する人向けだと分かる言葉にする（2026年11月28日 神原さん指摘「誰のためのログインか分からない」） */}
+        お客様ログイン
       </Link>{notice}</div>
     );
   }

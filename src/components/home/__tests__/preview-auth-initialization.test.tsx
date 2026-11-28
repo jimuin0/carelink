@@ -22,7 +22,7 @@ beforeEach(() => {
 });
 
 test.each([
-  ['header', AuthButton, 'ログイン'],
+  ['header', AuthButton, 'お客様ログイン'],
   ['user panel', HomeUserPanel, 'ログインする'],
   ['signup CTA', StickySignupCta, null],
 ] as const)('%s keeps the public page usable when auth initialization throws', async (_name, Component, loginLabel) => {
@@ -34,4 +34,10 @@ test.each([
   expect(screen.queryByRole('button', { name: 'ユーザーメニュー' })).not.toBeInTheDocument();
   if (loginLabel) expect(screen.getByRole('link', { name: loginLabel })).toHaveAttribute('href', '/auth/login?redirect=%2F');
   else expect(screen.queryByRole('link', { name: '無料で会員登録する' })).not.toBeInTheDocument();
+});
+
+test('ヘッダーのログインは、店舗ログインと区別できる「お客様ログイン」と表示する', async () => {
+  await act(async () => { render(<AuthButton />); });
+  expect(screen.getByRole('link', { name: 'お客様ログイン' })).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'ログイン', exact: true })).not.toBeInTheDocument();
 });
